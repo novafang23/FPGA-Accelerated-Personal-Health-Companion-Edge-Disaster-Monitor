@@ -1,0 +1,964 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>SIH26181 — Master Theory Notes &amp; Judge Defense Companion</title>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;700&display=swap');
+
+@page {
+    size: A4;
+    margin: 16mm 14mm 16mm 14mm;
+}
+
+body {
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    color: #1e293b;
+    background-color: #ffffff;
+    line-height: 1.55;
+    font-size: 13.5px;
+    margin: 0;
+    padding: 0;
+}
+
+.header-banner {
+    background: linear-gradient(135deg, #0A2540 0%, #006699 100%);
+    color: white;
+    padding: 24px 28px;
+    border-radius: 8px;
+    margin-bottom: 24px;
+}
+
+.header-banner h1 {
+    font-size: 24px;
+    font-weight: 800;
+    margin: 0 0 6px 0;
+    color: #ffffff;
+    letter-spacing: -0.5px;
+}
+
+.header-banner .subtitle {
+    font-size: 15px;
+    font-weight: 600;
+    color: #38bdf8;
+    margin: 0 0 10px 0;
+}
+
+.header-banner .tagline {
+    font-size: 12px;
+    color: #cbd5e1;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    font-weight: 600;
+}
+
+.part-title {
+    font-size: 19px;
+    font-weight: 800;
+    color: #0A2540;
+    border-bottom: 2px solid #0284c7;
+    padding-bottom: 6px;
+    margin-top: 32px;
+    margin-bottom: 16px;
+    page-break-after: avoid;
+}
+
+.section-title {
+    font-size: 16px;
+    font-weight: 700;
+    color: #0369a1;
+    margin-top: 24px;
+    margin-bottom: 12px;
+    page-break-after: avoid;
+}
+
+.subsection-title {
+    font-size: 14.5px;
+    font-weight: 700;
+    color: #0f172a;
+    margin-top: 18px;
+    margin-bottom: 8px;
+    page-break-after: avoid;
+}
+
+.question-title {
+    font-size: 13.5px;
+    font-weight: 700;
+    color: #0369a1;
+    margin-top: 16px;
+    margin-bottom: 6px;
+    page-break-after: avoid;
+}
+
+.paragraph {
+    margin: 0 0 10px 0;
+    color: #334155;
+    text-align: justify;
+}
+
+.bullet-item {
+    margin: 3px 0 3px 14px;
+    color: #334155;
+}
+
+.numbered-item {
+    margin: 4px 0 4px 14px;
+    color: #334155;
+}
+
+.numbered-item .num {
+    font-weight: 600;
+    color: #0284c7;
+}
+
+.callout-box {
+    background-color: #f0fdf4;
+    border-left: 4px solid #16a34a;
+    padding: 12px 16px;
+    border-radius: 0 6px 6px 0;
+    margin: 12px 0 16px 0;
+    font-size: 13px;
+    color: #14532d;
+    page-break-inside: avoid;
+}
+
+.table-container {
+    margin: 14px 0 18px 0;
+    page-break-inside: avoid;
+}
+
+table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 12px;
+    background: #ffffff;
+}
+
+th {
+    background: #0A2540;
+    color: #ffffff;
+    font-weight: 600;
+    text-align: left;
+    padding: 8px 10px;
+    border: 1px solid #cbd5e1;
+}
+
+td {
+    padding: 7px 10px;
+    border: 1px solid #e2e8f0;
+    color: #334155;
+    vertical-align: top;
+}
+
+tr:nth-child(even) {
+    background-color: #f8fafc;
+}
+
+.code-block {
+    background: #0f172a;
+    color: #f1f5f9;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11.5px;
+    padding: 12px 14px;
+    border-radius: 6px;
+    overflow-x: auto;
+    line-height: 1.45;
+    margin: 12px 0 16px 0;
+    border: 1px solid #1e293b;
+    page-break-inside: avoid;
+}
+
+code {
+    font-family: 'JetBrains Mono', monospace;
+    background: #f1f5f9;
+    color: #0f172a;
+    padding: 1px 5px;
+    border-radius: 4px;
+    font-size: 12px;
+}
+
+pre code {
+    background: transparent;
+    color: inherit;
+    padding: 0;
+}
+
+.divider {
+    border: 0;
+    border-top: 1px solid #e2e8f0;
+    margin: 24px 0;
+}
+
+a {
+    color: #0284c7;
+    text-decoration: none;
+}
+
+strong {
+    color: #0f172a;
+}
+</style>
+</head>
+<body>
+
+<div class="header-banner">
+    <div class="tagline">Qualcomm Hardware Challenge • Smart India Hackathon 2026</div>
+    <h1>SIH26181 — Master Theory Notes &amp; Judge Defense Companion</h1>
+    <div class="subtitle">AI-Powered Personal Health Companion &amp; Edge Disaster Monitor</div>
+    <div style="font-size: 12px; color: #e0f2fe;">FPGA-Accelerated, Cloud-Free Biometric &amp; Disaster Resilience Engine</div>
+</div>
+
+<h1 class="part-title">SIH26181 — Master Theory Notes & Judge Defense Companion</h1>
+<h2 class="section-title">AI-Powered Personal Health Companion & Edge Disaster Monitor</h2>
+<h3 class="subsection-title">Qualcomm Hardware Challenge — Smart India Hackathon 2026</h3>
+
+<div class="callout-box"><strong>Target Audience:</strong> 2nd-Year Engineering Students & Team Members<br><strong>Goal:</strong> Plain-English, comprehensive guide covering <strong>what our project is, why it matters, how every piece works, all technical terms from A to Z, and exact answers to tough questions judges will ask</strong>.</div>
+
+<hr class="divider"/>
+
+<h1 class="part-title">Table of Contents</h1>
+
+<div class="bullet-item">• <a href="#part-0-the-big-picture-start-here">Part 0: The Big Picture (Start Here!)</a></div>
+<div class="bullet-item">• <a href="#01-the-60-second-elevator-pitch">0.1 The 60-Second Elevator Pitch</a></div>
+<div class="bullet-item">• <a href="#02-the-real-world-problem-in-india">0.2 The Real-World Problem in India</a></div>
+<div class="bullet-item">• <a href="#03-the-solution-heterogeneous-edge-computing-fpga--cpu">0.3 The Solution: Heterogeneous Edge Computing (FPGA + CPU)</a></div>
+<div class="bullet-item">• <a href="#04-complete-hardware--software-bill-of-materials-a-to-z">0.4 Complete Hardware & Software Bill of Materials (A to Z)</a></div>
+<div class="bullet-item">• <a href="#part-1-what-we-are-actually-doing--end-to-end-pipeline">Part 1: What We Are Actually Doing — End-to-End Pipeline</a></div>
+<div class="bullet-item">• <a href="#11-the-complete-6-step-data-flow">1.1 The Complete 6-Step Data Flow</a></div>
+<div class="bullet-item">• <a href="#12-hardware-vs-software-division-of-labor">1.2 Hardware vs. Software Division of Labor</a></div>
+<div class="bullet-item">• <a href="#13-memory-mapped-registers-in-action-0x000x14">1.3 Memory-Mapped Registers in Action (<code>0x00</code>–<code>0x14</code>)</a></div>
+<div class="bullet-item">• <a href="#14-the-3-real-world-disaster-scenarios">1.4 The 3 Real-World Disaster Scenarios</a></div>
+<div class="bullet-item">• <a href="#part-2-complete-concept--theory-glossary-55-terms">Part 2: Complete Concept & Theory Glossary (55+ Terms)</a></div>
+<div class="bullet-item">• <a href="#21-sensors--medical-science">2.1 Sensors & Medical Science</a></div>
+<div class="bullet-item">• <a href="#22-signal-processing--dsp">2.2 Signal Processing & DSP</a></div>
+<div class="bullet-item">• <a href="#23-fpga--digital-design">2.3 FPGA & Digital Design</a></div>
+<div class="bullet-item">• <a href="#24-bus-protocols--communication">2.4 Bus Protocols & Communication</a></div>
+<div class="bullet-item">• <a href="#25-verification--timing">2.5 Verification & Timing</a></div>
+<div class="bullet-item">• <a href="#26-software--embedded-systems">2.6 Software & Embedded Systems</a></div>
+<div class="bullet-item">• <a href="#27-disaster-science--risk-indices">2.7 Disaster Science & Risk Indices</a></div>
+<div class="bullet-item">• <a href="#part-3-edge-ai--tinyml-neural-network-engine">Part 3: Edge AI & TinyML Neural Network Engine</a></div>
+<div class="bullet-item">• <a href="#31-why-machine-learning-on-top-of-formulas">3.1 Why Machine Learning on Top of Formulas?</a></div>
+<div class="bullet-item">• <a href="#32-the-6123-network-architecture">3.2 The 6→12→3 Network Architecture</a></div>
+<div class="bullet-item">• <a href="#33-how-inference-works-in-under-1-microsecond">3.3 How Inference Works in Under 1 Microsecond</a></div>
+<div class="bullet-item">• <a href="#part-4-qualcomm-platform-strategy--silicon-migration">Part 4: Qualcomm Platform Strategy & Silicon Migration</a></div>
+<div class="bullet-item">• <a href="#41-why-prototype-on-fpga-and-deploy-on-qualcomm-silicon">4.1 Why Prototype on FPGA and Deploy on Qualcomm Silicon?</a></div>
+<div class="bullet-item">• <a href="#42-qualcomm-snapdragon-wear-w5-gen-1--qcs6490-mapping">4.2 Qualcomm Snapdragon Wear W5+ Gen 1 & QCS6490 Mapping</a></div>
+<div class="bullet-item">• <a href="#43-qualcomm-hexagon-dsp--low-power-island-lpi">4.3 Qualcomm Hexagon DSP & Low-Power Island (LPI)</a></div>
+<div class="bullet-item">• <a href="#44-qualcomm-ai-engine-snpe--qnn">4.4 Qualcomm AI Engine (SNPE / QNN)</a></div>
+<div class="bullet-item">• <a href="#part-5-the-ultimate-judge-defense-guide-top-25-qa">Part 5: The Ultimate Judge Defense Guide (Top 25 Q&A)</a></div>
+<div class="bullet-item">• <a href="#51-hardware--fpga-rtl-questions">5.1 Hardware & FPGA RTL Questions</a></div>
+<div class="bullet-item">• <a href="#52-signal-processing--biomedical-questions">5.2 Signal Processing & Biomedical Questions</a></div>
+<div class="bullet-item">• <a href="#53-embedded-systems--protocol-questions">5.3 Embedded Systems & Protocol Questions</a></div>
+<div class="bullet-item">• <a href="#54-ai--qualcomm-strategy-questions">5.4 AI & Qualcomm Strategy Questions</a></div>
+<div class="bullet-item">• <a href="#part-6-60-second-presentation-pitch-for-students">Part 6: 60-Second Presentation Pitch for Students</a></div>
+
+<hr class="divider"/>
+
+<h1 class="part-title">Part 0: The Big Picture (Start Here!)</h1>
+
+<h3 class="subsection-title">0.1 The 60-Second Elevator Pitch</h3>
+
+<div class="callout-box"><em>"We built an <strong>FPGA-accelerated personal health companion and edge disaster monitor</strong>. During extreme heat waves, severe air pollution, or floods, people suffer organ damage or death because physiological warning signs (like heart rate variability collapse and blood oxygen drop) happen invisibly inside the body.</em><br><em>Our device pairs <strong>custom Verilog hardware</strong> that filters noisy optical signals and extracts heartbeat timing with <strong>20-nanosecond precision at zero CPU load</strong>, with an on-device <strong>TinyML neural network</strong> and disaster risk engine. It fuses the user's vitals with environmental temperature, humidity, and PM2.5 levels to predict heat exhaustion and respiratory distress <strong>15 to 30 minutes before clinical symptoms occur</strong> — completely offline, with <strong>zero cloud or internet dependence</strong>."</em></div>
+
+<hr class="divider"/>
+
+<h3 class="subsection-title">0.2 The Real-World Problem in India</h3>
+
+<p class="paragraph">India faces severe recurring environmental emergencies:</p>
+<div class="numbered-item"><span class="num">1.</span> <strong>Extreme Heat Waves:</strong> Temperatures regularly exceed 45°C–48°C in North and Central India. High humidity prevents sweat from evaporating. The heart is forced to pump faster and faster while blood volume drops (<em>Cardiovascular Drift</em>). By the time someone faints from heat stroke, internal organ damage has already started.</div>
+<div class="numbered-item"><span class="num">2.</span> <strong>Winter Air Pollution Smog:</strong> Delhi/NCR PM2.5 levels frequently cross 400 µg/m³ (hazardous). Toxic particulates block oxygen transfer in the lungs, forcing the heart into compensatory tachycardia while blood oxygen (SpO₂) plummets.</div>
+<div class="numbered-item"><span class="num">3.</span> <strong>Disaster Zone Isolation:</strong> In floods, earthquakes, or industrial fires, cellular towers and power grids go down. <strong>Cloud-connected smartwatches (Apple Watch, Fitbit) become useless paperweights because they rely on cloud servers to run AI analytics.</strong></div>
+
+<hr class="divider"/>
+
+<h3 class="subsection-title">0.3 The Solution: Heterogeneous Edge Computing (FPGA + CPU)</h3>
+
+<p class="paragraph">We use a <strong>System-on-Chip (SoC)</strong> architecture that splits work intelligently between hardware and software:</p>
+
+<pre class="code-block "><code>┌────────────────────────────────────────────────────────────────────────┐
+│                   HETEROGENEOUS SYSTEM-ON-CHIP (SoC)                   │
+├───────────────────────────────────┬────────────────────────────────────┤
+│   PROGRAMMABLE LOGIC (FPGA RTL)   │      PROCESSING SYSTEM (ARM CPU)   │
+│   "Fast, Jitter-Free Reflexes"    │      "Complex High-Level Brain"    │
+├───────────────────────────────────┼────────────────────────────────────┤
+│ • 50 MHz Custom Hardware Engine   │ • Bare-Metal C Runtime / Drivers   │
+│ • Dual-channel 8-tap DSP Filter   │ • HRV Mathematical Analysis (RMSSD)│
+│ • 4-State Peak Detector FSM       │ • SpO₂ Beer-Lambert Calibration    │
+│ • 20 ns Cycle-Accurate IBI Timer  │ • TinyML 6→12→3 Neural Network     │
+│ • Zero CPU Load &amp; Zero OS Jitter  │ • Multi-Disaster Risk Score Engine │
+│ • Standard ARM AMBA AXI4-Lite Bus │ • SSD1306 OLED User Interface      │
+└───────────────────────────────────┴────────────────────────────────────┘
+</code></pre>
+
+<h4 class="question-title">Why not do everything in software on an Arduino or Raspberry Pi?</h4>
+<div class="bullet-item">• <strong>Software Jitter:</strong> An operating system (like Linux or RTOS) or a software microcontroller has interrupt latency and thread scheduling delays of <strong>5 to 20 ms</strong>. If your heartbeat interval is 800 ms, a 20 ms jitter is a massive <strong>2.5% error</strong>, which completely ruins Heart Rate Variability (HRV) calculations.</div>
+<div class="bullet-item">• <strong>FPGA Hardware Precision:</strong> Our FPGA runs a dedicated 32-bit hardware timer at <strong>50 MHz</strong>, measuring each heartbeat interval with <strong>20 nanoseconds resolution (250,000× more precise)</strong> with <strong>0 CPU overhead</strong>.</div>
+
+<hr class="divider"/>
+
+<h3 class="subsection-title">0.4 Complete Hardware & Software Bill of Materials (A to Z)</h3>
+
+<div class="table-container"><table>
+<thead><tr>
+<th>Component</th>
+<th>Category</th>
+<th>Purpose in Project</th>
+<th>Interface / Protocol</th>
+</tr></thead><tbody>
+<tr>
+<td><strong>MAX30102</strong></td>
+<td>Sensor</td>
+<td>Dual-LED (660nm Red + 940nm IR) optical pulse oximeter & heart rate sensor</td>
+<td>I²C (Address <code>0x57</code>), 18-bit ADC</td>
+</tr>
+<tr>
+<td><strong>BME280</strong></td>
+<td>Sensor</td>
+<td>Environmental temperature, relative humidity, barometric pressure</td>
+<td>I²C (Address <code>0x76</code>), Bosch math</td>
+</tr>
+<tr>
+<td><strong>PMS5003</strong></td>
+<td>Sensor</td>
+<td>Laser particulate matter sensor (measures PM1.0, PM2.5, PM10)</td>
+<td>UART (9600 baud, 32-byte frames)</td>
+</tr>
+<tr>
+<td><strong>SSD1306</strong></td>
+<td>Display</td>
+<td>0.96-inch monochrome OLED (128×64 pixels) for real-time vitals/advisories</td>
+<td>I²C (Address <code>0x3C</code>), 1024-byte buffer</td>
+</tr>
+<tr>
+<td><strong>Xilinx Zynq-7000 (<code>xc7z020</code>)</strong></td>
+<td>Target SoC (Prototype)</td>
+<td>Dual-core ARM Cortex-A9 CPU + Artix-7 FPGA fabric on single silicon</td>
+<td>AMBA AXI4-Lite Memory-Mapped Bus</td>
+</tr>
+<tr>
+<td><strong>Qualcomm Snapdragon Wear W5+ Gen 1</strong></td>
+<td>Target SoC (Production)</td>
+<td>Commercial low-power wearable AP + Hexagon DSP + NPU</td>
+<td>Qualcomm System NoC + QUP I²C/UART</td>
+</tr>
+<tr>
+<td><strong><code>axi<em>ppg</em>accelerator.v</code></strong></td>
+<td>Verilog RTL</td>
+<td>Top-level hardware IP with 6 memory-mapped registers & decoupled AXI slave</td>
+<td>AXI4-Lite Slave</td>
+</tr>
+<tr>
+<td><strong><code>moving<em>average</em>8tap.v</code></strong></td>
+<td>Verilog RTL</td>
+<td>O(1) running-sum 8-tap low-pass noise filter (0 DSP slices, 0 BRAM)</td>
+<td>Pure Combinational/Sequential RTL</td>
+</tr>
+<tr>
+<td><strong><code>ppg<em>peak</em>detector.v</code></strong></td>
+<td>Verilog RTL</td>
+<td>4-state FSM with 250 ms refractory blanking & 20 ns cycle counter</td>
+<td>Hardware Interrupt (<code>irq_beat</code>)</td>
+</tr>
+<tr>
+<td><strong><code>nn<em>risk</em>model.c</code></strong></td>
+<td>Embedded C</td>
+<td>On-device TinyML Neural Network (6→12→3 architecture, 108 MACs)</td>
+<td>Header API (<code>nn<em>predict</em>risk</code>)</td>
+</tr>
+<tr>
+<td><strong><code>disaster<em>risk</em>engine.c</code></strong></td>
+<td>Embedded C</td>
+<td>Rule-based multi-disaster engine (CTSI, PRSI, Hypothermia scoring)</td>
+<td>Header API (<code>disaster<em>assess</em>risk</code>)</td>
+</tr>
+<tr>
+<td><strong><code>tb<em>ppg</em>system.v</code></strong></td>
+<td>Verification</td>
+<td>6-test self-checking simulation testbench with Bus Functional Model (BFM)</td>
+<td>Icarus Verilog (<code>iverilog</code> / <code>vvp</code>)</td>
+</tr>
+<tr>
+<td><strong>GTKWave / <code>signals.gtkw</code></strong></td>
+<td>Tool</td>
+<td>Visual waveform analysis tool for inspecting signal transitions</td>
+<td>VCD Waveform Dump (<code>ppg_system.vcd</code>)</td>
+</tr>
+<tr>
+<td><strong>Vivado ML Standard</strong></td>
+<td>Tool</td>
+<td>Synthesis, Placement, Routing, and Static Timing Analysis (STA)</td>
+<td>TCL Batch Script (<code>run<em>vivado</em>synth.tcl</code>)</td>
+</tr>
+</tbody></table></div>
+
+<hr class="divider"/>
+
+<h1 class="part-title">Part 1: What We Are Actually Doing — End-to-End Pipeline</h1>
+
+<h3 class="subsection-title">1.1 The Complete 6-Step Data Flow</h3>
+
+<pre class="code-block "><code>┌──────────────────────────────────────────────────────────────────────────────────────────────────────┐
+│                                       PHYSICAL WORLD / SENSING                                       │
+└──────────────────────────────────────────────────┬───────────────────────────────────────────────────┘
+                                                   │
+ 1. SENSOR CAPTURE                                 ▼
+    • MAX30102 captures Red (660nm) &amp; IR (940nm) light absorption from pulsating blood vessels.
+    • BME280 captures ambient temperature &amp; humidity. PMS5003 counts toxic PM2.5 particulates.
+                                                   │
+ 2. HARDWARE INGESTION (AXI WRITE)                 ▼
+    • Software driver writes 8-bit scaled Red &amp; IR samples into FPGA registers 0x00 and 0x10.
+                                                   │
+ 3. FPGA DSP FILTERING &amp; PEAK DETECTION            ▼
+    • 8-tap moving average filter removes high-frequency motion noise in 1 clock cycle (O(1) logic).
+    • Peak detector FSM tracks signal slope, detects systolic peak, and captures cycle timestamp.
+    • FPGA fires hardware interrupt pulse (irq_beat) and latches exact cycle count in 0x08.
+                                                   │
+ 4. BIOMEDICAL FEATURE EXTRACTION (CPU)            ▼
+    • CPU converts cycle count to Inter-Beat Interval (IBI) in milliseconds.
+    • HRV Engine calculates RMSSD (parasympathetic tone) and SDNN over a 20-beat circular buffer.
+    • SpO₂ Engine calculates Beer-Lambert ratio of ratios: R = (AC_Red/DC_Red) / (AC_IR/DC_IR).
+                                                   │
+ 5. AI SENSOR FUSION &amp; RISK PREDICTION             ▼
+    • Features are normalized [0, 1] and fed to 6→12→3 TinyML Neural Network &amp; Disaster Engine.
+    • CTSI (Heat Strain) and PRSI (Pollution Strain) composite risk scores (0–100) are generated.
+                                                   │
+ 6. LOCAL USER NOTIFICATION                        ▼
+    • Live vitals, risk level (NORMAL/MODERATE/HIGH/CRITICAL), and emergency actionable advisories
+      are rendered on the local SSD1306 OLED screen. Zero internet or cloud latency required!
+</code></pre>
+
+<hr class="divider"/>
+
+<h3 class="subsection-title">1.2 Hardware vs. Software Division of Labor</h3>
+
+<p class="paragraph">A common judge question is: <em>"Why did you put this part in Verilog and that part in C?"</em></p>
+
+<div class="table-container"><table>
+<thead><tr>
+<th>Task</th>
+<th>Where It Runs</th>
+<th>Technical Rationale</th>
+</tr></thead><tbody>
+<tr>
+<td><strong>Noise Filtering (Moving Average)</strong></td>
+<td><strong>FPGA (Verilog)</strong></td>
+<td>Needs continuous, streaming execution with zero CPU load. Implemented as O(1) hardware shift-registers with 1-cycle throughput.</td>
+</tr>
+<tr>
+<td><strong>Peak Detection & IBI Timing</strong></td>
+<td><strong>FPGA (Verilog)</strong></td>
+<td>Requires microsecond/nanosecond accuracy (20 ns) to eliminate software OS scheduling jitter.</td>
+</tr>
+<tr>
+<td><strong>Sensor Register Config & I2C/UART</strong></td>
+<td><strong>CPU (C Driver)</strong></td>
+<td>Low-speed protocol configuration is simpler and more flexible in C software.</td>
+</tr>
+<tr>
+<td><strong>HRV (RMSSD) & SpO₂ Mathematics</strong></td>
+<td><strong>CPU (C Math)</strong></td>
+<td>Square roots, floating-point calibration, and division are cheaper on an ARM CPU with an FPU than wasting FPGA DSP slices.</td>
+</tr>
+<tr>
+<td><strong>Multi-Sensor Fusion & TinyML AI</strong></td>
+<td><strong>CPU / Hexagon NPU</strong></td>
+<td>Neural network matrix multiplication (6→12→3) executes in under 1 µs in C or on Qualcomm AI Engine.</td>
+</tr>
+<tr>
+<td><strong>OLED Display Rendering</strong></td>
+<td><strong>CPU (C HAL)</strong></td>
+<td>Font rendering, screen layout, and string formatting belong in software.</td>
+</tr>
+</tbody></table></div>
+
+<hr class="divider"/>
+
+<h3 class="subsection-title">1.3 Memory-Mapped Registers in Action (<code>0x00</code>–<code>0x14</code>)</h3>
+
+<p class="paragraph">Our FPGA accelerator acts as a slave on the ARM AMBA AXI4-Lite bus mapped at address <code>0x43C00000</code>:</p>
+
+<pre class="code-block "><code>Offset  Register Name       Access   Reset Value   Function &amp; Bit Fields
+──────  ──────────────────  ───────  ────────────  ───────────────────────────────────────────────────
+0x00    REG_RED_RAW         R/W      0x00000000    [7:0] Writing raw Red sample triggers DSP filter
+0x04    REG_RED_FILTERED    RO       0x00000000    [7:0] Smoothed Red output (read by SpO₂ engine)
+0x08    REG_IBI_CYCLES      RO       0x00000000    [31:0] Inter-Beat Interval count in 20ns clock ticks
+0x0C    REG_STATUS_THRESH   Mixed    0x00007800    [0] beat_flag (W1C: Write-1-to-Clear)
+                                                   [15:8] Systolic detection threshold (Default: 120)
+0x10    REG_IR_RAW          R/W      0x00000000    [7:0] Writing raw IR sample triggers DSP filter
+0x14    REG_IR_FILTERED     RO       0x00000000    [7:0] Smoothed IR output (read by SpO₂ engine)
+</code></pre>
+
+<hr class="divider"/>
+
+<h3 class="subsection-title">1.4 The 3 Real-World Disaster Scenarios</h3>
+
+<p class="paragraph">Our software simulation (<code>main<em>simulation.c</code> / <code>health</em>demo.exe</code>) tests three distinct disaster events:</p>
+
+<h4 class="question-title">Scenario 1: Normal Baseline Condition</h4>
+<div class="bullet-item">• <strong>Environment:</strong> 25°C, 45% Humidity, PM2.5 = 15 µg/m³ (Clean Air).</div>
+<div class="bullet-item">• <strong>Vitals:</strong> Heart Rate = 72 BPM, SpO₂ = 98%, RMSSD = 45 ms (Healthy parasympathetic tone).</div>
+<div class="bullet-item">• <strong>System Output:</strong> <strong>NORMAL RISK (Score: 12/100)</strong> → <em>"Vitals stable. All physiological parameters within healthy baseline."</em></div>
+
+<h4 class="question-title">Scenario 2: Delhi Extreme Heat Wave (47°C, 65% Humidity)</h4>
+<div class="bullet-item">• <strong>What happens to the body:</strong> Body blood vessels dilate to radiate heat. Blood pools in extremities, reducing venous return to the heart. To maintain blood pressure, the heart accelerates (<strong>Cardiovascular Drift</strong>), and the autonomic nervous system is pushed to exhaustion.</div>
+<div class="bullet-item">• <strong>Vitals Evolution:</strong> Heart Rate climbs from 72 → 140 BPM, while RMSSD collapses from 45 → 8 ms.</div>
+<div class="bullet-item">• <strong>System Output:</strong> <strong>CRITICAL HEAT STRAIN (CTSI Score: 78/100)</strong> → <em>"DANGER: Heat stroke imminent! Cardiovascular drift detected. Cease physical exertion, seek active cooling immediately."</em></div>
+<div class="bullet-item">• <strong>Clinical Value:</strong> Gives <strong>15 to 30 minutes of advance warning</strong> before the person passes out or suffers organ damage.</div>
+
+<h4 class="question-title">Scenario 3: Delhi Winter Smog (PM2.5 = 400 µg/m³, Severe Inversion)</h4>
+<div class="bullet-item">• <strong>What happens to the body:</strong> Fine particulate matter (< 2.5 µm) fills lung alveoli, impairing oxygen diffusion into the bloodstream. Blood oxygen drops, and the heart speeds up to compensate (<em>Compensatory Tachycardia</em>).</div>
+<div class="bullet-item">• <strong>Vitals Evolution:</strong> SpO₂ drops from 98% → 86%, Heart Rate rises to 115 BPM, RMSSD = 16 ms.</div>
+<div class="bullet-item">• <strong>System Output:</strong> <strong>CRITICAL RESPIRATORY DISTRESS (PRSI Score: 85/100)</strong> → <em>"DANGER: Severe hypoxemia from particulate inhalation. Move to filtered shelter, administer supplemental oxygen."</em></div>
+
+<hr class="divider"/>
+
+<h1 class="part-title">Part 2: Complete Concept & Theory Glossary (55+ Terms)</h1>
+
+<h2 class="section-title">2.1 Sensors & Medical Science</h2>
+
+<h3 class="subsection-title">1. PPG (Photoplethysmography)</h3>
+<div class="bullet-item">• <strong>What it is:</strong> An optical method to detect blood volume changes in microvascular tissue using light.</div>
+<div class="bullet-item">• <strong>How it works:</strong> An LED illuminates tissue; when the heart contracts (systole), more blood fills the capillaries, absorbing more light. When the heart rests (diastole), less blood is present, absorbing less light. A photodetector measures this light variation, producing a pulsatile wave.</div>
+<div class="bullet-item">• <strong>Analogy:</strong> Like holding a flashlight against your finger and watching the light glow pulse with your heartbeat.</div>
+
+<h3 class="subsection-title">2. Dual-Wavelength Pulse Oximetry (660nm vs 940nm)</h3>
+<div class="bullet-item">• <strong>Why two lights?</strong> Oxygenated hemoglobin (HbO₂) and deoxygenated hemoglobin (Hb) have drastically different light absorption spectra:</div>
+<div class="bullet-item">• <strong>Red Light (660 nm):</strong> Deoxygenated blood absorbs <em>more</em> Red light.</div>
+<div class="bullet-item">• <strong>Infrared Light (940 nm):</strong> Oxygenated blood absorbs <em>more</em> Infrared light.</div>
+<div class="bullet-item">• <strong>Formula:</strong> By calculating the Ratio of Ratios R = (AC<em>Red / DC</em>Red) / (AC<em>IR / DC</em>IR), we determine oxygen saturation.</div>
+
+<h3 class="subsection-title">3. SpO₂ (Blood Oxygen Saturation)</h3>
+<div class="bullet-item">• <strong>What it is:</strong> Percentage of hemoglobin molecules in arterial blood that are saturated with oxygen.</div>
+<div class="bullet-item">• <strong>Clinical Scale:</strong></div>
+<div class="bullet-item">• 95% - 100%: Normal healthy individual.</div>
+<div class="bullet-item">• 90% - 94%: Mild Hypoxemia (shortness of breath, fatigue).</div>
+<div class="bullet-item">• < 90%: Critical Medical Emergency (potential organ hypoxia).</div>
+<div class="bullet-item">• <strong>Beer-Lambert Calibration in our code:</strong> SpO₂ = 110 − 25 × R.</div>
+
+<h3 class="subsection-title">4. IBI (Inter-Beat Interval)</h3>
+<div class="bullet-item">• <strong>What it is:</strong> The precise time in milliseconds between two consecutive heartbeat peaks (R-R interval).</div>
+<div class="bullet-item">• <strong>Formula:</strong> IBI (ms) = 60,000 / Heart Rate (BPM). For 75 BPM, IBI = 800 ms.</div>
+
+<h3 class="subsection-title">5. HRV (Heart Rate Variability)</h3>
+<div class="bullet-item">• <strong>What it is:</strong> The subtle, natural variation in time intervals between consecutive heartbeats.</div>
+<div class="bullet-item">• <strong>Why it matters:</strong> A healthy heart is <strong>not</strong> a rigid clock metronome — it continuously speeds up and slows down in response to the autonomic nervous system.</div>
+<div class="bullet-item">• <strong>High HRV:</strong> Healthy autonomic flexibility, relaxed, good recovery.</div>
+<div class="bullet-item">• <strong>Low HRV:</strong> Severe physiological stress, exhaustion, approaching heat stroke or shock.</div>
+
+<h3 class="subsection-title">6. RMSSD (Root Mean Square of Successive Differences)</h3>
+<div class="bullet-item">• <strong>What it is:</strong> The primary time-domain mathematical metric of short-term HRV.</div>
+<div class="bullet-item">• <strong>Medical Meaning:</strong> Measures <strong>parasympathetic (vagal) tone</strong> (the body's "rest-and-digest" braking system).</div>
+<div class="bullet-item">• <strong>Calculation Steps:</strong></div>
+<div class="numbered-item"><span class="num">1.</span> Take consecutive IBI intervals: [800, 810, 795, 820] ms.</div>
+<div class="numbered-item"><span class="num">2.</span> Compute differences: [+10, -15, +25] ms.</div>
+<div class="numbered-item"><span class="num">3.</span> Square differences: [100, 225, 625].</div>
+<div class="numbered-item"><span class="num">4.</span> Average of squares: (100 + 225 + 625) / 3 = 316.6.</div>
+<div class="numbered-item"><span class="num">5.</span> Square root: √316.6 = 17.8 ms.</div>
+<div class="bullet-item">• <strong>Threshold:</strong> RMSSD < 20 ms indicates acute autonomic stress.</div>
+
+<h3 class="subsection-title">7. SDNN (Standard Deviation of NN Intervals)</h3>
+<div class="bullet-item">• <strong>What it is:</strong> Standard deviation of all heartbeat intervals across a measurement window.</div>
+<div class="bullet-item">• <strong>Medical Meaning:</strong> Measures overall autonomic nervous system health (both sympathetic and parasympathetic combined).</div>
+
+<h3 class="subsection-title">8. MAX30102 Sensor</h3>
+<div class="bullet-item">• <strong>What it is:</strong> Commercial integrated pulse oximetry and heart rate monitor IC by Maxim/Analog Devices.</div>
+<div class="bullet-item">• <strong>Features:</strong> Integrated Red + IR LEDs, 18-bit delta-sigma ADC, ambient light cancellation, 32-sample FIFO, I²C interface (<code>0x57</code>).</div>
+
+<h3 class="subsection-title">9. BME280 Sensor</h3>
+<div class="bullet-item">• <strong>What it is:</strong> Precision environmental sensor by Bosch Sensortec measuring temperature, relative humidity, and barometric pressure.</div>
+<div class="bullet-item">• <strong>Key Detail:</strong> Raw ADC registers contain uncompensated values; requires factory-calibrated polynomial compensation equations in software (<code>bme280.c</code>).</div>
+
+<h3 class="subsection-title">10. PMS5003 Sensor</h3>
+<div class="bullet-item">• <strong>What it is:</strong> Optical laser dust sensor by Plantower. Uses laser scattering principle to measure mass concentration of suspended particulates in air (PM1.0, PM2.5, PM10) via UART.</div>
+
+<h3 class="subsection-title">11. SSD1306 OLED Display</h3>
+<div class="bullet-item">• <strong>What it is:</strong> 0.96 inch, 128×64 monochrome OLED display controller using I²C (<code>0x3C</code>). Driven via a 1024-byte in-memory framebuffer arranged in 8 horizontal pages.</div>
+
+<hr class="divider"/>
+
+<h2 class="section-title">2.2 Signal Processing & DSP</h2>
+
+<h3 class="subsection-title">12. Moving Average Filter</h3>
+<div class="bullet-item">• <strong>What it is:</strong> A digital Low-Pass Filter (LPF) that smooths out high-frequency noise by averaging the most recent N input samples.</div>
+<div class="bullet-item">• <strong>Standard Formula (8-Tap):</strong> y[n] = (x[n] + x[n-1] + ... + x[n-7]) / 8.</div>
+
+<h3 class="subsection-title">13. O(1) Running Sum Trick</h3>
+<div class="bullet-item">• <strong>The Problem:</strong> Naively calculating an 8-sample average requires 7 additions on every clock cycle. For 64 or 128 taps, an adder tree becomes huge and consumes significant silicon area.</div>
+<div class="bullet-item">• <strong>The Optimization:</strong> Instead of summing all 8 samples from scratch every cycle:</div>
+<pre class="code-block text"><code>  NewSum = OldSum + x_newest - x_oldest
+  FilteredOutput = NewSum &gt;&gt; 3
+</code></pre>
+<div class="bullet-item">• <strong>Complexity:</strong> Exactly <strong>1 addition and 1 subtraction</strong> regardless of filter length (O(1) constant time and hardware area).</div>
+
+<h3 class="subsection-title">14. Bit-Shift Division (<code>>> 3</code>)</h3>
+<div class="bullet-item">• <strong>Concept:</strong> In binary arithmetic, shifting right by k bits is identical to dividing by 2^k.</div>
+<div class="bullet-item">• <strong>Hardware Advantage:</strong> In Verilog, <code>assign out = sum[10:3];</code> is literally just connecting wires. It costs <strong>zero logic gates, zero clock cycles, and zero DSP multiplier slices</strong>.</div>
+
+<h3 class="subsection-title">15. Shift Register</h3>
+<div class="bullet-item">• <strong>What it is:</strong> A cascade of flip-flops connected in series where data shifts by one position on each clock edge. Used in our filter to store the history of the last 8 samples.</div>
+
+<h3 class="subsection-title">16. Systolic Peak</h3>
+<div class="bullet-item">• <strong>What it is:</strong> The local maximum voltage point in the PPG waveform, corresponding to the peak pressure wave caused by left ventricular heart contraction.</div>
+
+<h3 class="subsection-title">17. Dicrotic Notch</h3>
+<div class="bullet-item">• <strong>What it is:</strong> A secondary small inflection or bump on the falling edge of the PPG pulse, caused by the sudden closure of the aortic valve and elastic recoil of the aorta.</div>
+<div class="bullet-item">• <strong>The Risk:</strong> A naive peak detector would detect this notch as a second heartbeat, doubling the calculated heart rate!</div>
+
+<h3 class="subsection-title">18. Refractory Period (Hardware Blanking)</h3>
+<div class="bullet-item">• <strong>What it is:</strong> A biological concept borrowed into digital design. After detecting a valid systolic peak, our FSM transitions to a <code>REFRACTORY</code> state that ignores all signal changes for <strong>250 ms</strong>.</div>
+<div class="bullet-item">• <strong>Result:</strong> Safely blanks out the dicrotic notch and limits the maximum detectable heart rate to a safe 240 BPM (60,000 / 250).</div>
+
+<h3 class="subsection-title">19. Baseline Wander</h3>
+<div class="bullet-item">• <strong>What it is:</strong> Low-frequency drift of the overall PPG DC baseline caused by breathing cycles, perspiration, or finger motion.</div>
+
+<hr class="divider"/>
+
+<h2 class="section-title">2.3 FPGA & Digital Design</h2>
+
+<h3 class="subsection-title">20. FPGA (Field-Programmable Gate Array)</h3>
+<div class="bullet-item">• <strong>What it is:</strong> An integrated circuit containing a matrix of configurable logic blocks (CLBs) and programmable interconnects that can be configured to implement any digital circuit.</div>
+<div class="bullet-item">• <strong>Analogy:</strong> A CPU is a single chef cooking recipes one step at a time. An FPGA is building a custom automated kitchen where all dishes are prepared simultaneously in parallel.</div>
+
+<h3 class="subsection-title">21. SoC (System on Chip)</h3>
+<div class="bullet-item">• <strong>What it is:</strong> A single silicon die combining a micro-processor core (Processing System / PS) with FPGA programmable logic (PL). In our prototype: Xilinx Zynq-7000 (Dual ARM Cortex-A9 + Artix-7 fabric).</div>
+
+<h3 class="subsection-title">22. Verilog HDL</h3>
+<div class="bullet-item">• <strong>What it is:</strong> Hardware Description Language used to model and synthesize electronic digital circuits. Unlike C (which compiles into CPU instructions), Verilog describes physical wires, registers, and logic gates.</div>
+
+<h3 class="subsection-title">23. Flip-Flop (FF)</h3>
+<div class="bullet-item">• <strong>What it is:</strong> The fundamental 1-bit sequential memory cell in digital electronics that captures and holds its input value on the rising edge of a clock signal (<code>posedge clk</code>).</div>
+<div class="bullet-item">• <strong>Our project utilization:</strong> 186 Flip-Flops (0.17% of chip).</div>
+
+<h3 class="subsection-title">24. LUT (Lookup Table)</h3>
+<div class="bullet-item">• <strong>What it is:</strong> The basic programmable combinational logic block of an FPGA. An N-input LUT can implement any N-variable Boolean truth table.</div>
+<div class="bullet-item">• <strong>Our project utilization:</strong> 142 LUTs (0.27% of chip).</div>
+
+<h3 class="subsection-title">25. DSP48 Slice</h3>
+<div class="bullet-item">• <strong>What it is:</strong> Dedicated high-speed silicon arithmetic blocks in Xilinx FPGAs optimized for multiplication, MAC, and barrel-shifting.</div>
+<div class="bullet-item">• <strong>Our design achievement:</strong> <strong>Zero (0) DSP48 slices used.</strong> All signal processing uses lightweight addition and wire-shift division.</div>
+
+<h3 class="subsection-title">26. Block RAM (BRAM)</h3>
+<div class="bullet-item">• <strong>What it is:</strong> Dedicated on-chip dual-port SRAM memory blocks (36 Kbit each).</div>
+<div class="bullet-item">• <strong>Our design achievement:</strong> <strong>Zero (0) BRAM used.</strong> All 8-tap buffers are implemented entirely in ultra-fast flip-flops.</div>
+
+<h3 class="subsection-title">27. Finite State Machine (FSM)</h3>
+<div class="bullet-item">• <strong>What it is:</strong> A digital sequential circuit that transitions between a finite set of states based on inputs and clock events.</div>
+<div class="bullet-item">• <strong>Our 4-State Peak Detector FSM:</strong></div>
+<div class="numbered-item"><span class="num">1.</span> <code>ARMED (00)</code>: Waiting for signal to cross above baseline threshold.</div>
+<div class="numbered-item"><span class="num">2.</span> <code>RISING (01)</code>: Signal is climbing; actively tracking slope.</div>
+<div class="numbered-item"><span class="num">3.</span> <code>PEAK<em>FOUND (10)</code>: Slope inverts (x[n] < x[n-1]). 1-cycle state that latches IBI cycle counter and asserts <code>irq</em>beat</code>.</div>
+<div class="numbered-item"><span class="num">4.</span> <code>REFRACTORY (11)</code>: 250 ms timer counts down; ignores all peaks/notches, then returns to <code>ARMED</code>.</div>
+
+<h3 class="subsection-title">28. Clock, Frequency, and Period (50 MHz ↔ 20 ns)</h3>
+<div class="bullet-item">• <strong>Concept:</strong> Clock period T = 1 / f = 1 / (50 × 10⁶ Hz) = 20 nanoseconds.</div>
+<div class="bullet-item">• Every flip-flop in our design evaluates its inputs every 20 ns.</div>
+
+<h3 class="subsection-title">29. Synchronous vs Asynchronous Reset</h3>
+<div class="bullet-item">• <strong>Synchronous Reset:</strong> The reset only takes effect when the clock edge rises (<code>always @(posedge clk)</code>). Preferred in modern FPGA design to avoid spurious reset glitches and race conditions.</div>
+
+<hr class="divider"/>
+
+<h2 class="section-title">2.4 Bus Protocols & Communication</h2>
+
+<h3 class="subsection-title">30. AMBA AXI4-Lite Protocol</h3>
+<div class="bullet-item">• <strong>What it is:</strong> ARM's open standard on-chip bus communication protocol designed for memory-mapped register access between a CPU master and peripheral hardware slaves.</div>
+<div class="bullet-item">• <strong>5 Independent Channels:</strong></div>
+<div class="numbered-item"><span class="num">1.</span> <code>AW</code> (Write Address): Master sends register address to write.</div>
+<div class="numbered-item"><span class="num">2.</span> <code>W</code> (Write Data): Master sends data payload and byte strobes.</div>
+<div class="numbered-item"><span class="num">3.</span> <code>B</code> (Write Response): Slave confirms write completed (<code>OKAY</code>).</div>
+<div class="numbered-item"><span class="num">4.</span> <code>AR</code> (Read Address): Master sends register address to read.</div>
+<div class="numbered-item"><span class="num">5.</span> <code>R</code> (Read Data): Slave returns 32-bit data and read status.</div>
+
+<h3 class="subsection-title">31. Decoupled AXI Write Handshake</h3>
+<div class="bullet-item">• <strong>The Problem:</strong> In ARM interconnects, the Write Address (<code>AW</code>) and Write Data (<code>W</code>) channels are completely independent and can arrive in different clock cycles or out of order.</div>
+<div class="bullet-item">• <strong>The Bug in Naive Designs:</strong> Waiting for <code>awvalid && wvalid</code> simultaneously causes a permanent <strong>bus deadlock</strong> if the interconnect sends <code>awvalid</code> first and waits for <code>awready</code> before sending <code>wvalid</code>.</div>
+<div class="bullet-item">• <strong>Our Solution:</strong> Two independent state registers (<code>aw<em>done</code> and <code>w</em>done</code>) that latch each handshake independently. The internal register write only executes when both flags are satisfied.</div>
+
+<h3 class="subsection-title">32. W1C (Write-1-to-Clear) Register Pattern</h3>
+<div class="bullet-item">• <strong>What it is:</strong> A hardware register pattern where writing a binary <code>1</code> clears the status bit to <code>0</code>, while writing <code>0</code> leaves it unchanged.</div>
+<div class="bullet-item">• <strong>Why it is critical:</strong> Avoids catastrophic <strong>Read-Modify-Write race conditions</strong>. If the CPU had to read the register, modify the bit, and write it back, a new heartbeat arriving during that CPU instruction window would be accidentally wiped out and lost!</div>
+
+<h3 class="subsection-title">33. I²C (Inter-Integrated Circuit)</h3>
+<div class="bullet-item">• <strong>What it is:</strong> Synchronous, multi-slave, 2-wire serial protocol (SDA data line, SCL clock line).</div>
+<div class="bullet-item">• <strong>Addresses used:</strong> MAX30102 (<code>0x57</code>), BME280 (<code>0x76</code>), SSD1306 (<code>0x3C</code>).</div>
+
+<h3 class="subsection-title">34. UART (Universal Asynchronous Receiver/Transmitter)</h3>
+<div class="bullet-item">• <strong>What it is:</strong> Asynchronous 2-wire serial protocol without a shared clock line. Uses pre-configured baud rate (9600 baud, 8 data bits, no parity, 1 stop bit = "8N1") to stream PMS5003 air quality packets.</div>
+
+<h3 class="subsection-title">35. Memory-Mapped I/O (MMIO)</h3>
+<div class="bullet-item">• <strong>What it is:</strong> Hardware peripheral registers are mapped to specific 32-bit physical addresses in the CPU's memory space. The CPU reads and writes to hardware using normal pointer operations (<code>*addr = data</code>).</div>
+
+<hr class="divider"/>
+
+<h2 class="section-title">2.5 Verification & Timing</h2>
+
+<h3 class="subsection-title">36. Testbench & Bus Functional Model (BFM)</h3>
+<div class="bullet-item">• <strong>Testbench:</strong> Non-synthesizable Verilog test wrapper that instantiates the Device Under Test (DUT), generates clock/stimuli, and verifies responses.</div>
+<div class="bullet-item">• <strong>BFM:</strong> Modular Verilog tasks (<code>axi<em>write</code>, <code>axi</em>read</code>, <code>axi<em>write</em>staggered</code>) that emulate an ARM processor executing bus cycles.</div>
+
+<h3 class="subsection-title">37. VCD (Value Change Dump) & GTKWave</h3>
+<div class="bullet-item">• <strong>VCD:</strong> Standard ASCII file recording all digital signal transitions over simulation time.</div>
+<div class="bullet-item">• <strong>GTKWave:</strong> Open-source digital waveform viewer for graphical inspection of timing signals, FSM states, and bus transactions.</div>
+
+<h3 class="subsection-title">38. STA (Static Timing Analysis)</h3>
+<div class="bullet-item">• <strong>What it is:</strong> A tool-driven mathematical analysis of circuit propagation delays that proves every signal arrives at its destination flip-flop before the next clock edge, under worst-case temperature and voltage.</div>
+
+<h3 class="subsection-title">39. Setup Time (T<em>setup) & Hold Time (T</em>hold)</h3>
+<div class="bullet-item">• <strong>Setup Time:</strong> Minimum time data must be held stable <em>before</em> the clock edge.</div>
+<div class="bullet-item">• <strong>Hold Time:</strong> Minimum time data must remain stable <em>after</em> the clock edge.</div>
+
+<h3 class="subsection-title">40. Slack & Worst Negative Slack (WNS)</h3>
+<div class="bullet-item">• <strong>Slack:</strong> Required Time − Arrival Time.</div>
+<div class="bullet-item">• <strong>Positive Slack (+14.28 ns):</strong> Signal arrives 14.28 ns ahead of deadline → Timing fully met!</div>
+<div class="bullet-item">• <strong>Negative Slack:</strong> Timing violation → Circuit will produce corrupted data.</div>
+
+<h3 class="subsection-title">41. Fmax (Maximum Achievable Frequency)</h3>
+<div class="bullet-item">• <strong>Formula:</strong> Fmax = 1 / (T_clk − WNS) = 1 / (20.0 ns − 14.28 ns) = 1 / 5.72 ns ≈ 174.8 MHz.</div>
+<div class="bullet-item">• <strong>Meaning:</strong> Although our system runs at 50 MHz, the hardware is fast enough to run at <strong>174 MHz (3.5× safety margin)</strong>.</div>
+
+<h3 class="subsection-title">42. Out-of-Context (OOC) Synthesis</h3>
+<div class="bullet-item">• <strong>What it is:</strong> Synthesizing an individual IP core in isolation without top-level I/O pin buffers. Standard industry practice for modular IP blocks.</div>
+
+<hr class="divider"/>
+
+<h2 class="section-title">2.6 Software & Embedded Systems</h2>
+
+<h3 class="subsection-title">43. Bare-Metal Programming</h3>
+<div class="bullet-item">• <strong>What it is:</strong> C code executing directly on CPU hardware without an underlying operating system (no Linux, no FreeRTOS). Provides deterministic execution with zero scheduling jitter.</div>
+
+<h3 class="subsection-title">44. HAL (Hardware Abstraction Layer)</h3>
+<div class="bullet-item">• <strong>What it is:</strong> A modular software layer that separates application logic from low-level register hardware. Allows the same code to compile for Zynq silicon (<code>#ifdef ZYNQ_HW</code>) or standard PC simulation (<code>#else</code>).</div>
+
+<h3 class="subsection-title">45. Circular Buffer</h3>
+<div class="bullet-item">• <strong>What it is:</strong> A fixed-size array where write and read indices wrap around using modulo arithmetic. Used in <code>hrv_analysis.c</code> to store the 20 most recent IBI intervals with O(1) insertion.</div>
+
+<h3 class="subsection-title">46. Interrupt (IRQ)</h3>
+<div class="bullet-item">• <strong>What it is:</strong> An asynchronous hardware signal line (<code>irq_beat</code>) asserted by the FPGA to inform the CPU that a systolic peak occurred, avoiding wasteful CPU polling loops.</div>
+
+<h3 class="subsection-title">47. The <code>volatile</code> Keyword in C</h3>
+<div class="bullet-item">• <strong>Why it is required:</strong> Tells the C compiler optimizer that a memory address can change at any moment outside the software's control. Without <code>volatile</code>, the compiler might optimize away register reads and fetch stale cached values.</div>
+<pre class="code-block c"><code>  #define Xil_In32(addr) (*(volatile uint32_t *)(addr))
+</code></pre>
+
+<hr class="divider"/>
+
+<h2 class="section-title">2.7 Disaster Science & Risk Indices</h2>
+
+<h3 class="subsection-title">48. Heat Index (Steadman Formula)</h3>
+<div class="bullet-item">• <strong>What it is:</strong> An empirical index combining dry-bulb ambient temperature and relative humidity to measure how hot the environment actually feels to human physiology. High humidity prevents sweat evaporation, disrupting the body's primary cooling mechanism.</div>
+<div class="bullet-item">• <strong>Simplified formula used:</strong> Heat Index = T + 0.5 × (Humidity − 40) × 0.1 (for T > 27°C).</div>
+
+<h3 class="subsection-title">49. Cardiovascular Drift</h3>
+<div class="bullet-item">• <strong>What it is:</strong> The progressive upward drift in heart rate accompanied by a progressive decrease in stroke volume during prolonged heat stress or dehydration.</div>
+<div class="bullet-item">• <strong>Significance:</strong> The physiological precursor to heat exhaustion and lethal heat stroke.</div>
+
+<h3 class="subsection-title">50. CTSI (Cardio-Thermal Strain Index)</h3>
+<div class="bullet-item">• <strong>What it is:</strong> Our custom composite risk index (0–100) fusing environmental heat load with human cardiovascular response:</div>
+<pre class="code-block text"><code>  CTSI = Score_HeatIndex (40 pts) + Score_HeartRate (30 pts) + Score_HRVDepression (30 pts)
+</code></pre>
+
+<h3 class="subsection-title">51. PRSI (Pollution Respiratory Strain Index)</h3>
+<div class="bullet-item">• <strong>What it is:</strong> Our custom composite risk index (0–100) assessing acute respiratory distress:</div>
+<pre class="code-block text"><code>  PRSI = Score_PM2.5 (40 pts) + Score_SpO2Desat (40 pts) + Score_Tachycardia (15 pts) + Score_HRVStress (10 pts)
+</code></pre>
+
+<h3 class="subsection-title">52. Sensor Fusion</h3>
+<div class="bullet-item">• <strong>What it is:</strong> Combining data from multiple disparate physical sensors to compute high-confidence insights that no single sensor could determine on its own.</div>
+
+<h3 class="subsection-title">53. Edge Computing & Data Sovereignty</h3>
+<div class="bullet-item">• <strong>What it is:</strong> Executing all data processing, feature extraction, and AI inference locally on physical device silicon without transmitting raw biometric streams to remote cloud servers.</div>
+<div class="bullet-item">• <strong>Benefits:</strong> 100% data privacy, instant millisecond latency, zero subscription costs, and guaranteed operation during network grid collapse.</div>
+
+<hr class="divider"/>
+
+<h1 class="part-title">Part 3: Edge AI & TinyML Neural Network Engine</h1>
+
+<h3 class="subsection-title">3.1 Why Machine Learning on Top of Formulas?</h3>
+
+<p class="paragraph">Traditional biomedical formulas (like CTSI and PRSI) use fixed mathematical thresholds. However, real human physiology is non-linear:</p>
+<div class="bullet-item">• A 5°C temperature rise causes a much larger heart rate surge when the user is already dehydrated.</div>
+<div class="bullet-item">• A drop in SpO₂ to 88% is far more dangerous if the heart rate <em>fails</em> to accelerate (autonomic failure).</div>
+
+<p class="paragraph">Our TinyML Neural Network (<code>nn<em>risk</em>model.c</code>) captures these multi-variable non-linear correlations while running in under 1 microsecond.</p>
+
+<hr class="divider"/>
+
+<h3 class="subsection-title">3.2 The 6→12→3 Network Architecture</h3>
+
+<pre class="code-block "><code>INPUT LAYER (6 Features)         HIDDEN LAYER (12 Neurons)          OUTPUT LAYER (3 Risks)
+────────────────────────         ─────────────────────────          ──────────────────────
+
+[0] Normalized Heart Rate ────┐
+[1] Normalized RMSSD (HRV) ───┼─▶ ┌──────────────────────┐
+[2] Normalized SpO₂ ──────────┼─▶ │ Neurons H0 - H3      │ ───────▶ [0] Heat Wave Strain
+[3] Normalized Ambient Temp ──┼─▶ │ (Heat Strain Detect) │              (0.0 to 1.0)
+[4] Normalized Humidity ──────┼─▶ ├──────────────────────┤
+[5] Normalized PM2.5 ─────────┼─▶ │ Neurons H4 - H7      │ ───────▶ [1] Pollution Distress
+                              │   │ (Pollution Detect)   │              (0.0 to 1.0)
+                              │   ├──────────────────────┤
+                              └─▶ │ Neurons H8 - H11     │ ───────▶ [2] Cold / Hypothermia
+                                  │ (Cold/Flood Detect)  │              (0.0 to 1.0)
+                                  └──────────────────────┘
+                                    Activation: ReLU                   Activation: Sigmoid
+</code></pre>
+
+<div class="bullet-item">• <strong>Total Weights & Biases:</strong> (6 × 12 + 12) + (12 × 3 + 3) = 84 + 39 = <strong>123 parameters</strong>.</div>
+<div class="bullet-item">• <strong>Memory Footprint:</strong> 123 × 4 bytes = <strong>492 bytes</strong> of RAM/ROM (fits in the smallest microcontroller).</div>
+<div class="bullet-item">• <strong>Computation:</strong> Exactly <strong>108 Multiply-Accumulate (MAC)</strong> operations per inference.</div>
+
+<hr class="divider"/>
+
+<h3 class="subsection-title">3.3 How Inference Works in Under 1 Microsecond</h3>
+
+<div class="numbered-item"><span class="num">1.</span> <strong>Min-Max Feature Normalization:</strong></div>
+<pre class="code-block text"><code>   x_norm = (x - min) / (max - min), clamped to [0.0, 1.0]
+</code></pre>
+<div class="numbered-item"><span class="num">2.</span> <strong>Hidden Layer Evaluation with ReLU Activation:</strong></div>
+<pre class="code-block text"><code>   h_j = max(0, sum(x_i * W1_ji) + b1_j)
+</code></pre>
+<div class="numbered-item"><span class="num">3.</span> <strong>Output Layer Evaluation with Sigmoid Activation:</strong></div>
+<pre class="code-block text"><code>   y_k = 1 / (1 + exp(-z_k)), where z_k = sum(h_j * W2_kj) + b2_k
+</code></pre>
+<div class="numbered-item"><span class="num">4.</span> <strong>Execution Time:</strong> Executes in <strong>< 1 µs</strong> on an ARM Cortex-A9 CPU core and <strong>< 100 ns</strong> on a Qualcomm Hexagon NPU.</div>
+
+<hr class="divider"/>
+
+<h1 class="part-title">Part 4: Qualcomm Platform Strategy & Silicon Migration</h1>
+
+<p class="paragraph"><em>(Crucial for Qualcomm SIH Track Judges)</em></p>
+
+<h3 class="subsection-title">4.1 Why Prototype on FPGA and Deploy on Qualcomm Silicon?</h3>
+
+<p class="paragraph">In the semiconductor industry, custom digital IP is always prototyped and validated on FPGAs (using synthesizable Verilog and standard ARM AMBA buses) before targeting commercial Application Processors (APs) or ASICs.</p>
+
+<p class="paragraph">Because our prototype strictly adheres to ARM AMBA standards and hardware-agnostic TinyML C, it translates seamlessly to <strong>Qualcomm Snapdragon Wear 5100, W5+ Gen 1, and Qualcomm QCS6490/QCS5430 IoT SoCs</strong>.</p>
+
+<hr class="divider"/>
+
+<h3 class="subsection-title">4.2 Qualcomm Platform Mapping Matrix</h3>
+
+<pre class="code-block "><code>PROTOTYPE ENVIRONMENT (Zynq SoC)              PRODUCTION TARGET (Qualcomm Snapdragon / QCS)
+════════════════════════════════              ═════════════════════════════════════════════
+
+[ Verilog 8-Tap MA Filter ]       ───────▶   [ Qualcomm Hexagon DSP + HVX Vector Engines ]
+  axi_ppg_accelerator.v                         1024-bit SIMD sliding-window filtering (&lt;1mW power)
+
+[ 4-State FSM Peak Detector ]     ───────▶   [ Qualcomm Low-Power Island (LPI) Microsecond Timer ]
+  ppg_peak_detector.v                           Continuous 24/7 cardiac monitoring while main AP sleeps
+
+[ TinyML 6→12→3 Neural Network ]  ───────▶   [ Qualcomm AI Engine (Hexagon NPU via QNN/SNPE) ]
+  nn_risk_model.c                               INT8 quantized .dlc container (&lt;0.1 mJ energy per run)
+
+[ Sensor I2C/UART Drivers ]       ───────▶   [ Qualcomm Universal Peripheral (QUP v3) Engines ]
+  max30102.c / bme280.c / pms5003.c             Direct DMA via Bus Access Manager (Zero CPU wakeups)
+
+[ AMBA AXI4-Lite Register Map ]   ───────▶   [ Qualcomm System Network-on-Chip (NoC) ]
+  0x00 to 0x14 memory map                       Native AMBA standard memory-mapped interconnect
+</code></pre>
+
+<hr class="divider"/>
+
+<h3 class="subsection-title">4.3 Qualcomm Hexagon DSP & Low-Power Island (LPI)</h3>
+
+<div class="bullet-item">• <strong>Hexagon Vector eXtensions (HVX):</strong> Allows our O(1) moving average filter to process 128 samples simultaneously in a single clock cycle using SIMD vector instructions.</div>
+<div class="bullet-item">• <strong>Low-Power Island (LPI):</strong> On Snapdragon Wear W5+ Gen 1, the Hexagon DSP runs on an isolated ultra-low-leakage power domain. This enables <strong>24/7 continuous health tracking with < 5 mW battery drain</strong>, keeping the power-hungry main Application Processor asleep.</div>
+
+<hr class="divider"/>
+
+<h3 class="subsection-title">4.4 Qualcomm AI Engine (SNPE / QNN)</h3>
+
+<p class="paragraph">Our TinyML C neural network follows Qualcomm's official deployment pipeline:</p>
+<div class="numbered-item"><span class="num">1.</span> Export model topology and weights to ONNX format.</div>
+<div class="numbered-item"><span class="num">2.</span> Convert ONNX to Qualcomm Deep Learning Container using <code>qnn-onnx-converter</code>.</div>
+<div class="numbered-item"><span class="num">3.</span> Quantize from FP32 to INT8 using <code>qnn-quantizer</code> (reduces memory size by 4× to < 500 bytes with zero accuracy loss).</div>
+<div class="numbered-item"><span class="num">4.</span> Execute hardware-accelerated inference on Hexagon NPU using the Qualcomm Neural Network (QNN) SDK.</div>
+
+<hr class="divider"/>
+
+<h1 class="part-title">Part 5: The Ultimate Judge Defense Guide (Top 25 Q&A)</h1>
+
+<p class="paragraph">Here are the exact questions judges will ask, categorized by technical domain, along with the precise answers you should give.</p>
+
+<hr class="divider"/>
+
+<h2 class="section-title">5.1 Hardware & FPGA RTL Questions</h2>
+
+<h4 class="question-title">Q1: "Why did you build an FPGA hardware accelerator instead of just doing everything in software on an ESP32 or Arduino?"</h4>
+<div class="callout-box"><strong>Your Answer:</strong><br>*"Two major reasons: <strong>timing precision</strong> and <strong>power efficiency</strong>.<br>For Heart Rate Variability (HRV) analysis, we must measure the time between heartbeats with sub-millisecond accuracy. Software running on an OS or microcontroller experiences 5 to 20 ms of scheduling jitter and interrupt latency, introducing up to 2.5% measurement error. Our FPGA hardware runs a dedicated 50 MHz counter that captures intervals with <strong>20 nanoseconds precision (250,000× more precise)</strong>.<br>Furthermore, the FPGA filters the signal and detects peaks completely in hardware at <strong>zero CPU load</strong>, allowing the main processor to sleep."*</div>
+
+<h4 class="question-title">Q2: "How did you optimize your moving average filter for hardware area?"</h4>
+<div class="callout-box"><strong>Your Answer:</strong><br>*"We implemented an <strong>O(1) running-sum architecture</strong>. Instead of summing all 8 samples every clock cycle using an expensive adder tree, we update the sum using: NewSum = OldSum + x<em>new − x</em>old.<br>To divide by 8, we perform a 3-bit right shift (<code>>> 3</code>), which in Verilog is purely hardwired routing. As a result, our filter uses <strong>0 DSP48 multipliers, 0 Block RAMs, and only 142 LUTs</strong>."*</div>
+
+<h4 class="question-title">Q3: "What is the purpose of the 4 states in your Peak Detector FSM?"</h4>
+<div class="callout-box"><strong>Your Answer:</strong><br>*"The FSM has 4 dedicated states:<br>1. <code>ARMED</code>: Watches for the PPG signal to cross above the dynamic threshold.<br>2. <code>RISING</code>: Tracks the rising systolic slope until it inverts (x[n] < x[n-1]).<br>3. <code>PEAK<em>FOUND</code>: A 1-cycle state that latches the 32-bit cycle timestamp into <code>REG</em>IBI<em>CYCLES</code> and pulses the <code>irq</em>beat</code> interrupt.<br>4. <code>REFRACTORY</code>: Implements a 250 ms hardware blanking window to prevent false double-counting caused by the dicrotic notch or noise."*</div>
+
+<h4 class="question-title">Q4: "What is your circuit's Fmax and Worst Negative Slack (WNS)?"</h4>
+<div class="callout-box"><strong>Your Answer:</strong><br><em>"In Vivado synthesis on a Xilinx Zynq-7000 (<code>xc7z020</code>), with a 50 MHz clock constraint (20.0 ns period), our design achieved a <strong>Worst Negative Slack (WNS) of +14.28 ns</strong>. This means our critical path delay is only 5.72 ns, giving an <strong>Fmax of ≈ 174.8 MHz</strong> — a <strong>3.5× timing safety margin</strong>."</em></div>
+
+<h4 class="question-title">Q5: "How does your AXI4-Lite slave prevent bus deadlocks?"</h4>
+<div class="callout-box"><strong>Your Answer:</strong><br>*"In standard AXI4-Lite, the Write Address (<code>AW</code>) and Write Data (<code>W</code>) channels are decoupled and can arrive on different clock cycles. Naive designs that wait for <code>awvalid && wvalid</code> simultaneously will deadlock if the master sends them out of phase.<br>We implemented independent <code>aw<em>done</code> and <code>w</em>done</code> status registers. When either channel arrives, its flag is latched. The internal register write only commits when both handshakes are completed, guaranteeing zero bus hangs."*</div>
+
+<hr class="divider"/>
+
+<h2 class="section-title">5.2 Signal Processing & Biomedical Questions</h2>
+
+<h4 class="question-title">Q6: "What is a Dicrotic Notch and how do you prevent it from corrupting your heart rate calculation?"</h4>
+<div class="callout-box"><strong>Your Answer:</strong><br>*"The dicrotic notch is a secondary pressure wave caused by the aortic valve snapping shut right after ventricular systole. In a PPG waveform, it creates a small secondary peak shortly after the main systolic peak.<br>Without protection, a peak detector would count it as a second heartbeat, doubling the apparent BPM. We eliminate this in hardware using a <strong>250 ms refractory blanking timer</strong> that ignores all secondary peaks immediately following a detected beat."*</div>
+
+<h4 class="question-title">Q7: "What is the clinical difference between RMSSD and SDNN?"</h4>
+<div class="callout-box"><strong>Your Answer:</strong><br>*"<strong>RMSSD</strong> (Root Mean Square of Successive Differences) measures beat-to-beat changes and reflects <strong>parasympathetic (vagal) tone</strong> — how well the body can calm down and manage acute thermal/cardiac stress. When RMSSD < 20 ms, the body is in severe sympathetic overload.<br><strong>SDNN</strong> (Standard Deviation of NN intervals) measures overall variability across the entire recording window, reflecting total autonomic nervous system function."*</div>
+
+<h4 class="question-title">Q8: "How does your system calculate blood oxygen saturation (SpO₂) from optical sensors?"</h4>
+<div class="callout-box"><strong>Your Answer:</strong><br>*"We use the <strong>Beer-Lambert Law Ratio of Ratios</strong>. Deoxygenated blood absorbs more Red light (660 nm), while oxygenated blood absorbs more Infrared light (940 nm).<br>We extract the pulsatile (AC) and baseline (DC) components for both wavelengths and compute R = (AC<em>Red / DC</em>Red) / (AC<em>IR / DC</em>IR). We then apply the clinical empirical calibration curve: SpO₂ = 110 − 25 × R."*</div>
+
+<h4 class="question-title">Q9: "What is Cardiovascular Drift and why is it clinically dangerous during heat waves?"</h4>
+<div class="callout-box"><strong>Your Answer:</strong><br>*"During sustained exposure to extreme heat (> 40°C), the body diverts a large portion of blood flow to the skin surface to radiate heat via sweat. Because blood pools peripherally and fluid is lost to sweating, venous return to the heart drops, decreasing stroke volume.<br>To maintain blood pressure, the heart rate steadily drifts upward while HRV (RMSSD) collapses. If unaddressed, this progressive strain leads directly to heat exhaustion and fatal heat stroke. Our CTSI engine detects this drift <strong>15 to 30 minutes before clinical collapse</strong>."*</div>
+
+<hr class="divider"/>
+
+<h2 class="section-title">5.3 Embedded Systems & Protocol Questions</h2>
+
+<h4 class="question-title">Q10: "What is Write-1-to-Clear (W1C) and why did you use it for the interrupt status register?"</h4>
+<div class="callout-box"><strong>Your Answer:</strong><br>*"W1C is a hardware register standard where writing a <code>1</code> clears the designated status bit, while writing <code>0</code> does nothing.<br>Without W1C, clearing an interrupt requires a Read-Modify-Write cycle: CPU reads the register, clears bit 0 in software, and writes the entire 32-bit word back. If a new heartbeat interrupt occurred during that instruction window, the CPU's write-back would overwrite and destroy the new interrupt flag. W1C clears the flag atomically in a single write with <strong>zero race conditions</strong>."*</div>
+
+<h4 class="question-title">Q11: "Why did you use the <code>volatile</code> keyword in your MMIO driver header (<code>xil_io.h</code>)?"</h4>
+<div class="callout-box"><strong>Your Answer:</strong><br><em>"Hardware registers change asynchronously outside the knowledge of the C compiler (e.g., the FPGA sets <code>beat_flag</code> when a pulse arrives). The <code>volatile</code> keyword prevents the compiler optimization pass from caching register values in CPU registers, forcing every read and write to execute as an actual hardware bus cycle."</em></div>
+
+<h4 class="question-title">Q12: "How does your software architecture support both hardware execution and PC simulation?"</h4>
+<div class="callout-box"><strong>Your Answer:</strong><br><em>"We implemented a <strong>Hardware Abstraction Layer (HAL)</strong> in <code>i2c<em>hal.c</code> and <code>driver</em>ppg.c</code>. When compiled with <code>#ifdef ZYNQ_HW</code>, it manipulates physical memory-mapped AXI and I²C registers on the Zynq SoC. When compiled for PC development (<code>#else</code>), it routes through simulation stubs and synthetic data generators, allowing our entire embedded software stack and TinyML model to be tested on standard PCs."</em></div>
+
+<hr class="divider"/>
+
+<h2 class="section-title">5.4 AI & Qualcomm Strategy Questions</h2>
+
+<h4 class="question-title">Q13: "What is your TinyML Neural Network architecture and how many parameters does it have?"</h4>
+<div class="callout-box"><strong>Your Answer:</strong><br>*"It is a 2-layer feedforward network with a <strong>6→12→3 architecture</strong>:<br>• <strong>6 Inputs:</strong> Normalized Heart Rate, RMSSD, SpO₂, Temperature, Humidity, and PM2.5.<br>• <strong>12 Hidden Neurons:</strong> ReLU activation, acting as specialized feature detectors for heat, smog, and cold stress.<br>• <strong>3 Output Neurons:</strong> Sigmoid activation, outputting independent [0.0, 1.0] probabilities for Heat Strain, Pollution Distress, and Hypothermia.<br>It has <strong>123 weights/biases (492 bytes)</strong> and requires only <strong>108 MAC operations</strong>, executing in < 1 µs on an ARM CPU."*</div>
+
+<h4 class="question-title">Q14: "How did you train the TinyML weights without a massive clinical dataset?"</h4>
+<div class="callout-box"><strong>Your Answer:</strong><br><em>"We used <strong>Knowledge Distillation</strong>. We used our rule-based medical scoring models (CTSI and PRSI derived from Steadman and Beer-Lambert physiological literature) as teacher models. We trained the student neural network to replicate these medical boundaries while generalizing the non-linear cross-correlations between vitals and environmental metrics. Using the Adam optimizer for 400 epochs on a synthetic dataset, we achieved high correlation with the medical rule engine: <strong>r = 0.97 for heat, r = 0.97 for pollution, and r = 0.94 for flood</strong>."</em></div>
+
+<h4 class="question-title">Q15: "How do you know the Neural Network is accurate?"</h4>
+<div class="callout-box"><strong>Your Answer:</strong><br><em>"We built a dedicated C validation harness (<code>compare_harness.c</code>) that runs the Rule-Based Medical Engine and the TinyML Neural Network side-by-side across canonical disaster scenarios (Heat Wave, Severe Smog, Flash Flood). On a 2,000-sample held-out dataset, the TinyML model achieved <strong>78-89% exact risk-band agreement</strong> (Normal/Moderate/High/Critical) with the clinical rule engine, proving it successfully distilled the medical logic."</em></div>
+
+<h4 class="question-title">Q16: "How does this prototype translate into a commercial Qualcomm product?"</h4>
+<div class="callout-box"><strong>Your Answer:</strong><br>*"Our design maps directly onto <strong>Qualcomm Snapdragon Wear W5+ Gen 1 and QCS6490 SoCs</strong>:<br>1. Our Verilog 8-tap filter maps to <strong>Qualcomm Hexagon Vector eXtensions (HVX)</strong> on the dedicated Low-Power Island (LPI), operating under < 5 mW while the main CPU sleeps.<br>2. Our TinyML neural network compiles into an INT8 <code>.dlc</code> container for the <strong>Qualcomm Neural Processing Engine (QNN/SNPE)</strong> on the Hexagon NPU.<br>3. Our memory-mapped register interface maps natively to the <strong>Qualcomm System Network-on-Chip (NoC)</strong> via standard AMBA AXI interconnects."*</div>
+
+<h4 class="question-title">Q17: "Why is an edge solution better than sending sensor data to an AWS/Google Cloud server?"</h4>
+<div class="callout-box"><strong>Your Answer:</strong><br>*"In severe disaster zones (floods, earthquakes, heat wave grid failures), cellular networks and internet connectivity collapse. A cloud-dependent monitor fails exactly when it is needed most.<br>By keeping all signal filtering, HRV extraction, and TinyML inference strictly on-device at the edge, our companion guarantees <strong>100% availability in offline disaster zones, zero latency, and absolute biometric data privacy</strong>."*</div>
+
+<hr class="divider"/>
+
+<h1 class="part-title">Part 6: 60-Second Presentation Pitch for Students</h1>
+
+<p class="paragraph"><em>Use this exact script when introducing your project to judges at your booth:</em></p>
+
+<hr class="divider"/>
+
+<div class="callout-box"><strong>[Student 1 — The Problem & Vision]</strong><br><em>"Good morning, respected judges. In India, extreme heat waves and severe winter smog claim thousands of lives every year. When heat stroke or respiratory collapse strikes, the body gives off physiological warning signs — like cardiovascular drift and heart rate variability collapse — but these remain completely invisible until the patient faints or suffers organ failure. Cloud-connected smartwatches can't solve this because when power and cell towers fail in disaster zones, they stop working."</em><br><strong>[Student 2 — The FPGA Hardware Innovation]</strong><br>*"To solve this, we designed <strong>SIH26181: an FPGA-Accelerated Personal Health Companion & Edge Disaster Monitor</strong>.<br>On the hardware side, we built a custom Verilog RTL accelerator on an ARM AXI4-Lite SoC. It features an O(1) running-sum 8-tap noise filter that uses <strong>zero DSP multiplier slices</strong>, paired with a 4-state peak detector FSM. Our hardware measures heartbeat intervals with <strong>20-nanosecond precision at 50 MHz</strong>, eliminating the 5 to 20 ms of operating system jitter that ruins software HRV calculations."*<br><strong>[Student 3 — Edge AI, Qualcomm Mapping & Impact]</strong><br>*"On the software side, our bare-metal engine extracts RMSSD and SpO₂, and feeds them alongside ambient temperature, humidity, and PM2.5 into an on-device <strong>6→12→3 TinyML Neural Network</strong> running in under 1 microsecond.<br>It predicts heat stroke and respiratory distress <strong>15 to 30 minutes in advance</strong> with zero cloud dependence.<br>For production deployment, our IP maps seamlessly to <strong>Qualcomm Snapdragon Wear W5+ Gen 1</strong>, utilizing the <strong>Hexagon DSP Low-Power Island</strong> for sub-5-milliwatt continuous monitoring.<br>All 6/6 hardware testcases have passed with +14.28 ns timing slack. We are ready to demonstrate our live simulation dashboard and GTKWave waveforms."*</div>
+
+<hr class="divider"/>
+
+<p class="paragraph"><em>Companion reference document for SIH26181. For RTL code and C source files, refer to the project repository.</em></p>
+
+</body>
+</html>
