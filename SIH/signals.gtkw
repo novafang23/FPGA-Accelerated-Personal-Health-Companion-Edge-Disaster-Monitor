@@ -1,0 +1,86 @@
+[*]
+[*] GTKWave Analyzer v3.3.100 (SIH26181 PPG System Waveform Configuration)
+[*]
+[dumpfile] "ppg_system.vcd"
+[savefile] "signals.gtkw"
+[timestart] 0
+[size] 1600 900
+[pos] -1 -1
+*-24.000000 100000 -1 -1 -1 -1 -1 -1 -1 -1 -1 -1 -1 -1 -1 -1 -1 -1 -1 -1 -1 -1 -1 -1 -1 -1 -1 -1
+[treeopen] tb_ppg_system.
+[treeopen] tb_ppg_system.dut.
+@28
+[color] 2
+tb_ppg_system.dut.s_axi_aclk
+[color] 3
+tb_ppg_system.dut.s_axi_aresetn
+@c00022
+[color] 5
+#{AXI4-Lite Write Channels}
+@22
+tb_ppg_system.dut.s_axi_awaddr[4:0]
+@28
+tb_ppg_system.dut.s_axi_awvalid
+tb_ppg_system.dut.s_axi_awready
+@22
+tb_ppg_system.dut.s_axi_wdata[31:0]
+@28
+tb_ppg_system.dut.s_axi_wvalid
+tb_ppg_system.dut.s_axi_wready
+tb_ppg_system.dut.s_axi_bvalid
+tb_ppg_system.dut.s_axi_bready
+@1401200
+-group_end
+@c00022
+[color] 6
+#{AXI4-Lite Read Channels}
+@22
+tb_ppg_system.dut.s_axi_araddr[4:0]
+@28
+tb_ppg_system.dut.s_axi_arvalid
+tb_ppg_system.dut.s_axi_arready
+@22
+tb_ppg_system.dut.s_axi_rdata[31:0]
+@28
+tb_ppg_system.dut.s_axi_rvalid
+tb_ppg_system.dut.s_axi_rready
+@1401200
+-group_end
+@c00022
+[color] 7
+#{Moving Average DSP Filters}
+@24
+tb_ppg_system.dut.reg_red_raw[7:0]
+tb_ppg_system.dut.red_filtered[7:0]
+tb_ppg_system.dut.reg_ir_raw[7:0]
+tb_ppg_system.dut.ir_filtered[7:0]
+@1401200
+-group_end
+@c00022
+[color] 1
+#{Peak Detector & Timing FSM}
+@24
+tb_ppg_system.dut.reg_threshold[7:0]
+@22
+tb_ppg_system.dut.u_peak_detector.current_state[1:0]
+@24
+tb_ppg_system.dut.u_peak_detector.interval_cnt[31:0]
+tb_ppg_system.dut.u_peak_detector.refractory_cnt[31:0]
+@1401200
+-group_end
+@c00022
+[color] 2
+#{Interrupt & Beat Status}
+@28
+[color] 1
+tb_ppg_system.dut.hw_beat_pulse
+[color] 1
+tb_ppg_system.dut.irq_beat
+@24
+tb_ppg_system.dut.hw_ibi_cycles[31:0]
+@28
+tb_ppg_system.dut.beat_flag
+@1401200
+-group_end
+[pattern_trace] 1
+[pattern_trace] 0

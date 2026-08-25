@@ -1,0 +1,41 @@
+# ==============================================================================
+# ppg_accelerator.xdc — Timing & Physical Constraints for PPG Accelerator IP
+# SIH26181: AI-Powered Personal Health Companion (Qualcomm Hardware Challenge)
+# Target Device: Xilinx Zynq-7000 (XC7Z020-CLG400-1) / Artix-7
+# ==============================================================================
+
+# ------------------------------------------------------------------------------
+# 1. Primary Clock Definition
+# ------------------------------------------------------------------------------
+# 50 MHz System Clock (20.0 ns period, 50% duty cycle)
+create_clock -period 20.000 -name s_axi_aclk -waveform {0.000 10.000} [get_ports s_axi_aclk]
+
+# Clock uncertainty and jitter allowance (100 ps)
+set_clock_uncertainty 0.100 [get_clocks s_axi_aclk]
+
+# ------------------------------------------------------------------------------
+# 2. Asynchronous Reset Constraints
+# ------------------------------------------------------------------------------
+# Treat active-low reset assertion as false path for static timing analysis
+set_false_path -from [get_ports s_axi_aresetn]
+
+# ------------------------------------------------------------------------------
+# 3. AXI4-Lite Input Delays (Referenced to s_axi_aclk)
+# ------------------------------------------------------------------------------
+# Assume up to 3.0 ns interconnect delay for AXI control and data inputs
+set_input_delay -clock [get_clocks s_axi_aclk] -max 3.000 [get_ports {{s_axi_awaddr[*]} s_axi_awvalid {s_axi_wdata[*]} {s_axi_wstrb[*]} s_axi_wvalid s_axi_bready {s_axi_araddr[*]} s_axi_arvalid s_axi_rready}]
+set_input_delay -clock [get_clocks s_axi_aclk] -min 0.500 [get_ports {{s_axi_awaddr[*]} s_axi_awvalid {s_axi_wdata[*]} {s_axi_wstrb[*]} s_axi_wvalid s_axi_bready {s_axi_araddr[*]} s_axi_arvalid s_axi_rready}]
+
+# ------------------------------------------------------------------------------
+# 4. AXI4-Lite Output Delays (Referenced to s_axi_aclk)
+# ------------------------------------------------------------------------------
+# Assume up to 3.0 ns output setup requirement on receiving master
+set_output_delay -clock [get_clocks s_axi_aclk] -max 3.000 [get_ports {s_axi_awready s_axi_wready {s_axi_bresp[*]} s_axi_bvalid s_axi_arready {s_axi_rdata[*]} {s_axi_rresp[*]} s_axi_rvalid irq_beat}]
+set_output_delay -clock [get_clocks s_axi_aclk] -min 0.500 [get_ports {s_axi_awready s_axi_wready {s_axi_bresp[*]} s_axi_bvalid s_axi_arready {s_axi_rdata[*]} {s_axi_rresp[*]} s_axi_rvalid irq_beat}]
+
+# ------------------------------------------------------------------------------
+# 5. Timing Exceptions & Multicycle Paths
+# ------------------------------------------------------------------------------
+# The refractory counter and interval timer are free-running at 50 MHz
+# All paths must close timing within the 20.0 ns single-cycle budget
+

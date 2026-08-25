@@ -1,0 +1,308 @@
+/*
+ * ssd1306.c — SSD1306 OLED Display Driver Implementation
+ * SIH26181: AI-Powered Personal Health Companion (Qualcomm)
+ *
+ * 128×64 pixel framebuffer-based driver with embedded 5×7 ASCII font.
+ */
+
+#include "ssd1306.h"
+
+/* ================================================================
+ *  Built-in 5×7 ASCII Font (characters 0x20 – 0x7F)
+ *  Each character is 5 bytes wide, each byte is one column (LSB = top)
+ * ================================================================ */
+static const uint8_t font_5x7[][5] = {
+    {0x00,0x00,0x00,0x00,0x00}, /* ' '  0x20 */
+    {0x00,0x00,0x5F,0x00,0x00}, /* '!'  0x21 */
+    {0x00,0x07,0x00,0x07,0x00}, /* '"'  0x22 */
+    {0x14,0x7F,0x14,0x7F,0x14}, /* '#'  0x23 */
+    {0x24,0x2A,0x7F,0x2A,0x12}, /* '$'  0x24 */
+    {0x23,0x13,0x08,0x64,0x62}, /* '%'  0x25 */
+    {0x36,0x49,0x55,0x22,0x50}, /* '&'  0x26 */
+    {0x00,0x05,0x03,0x00,0x00}, /* '''  0x27 */
+    {0x00,0x1C,0x22,0x41,0x00}, /* '('  0x28 */
+    {0x00,0x41,0x22,0x1C,0x00}, /* ')'  0x29 */
+    {0x14,0x08,0x3E,0x08,0x14}, /* '*'  0x2A */
+    {0x08,0x08,0x3E,0x08,0x08}, /* '+'  0x2B */
+    {0x00,0x50,0x30,0x00,0x00}, /* ','  0x2C */
+    {0x08,0x08,0x08,0x08,0x08}, /* '-'  0x2D */
+    {0x00,0x60,0x60,0x00,0x00}, /* '.'  0x2E */
+    {0x20,0x10,0x08,0x04,0x02}, /* '/'  0x2F */
+    {0x3E,0x51,0x49,0x45,0x3E}, /* '0'  0x30 */
+    {0x00,0x42,0x7F,0x40,0x00}, /* '1'  0x31 */
+    {0x42,0x61,0x51,0x49,0x46}, /* '2'  0x32 */
+    {0x21,0x41,0x45,0x4B,0x31}, /* '3'  0x33 */
+    {0x18,0x14,0x12,0x7F,0x10}, /* '4'  0x34 */
+    {0x27,0x45,0x45,0x45,0x39}, /* '5'  0x35 */
+    {0x3C,0x4A,0x49,0x49,0x30}, /* '6'  0x36 */
+    {0x01,0x71,0x09,0x05,0x03}, /* '7'  0x37 */
+    {0x36,0x49,0x49,0x49,0x36}, /* '8'  0x38 */
+    {0x06,0x49,0x49,0x29,0x1E}, /* '9'  0x39 */
+    {0x00,0x36,0x36,0x00,0x00}, /* ':'  0x3A */
+    {0x00,0x56,0x36,0x00,0x00}, /* ';'  0x3B */
+    {0x08,0x14,0x22,0x41,0x00}, /* '<'  0x3C */
+    {0x14,0x14,0x14,0x14,0x14}, /* '='  0x3D */
+    {0x00,0x41,0x22,0x14,0x08}, /* '>'  0x3E */
+    {0x02,0x01,0x51,0x09,0x06}, /* '?'  0x3F */
+    {0x32,0x49,0x79,0x41,0x3E}, /* '@'  0x40 */
+    {0x7E,0x11,0x11,0x11,0x7E}, /* 'A'  0x41 */
+    {0x7F,0x49,0x49,0x49,0x36}, /* 'B'  0x42 */
+    {0x3E,0x41,0x41,0x41,0x22}, /* 'C'  0x43 */
+    {0x7F,0x41,0x41,0x22,0x1C}, /* 'D'  0x44 */
+    {0x7F,0x49,0x49,0x49,0x41}, /* 'E'  0x45 */
+    {0x7F,0x09,0x09,0x09,0x01}, /* 'F'  0x46 */
+    {0x3E,0x41,0x49,0x49,0x7A}, /* 'G'  0x47 */
+    {0x7F,0x08,0x08,0x08,0x7F}, /* 'H'  0x48 */
+    {0x00,0x41,0x7F,0x41,0x00}, /* 'I'  0x49 */
+    {0x20,0x40,0x41,0x3F,0x01}, /* 'J'  0x4A */
+    {0x7F,0x08,0x14,0x22,0x41}, /* 'K'  0x4B */
+    {0x7F,0x40,0x40,0x40,0x40}, /* 'L'  0x4C */
+    {0x7F,0x02,0x0C,0x02,0x7F}, /* 'M'  0x4D */
+    {0x7F,0x04,0x08,0x10,0x7F}, /* 'N'  0x4E */
+    {0x3E,0x41,0x41,0x41,0x3E}, /* 'O'  0x4F */
+    {0x7F,0x09,0x09,0x09,0x06}, /* 'P'  0x50 */
+    {0x3E,0x41,0x51,0x21,0x5E}, /* 'Q'  0x51 */
+    {0x7F,0x09,0x19,0x29,0x46}, /* 'R'  0x52 */
+    {0x46,0x49,0x49,0x49,0x31}, /* 'S'  0x53 */
+    {0x01,0x01,0x7F,0x01,0x01}, /* 'T'  0x54 */
+    {0x3F,0x40,0x40,0x40,0x3F}, /* 'U'  0x55 */
+    {0x1F,0x20,0x40,0x20,0x1F}, /* 'V'  0x56 */
+    {0x3F,0x40,0x38,0x40,0x3F}, /* 'W'  0x57 */
+    {0x63,0x14,0x08,0x14,0x63}, /* 'X'  0x58 */
+    {0x07,0x08,0x70,0x08,0x07}, /* 'Y'  0x59 */
+    {0x61,0x51,0x49,0x45,0x43}, /* 'Z'  0x5A */
+    {0x00,0x7F,0x41,0x41,0x00}, /* '['  0x5B */
+    {0x02,0x04,0x08,0x10,0x20}, /* '\'  0x5C */
+    {0x00,0x41,0x41,0x7F,0x00}, /* ']'  0x5D */
+    {0x04,0x02,0x01,0x02,0x04}, /* '^'  0x5E */
+    {0x40,0x40,0x40,0x40,0x40}, /* '_'  0x5F */
+    {0x00,0x01,0x02,0x04,0x00}, /* '`'  0x60 */
+    {0x20,0x54,0x54,0x54,0x78}, /* 'a'  0x61 */
+    {0x7F,0x48,0x44,0x44,0x38}, /* 'b'  0x62 */
+    {0x38,0x44,0x44,0x44,0x20}, /* 'c'  0x63 */
+    {0x38,0x44,0x44,0x48,0x7F}, /* 'd'  0x64 */
+    {0x38,0x54,0x54,0x54,0x18}, /* 'e'  0x65 */
+    {0x08,0x7E,0x09,0x01,0x02}, /* 'f'  0x66 */
+    {0x0C,0x52,0x52,0x52,0x3E}, /* 'g'  0x67 */
+    {0x7F,0x08,0x04,0x04,0x78}, /* 'h'  0x68 */
+    {0x00,0x44,0x7D,0x40,0x00}, /* 'i'  0x69 */
+    {0x20,0x40,0x44,0x3D,0x00}, /* 'j'  0x6A */
+    {0x7F,0x10,0x28,0x44,0x00}, /* 'k'  0x6B */
+    {0x00,0x41,0x7F,0x40,0x00}, /* 'l'  0x6C */
+    {0x7C,0x04,0x18,0x04,0x78}, /* 'm'  0x6D */
+    {0x7C,0x08,0x04,0x04,0x78}, /* 'n'  0x6E */
+    {0x38,0x44,0x44,0x44,0x38}, /* 'o'  0x6F */
+    {0x7C,0x14,0x14,0x14,0x08}, /* 'p'  0x70 */
+    {0x08,0x14,0x14,0x18,0x7C}, /* 'q'  0x71 */
+    {0x7C,0x08,0x04,0x04,0x08}, /* 'r'  0x72 */
+    {0x48,0x54,0x54,0x54,0x20}, /* 's'  0x73 */
+    {0x04,0x3F,0x44,0x40,0x20}, /* 't'  0x74 */
+    {0x3C,0x40,0x40,0x20,0x7C}, /* 'u'  0x75 */
+    {0x1C,0x20,0x40,0x20,0x1C}, /* 'v'  0x76 */
+    {0x3C,0x40,0x30,0x40,0x3C}, /* 'w'  0x77 */
+    {0x44,0x28,0x10,0x28,0x44}, /* 'x'  0x78 */
+    {0x0C,0x50,0x50,0x50,0x3C}, /* 'y'  0x79 */
+    {0x44,0x64,0x54,0x4C,0x44}, /* 'z'  0x7A */
+    {0x00,0x08,0x36,0x41,0x00}, /* '{'  0x7B */
+    {0x00,0x00,0x7F,0x00,0x00}, /* '|'  0x7C */
+    {0x00,0x41,0x36,0x08,0x00}, /* '}'  0x7D */
+    {0x10,0x08,0x08,0x10,0x08}, /* '~'  0x7E */
+};
+
+/* ================================================================
+ *  Internal helpers
+ * ================================================================ */
+
+static int ssd1306_send_cmd(ssd1306_t *disp, uint8_t cmd) {
+    uint8_t buf[2] = {SSD1306_CMD_SINGLE, cmd};
+    return i2c_write(disp->i2c, SSD1306_I2C_ADDR, buf, 2);
+}
+
+static int ssd1306_send_cmd2(ssd1306_t *disp, uint8_t cmd, uint8_t arg) {
+    /* Send cmd then arg as two separate single-byte commands */
+    if (ssd1306_send_cmd(disp, cmd) != 0) return -1;
+    return ssd1306_send_cmd(disp, arg);
+}
+
+/* ================================================================
+ *  Initialization
+ * ================================================================ */
+
+int ssd1306_init(ssd1306_t *disp, i2c_handle_t *i2c) {
+    if (!disp || !i2c) return -1;
+
+    disp->i2c = i2c;
+    disp->initialized = 0;
+
+    /* Init sequence for 128×64 SSD1306 */
+    const uint8_t init_cmds[] = {
+        SSD1306_DISPLAY_OFF,
+        SSD1306_SET_CLOCK_DIV, 0x80,        /* Default clock ratio    */
+        SSD1306_SET_MUX_RATIO, 0x3F,        /* 64 multiplex           */
+        SSD1306_SET_DISPLAY_OFFSET, 0x00,   /* No offset              */
+        SSD1306_SET_START_LINE | 0x00,       /* Start line 0           */
+        SSD1306_CHARGE_PUMP_SETTING,
+        SSD1306_CHARGE_PUMP_ENABLE,          /* Internal charge pump   */
+        SSD1306_SET_MEM_ADDR_MODE,
+        SSD1306_HORIZONTAL_MODE,             /* Horizontal addressing  */
+        SSD1306_SET_SEG_REMAP,               /* Column 127 = SEG0      */
+        SSD1306_SET_COM_SCAN_DIR,            /* Scan COM63 → COM0      */
+        SSD1306_SET_COM_PINS, 0x12,         /* Alt COM pin config     */
+        SSD1306_SET_CONTRAST, 0xCF,         /* Medium-high contrast   */
+        SSD1306_SET_PRECHARGE, 0xF1,        /* Phase 1=15, Phase 2=1  */
+        SSD1306_SET_VCOM_DESELECT, 0x40,    /* VCOMH deselect level   */
+        SSD1306_DISPLAY_ALL_ON_RES,          /* Display from RAM       */
+        SSD1306_NORMAL_DISPLAY,              /* Non-inverted display   */
+        SSD1306_DEACTIVATE_SCROLL,           /* No scrolling           */
+        SSD1306_DISPLAY_ON                   /* Display ON             */
+    };
+
+    for (int i = 0; i < (int)(sizeof(init_cmds) / sizeof(init_cmds[0])); i++) {
+        if (ssd1306_send_cmd(disp, init_cmds[i]) != 0) return -1;
+    }
+
+    /* Clear framebuffer and display */
+    ssd1306_clear(disp);
+    if (ssd1306_update(disp) != 0) return -1;
+
+    disp->initialized = 1;
+    return 0;
+}
+
+/* ================================================================
+ *  Drawing Primitives
+ * ================================================================ */
+
+void ssd1306_clear(ssd1306_t *disp) {
+    if (!disp) return;
+    for (int i = 0; i < SSD1306_WIDTH * SSD1306_PAGES; i++) {
+        disp->framebuf[i] = 0x00;
+    }
+}
+
+int ssd1306_update(ssd1306_t *disp) {
+    if (!disp || !disp->i2c) return -1;
+
+    /* Set column address range: 0–127 */
+    ssd1306_send_cmd(disp, SSD1306_SET_COL_ADDR);
+    ssd1306_send_cmd(disp, 0x00);
+    ssd1306_send_cmd(disp, 0x7F);
+
+    /* Set page address range: 0–7 */
+    ssd1306_send_cmd(disp, SSD1306_SET_PAGE_ADDR);
+    ssd1306_send_cmd(disp, 0x00);
+    ssd1306_send_cmd(disp, 0x07);
+
+    /* Send framebuffer in chunks (I2C has limited buffer sizes) */
+    int total = SSD1306_WIDTH * SSD1306_PAGES;  /* 1024 bytes */
+    int chunk_size = 16;  /* Safe for most I2C implementations */
+
+    for (int offset = 0; offset < total; offset += chunk_size) {
+        uint8_t buf[17];  /* 1 control byte + 16 data bytes */
+        buf[0] = SSD1306_DATA_STREAM;
+        int remaining = total - offset;
+        int len = (remaining < chunk_size) ? remaining : chunk_size;
+        for (int j = 0; j < len; j++) {
+            buf[j + 1] = disp->framebuf[offset + j];
+        }
+        if (i2c_write(disp->i2c, SSD1306_I2C_ADDR, buf, (size_t)(len + 1)) != 0) {
+            return -1;
+        }
+    }
+    return 0;
+}
+
+void ssd1306_set_pixel(ssd1306_t *disp, int x, int y, int on) {
+    if (!disp || x < 0 || x >= SSD1306_WIDTH || y < 0 || y >= SSD1306_HEIGHT)
+        return;
+
+    int page = y / 8;
+    int bit  = y % 8;
+    int idx  = page * SSD1306_WIDTH + x;
+
+    if (on)
+        disp->framebuf[idx] |= (1 << bit);
+    else
+        disp->framebuf[idx] &= ~(1 << bit);
+}
+
+void ssd1306_draw_char(ssd1306_t *disp, int x, int y, char ch) {
+    if (!disp) return;
+    if (ch < 0x20 || ch > 0x7E) ch = ' ';
+
+    int font_idx = ch - 0x20;
+    for (int col = 0; col < 5; col++) {
+        uint8_t line = font_5x7[font_idx][col];
+        for (int row = 0; row < 7; row++) {
+            ssd1306_set_pixel(disp, x + col, y + row, (line >> row) & 1);
+        }
+    }
+    /* 1 pixel space between characters */
+    for (int row = 0; row < 7; row++) {
+        ssd1306_set_pixel(disp, x + 5, y + row, 0);
+    }
+}
+
+void ssd1306_draw_string(ssd1306_t *disp, int x, int y, const char *str) {
+    if (!disp || !str) return;
+    int cursor_x = x;
+    while (*str) {
+        if (cursor_x + 6 > SSD1306_WIDTH) break;  /* Don't draw past edge */
+        ssd1306_draw_char(disp, cursor_x, y, *str);
+        cursor_x += 6;
+        str++;
+    }
+}
+
+void ssd1306_draw_char_large(ssd1306_t *disp, int x, int y, char ch) {
+    if (!disp) return;
+    if (ch < 0x20 || ch > 0x7E) ch = ' ';
+
+    int font_idx = ch - 0x20;
+    for (int col = 0; col < 5; col++) {
+        uint8_t line = font_5x7[font_idx][col];
+        for (int row = 0; row < 7; row++) {
+            int on = (line >> row) & 1;
+            /* 2x scale: each pixel becomes a 2×2 block */
+            ssd1306_set_pixel(disp, x + col*2,     y + row*2,     on);
+            ssd1306_set_pixel(disp, x + col*2 + 1, y + row*2,     on);
+            ssd1306_set_pixel(disp, x + col*2,     y + row*2 + 1, on);
+            ssd1306_set_pixel(disp, x + col*2 + 1, y + row*2 + 1, on);
+        }
+    }
+}
+
+void ssd1306_draw_string_large(ssd1306_t *disp, int x, int y, const char *str) {
+    if (!disp || !str) return;
+    int cursor_x = x;
+    while (*str) {
+        if (cursor_x + 12 > SSD1306_WIDTH) break;
+        ssd1306_draw_char_large(disp, cursor_x, y, *str);
+        cursor_x += 12;
+        str++;
+    }
+}
+
+void ssd1306_draw_hline(ssd1306_t *disp, int x, int y, int width) {
+    for (int i = 0; i < width; i++) {
+        ssd1306_set_pixel(disp, x + i, y, 1);
+    }
+}
+
+void ssd1306_fill_rect(ssd1306_t *disp, int x, int y, int w, int h, int on) {
+    for (int row = 0; row < h; row++) {
+        for (int col = 0; col < w; col++) {
+            ssd1306_set_pixel(disp, x + col, y + row, on);
+        }
+    }
+}
+
+int ssd1306_set_contrast(ssd1306_t *disp, uint8_t contrast) {
+    if (!disp) return -1;
+    return ssd1306_send_cmd2(disp, SSD1306_SET_CONTRAST, contrast);
+}
+
+int ssd1306_display_on(ssd1306_t *disp, int on) {
+    if (!disp) return -1;
+    return ssd1306_send_cmd(disp, on ? SSD1306_DISPLAY_ON : SSD1306_DISPLAY_OFF);
+}

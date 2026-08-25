@@ -1,0 +1,30 @@
+# Binary executables and simulation outputs
+*.exe
+*.vvp
+*.vcd
+*.o
+*.obj
+*.log
+
+# Vivado and EDA artifacts
+.Xil/
+*.jou
+*.str
+*.pb
+*.dmp
+*.jou
+
+# Python
+__pycache__/
+*.pyc
+
+# Editor and Tool Caches
+.vscode/
+.cache/
+.clangd
+compile_commands.json
+
+# OS files
+Thumbs.db
+Desktop.ini
+.DS_Store
