@@ -30,7 +30,7 @@ echo [OK] VCD Waveform dumped to ppg_system.vcd
 echo.
 
 :: 3. Compile C Disaster Resilience & Health Demo
-echo [3/3] Compiling C Health Monitor & Disaster Simulation...
+echo [3/4] Compiling C Health Monitor ^& Disaster Simulation...
 C:\msys64\ucrt64\bin\gcc.exe -Wall -Wextra -o health_demo.exe main_simulation.c hrv_analysis.c spo2_engine.c disaster_risk_engine.c nn_risk_model.c -lm
 if %errorlevel% neq 0 (
     echo [ERROR] C compilation failed!
@@ -38,6 +38,17 @@ if %errorlevel% neq 0 (
     exit /b 1
 )
 echo [OK] health_demo.exe built successfully.
+echo.
+
+:: 4. Compile Compare Harness (Rule Engine vs NN side-by-side)
+echo [4/4] Compiling Compare Harness (Rule Engine vs NN)...
+C:\msys64\ucrt64\bin\gcc.exe -Wall -Wextra -o compare_harness.exe compare_harness.c hrv_analysis.c spo2_engine.c disaster_risk_engine.c nn_risk_model.c -lm
+if %errorlevel% neq 0 (
+    echo [ERROR] Compare harness compilation failed!
+    pause
+    exit /b 1
+)
+echo [OK] compare_harness.exe built successfully.
 echo.
 
 :menu
@@ -48,9 +59,10 @@ echo   [1] Launch Live Health ^& Disaster Simulation Dashboard (All Scenarios)
 echo   [2] Launch GTKWave Waveform Viewer (PPG ^& AXI Bus signals)
 echo   [3] Re-run Hardware RTL Testbench
 echo   [4] Run Flood / Hypothermia Scenario Directly
-echo   [5] Exit
+echo   [5] Run Compare Harness (Rule Engine vs NN side-by-side)
+echo   [6] Exit
 echo ================================================================
-set /p choice="Enter option (1-5): "
+set /p choice="Enter option (1-6): "
 
 if "%choice%"=="1" (
     cls
@@ -72,6 +84,11 @@ if "%choice%"=="4" (
     goto menu
 )
 if "%choice%"=="5" (
+    cls
+    compare_harness.exe
+    goto menu
+)
+if "%choice%"=="6" (
     exit /b 0
 )
 

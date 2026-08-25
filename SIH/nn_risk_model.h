@@ -24,7 +24,7 @@
  *   [1] Pollution Risk     (0.0 = safe, 1.0 = critical)
  *   [2] Flood/Cold Risk    (0.0 = safe, 1.0 = critical)
  *
- * Model Size: ~372 parameters (< 1.5 KB), single-pass inference < 1 µs
+ * Model Size: 123 parameters (492 bytes), single-pass inference < 1 µs
  *
  * On Qualcomm platforms, this model would be compiled to Hexagon DSP
  * microcode via the Qualcomm Neural Processing SDK (SNPE/QNN) for
