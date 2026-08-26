@@ -1,10 +1,9 @@
 /*
- * main_simulation.c — Real-Time Disaster Health Monitoring Demo
- * SIH26181: AI-Powered Personal Health Companion (Qualcomm)
- * Smart India Hackathon 2026
+ * main_simulation.c
+ * SIH26181 Health Companion Simulator
  *
- * Simulates 4 disaster scenarios on your PC with a live console dashboard:
- *   1. Normal Resting (baseline - all systems green)
+ * Simulates 4 disaster scenarios on PC:
+ *   1. Normal Resting
  *   2. Delhi Heat Wave (47C, cardiovascular drift, HRV collapse)
  *   3. Delhi Winter Smog (PM2.5 = 400, SpO2 desaturation)
  *   4. Flash Flood & Cold Water Immersion (Hypothermia, Cold Shock, RMSSD collapse)
@@ -40,9 +39,7 @@
 #define CYAN    "\033[36m"
 #define WHITE   "\033[37m"
 
-/* ================================================================
- *  Scenario Definition
- * ================================================================ */
+/* Scenario Definition */
 typedef struct {
     const char *name;
     float duration_sec;
@@ -65,19 +62,11 @@ typedef struct {
     float skin_temp_drift;
 } scenario_t;
 
-/* ================================================================
- *  Console Dashboard Rendering
- * ================================================================ */
+/* Console Dashboard Rendering */
 static void print_banner(void) {
-    printf(BOLD CYAN);
-    printf("+================================================================+\n");
-    printf("|    SIH26181 - AI-Powered Personal Health Companion             |\n");
-    printf("|    Edge Health Monitor & Disaster Resilience System             |\n");
-    printf("|    Qualcomm Hardware Challenge - Smart India Hackathon 2026     |\n");
-    printf("+================================================================+\n");
-    printf("|  " RESET "\033[35m" BOLD "[TinyML]" RESET DIM " Neural Network Inference (6->12->3)" RESET BOLD CYAN "            |\n");
-    printf("+================================================================+\n");
-    printf(RESET "\n");
+    printf(BOLD CYAN "+================================================================+\n");
+    printf("|    SIH26181 Health Companion Simulator                         |\n");
+    printf("+================================================================+\n" RESET);
 }
 
 static void print_dashboard(
@@ -155,9 +144,7 @@ static void print_dashboard(
     printf(DIM " [TinyML on-device inference | Zero cloud | Qualcomm AI Engine ready]\n" RESET);
 }
 
-/* ================================================================
- *  Main Entry Point
- * ================================================================ */
+/* Main Entry Point */
 int main(int argc, char **argv) {
     int s;
     int num_scenarios;
@@ -337,32 +324,11 @@ int main(int argc, char **argv) {
     /* Show cursor again */
     printf("\033[?25h");
 
-    /* ---- Completion Summary ---- */
     printf("\n");
     printf(BOLD CYAN "================================================================\n");
-    printf("  Simulation Complete - %s Demonstrated\n",
+    printf("  Simulation Complete - %s\n",
            start_scenario == 3 ? "Hypothermia / Flood Scenario" : "All Disaster Scenarios");
-    printf("================================================================\n" RESET);
-    printf("\n");
-    printf("  This demo showcased on-device, privacy-preserving capabilities:\n\n");
-    printf("  [1] TinyML Neural Network Inference (6->12->3 architecture)\n");
-    printf("      -> Real-time AI risk prediction with 108 MACs per inference\n");
-    printf("      -> Qualcomm AI Engine / Hexagon NPU ready\n\n");
-    printf("  [2] Real-time HRV Analysis (RMSSD / SDNN)\n");
-    printf("      -> Autonomic nervous system stress biomarkers\n\n");
-    printf("  [3] Multi-Disaster Risk Fusion (Heat / Pollution / Flood & Hypothermia)\n");
-    printf("      -> NN captures cross-parameter correlations that\n");
-    printf("         threshold-based scoring cannot detect\n\n");
-    printf("  [4] Hardware Accelerated Signal Processing\n");
-    printf("      -> FPGA/DSP fabric handles 50MHz filtering and cycle-\n");
-    printf("         accurate IBI timing with zero CPU load\n\n");
-    printf("  [5] 100%% On-Device Edge AI\n");
-    printf("      -> No cloud dependency. All biometric data stays local.\n");
-    printf("         Privacy preserved by design.\n\n");
-    printf(DIM "  Target Platform: Qualcomm Snapdragon / Hexagon DSP\n");
-    printf("  Prototype: Xilinx Zynq-7000 (AMBA AXI4-Lite compatible)\n");
-    printf("  Problem Statement: SIH26181 | Theme: MedTech/HealthTech\n" RESET);
-    printf("\n");
+    printf("================================================================\n" RESET "\n");
 
     return 0;
 }

@@ -1,19 +1,11 @@
 /*
- * max30102.c — MAX30102 Pulse Oximetry & Heart-Rate Sensor Driver
- * SIH26181: AI-Powered Personal Health Companion (Qualcomm)
- *
- * Configures the MAX30102 for SpO2 mode (Red + IR) with:
- *   - 100 samples/sec, 4-sample averaging → 25 effective readings/sec
- *   - 18-bit ADC resolution (411µs pulse width)
- *   - 4096nA ADC range (good for finger-contact reflective mode)
- *   - FIFO rollover enabled to prevent data loss
+ * max30102.c
+ * MAX30102 Pulse Oximetry & Heart-Rate Sensor Driver
  */
 
 #include "max30102.h"
 
-/* ================================================================
- *  Initialization
- * ================================================================ */
+/* Initialization */
 
 int max30102_reset(max30102_t *dev) {
   if (!dev || !dev->i2c)
@@ -118,9 +110,7 @@ int max30102_init(max30102_t *dev, i2c_handle_t *i2c) {
   return 0;
 }
 
-/* ================================================================
- *  FIFO Operations
- * ================================================================ */
+/* FIFO Operations */
 
 int max30102_fifo_available(max30102_t *dev) {
   if (!dev || !dev->initialized)
@@ -180,9 +170,7 @@ int max30102_read_fifo(max30102_t *dev, max30102_sample_t *buf,
   return to_read;
 }
 
-/* ================================================================
- *  Temperature
- * ================================================================ */
+/* Temperature */
 
 float max30102_read_temperature(max30102_t *dev) {
   if (!dev || !dev->initialized)
@@ -221,9 +209,7 @@ float max30102_read_temperature(max30102_t *dev) {
   return (float)(int8_t)temp_int + ((float)temp_frac * 0.0625f);
 }
 
-/* ================================================================
- *  Power Management
- * ================================================================ */
+/* Power Management */
 
 int max30102_shutdown(max30102_t *dev) {
   if (!dev || !dev->initialized)

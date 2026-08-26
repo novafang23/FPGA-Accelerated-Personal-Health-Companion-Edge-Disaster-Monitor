@@ -1,17 +1,7 @@
 `timescale 1ns / 1ps
 
-// ============================================================================
-// tb_ppg_system.v — Full System Testbench for PPG Accelerator
-// SIH26181: AI-Powered Personal Health Companion (Qualcomm)
-//
-// Verifies:
-//   1. AXI4-Lite register read/write with decoupled handshake
-//   2. Moving average filter convergence
-//   3. Peak detection and IBI measurement accuracy
-//   4. Dynamic threshold programming and W1C beat flag clearing
-//   5. IR (SpO2) channel operation
-//   6. first_beat_seen guard (no spurious first-beat IBI)
-// ============================================================================
+// tb_ppg_system.v
+// Full System Testbench for PPG Accelerator
 
 module tb_ppg_system;
 
@@ -63,9 +53,7 @@ module tb_ppg_system;
         .irq_beat      (irq_beat)
     );
 
-    // ================================================================
-    //  AXI4-Lite Bus Functional Model (BFM) Tasks
-    // ================================================================
+    // AXI4-Lite Bus Functional Model (BFM) Tasks
 
     // AXI Write: Address and data asserted simultaneously
     task axi_write;
@@ -167,9 +155,7 @@ module tb_ppg_system;
         end
     endtask
 
-    // ================================================================
-    //  Synthetic PPG Beat Generator
-    // ================================================================
+    // Synthetic PPG Beat Generator
     // Produces a triangular pulse above baseline to trigger peak detection
     task generate_ppg_beat;
         input integer peak_value;
@@ -201,18 +187,14 @@ module tb_ppg_system;
         end
     endtask
 
-    // ================================================================
-    //  Test Variables
-    // ================================================================
+    // Test Variables
     reg [31:0] read_data;
     integer    test_num;
     integer    tests_passed;
     integer    tests_failed;
     integer    beat_count;
 
-    // ================================================================
-    //  Main Test Sequence
-    // ================================================================
+    // Main Test Sequence
     initial begin
         $dumpfile("ppg_system.vcd");
         $dumpvars(0, tb_ppg_system);
@@ -241,9 +223,7 @@ module tb_ppg_system;
         $display("================================================================");
         $display("");
 
-        // ============================================================
         // TEST 1: Threshold Register Write & Readback
-        // ============================================================
         test_num = 1;
         $display("[TEST %0d] Threshold register write & readback...", test_num);
         axi_write(5'h0C, 32'h0000_9600);  // threshold = 150 in bits[15:8]
@@ -256,9 +236,7 @@ module tb_ppg_system;
             tests_failed = tests_failed + 1;
         end
 
-        // ============================================================
-        // TEST 2: Staggered AXI Write (Decoupled Handshake Validation)
-        // ============================================================
+        // TEST 2: Staggered AXI Write
         test_num = 2;
         $display("");
         $display("[TEST %0d] Staggered AXI write (addr first, data 5 cycles later)...", test_num);
@@ -272,9 +250,7 @@ module tb_ppg_system;
             tests_failed = tests_failed + 1;
         end
 
-        // ============================================================
         // TEST 3: Filter Convergence (Constant Input)
-        // ============================================================
         test_num = 3;
         $display("");
         $display("[TEST %0d] Filter convergence with constant input (100)...", test_num);
@@ -295,9 +271,7 @@ module tb_ppg_system;
             tests_failed = tests_failed + 1;
         end
 
-        // ============================================================
         // TEST 4: IR Channel Operation
-        // ============================================================
         test_num = 4;
         $display("");
         $display("[TEST %0d] IR channel write & filter...", test_num);
@@ -315,9 +289,7 @@ module tb_ppg_system;
             tests_failed = tests_failed + 1;
         end
 
-        // ============================================================
         // TEST 5: Beat Detection & IBI Measurement
-        // ============================================================
         test_num = 5;
         $display("");
         $display("[TEST %0d] Beat detection with synthetic PPG pulses...", test_num);
@@ -355,9 +327,7 @@ module tb_ppg_system;
             tests_failed = tests_failed + 1;
         end
 
-        // ============================================================
         // TEST 6: Write-1-to-Clear Beat Flag
-        // ============================================================
         test_num = 6;
         $display("");
         $display("[TEST %0d] Write-1-to-Clear beat_flag verification...", test_num);
@@ -370,9 +340,7 @@ module tb_ppg_system;
             tests_failed = tests_failed + 1;
         end
 
-        // ============================================================
         // Summary
-        // ============================================================
         $display("");
         $display("================================================================");
         $display("  RESULTS: %0d passed, %0d failed (out of %0d tests)",

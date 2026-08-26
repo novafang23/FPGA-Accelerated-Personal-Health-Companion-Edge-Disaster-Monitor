@@ -7,10 +7,8 @@
 
 #include "ssd1306.h"
 
-/* ================================================================
- *  Built-in 5×7 ASCII Font (characters 0x20 – 0x7F)
- *  Each character is 5 bytes wide, each byte is one column (LSB = top)
- * ================================================================ */
+/* Built-in 5x7 ASCII Font (characters 0x20 - 0x7F)
+ * Each character is 5 bytes wide, each byte is one column (LSB = top) */
 static const uint8_t font_5x7[][5] = {
     {0x00,0x00,0x00,0x00,0x00}, /* ' '  0x20 */
     {0x00,0x00,0x5F,0x00,0x00}, /* '!'  0x21 */
@@ -109,9 +107,7 @@ static const uint8_t font_5x7[][5] = {
     {0x10,0x08,0x08,0x10,0x08}, /* '~'  0x7E */
 };
 
-/* ================================================================
- *  Internal helpers
- * ================================================================ */
+/* Internal helpers */
 
 static int ssd1306_send_cmd(ssd1306_t *disp, uint8_t cmd) {
     uint8_t buf[2] = {SSD1306_CMD_SINGLE, cmd};
@@ -124,9 +120,7 @@ static int ssd1306_send_cmd2(ssd1306_t *disp, uint8_t cmd, uint8_t arg) {
     return ssd1306_send_cmd(disp, arg);
 }
 
-/* ================================================================
- *  Initialization
- * ================================================================ */
+/* Initialization */
 
 int ssd1306_init(ssd1306_t *disp, i2c_handle_t *i2c) {
     if (!disp || !i2c) return -1;
@@ -169,9 +163,7 @@ int ssd1306_init(ssd1306_t *disp, i2c_handle_t *i2c) {
     return 0;
 }
 
-/* ================================================================
- *  Drawing Primitives
- * ================================================================ */
+/* Drawing Primitives */
 
 void ssd1306_clear(ssd1306_t *disp) {
     if (!disp) return;

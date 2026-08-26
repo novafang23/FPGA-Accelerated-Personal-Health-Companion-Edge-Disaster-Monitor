@@ -70,7 +70,7 @@ extern "C" {
 #define SSD1306_CHARGE_PUMP_SETTING 0x8D
 #define SSD1306_CHARGE_PUMP_ENABLE  0x14
 
-/* ---- Driver State ---- */
+/* Driver State */
 typedef struct {
     i2c_handle_t *i2c;
     uint8_t       framebuf[SSD1306_WIDTH * SSD1306_PAGES]; /* 1024 bytes */

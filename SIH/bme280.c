@@ -1,16 +1,11 @@
 /*
- * bme280.c — BME280 Temperature, Humidity & Pressure Sensor Driver
- * SIH26181: AI-Powered Personal Health Companion (Qualcomm)
- *
- * Implements Bosch's compensation formulas from the BME280 datasheet
- * for converting raw ADC readings to physical units.
+ * bme280.c
+ * BME280 Temperature, Humidity & Pressure Sensor Driver
  */
 
 #include "bme280.h"
 
-/* ================================================================
- *  Calibration Data Loading
- * ================================================================ */
+/* Calibration Data Loading */
 
 static int bme280_load_calibration(bme280_t *dev) {
     uint8_t buf[26];
@@ -51,9 +46,7 @@ static int bme280_load_calibration(bme280_t *dev) {
     return 0;
 }
 
-/* ================================================================
- *  Compensation Formulas (from Bosch BME280 datasheet)
- * ================================================================ */
+/* Compensation Formulas */
 
 static float bme280_compensate_temperature(bme280_t *dev, int32_t adc_T) {
     bme280_calib_t *c = &dev->calib;
@@ -107,9 +100,7 @@ static float bme280_compensate_pressure(bme280_t *dev, int32_t adc_P) {
     return p / 100.0f;  /* Convert Pa to hPa */
 }
 
-/* ================================================================
- *  Public API
- * ================================================================ */
+/* Public API */
 
 int bme280_reset(bme280_t *dev) {
     if (!dev || !dev->i2c) return -1;
@@ -139,15 +130,7 @@ int bme280_init(bme280_t *dev, i2c_handle_t *i2c, uint8_t addr) {
     /* Load factory calibration data */
     if (bme280_load_calibration(dev) != 0) return -1;
 
-    /*
-     * Configure for weather monitoring:
-     *   Humidity:    1x oversampling
-     *   Temperature: 2x oversampling
-     *   Pressure:    1x oversampling
-     *   Mode:        Forced (single-shot, low power)
-     *   IIR filter:  4 (smooth temperature readings)
-     *   Standby:     1000ms (for normal mode — unused in forced mode)
-     */
+    /* Configure for weather monitoring */
 
     /* Humidity oversampling — MUST be set before ctrl_meas write! */
     if (i2c_write_reg(i2c, addr, BME280_REG_CTRL_HUM,

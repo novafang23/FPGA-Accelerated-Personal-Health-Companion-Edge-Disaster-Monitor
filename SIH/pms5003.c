@@ -1,20 +1,6 @@
 /*
- * pms5003.c — PMS5003 Particulate Matter Sensor Driver Implementation
- * SIH26181: AI-Powered Personal Health Companion (Qualcomm)
- *
- * Frame format (32 bytes):
- *   Byte 0-1:  Start bytes (0x42 0x4D)
- *   Byte 2-3:  Frame length (0x00 0x1C = 28)
- *   Byte 4-5:  PM1.0 CF=1
- *   Byte 6-7:  PM2.5 CF=1
- *   Byte 8-9:  PM10  CF=1
- *   Byte 10-11: PM1.0 atmospheric
- *   Byte 12-13: PM2.5 atmospheric
- *   Byte 14-15: PM10  atmospheric
- *   Byte 16-27: Particle counts (6 × 16-bit)
- *   Byte 28:    Reserved
- *   Byte 29:    Reserved
- *   Byte 30-31: Checksum (sum of bytes 0–29)
+ * pms5003.c
+ * PMS5003 Particulate Matter Sensor Driver Implementation
  */
 
 #include "pms5003.h"
@@ -28,7 +14,7 @@
 #define SR_RXEMPTY  (1 << 1)
 #endif
 
-/* ---- Internal: Parse a complete frame ---- */
+/* Internal: Parse a complete frame */
 static pms5003_data_t last_data;
 static int has_valid_data = 0;
 
@@ -76,9 +62,7 @@ static int pms5003_parse_frame(pms5003_t *dev) {
     return 0;
 }
 
-/* ================================================================
- *  Public API
- * ================================================================ */
+/* Public API */
 
 int pms5003_init(pms5003_t *dev, uint32_t uart_base) {
     if (!dev) return -1;

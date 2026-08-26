@@ -1,14 +1,6 @@
 /*
- * disaster_risk_engine.c — Multi-Disaster Health Risk Assessment Implementation
- * SIH26181: AI-Powered Personal Health Companion (Qualcomm)
- *
- * Scoring methodology:
- *   Each disaster engine computes a composite score (0-100) from weighted
- *   physiological + environmental sub-scores. The score maps to risk levels:
- *     0-29  → NORMAL
- *     30-49 → MODERATE
- *     50-69 → HIGH
- *     70+   → CRITICAL
+ * disaster_risk_engine.c
+ * Multi-Disaster Health Risk Assessment Implementation
  */
 
 #include <stdio.h>
@@ -18,9 +10,7 @@
 #include <string.h>
 #include "disaster_risk_engine.h"
 
-/* ================================================================
- *  Forward Declarations
- * ================================================================ */
+/* Forward Declarations */
 static risk_level_t assess_heat_risk(
     float bpm, float rmssd, float ambient_temp_c, float humidity_pct,
     const char **advisory
@@ -36,9 +26,7 @@ static risk_level_t assess_flood_risk(
     const char **advisory
 );
 
-/* ================================================================
- *  Utility Functions
- * ================================================================ */
+/* Utility Functions */
 
 const char* risk_level_to_string(risk_level_t level) {
     switch (level) {
@@ -60,21 +48,7 @@ const char* risk_level_to_color(risk_level_t level) {
     }
 }
 
-/* ================================================================
- *  Heat Wave — Cardio-Thermal Strain Index (CTSI)
- * ================================================================
- *
- *  Biological basis:
- *    In extreme heat, cutaneous vasodilation diverts blood to the skin
- *    for cooling. To maintain cardiac output, heart rate rises
- *    ("cardiovascular drift") while HRV drops (sympathetic dominance).
- *    This precedes heat exhaustion → heat stroke by 15-30 minutes.
- *
- *  Inputs scored:
- *    1. Heat Index (temperature + humidity interaction)
- *    2. Resting heart rate elevation
- *    3. HRV depression (low RMSSD = high sympathetic activation)
- */
+/* Heat Wave — Cardio-Thermal Strain Index (CTSI) */
 static risk_level_t assess_heat_risk(
     float bpm, float rmssd, float ambient_temp_c, float humidity_pct,
     const char **advisory
@@ -119,21 +93,7 @@ static risk_level_t assess_heat_risk(
     }
 }
 
-/* ================================================================
- *  Air Pollution — Pollution Respiratory Strain Index (PRSI)
- * ================================================================
- *
- *  Biological basis:
- *    High PM2.5 causes acute airway inflammation and alveolar gas
- *    exchange impairment. SpO2 drops as respiratory compensation
- *    fails, while heart rate rises to maintain oxygen delivery.
- *
- *  Inputs scored:
- *    1. PM2.5 concentration (AQI proxy)
- *    2. SpO2 desaturation
- *    3. Compensatory tachycardia
- *    4. Autonomic stress response (HRV)
- */
+/* Air Pollution — Pollution Respiratory Strain Index (PRSI) */
 static risk_level_t assess_pollution_risk(
     float bpm, float spo2, float pm25, float rmssd,
     const char **advisory
@@ -176,21 +136,7 @@ static risk_level_t assess_pollution_risk(
     }
 }
 
-/* ================================================================
- *  Flood / Hypothermia / Extreme Exertion
- * ================================================================
- *
- *  Biological basis:
- *    Immersion in cold floodwater triggers rapid cutaneous cooling,
- *    peripheral vasoconstriction, and eventually cardiac arrhythmia.
- *    Heavy physical exertion during rescue causes extreme tachycardia
- *    with autonomic collapse (very low HRV).
- *
- *  Inputs scored:
- *    1. Skin temperature drop (hypothermia indicator)
- *    2. Bradycardia (cold) or extreme tachycardia (exertion)
- *    3. Autonomic collapse (very low RMSSD)
- */
+/* Flood / Hypothermia / Extreme Exertion */
 static risk_level_t assess_flood_risk(
     float bpm, float skin_temp_c, float rmssd,
     const char **advisory
@@ -233,9 +179,7 @@ static risk_level_t assess_flood_risk(
     }
 }
 
-/* ================================================================
- *  Master Assessment — Fuses All Disaster Engines
- * ================================================================ */
+/* Master Assessment — Fuses All Disaster Engines */
 
 void disaster_assess(
     const hrv_state_t   *hrv,
@@ -290,20 +234,7 @@ void disaster_assess(
     }
 }
 
-/* ================================================================
- *  Neural Network Risk Assessment
- * ================================================================
- *
- *  Uses the TinyML feedforward neural network (6→12→3) to predict
- *  disaster risk from sensor features. The NN captures non-linear
- *  inter-parameter correlations that threshold-based scoring misses.
- *
- *  Sigmoid output mapping:
- *    [0.0, 0.25) → NORMAL     (safe operating region)
- *    [0.25, 0.5) → MODERATE   (early warning)
- *    [0.5, 0.7)  → HIGH       (intervention needed)
- *    [0.7, 1.0]  → CRITICAL   (emergency response)
- */
+/* Neural Network Risk Assessment */
 static risk_level_t nn_score_to_risk(float score, const char **advisory,
                                      const char *crit_msg, const char *high_msg,
                                      const char *mod_msg, const char *norm_msg) {

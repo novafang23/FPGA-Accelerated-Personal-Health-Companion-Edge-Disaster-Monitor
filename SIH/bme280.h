@@ -1,9 +1,6 @@
 /*
- * bme280.h — BME280 Temperature, Humidity & Pressure Sensor Driver
- * SIH26181: AI-Powered Personal Health Companion (Qualcomm)
- *
- * Used for ambient environment monitoring during heat waves, floods, etc.
- * I2C Address: 0x76 (SDO=GND) or 0x77 (SDO=VDD)
+ * bme280.h
+ * BME280 Temperature, Humidity & Pressure Sensor Driver
  */
 
 #ifndef BME280_H
@@ -61,7 +58,7 @@ extern "C" {
 #define BME280_FILTER_OFF   0x00
 #define BME280_FILTER_4     0x02
 
-/* ---- Calibration Data ---- */
+/* Calibration Data */
 typedef struct {
     /* Temperature */
     uint16_t dig_T1;
@@ -86,14 +83,14 @@ typedef struct {
     int8_t   dig_H6;
 } bme280_calib_t;
 
-/* ---- Compensated Output ---- */
+/* Compensated Output */
 typedef struct {
     float temperature_c;   /* Degrees Celsius      */
     float humidity_pct;    /* Relative humidity (%) */
     float pressure_hpa;    /* Pressure (hPa)        */
 } bme280_data_t;
 
-/* ---- Driver State ---- */
+/* Driver State */
 typedef struct {
     i2c_handle_t    *i2c;
     uint8_t          addr;          /* Active I2C address          */

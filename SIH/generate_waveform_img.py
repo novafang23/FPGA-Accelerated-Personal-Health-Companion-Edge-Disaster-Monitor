@@ -52,7 +52,7 @@ for name, sig_type, val in signals:
         ax.add_patch(rect1)
         ax.add_patch(rect2)
         ax.text(34, base_y + 0.35, "0x00000000 (Idle)", color='#94a3b8', fontsize=7.5, ha='center', va='center')
-        ax.text(84, base_y + 0.35, "0x00000CD1 (3281 ticks = 65.62 ms)", color='#6ee7b7', fontsize=7.5, weight='bold', ha='center', va='center')
+        ax.text(84, base_y + 0.35, "0x00000CD1 (3281 ticks = 65.62 us)", color='#6ee7b7', fontsize=7.5, weight='bold', ha='center', va='center')
 
     ax.text(-2, base_y + 0.35, name, color='#f1f5f9', fontsize=9, weight='bold', ha='right', va='center')
     y_pos -= 1

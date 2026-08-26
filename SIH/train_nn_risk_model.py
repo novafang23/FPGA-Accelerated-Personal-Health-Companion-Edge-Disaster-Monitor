@@ -28,9 +28,7 @@ import numpy as np
 
 np.random.seed(42)
 
-# =====================================================================
-# 1. Feature normalization ranges — MUST match nn_risk_model.h exactly
-# =====================================================================
+# 1. Feature normalization ranges
 RANGES = {
     "hr":    (40.0, 200.0),
     "rmssd": (1.0, 100.0),
@@ -45,10 +43,7 @@ def normalize(v, lo, hi):
     return np.clip((v - lo) / (hi - lo), 0.0, 1.0)
 
 
-# =====================================================================
-# 2. Teacher models — faithful port of disaster_risk_engine.c
-#    (same thresholds, same point values, vectorized over numpy arrays)
-# =====================================================================
+# 2. Teacher models (port of disaster_risk_engine.c)
 def ctsi_score(bpm, rmssd, temp, hum):
     """Cardio-Thermal Strain Index, 0-100. Direct port of assess_heat_risk()."""
     heat_index = np.where(
@@ -113,12 +108,7 @@ def flood_score(bpm, temp, rmssd):
     return score
 
 
-# =====================================================================
 # 3. Synthetic labeled dataset
-#    Uniform coverage of the full physiological/environmental space,
-#    plus extra sampling near the decision boundaries so the network
-#    doesn't just learn the easy interior of each class.
-# =====================================================================
 def make_dataset(n):
     hr    = np.random.uniform(*RANGES["hr"], n)
     rmssd = np.random.uniform(*RANGES["rmssd"], n)
@@ -189,9 +179,7 @@ X_val, Y_val = X[val_idx], Y[val_idx]
 print(f"Dataset: {N} samples ({len(train_idx)} train / {len(val_idx)} val)")
 print(f"Label distribution — heat  mean={y_heat.mean():.3f}  pollution mean={y_pol.mean():.3f}  flood mean={y_flo.mean():.3f}")
 
-# =====================================================================
-# 4. Model — same 6->12->3 architecture, trained with Adam + backprop
-# =====================================================================
+# 4. Model Definition (6->12->3, Adam)
 IN, HID, OUT = 6, 12, 3
 
 def relu(x):
@@ -273,9 +261,7 @@ for epoch in range(1, EPOCHS + 1):
         val_loss = np.mean((val_pred - Y_val) ** 2)
         print(f"  epoch {epoch:4d}  train_mse={epoch_loss / n_train:.5f}  val_mse={val_loss:.5f}")
 
-# =====================================================================
-# 5. Validate against the exact scenarios from the original docstring
-# =====================================================================
+# 5. Validate against exact scenarios
 def predict(hr_v, rmssd_v, spo2_v, temp_v, hum_v, pm25_v):
     x = np.array([[
         normalize(hr_v, *RANGES["hr"]),
@@ -299,9 +285,7 @@ for label, hr_v, rmssd_v, spo2_v, temp_v, hum_v, pm25_v, expected in scenarios:
     print(f"  {label}")
     print(f"    -> heat={out[0]:.3f}  pollution={out[1]:.3f}  flood={out[2]:.3f}   (expected: {expected})")
 
-# =====================================================================
-# 6. Emit ready-to-paste C weights for nn_risk_model.c
-# =====================================================================
+# 6. Emit ready-to-paste C weights
 def c_format_array2d(name, arr, rows_comment=None):
     lines = [f"    .{name} = {{"]
     for i, row in enumerate(arr):

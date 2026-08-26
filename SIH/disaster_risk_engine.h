@@ -1,16 +1,7 @@
 /*
- * disaster_risk_engine.h — Multi-Disaster Health Risk Assessment Module
- * SIH26181: AI-Powered Personal Health Companion (Qualcomm)
- *
- * Fuses physiological signals (HR, HRV, SpO2) with environmental sensors
- * (temperature, humidity, PM2.5/AQI) to generate real-time early warnings
- * for Indian disaster scenarios:
- *
- *   1. Heat Wave    → Cardio-Thermal Strain Index (CTSI)
- *   2. Air Pollution → Pollution Respiratory Strain Index (PRSI)
- *   3. Flood/Cold   → Hypothermia & Exertion Collapse Detector
+ * disaster_risk_engine.h
+ * Multi-Disaster Health Risk Assessment Module
  */
-
 #ifndef DISASTER_RISK_ENGINE_H
 #define DISASTER_RISK_ENGINE_H
 
@@ -23,7 +14,7 @@
 extern "C" {
 #endif
 
-/* ---- Risk Levels ---- */
+/* Risk Levels */
 typedef enum {
     RISK_NORMAL   = 0,   /* Green  — all parameters within safe range       */
     RISK_MODERATE = 1,   /* Yellow — early signs, take precautionary action  */
@@ -31,7 +22,7 @@ typedef enum {
     RISK_CRITICAL = 3    /* Red    — imminent danger, emergency response     */
 } risk_level_t;
 
-/* ---- Environmental Sensor Inputs ---- */
+/* Environmental Sensor Inputs */
 typedef struct {
     float ambient_temp_c;   /* Ambient temperature (degrees Celsius)          */
     float humidity_pct;     /* Relative humidity (0-100%)                     */
@@ -39,7 +30,7 @@ typedef struct {
     float skin_temp_c;      /* Skin temperature (degrees C), 0 if unavailable */
 } env_sensors_t;
 
-/* ---- Risk Assessment Output ---- */
+/* Risk Assessment Output */
 typedef struct {
     risk_level_t heat_risk;
     risk_level_t pollution_risk;
@@ -78,16 +69,7 @@ void disaster_assess(
     risk_assessment_t   *result
 );
 
-/*
- * Run AI-powered neural network disaster risk assessment.
- *
- * Uses a 2-layer feedforward neural network (6→12→3) to predict
- * risk levels from the same sensor inputs. The NN captures inter-
- * parameter correlations that threshold-based scoring may miss.
- *
- * On Qualcomm platforms, this inference would run on the Hexagon NPU
- * via SNPE/QNN SDK for hardware-accelerated prediction.
- */
+/* Run AI-powered neural network disaster risk assessment. */
 void disaster_assess_nn(
     const hrv_state_t   *hrv,
     float                spo2,

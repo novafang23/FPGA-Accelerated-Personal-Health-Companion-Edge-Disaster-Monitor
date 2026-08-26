@@ -1,17 +1,7 @@
 /*
- * spo2_engine.h — Pulse Oximetry (SpO2) Estimation Module
- * SIH26181: AI-Powered Personal Health Companion
- *
- * Computes blood oxygen saturation from dual-wavelength PPG signals
- * (Red 660nm + Infrared 940nm) using the Ratio-of-Ratios method:
- *
- *   R = (AC_Red / DC_Red) / (AC_IR / DC_IR)
- *   SpO2 = 110 - 25 * R
- *
- * AC component = peak-to-valley pulsatile amplitude
- * DC component = average (baseline) signal level
+ * spo2_engine.h
+ * Pulse Oximetry (SpO2) Estimation Module
  */
-
 #ifndef SPO2_ENGINE_H
 #define SPO2_ENGINE_H
 
@@ -24,15 +14,13 @@ extern "C" {
 #define SPO2_WINDOW_SIZE 50  /* Samples per measurement window */
 
 typedef struct {
-    /* Running min/max trackers for AC/DC extraction within current window */
     uint8_t red_min, red_max;
-    uint8_t ir_min,  ir_max;
+    uint8_t ir_min, ir_max;
     int     sample_count;
 
-    /* Computed values */
-    float   ratio_r;    /* Ratio of ratios (R)       */
-    float   spo2;       /* Estimated SpO2 percentage  */
-    int     valid;      /* 1 if current reading valid */
+    float   ratio_r;
+    float   spo2;
+    int     valid;
 } spo2_state_t;
 
 /* Initialize / reset SpO2 state */

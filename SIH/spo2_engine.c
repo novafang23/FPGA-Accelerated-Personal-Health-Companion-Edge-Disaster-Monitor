@@ -1,15 +1,7 @@
 /*
- * spo2_engine.c — Pulse Oximetry (SpO2) Estimation Implementation
- * SIH26181: AI-Powered Personal Health Companion
- *
- * Clinical reference:
- *   SpO2 >= 95%  → Normal
- *   SpO2 92-94%  → Mild hypoxemia (monitor closely during pollution events)
- *   SpO2 88-91%  → Moderate hypoxemia (medical attention recommended)
- *   SpO2 < 88%   → Severe hypoxemia (emergency)
- */
-
-#include "spo2_engine.h"
+ * spo2_engine.c
+ * Pulse Oximetry (SpO2) Estimation Implementation
+ */#include "spo2_engine.h"
 
 void spo2_init(spo2_state_t *state) {
   *state = (spo2_state_t){

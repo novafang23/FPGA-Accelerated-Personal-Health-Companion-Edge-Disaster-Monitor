@@ -1,14 +1,6 @@
 /*
- * hrv_analysis.c — Heart Rate Variability Analysis Implementation
- * SIH26181: AI-Powered Personal Health Companion
- *
- * Medical reference:
- *   RMSSD < 20 ms  → High sympathetic stress (heat exhaustion, fatigue)
- *   RMSSD 20-50 ms → Normal range
- *   RMSSD > 50 ms  → Strong parasympathetic tone (relaxed state)
- *
- *   SDNN < 50 ms   → Reduced overall HRV (autonomic dysfunction risk)
- *   SDNN 50-100 ms → Healthy range
+ * hrv_analysis.c
+ * Heart Rate Variability Analysis Implementation
  */
 
 #include "hrv_analysis.h"
@@ -39,10 +31,7 @@ void hrv_compute(hrv_state_t *state) {
     }
 
     int n = state->count;
-    /* Start index of the oldest valid entry in the circular buffer */
     int start = (state->head - n + HRV_BUFFER_SIZE) % HRV_BUFFER_SIZE;
-
-    /* ---- Mean IBI ---- */
     float sum = 0.0f;
     for (int i = 0; i < n; i++) {
         int idx = (start + i) % HRV_BUFFER_SIZE;
@@ -51,7 +40,6 @@ void hrv_compute(hrv_state_t *state) {
     state->mean_ibi = sum / (float)n;
     state->mean_hr  = 60000.0f / state->mean_ibi;
 
-    /* ---- SDNN: Standard Deviation of NN intervals ---- */
     float var_sum = 0.0f;
     for (int i = 0; i < n; i++) {
         int idx = (start + i) % HRV_BUFFER_SIZE;
@@ -60,7 +48,6 @@ void hrv_compute(hrv_state_t *state) {
     }
     state->sdnn = sqrtf(var_sum / (float)n);
 
-    /* ---- RMSSD: Root Mean Square of Successive Differences ---- */
     float sd_sum  = 0.0f;
     int   sd_count = 0;
     for (int i = 1; i < n; i++) {

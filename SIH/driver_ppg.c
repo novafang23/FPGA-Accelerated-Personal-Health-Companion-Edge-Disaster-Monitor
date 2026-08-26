@@ -27,9 +27,7 @@
 
 #define FPGA_CLK_FREQ_HZ    50000000ULL  /* 50 MHz system clock */
 
-/* ================================================================
- *  Red Channel (Heart Rate)
- * ================================================================ */
+/* Red Channel (Heart Rate) */
 
 // Push raw sample into hardware pipeline
 void ppg_push_sample(uint8_t raw_val) {
@@ -69,9 +67,7 @@ float ppg_read_heart_rate(void) {
     return 0.0f; // No new beat
 }
 
-/* ================================================================
- *  IR Channel (SpO2)
- * ================================================================ */
+/* IR Channel (SpO2) */
 
 // Push raw IR sample into hardware pipeline
 void ppg_push_ir_sample(uint8_t raw_val) {
@@ -83,9 +79,7 @@ uint8_t ppg_get_ir_filtered(void) {
     return (uint8_t)(Xil_In32(PPG_ACCEL_BASEADDR + REG_IR_FILTERED) & 0xFF);
 }
 
-/* ================================================================
- *  Status Helpers
- * ================================================================ */
+/* Status Helpers */
 
 // Check if beat_flag is set
 int ppg_beat_detected(void) {

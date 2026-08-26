@@ -8,7 +8,7 @@
 
 #include "i2c_hal.h"
 
-#ifdef ZYNQ_HW  /* ---- Real Zynq hardware implementation ---- */
+#ifdef ZYNQ_HW  /* Real Zynq hardware implementation */
 
 #include "xil_io.h"
 
@@ -199,7 +199,7 @@ int i2c_read_reg(const i2c_handle_t *handle, uint8_t slave_addr,
     return (int)val;
 }
 
-#else  /* ---- PC Simulation stubs ---- */
+#else  /* PC Simulation stubs */
 
 int i2c_init(i2c_handle_t *handle, uint32_t base_addr, uint32_t clk_freq) {
     if (!handle) return -1;

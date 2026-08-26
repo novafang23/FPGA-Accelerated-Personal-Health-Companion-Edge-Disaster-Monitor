@@ -1,11 +1,6 @@
-# ==============================================================================
-# run_vivado_synth.tcl — Automated Vivado Synthesis & Timing Closure Script
-# SIH26181: AI-Powered Personal Health Companion (Qualcomm Hardware Challenge)
-# Target Device: Xilinx Zynq-7000 (XC7Z020-CLG400-1) / Artix-7
-#
-# Usage:
-#   vivado -mode batch -source run_vivado_synth.tcl
-# ==============================================================================
+# run_vivado_synth.tcl
+# Automated Vivado Synthesis & Timing Closure Script
+# Usage: vivado -mode batch -source run_vivado_synth.tcl
 
 puts "=========================================================================="
 puts "  SIH26181: Synthesizing AXI PPG Accelerator IP"

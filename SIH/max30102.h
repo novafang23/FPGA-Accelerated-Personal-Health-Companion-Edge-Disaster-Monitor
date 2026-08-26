@@ -1,13 +1,6 @@
 /*
- * max30102.h — MAX30102 Pulse Oximetry & Heart-Rate Sensor Driver
- * SIH26181: AI-Powered Personal Health Companion (Qualcomm)
- *
- * The MAX30102 is a dual-wavelength (Red 660nm + IR 940nm) reflective
- * pulse oximetry and heart-rate monitor with integrated LEDs, photodetector,
- * and 18-bit ADC.
- *
- * I2C Address: 0x57 (7-bit, fixed)
- * Data output: 18-bit ADC samples in a 32-sample FIFO
+ * max30102.h
+ * MAX30102 Pulse Oximetry & Heart-Rate Sensor Driver
  */
 
 #ifndef MAX30102_H
@@ -20,10 +13,10 @@
 extern "C" {
 #endif
 
-/* ---- I2C Address ---- */
+/* I2C Address */
 #define MAX30102_I2C_ADDR   0x57
 
-/* ---- Register Map ---- */
+/* Register Map */
 /* Status */
 #define MAX30102_REG_INT_STATUS_1   0x00
 #define MAX30102_REG_INT_STATUS_2   0x01
@@ -55,14 +48,14 @@ extern "C" {
 #define MAX30102_REG_PART_ID        0xFF
 #define MAX30102_EXPECTED_PART_ID   0x15
 
-/* ---- Mode Configuration ---- */
+/* Mode Configuration */
 #define MAX30102_MODE_HEART_RATE    0x02  /* Red LED only         */
 #define MAX30102_MODE_SPO2          0x03  /* Red + IR LEDs        */
 #define MAX30102_MODE_MULTI_LED     0x07  /* Multi-LED mode       */
 #define MAX30102_MODE_RESET         0x40  /* Reset bit            */
 #define MAX30102_MODE_SHDN          0x80  /* Shutdown bit         */
 
-/* ---- SPO2 Configuration ---- */
+/* SPO2 Configuration */
 /* ADC Range: 0=2048nA, 1=4096nA, 2=8192nA, 3=16384nA */
 #define MAX30102_SPO2_ADC_RANGE_4096    (0x01 << 5)
 /* Sample Rate: 0=50, 1=100, 2=200, 3=400, 4=800, 5=1000, ... */
@@ -73,18 +66,18 @@ extern "C" {
 #define MAX30102_SPO2_PW_411            0x03  /* 18-bit resolution */
 #define MAX30102_SPO2_PW_215            0x02  /* 17-bit resolution */
 
-/* ---- FIFO Configuration ---- */
+/* FIFO Configuration */
 #define MAX30102_FIFO_SMP_AVE_4     (0x02 << 5)  /* Average 4 samples  */
 #define MAX30102_FIFO_ROLLOVER_EN   (1 << 4)      /* FIFO rollover      */
 #define MAX30102_FIFO_A_FULL_17     0x0F          /* Interrupt at 17 unread */
 
-/* ---- Raw sample data ---- */
+/* Raw sample data */
 typedef struct {
-    uint32_t red;   /* 18-bit Red ADC value */
-    uint32_t ir;    /* 18-bit IR ADC value  */
+    uint32_t red;
+    uint32_t ir;
 } max30102_sample_t;
 
-/* ---- Driver state ---- */
+/* Driver state */
 typedef struct {
     i2c_handle_t *i2c;
     int           initialized;

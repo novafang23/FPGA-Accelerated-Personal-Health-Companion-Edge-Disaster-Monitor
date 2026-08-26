@@ -575,135 +575,110 @@ Our TinyML C neural network follows Qualcomm's official deployment pipeline:
 
 ---
 
-# Part 5: The Ultimate Judge Defense Guide (Top 25 Q&A)
+## 4.5 Technical Translation: The System in Simple Terms
+*(Use this analogy to explain the mechanics to non-specialist professors)*
 
-Here are the exact questions judges will ask, categorized by technical domain, along with the precise answers you should give.
+- **The Sensors (The Eyes):** We use optical sensors to read blood flow by shining Red and Infrared light. Deoxygenated blood absorbs more red light; oxygenated blood absorbs more infrared. We calculate SpO₂ based on that ratio.
+- **The FPGA Hardware (The Reflexes):** When a user jogs or moves, their pulse signal gets noisy. A normal software filter takes too much CPU power to clean this. We built a custom hardware filter that instantly cleans the signal and measures the exact time between heartbeats with precision software cannot match, using zero CPU power.
+- **The AI (The Brain):** We take those precise heartbeat timings, heart rate, temperature, and pollution levels, and feed them into a TinyML Neural Network. The network spots the hidden correlation between rising heat and collapsing heart rate variability to predict physical danger 15 to 30 minutes in advance.
 
 ---
 
-## 5.1 Hardware & FPGA RTL Questions
+# Part 5: The Ultimate Judge Defense Guide
 
-#### Q1: "Why did you build an FPGA hardware accelerator instead of just doing everything in software on an ESP32 or Arduino?"
+Here are the exact questions judges will ask, categorized by the level of the judge. You must tailor your answers depending on whether they are a department-level college professor or a national-level Qualcomm engineer.
+
+---
+
+## 5.1 Department-Level Q&A (College Professors)
+**Focus:** Genuineness, Societal Impact, Scalability, and Simplified Concepts (50% Idea & Impact / 50% Core Concept).
+
+#### Q1: "Is this project genuinely useful in daily life? How does it actually help humans?"
+> **Your Answer:**  
+> *"Yes, absolutely. Every year, India loses thousands of lives to heat waves and winter smog. The problem is that severe distress—like a heat stroke—hits suddenly, but the body shows invisible physiological signs 15-30 minutes beforehand. Our project continuously monitors those hidden signs (like heart rate variability and blood oxygen) and cross-checks them with environmental data (heat, pollution) to warn a person before they collapse. It’s like having a 24/7 personal doctor on your wrist, especially crucial for outdoor workers, the elderly, and asthma patients."*
+
+#### Q2: "How is your idea unique? Aren't smartwatches already doing this?"
+> **Your Answer:**  
+> *"Most smartwatches send data to the cloud (AWS/Google) for processing. But during disasters like extreme heat grid failures or floods, power and cellular networks often go down. A smartwatch fails exactly when you need it most. Our project is unique because 100% of the processing—including the Neural Network AI—runs entirely on the device itself (Edge AI). It works perfectly in completely offline disaster zones with zero internet."*
+
+#### Q3: "In simple terms, how does your product work and how is it detecting these risks?"
+> **Your Answer:**  
+> *"It works in three simple steps: 
+> 1. **Sense:** Optical sensors read blood flow and oxygen levels, while environmental sensors read temperature and air pollution.
+> 2. **Filter & Calculate (Hardware):** Instead of using a slow software program, our custom chip hardware instantly cleans out the noise from arm movements and calculates the exact time between heartbeats with extreme precision. 
+> 3. **Predict (AI):** We feed this cleaned data into a small on-device Artificial Intelligence (TinyML Neural Network). The AI acts like a doctor's rulebook, combining heart stress with outside heat/pollution to output a risk score from 0 to 100%."*
+
+#### Q4: "Is this project scalable? Can it be mass-produced?"
+> **Your Answer:**  
+> *"Highly scalable. While we built our prototype on a development board to prove the hardware logic, our entire design is written in standard Verilog and C. This means it can be directly manufactured into cheap, mass-produced wearable chips—specifically targeting Qualcomm’s Snapdragon Wear platforms. Because it doesn't need cloud servers, the running cost for the user is zero."*
+
+#### Q5: "Under what conditions will this product run?"
+> **Your Answer:**  
+> *"It is designed for extreme conditions. Whether it's a 47°C heat wave in Delhi, severe winter smog with PM2.5 above 400, or a remote area with zero network coverage, the device will continue to function. Because the hardware uses extremely low power, it can monitor patients continuously 24/7 on a small watch battery."*
+
+---
+
+## 5.2 National-Level & Qualcomm Q&A (Core Tech Judges)
+**Focus:** Architecture, FPGA RTL, Signal Processing, and Edge AI.
+
+#### Q6: "Why did you build an FPGA hardware accelerator instead of just doing everything in software on an ESP32 or Arduino?"
 > **Your Answer:**  
 > *"Two major reasons: **timing precision** and **power efficiency**.  
-> For Heart Rate Variability (HRV) analysis, we must measure the time between heartbeats with sub-millisecond accuracy. Software running on an OS or microcontroller experiences 5 to 20 ms of scheduling jitter and interrupt latency, introducing up to 2.5% measurement error. Our FPGA hardware runs a dedicated 50 MHz counter that captures intervals with **20 nanoseconds precision (250,000× more precise)**.  
-> Furthermore, the FPGA filters the signal and detects peaks completely in hardware at **zero CPU load**, allowing the main processor to sleep."*
+> For Heart Rate Variability (HRV) analysis, we must measure the time between heartbeats with sub-millisecond accuracy. Software running on an OS or microcontroller experiences 5 to 20 ms of scheduling jitter, introducing up to 2.5% measurement error. Our FPGA hardware runs a dedicated 50 MHz counter that captures intervals with **20 nanoseconds precision**. Furthermore, the FPGA filters the signal and detects peaks completely in hardware at **zero CPU load**, allowing the main processor to sleep."*
 
-#### Q2: "How did you optimize your moving average filter for hardware area?"
+#### Q7: "How did you optimize your moving average filter for hardware area?"
 > **Your Answer:**  
-> *"We implemented an **O(1) running-sum architecture**. Instead of summing all 8 samples every clock cycle using an expensive adder tree, we update the sum using: NewSum = OldSum + x_new − x_old.  
-> To divide by 8, we perform a 3-bit right shift (`>> 3`), which in Verilog is purely hardwired routing. As a result, our filter uses **0 DSP48 multipliers, 0 Block RAMs, and only 142 LUTs**."*
+> *"We implemented an **O(1) running-sum architecture**. Instead of summing all 8 samples every clock cycle using an expensive adder tree, we update the sum using: NewSum = OldSum + x_new − x_old. To divide by 8, we perform a 3-bit right shift (`>> 3`), which in Verilog is purely hardwired routing. As a result, our filter uses **0 DSP48 multipliers, 0 Block RAMs, and only 142 LUTs**."*
 
-#### Q3: "What is the purpose of the 4 states in your Peak Detector FSM?"
+#### Q8: "What is the clinical difference between RMSSD and SDNN?"
 > **Your Answer:**  
-> *"The FSM has 4 dedicated states:  
-> 1. `ARMED`: Watches for the PPG signal to cross above the dynamic threshold.  
-> 2. `RISING`: Tracks the rising systolic slope until it inverts (x[n] < x[n-1]).  
-> 3. `PEAK_FOUND`: A 1-cycle state that latches the 32-bit cycle timestamp into `REG_IBI_CYCLES` and pulses the `irq_beat` interrupt.  
-> 4. `REFRACTORY`: Implements a 250 ms hardware blanking window to prevent false double-counting caused by the dicrotic notch or noise."*
+> *"**RMSSD** measures beat-to-beat changes and reflects **parasympathetic (vagal) tone** — how well the body can calm down and manage acute thermal/cardiac stress. When RMSSD < 20 ms, the body is in severe sympathetic overload. **SDNN** measures overall variability across the entire recording window, reflecting total autonomic nervous system function."*
 
-#### Q4: "What is your circuit's Fmax and Worst Negative Slack (WNS)?"
+#### Q9: "What is your TinyML Neural Network architecture and how many parameters does it have?"
 > **Your Answer:**  
-> *"In Vivado synthesis on a Xilinx Zynq-7000 (`xc7z020`), with a 50 MHz clock constraint (20.0 ns period), our design achieved a **Worst Negative Slack (WNS) of +14.28 ns**. This means our critical path delay is only 5.72 ns, giving an **Fmax of ≈ 174.8 MHz** — a **3.5× timing safety margin**."*
+> *"It is a 2-layer feedforward network with a **6→12→3 architecture**. It takes 6 inputs (HR, RMSSD, SpO₂, Temp, Humidity, PM2.5), uses 12 hidden ReLU neurons, and 3 output Sigmoid neurons for Heat Strain, Pollution, and Hypothermia. It has **123 weights/biases (492 bytes)** and requires only **108 MAC operations**, executing in < 1 µs."*
 
-#### Q5: "How does your AXI4-Lite slave prevent bus deadlocks?"
+#### Q10: "How does this prototype translate into a commercial Qualcomm product?"
 > **Your Answer:**  
-> *"In standard AXI4-Lite, the Write Address (`AW`) and Write Data (`W`) channels are decoupled and can arrive on different clock cycles. Naive designs that wait for `awvalid && wvalid` simultaneously will deadlock if the master sends them out of phase.  
-> We implemented independent `aw_done` and `w_done` status registers. When either channel arrives, its flag is latched. The internal register write only commits when both handshakes are completed, guaranteeing zero bus hangs."*
+> *"Our Verilog 8-tap filter maps to **Qualcomm Hexagon Vector eXtensions (HVX)** on the dedicated Low-Power Island (LPI) operating under < 5 mW. Our TinyML neural network compiles into an INT8 `.dlc` container for the **Qualcomm Neural Processing Engine (QNN)** on the Hexagon NPU. Our memory-mapped register interface maps natively to the **Qualcomm System Network-on-Chip (NoC)**."*
 
 ---
 
-## 5.2 Signal Processing & Biomedical Questions
+# Part 6: 60-Second Presentation Pitches
 
-#### Q6: "What is a Dicrotic Notch and how do you prevent it from corrupting your heart rate calculation?"
-> **Your Answer:**  
-> *"The dicrotic notch is a secondary pressure wave caused by the aortic valve snapping shut right after ventricular systole. In a PPG waveform, it creates a small secondary peak shortly after the main systolic peak.  
-> Without protection, a peak detector would count it as a second heartbeat, doubling the apparent BPM. We eliminate this in hardware using a **250 ms refractory blanking timer** that ignores all secondary peaks immediately following a detected beat."*
+### 6.1 The "Department-Level" Pitch (Focus on Impact & Solution)
 
-#### Q7: "What is the clinical difference between RMSSD and SDNN?"
-> **Your Answer:**  
-> *"**RMSSD** (Root Mean Square of Successive Differences) measures beat-to-beat changes and reflects **parasympathetic (vagal) tone** — how well the body can calm down and manage acute thermal/cardiac stress. When RMSSD < 20 ms, the body is in severe sympathetic overload.  
-> **SDNN** (Standard Deviation of NN intervals) measures overall variability across the entire recording window, reflecting total autonomic nervous system function."*
+> **[Student 1 — The Problem]**  
+> *"Good morning, respected judges. Every year, India loses thousands of lives to heat waves and winter smog. When severe distress strikes, the body gives off hidden physiological warning signs. Smartwatches today try to catch this, but they rely on cloud servers. In a true disaster zone with power and network failures, cloud-dependent watches become useless."*
+> 
+> **[Student 2 — The Solution in Simple Terms]**  
+> *"To solve this, we built a Personal Health Companion that works 100% offline. It reads heart stress and environmental data, and cleans the noise instantly using a custom-designed hardware chip. It acts as an early warning system, predicting heat stroke or respiratory collapse 15 to 30 minutes before it happens."*
+> 
+> **[Student 3 — The Uniqueness & Scalability]**  
+> *"What makes our idea unique is the on-device Edge AI. We managed to fit a neural network directly onto the hardware itself. It runs at ultra-low power, ensuring 24/7 monitoring. The entire design is highly scalable and ready to be mass-produced on commercial chips like Qualcomm Snapdragon Wear, bringing affordable, life-saving tech to those who need it most."*
 
-#### Q8: "How does your system calculate blood oxygen saturation (SpO₂) from optical sensors?"
-> **Your Answer:**  
-> *"We use the **Beer-Lambert Law Ratio of Ratios**. Deoxygenated blood absorbs more Red light (660 nm), while oxygenated blood absorbs more Infrared light (940 nm).  
-> We extract the pulsatile (AC) and baseline (DC) components for both wavelengths and compute R = (AC_Red / DC_Red) / (AC_IR / DC_IR). We then apply the clinical empirical calibration curve: SpO₂ = 110 − 25 × R."*
-
-#### Q9: "What is Cardiovascular Drift and why is it clinically dangerous during heat waves?"
-> **Your Answer:**  
-> *"During sustained exposure to extreme heat (> 40°C), the body diverts a large portion of blood flow to the skin surface to radiate heat via sweat. Because blood pools peripherally and fluid is lost to sweating, venous return to the heart drops, decreasing stroke volume.  
-> To maintain blood pressure, the heart rate steadily drifts upward while HRV (RMSSD) collapses. If unaddressed, this progressive strain leads directly to heat exhaustion and fatal heat stroke. Our CTSI engine detects this drift **15 to 30 minutes before clinical collapse**."*
-
----
-
-## 5.3 Embedded Systems & Protocol Questions
-
-#### Q10: "What is Write-1-to-Clear (W1C) and why did you use it for the interrupt status register?"
-> **Your Answer:**  
-> *"W1C is a hardware register standard where writing a `1` clears the designated status bit, while writing `0` does nothing.  
-> Without W1C, clearing an interrupt requires a Read-Modify-Write cycle: CPU reads the register, clears bit 0 in software, and writes the entire 32-bit word back. If a new heartbeat interrupt occurred during that instruction window, the CPU's write-back would overwrite and destroy the new interrupt flag. W1C clears the flag atomically in a single write with **zero race conditions**."*
-
-#### Q11: "Why did you use the `volatile` keyword in your MMIO driver header (`xil_io.h`)?"
-> **Your Answer:**  
-> *"Hardware registers change asynchronously outside the knowledge of the C compiler (e.g., the FPGA sets `beat_flag` when a pulse arrives). The `volatile` keyword prevents the compiler optimization pass from caching register values in CPU registers, forcing every read and write to execute as an actual hardware bus cycle."*
-
-#### Q12: "How does your software architecture support both hardware execution and PC simulation?"
-> **Your Answer:**  
-> *"We implemented a **Hardware Abstraction Layer (HAL)** in `i2c_hal.c` and `driver_ppg.c`. When compiled with `#ifdef ZYNQ_HW`, it manipulates physical memory-mapped AXI and I²C registers on the Zynq SoC. When compiled for PC development (`#else`), it routes through simulation stubs and synthetic data generators, allowing our entire embedded software stack and TinyML model to be tested on standard PCs."*
-
----
-
-## 5.4 AI & Qualcomm Strategy Questions
-
-#### Q13: "What is your TinyML Neural Network architecture and how many parameters does it have?"
-> **Your Answer:**  
-> *"It is a 2-layer feedforward network with a **6→12→3 architecture**:  
-> • **6 Inputs:** Normalized Heart Rate, RMSSD, SpO₂, Temperature, Humidity, and PM2.5.  
-> • **12 Hidden Neurons:** ReLU activation, acting as specialized feature detectors for heat, smog, and cold stress.  
-> • **3 Output Neurons:** Sigmoid activation, outputting independent [0.0, 1.0] probabilities for Heat Strain, Pollution Distress, and Hypothermia.  
-> It has **123 weights/biases (492 bytes)** and requires only **108 MAC operations**, executing in < 1 µs on an ARM CPU."*
-
-#### Q14: "How did you train the TinyML weights without a massive clinical dataset?"
-> **Your Answer:**  
-> *"We used **Knowledge Distillation**. We used our rule-based medical scoring models (CTSI and PRSI derived from Steadman and Beer-Lambert physiological literature) as teacher models. We trained the student neural network to replicate these medical boundaries while generalizing the non-linear cross-correlations between vitals and environmental metrics. Using the Adam optimizer for 400 epochs on a synthetic dataset, we achieved high correlation with the medical rule engine: **r = 0.97 for heat, r = 0.97 for pollution, and r = 0.94 for flood**."*
-
-#### Q15: "How do you know the Neural Network is accurate?"
-> **Your Answer:**
-> *"We built a dedicated C validation harness (`compare_harness.c`) that runs the Rule-Based Medical Engine and the TinyML Neural Network side-by-side across canonical disaster scenarios (Heat Wave, Severe Smog, Flash Flood). On a 2,000-sample held-out dataset, the TinyML model achieved **78-89% exact risk-band agreement** (Normal/Moderate/High/Critical) with the clinical rule engine, proving it successfully distilled the medical logic."*
-
-#### Q16: "How does this prototype translate into a commercial Qualcomm product?"
-> **Your Answer:**  
-> *"Our design maps directly onto **Qualcomm Snapdragon Wear W5+ Gen 1 and QCS6490 SoCs**:  
-> 1. Our Verilog 8-tap filter maps to **Qualcomm Hexagon Vector eXtensions (HVX)** on the dedicated Low-Power Island (LPI), operating under < 5 mW while the main CPU sleeps.  
-> 2. Our TinyML neural network compiles into an INT8 `.dlc` container for the **Qualcomm Neural Processing Engine (QNN/SNPE)** on the Hexagon NPU.  
-> 3. Our memory-mapped register interface maps natively to the **Qualcomm System Network-on-Chip (NoC)** via standard AMBA AXI interconnects."*
-
-#### Q17: "Why is an edge solution better than sending sensor data to an AWS/Google Cloud server?"
-> **Your Answer:**  
-> *"In severe disaster zones (floods, earthquakes, heat wave grid failures), cellular networks and internet connectivity collapse. A cloud-dependent monitor fails exactly when it is needed most.  
-> By keeping all signal filtering, HRV extraction, and TinyML inference strictly on-device at the edge, our companion guarantees **100% availability in offline disaster zones, zero latency, and absolute biometric data privacy**."*
-
----
-
-# Part 6: 60-Second Presentation Pitch for Students
-
-*Use this exact script when introducing your project to judges at your booth:*
-
----
+### 6.2 The "Qualcomm / National-Level" Pitch (Focus on Core Tech)
 
 > **[Student 1 — The Problem & Vision]**  
-> *"Good morning, respected judges. In India, extreme heat waves and severe winter smog claim thousands of lives every year. When heat stroke or respiratory collapse strikes, the body gives off physiological warning signs — like cardiovascular drift and heart rate variability collapse — but these remain completely invisible until the patient faints or suffers organ failure. Cloud-connected smartwatches can't solve this because when power and cell towers fail in disaster zones, they stop working."*
+> *"Good morning. In India, extreme heat waves and severe winter smog cause cardiovascular drift and heart rate variability collapse — invisible until the patient faints. Cloud-connected smartwatches can't solve this because when cell towers fail in disaster zones, they stop working."*
 > 
 > **[Student 2 — The FPGA Hardware Innovation]**  
-> *"To solve this, we designed **SIH26181: an FPGA-Accelerated Personal Health Companion & Edge Disaster Monitor**.  
-> On the hardware side, we built a custom Verilog RTL accelerator on an ARM AXI4-Lite SoC. It features an O(1) running-sum 8-tap noise filter that uses **zero DSP multiplier slices**, paired with a 4-state peak detector FSM. Our hardware measures heartbeat intervals with **20-nanosecond precision at 50 MHz**, eliminating the 5 to 20 ms of operating system jitter that ruins software HRV calculations."*
+> *"We designed an FPGA-Accelerated Edge Disaster Monitor. We built a custom Verilog RTL accelerator on an ARM AXI4-Lite SoC. It features an O(1) running-sum 8-tap noise filter that uses **zero DSP multiplier slices**, and a 4-state peak detector FSM. We measure heartbeat intervals with **20-nanosecond precision at 50 MHz**, completely eliminating OS jitter."*
 > 
 > **[Student 3 — Edge AI, Qualcomm Mapping & Impact]**  
-> *"On the software side, our bare-metal engine extracts RMSSD and SpO₂, and feeds them alongside ambient temperature, humidity, and PM2.5 into an on-device **6→12→3 TinyML Neural Network** running in under 1 microsecond.  
-> It predicts heat stroke and respiratory distress **15 to 30 minutes in advance** with zero cloud dependence.  
-> For production deployment, our IP maps seamlessly to **Qualcomm Snapdragon Wear W5+ Gen 1**, utilizing the **Hexagon DSP Low-Power Island** for sub-5-milliwatt continuous monitoring.  
-> All 6/6 hardware testcases have passed with +14.28 ns timing slack. We are ready to demonstrate our live simulation dashboard and GTKWave waveforms."*
+> *"Our bare-metal engine extracts RMSSD and SpO₂, feeding them alongside environmental data into an on-device **6→12→3 TinyML Neural Network** running in under 1 microsecond. Our IP maps seamlessly to **Qualcomm Snapdragon Wear W5+ Gen 1**, utilizing the **Hexagon DSP Low-Power Island** for sub-5-milliwatt continuous monitoring. All hardware testcases pass with +14.28 ns timing slack."*
+
+### 6.3 The "High-Impact" Pitch (Hook, Solution, Impact)
+*(From the Pitch Guide - 90 Seconds)*
+
+> **[The Hook — 0 to 30 Seconds]**  
+> *"Good morning. In India, extreme heat waves and severe winter smog claim thousands of lives. When heat stroke or respiratory collapse strikes, the body gives off physiological warning signs—but they are invisible until the patient faints. Existing smartwatches rely on the cloud; when cell towers fail during a disaster, they become useless."*
+> 
+> **[The Solution — 30 to 60 Seconds]**  
+> *"We built an offline, FPGA-accelerated health companion. It uses custom hardware to filter noisy heart signals with precision that software cannot match. It fuses this data with local temperature and PM2.5 levels, running a lightweight AI neural network entirely on-device to predict physical collapse 15 to 30 minutes in advance."*
+> 
+> **[The Impact — 60 to 90 Seconds]**  
+> *"This guarantees 100% availability in offline disaster zones and absolute privacy. It is designed to scale directly to commercial chips like the Qualcomm Snapdragon Wear."*
 
 ---
 

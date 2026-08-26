@@ -1,25 +1,16 @@
 `timescale 1ns / 1ps
 
-// ============================================================================
-// axi_ppg_accelerator.v — AXI4-Lite PPG Processing Accelerator
-// SIH26181: AI-Powered Personal Health Companion (Qualcomm)
-//
-// Features:
-//   - Dual-channel PPG filtering (Red 660nm + IR 940nm) via moving average
-//   - Hardware peak detection with cycle-accurate IBI timing
-//   - Dynamic threshold programming via software
-//   - Decoupled AXI4-Lite write handshake (address/data independent phases)
-//   - Beat interrupt output (irq_beat)
+// axi_ppg_accelerator.v
+// AXI4-Lite PPG Processing Accelerator
 //
 // Register Map (Word-aligned, 5-bit address):
-//   0x00  REG_RED_RAW       [7:0]  R/W  Red raw sample (write triggers pipeline)
+//   0x00  REG_RED_RAW       [7:0]  R/W  Red raw sample
 //   0x04  REG_RED_FILTERED  [7:0]  RO   Red filtered output
 //   0x08  REG_IBI_CYCLES    [31:0] RO   Inter-Beat Interval (clock cycles)
-//   0x0C  REG_STATUS_THRESH [0]    RO/W1C  beat_flag (Write-1-to-Clear)
-//                           [15:8] R/W     Dynamic peak threshold
-//   0x10  REG_IR_RAW        [7:0]  R/W  IR raw sample (write triggers pipeline)
+//   0x0C  REG_STATUS_THRESH [0]    RO/W1C beat_flag (Write-1-to-Clear)
+//                           [15:8] R/W    Dynamic peak threshold
+//   0x10  REG_IR_RAW        [7:0]  R/W  IR raw sample
 //   0x14  REG_IR_FILTERED   [7:0]  RO   IR filtered output
-// ============================================================================
 
 module axi_ppg_accelerator #(
     parameter integer C_S_AXI_DATA_WIDTH = 32,
@@ -62,9 +53,7 @@ module axi_ppg_accelerator #(
     assign s_axi_bresp = 2'b00; // OKAY
     assign s_axi_rresp = 2'b00; // OKAY
 
-    // ================================================================
-    //  Decoupled Write Handshake State Flags
-    // ================================================================
+    // Decoupled Write Handshake State Flags
     // These flags allow the AXI address and data phases to complete
     // independently on separate clock cycles. The write executes only
     // when both phases have completed.
@@ -73,9 +62,7 @@ module axi_ppg_accelerator #(
     reg [C_S_AXI_ADDR_WIDTH-1:0] aw_addr_latched;
     reg [C_S_AXI_DATA_WIDTH-1:0] w_data_latched;
 
-    // ================================================================
-    //  Internal Registers
-    // ================================================================
+    // Internal Registers
     reg [7:0]  reg_red_raw;        // Red channel raw sample
     reg        red_sample_valid;   // Pulse: new Red sample available
     reg [7:0]  reg_ir_raw;         // IR channel raw sample
@@ -86,9 +73,7 @@ module axi_ppg_accelerator #(
     // Read address latch
     reg [C_S_AXI_ADDR_WIDTH-1:0] axi_araddr_latched;
 
-    // ================================================================
-    //  Internal Interconnect Wires
-    // ================================================================
+    // Internal Interconnect Wires
     wire [7:0]  red_filtered;       // Red channel filtered output
     wire        red_filter_valid;
     wire [7:0]  ir_filtered;        // IR channel filtered output
@@ -98,9 +83,7 @@ module axi_ppg_accelerator #(
 
     assign irq_beat = hw_beat_pulse;
 
-    // ================================================================
-    //  Sub-Module Instantiations
-    // ================================================================
+    // Sub-Module Instantiations
 
     // Red channel noise filter (8-tap moving average)
     moving_average_8tap #(.DATA_WIDTH(8)) u_filter_red (
@@ -137,14 +120,10 @@ module axi_ppg_accelerator #(
         .ibi_cycles    (hw_ibi_cycles)
     );
 
-    // ================================================================
-    //  Write Execute Flag
-    // ================================================================
+    // Write Execute Flag
     wire write_execute = aw_done && w_done && ~s_axi_bvalid;
 
-    // ================================================================
-    //  AXI4-Lite Write Channel (Decoupled Address/Data Phases)
-    // ================================================================
+    // AXI4-Lite Write Channel
     always @(posedge s_axi_aclk) begin
         if (!s_axi_aresetn) begin
             s_axi_awready   <= 1'b0;
@@ -216,9 +195,7 @@ module axi_ppg_accelerator #(
         end
     end
 
-    // ================================================================
-    //  AXI4-Lite Read Channel
-    // ================================================================
+    // AXI4-Lite Read Channel
     always @(posedge s_axi_aclk) begin
         if (!s_axi_aresetn) begin
             s_axi_arready      <= 1'b0;

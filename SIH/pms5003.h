@@ -1,12 +1,6 @@
 /*
- * pms5003.h — PMS5003 Particulate Matter (PM2.5) Sensor Driver
- * SIH26181: AI-Powered Personal Health Companion (Qualcomm)
- *
- * The PMS5003 is a laser-scattering particulate matter sensor that outputs
- * PM1.0, PM2.5, and PM10 concentrations via UART at 9600 baud.
- *
- * Protocol: 32-byte binary frames starting with 0x42 0x4D
- * Interface: UART (9600 baud, 8N1)
+ * pms5003.h
+ * PMS5003 Particulate Matter (PM2.5) Sensor Driver
  */
 
 #ifndef PMS5003_H
@@ -24,7 +18,7 @@ extern "C" {
 #define PMS5003_START_BYTE_1  0x42
 #define PMS5003_START_BYTE_2  0x4D
 
-/* ---- Particulate Matter Data ---- */
+/* Particulate Matter Data */
 typedef struct {
     /* Standard particle concentrations (CF=1, factory environment) */
     uint16_t pm1_0_cf1;    /* PM1.0 µg/m³ (CF=1)  */
@@ -47,7 +41,7 @@ typedef struct {
     int valid;             /* 1 if checksum passed */
 } pms5003_data_t;
 
-/* ---- Driver State ---- */
+/* Driver State */
 typedef struct {
     uint8_t  rx_buf[PMS5003_FRAME_LEN]; /* Frame receive buffer     */
     int      rx_pos;                     /* Current position in buffer */
