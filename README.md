@@ -64,10 +64,11 @@ An end-to-end heterogeneous System-on-Chip (SoC) combining **synthesizable Veril
 
 ## 📈 Verification Waveforms & Timing Evidence
 
-### 1. Cycle-Accurate GTKWave Simulation Waveform
+### 1. Cycle-Accurate Vivado Simulation Waveforms
 Below is the timing simulation of `tb_ppg_system.v` proving the decoupled AXI write handshake and 20 ns systolic peak interrupt generation:
 
-![Simulation Waveform](SIH/waveform_snapshot.png)
+![Simulation Waveform 1](SIH/waveform_1.png)
+![Simulation Waveform 2](SIH/waveform_2.png)
 
 ### 2. Vivado Post-Synthesis Static Timing & Utilization Evidence
 Generated with AMD Xilinx Vivado ML v2022.2, target `xc7z020clg400-1` (Speed Grade -1, Slow Corner 85°C).
@@ -75,13 +76,31 @@ See [`HARDWARE_ARCHITECTURE.md`](SIH/HARDWARE_ARCHITECTURE.md) for full microarc
 
 | Metric / Resource | Value | Chip Available (`xc7z020`) | Status |
 |:---|:---:|:---:|:---:|
-| **Worst Negative Slack (WNS)** | **+14.281 ns** | — | **TIMING MET (Setup)** |
+| **Worst Negative Slack (WNS)** | **+5.603 ns** | — | **TIMING MET (Setup)** |
 | **Worst Hold Slack (WHS)** | **+0.184 ns** | — | **TIMING MET (Hold)** |
-| **Estimated Fmax** | **174.85 MHz** | 50.0 MHz target | **3.50× Safety Margin** |
-| **Lookup Tables (LUT)** | **142** | 53,200 | **0.27%** |
-| **Flip-Flops (FF)** | **186** | 106,400 | **0.17%** |
+| **Estimated Fmax** | **69.45 MHz** | 50.0 MHz target | **1.38× Safety Margin** |
+| **Lookup Tables (LUT)** | **185** | 53,200 | **0.35%** |
+| **LUTRAM** | **16** | 17,400 | **0.09%** |
+| **Flip-Flops (FF)** | **266** | 106,400 | **0.25%** |
 | **DSP48 Slices** | **0** | 220 | **0.00%** |
 | **Block RAM (BRAM)** | **0** | 140 | **0.00%** |
+
+#### Detailed Vivado Reports
+
+**Timing Summary:**
+![Timing Summary](SIH/timing_summary.png)
+
+**Utilization Percentage:**
+![Utilization Percentage](SIH/utilization_percentage.png)
+
+**Power Summary:**
+![Power Summary](SIH/power_summary.png)
+
+**RTL Schematic:**
+![RTL Schematic](SIH/rtl_schematic.png)
+
+**Device Floorplan:**
+![Device Floorplan](SIH/device_floorplan.png)
 
 ---
 
@@ -89,12 +108,12 @@ See [`HARDWARE_ARCHITECTURE.md`](SIH/HARDWARE_ARCHITECTURE.md) for full microarc
 
 To ensure transparent, reproducible engineering rigor, all performance metrics are derived as follows:
 
-### 1. Maximum Frequency ($F_{\text{max}} = 174.85\text{ MHz}$) Calculation
+### 1. Maximum Frequency ($F_{\text{max}} = 69.45\text{ MHz}$) Calculation
 * **Tool:** AMD Xilinx Vivado ML v2022.2 (Out-of-Context Synthesis & Static Timing Analysis).
 * **Target Part:** `xc7z020clg400-1` (Speed Grade -1, Slow Process Corner at 85°C).
 * **Derivation Formula:**
-  $$T_{\text{critical}} = T_{\text{clk}} - \text{WNS} = 20.000\text{ ns} - 14.281\text{ ns} = 5.719\text{ ns}$$
-  $$F_{\text{max}} = \frac{1}{T_{\text{critical}}} = \frac{1}{5.719\text{ ns}} \approx \mathbf{174.85\text{ MHz}}$$
+  $$T_{\text{critical}} = T_{\text{clk}} - \text{WNS} = 20.000\text{ ns} - 5.603\text{ ns} = 14.397\text{ ns}$$
+  $$F_{\text{max}} = \frac{1}{T_{\text{critical}}} = \frac{1}{14.397\text{ ns}} \approx \mathbf{69.45\text{ MHz}}$$
 * **Critical Path:** Source register `peak_det_inst/sample_prev_reg[6]/C` $\rightarrow$ 4 logic levels (LUT2 $\rightarrow$ LUT4 $\rightarrow$ LUT4 $\rightarrow$ LUT6) $\rightarrow$ Destination register `peak_det_inst/ibi_counter_reg[22]/D`.
 
 ### 2. TinyML Inference Latency ($< 1\ \mu\text{s}$) Calculation
