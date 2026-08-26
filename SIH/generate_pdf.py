@@ -18,53 +18,59 @@ table_buf = []
 in_blockquote = False
 bq_buf = []
 
+
 def escape_html(text):
     return text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
 
+
 def inline_format(text):
     # bold italic
-    text = re.sub(r'\*\*\*(.*?)\*\*\*', r'<strong><em>\1</em></strong>', text)
+    text = re.sub(r"\*\*\*(.*?)\*\*\*", r"<strong><em>\1</em></strong>", text)
     # bold
-    text = re.sub(r'\*\*(.*?)\*\*', r'<strong>\1</strong>', text)
+    text = re.sub(r"\*\*(.*?)\*\*", r"<strong>\1</strong>", text)
     # italic
-    text = re.sub(r'\*(.*?)\*', r'<em>\1</em>', text)
-    text = re.sub(r'_(.*?)_', r'<em>\1</em>', text)
+    text = re.sub(r"\*(.*?)\*", r"<em>\1</em>", text)
+    text = re.sub(r"_(.*?)_", r"<em>\1</em>", text)
     # inline code
-    text = re.sub(r'`(.*?)`', r'<code>\1</code>', text)
+    text = re.sub(r"`(.*?)`", r"<code>\1</code>", text)
     # links
-    text = re.sub(r'\[(.*?)\]\((.*?)\)', r'<a href="\2">\1</a>', text)
+    text = re.sub(r"\[(.*?)\]\((.*?)\)", r'<a href="\2">\1</a>', text)
     return text
+
 
 def render_table(rows):
     if not rows:
         return ""
     out = ['<div class="table-container"><table>']
     # header
-    header_cells = [c.strip() for c in rows[0].split('|')[1:-1]]
-    out.append('<thead><tr>')
+    header_cells = [c.strip() for c in rows[0].split("|")[1:-1]]
+    out.append("<thead><tr>")
     for c in header_cells:
-        out.append(f'<th>{inline_format(c)}</th>')
-    out.append('</tr></thead><tbody>')
-    
+        out.append(f"<th>{inline_format(c)}</th>")
+    out.append("</tr></thead><tbody>")
+
     # data rows (skip separator row at index 1)
     for r in rows[2:]:
-        cells = [c.strip() for c in r.split('|')[1:-1]]
-        out.append('<tr>')
+        cells = [c.strip() for c in r.split("|")[1:-1]]
+        out.append("<tr>")
         for c in cells:
-            out.append(f'<td>{inline_format(c)}</td>')
-        out.append('</tr>')
-    out.append('</tbody></table></div>')
+            out.append(f"<td>{inline_format(c)}</td>")
+        out.append("</tr>")
+    out.append("</tbody></table></div>")
     return "\n".join(out)
+
 
 i = 0
 while i < len(lines):
     line = lines[i]
     stripped = line.strip()
-    
+
     # Code block
     if stripped.startswith("```"):
         if in_code:
-            html_body.append(f'<pre class="code-block {code_lang}"><code>' + escape_html("".join(code_buf)) + '</code></pre>')
+            html_body.append(
+                f'<pre class="code-block {code_lang}"><code>' + escape_html("".join(code_buf)) + "</code></pre>"
+            )
             code_buf = []
             in_code = False
         else:
@@ -72,7 +78,7 @@ while i < len(lines):
             code_lang = stripped[3:].strip()
         i += 1
         continue
-    
+
     if in_code:
         code_buf.append(line)
         i += 1
@@ -119,12 +125,14 @@ while i < len(lines):
         html_body.append('<hr class="divider"/>')
     elif stripped.startswith("- ") or stripped.startswith("* "):
         html_body.append(f'<div class="bullet-item">• {inline_format(stripped[2:])}</div>')
-    elif re.match(r'^\d+\.\s', stripped):
+    elif re.match(r"^\d+\.\s", stripped):
         num, text = stripped.split(".", 1)
-        html_body.append(f'<div class="numbered-item"><span class="num">{num}.</span> {inline_format(text.strip())}</div>')
+        html_body.append(
+            f'<div class="numbered-item"><span class="num">{num}.</span> {inline_format(text.strip())}</div>'
+        )
     else:
         html_body.append(f'<p class="paragraph">{inline_format(stripped)}</p>')
-    
+
     i += 1
 
 if table_buf:
@@ -139,7 +147,7 @@ full_html = f"""<!DOCTYPE html>
 <meta charset="UTF-8">
 <title>SIH26181 — Master Theory Notes &amp; Judge Defense Companion</title>
 <style>
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;700&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap');
 
 @page {{
     size: A4;
@@ -340,7 +348,7 @@ strong {{
     <div class="tagline">Qualcomm Hardware Challenge • Smart India Hackathon 2026</div>
     <h1>SIH26181 — Master Theory Notes &amp; Judge Defense Companion</h1>
     <div class="subtitle">AI-Powered Personal Health Companion &amp; Edge Disaster Monitor</div>
-    <div style="font-size: 12px; color: #e0f2fe;">FPGA-Accelerated, Cloud-Free Biometric &amp; Disaster Resilience Engine</div>
+    <div style="font-size: 12px; color: #e0f2fe;">FPGA-Accelerated Biometric &amp; Disaster Resilience Engine</div>
 </div>
 
 {"\n".join(html_body)}
@@ -361,7 +369,7 @@ cmd = [
     "--disable-gpu",
     "--no-pdf-header-footer",
     f"--print-to-pdf={pdf_path}",
-    f"file:///{html_path.replace(os.sep, '/')}"
+    f"file:///{html_path.replace(os.sep, '/')}",
 ]
 
 res = subprocess.run(cmd, capture_output=True, text=True)

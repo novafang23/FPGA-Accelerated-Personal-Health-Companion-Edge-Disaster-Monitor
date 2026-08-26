@@ -1,0 +1,50 @@
+name: CI - Extended Static Analysis
+
+on:
+  push:
+    branches: [ main, 'novafang23-codebase-analysis' ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  static-analysis:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install system packages
+        run: |
+          sudo apt-get update -y
+          sudo apt-get install -y build-essential gcc make python3-venv python3-pip cppcheck verilator
+
+      - name: Run cppcheck (C static analysis)
+        working-directory: SIH
+        run: |
+          echo "Running cppcheck..."
+          cppcheck --enable=all --inconclusive --quiet --output-file=../cppcheck-report.txt . || true
+          echo "cppcheck completed"
+
+      - name: Run verilator lint (Verilog)
+        run: |
+          set -e
+          echo "Finding Verilog files"
+          files=$(find SIH -name "*.v" -print)
+          if [ -z "$files" ]; then
+            echo "No Verilog files found"
+          else
+            for f in $files; do
+              echo "Linting $f"
+              verilator --lint-only --outf ${f##*/}-verilator.txt $f 2>> verilator-report.txt || true
+            done
+          fi
+
+      - name: Upload static analysis reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: static-analysis-reports
+          path: |
+            cppcheck-report.txt
+            verilator-report.txt
+            SIH/*-verilator.txt

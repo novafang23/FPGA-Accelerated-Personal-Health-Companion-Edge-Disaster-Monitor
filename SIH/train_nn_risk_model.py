@@ -30,12 +30,12 @@ np.random.seed(42)
 
 # 1. Feature normalization ranges
 RANGES = {
-    "hr":    (40.0, 200.0),
+    "hr": (40.0, 200.0),
     "rmssd": (1.0, 100.0),
-    "spo2":  (70.0, 100.0),
-    "temp":  (-10.0, 55.0),
-    "hum":   (0.0, 100.0),
-    "pm25":  (0.0, 500.0),
+    "spo2": (70.0, 100.0),
+    "temp": (-10.0, 55.0),
+    "hum": (0.0, 100.0),
+    "pm25": (0.0, 500.0),
 }
 
 
@@ -54,31 +54,21 @@ def ctsi_score(bpm, rmssd, temp, hum):
     ctsi = np.zeros_like(bpm)
     ctsi += np.select(
         [heat_index > 54.0, heat_index > 45.0, heat_index > 40.0, heat_index > 35.0],
-        [40.0, 30.0, 20.0, 10.0], default=0.0)
-    ctsi += np.select(
-        [bpm > 130.0, bpm > 110.0, bpm > 95.0],
-        [30.0, 20.0, 10.0], default=0.0)
-    ctsi += np.select(
-        [rmssd < 10.0, rmssd < 20.0, rmssd < 35.0],
-        [30.0, 20.0, 10.0], default=0.0)
+        [40.0, 30.0, 20.0, 10.0],
+        default=0.0,
+    )
+    ctsi += np.select([bpm > 130.0, bpm > 110.0, bpm > 95.0], [30.0, 20.0, 10.0], default=0.0)
+    ctsi += np.select([rmssd < 10.0, rmssd < 20.0, rmssd < 35.0], [30.0, 20.0, 10.0], default=0.0)
     return ctsi
 
 
 def prsi_score(bpm, spo2, pm25, rmssd):
     """Pollution Respiratory Strain Index, 0-100. Direct port of assess_pollution_risk()."""
     prsi = np.zeros_like(bpm)
-    prsi += np.select(
-        [pm25 > 300.0, pm25 > 150.0, pm25 > 75.0, pm25 > 35.0],
-        [40.0, 30.0, 20.0, 10.0], default=0.0)
-    prsi += np.select(
-        [spo2 < 88.0, spo2 < 92.0, spo2 < 94.0, spo2 < 96.0],
-        [40.0, 30.0, 20.0, 10.0], default=0.0)
-    prsi += np.select(
-        [bpm > 120.0, bpm > 100.0],
-        [15.0, 8.0], default=0.0)
-    prsi += np.select(
-        [rmssd < 15.0, rmssd < 25.0],
-        [10.0, 5.0], default=0.0)
+    prsi += np.select([pm25 > 300.0, pm25 > 150.0, pm25 > 75.0, pm25 > 35.0], [40.0, 30.0, 20.0, 10.0], default=0.0)
+    prsi += np.select([spo2 < 88.0, spo2 < 92.0, spo2 < 94.0, spo2 < 96.0], [40.0, 30.0, 20.0, 10.0], default=0.0)
+    prsi += np.select([bpm > 120.0, bpm > 100.0], [15.0, 8.0], default=0.0)
+    prsi += np.select([rmssd < 15.0, rmssd < 25.0], [10.0, 5.0], default=0.0)
     return prsi
 
 
@@ -96,77 +86,76 @@ def flood_score(bpm, temp, rmssd):
     input the network actually receives.
     """
     score = np.zeros_like(bpm)
-    score += np.select(
-        [temp < 0.0, temp < 8.0, temp < 15.0],
-        [40.0, 25.0, 10.0], default=0.0)
-    score += np.select(
-        [bpm < 50.0, bpm > 150.0, bpm > 130.0],
-        [30.0, 30.0, 15.0], default=0.0)
-    score += np.select(
-        [rmssd < 8.0, rmssd < 15.0],
-        [20.0, 10.0], default=0.0)
+    score += np.select([temp < 0.0, temp < 8.0, temp < 15.0], [40.0, 25.0, 10.0], default=0.0)
+    score += np.select([bpm < 50.0, bpm > 150.0, bpm > 130.0], [30.0, 30.0, 15.0], default=0.0)
+    score += np.select([rmssd < 8.0, rmssd < 15.0], [20.0, 10.0], default=0.0)
     return score
 
 
 # 3. Synthetic labeled dataset
 def make_dataset(n):
-    hr    = np.random.uniform(*RANGES["hr"], n)
+    hr = np.random.uniform(*RANGES["hr"], n)
     rmssd = np.random.uniform(*RANGES["rmssd"], n)
-    spo2  = np.random.uniform(*RANGES["spo2"], n)
-    temp  = np.random.uniform(*RANGES["temp"], n)
-    hum   = np.random.uniform(*RANGES["hum"], n)
-    pm25  = np.random.uniform(*RANGES["pm25"], n)
+    spo2 = np.random.uniform(*RANGES["spo2"], n)
+    temp = np.random.uniform(*RANGES["temp"], n)
+    hum = np.random.uniform(*RANGES["hum"], n)
+    pm25 = np.random.uniform(*RANGES["pm25"], n)
     return hr, rmssd, spo2, temp, hum, pm25
 
 
-N_UNIFORM  = 40_000
+N_UNIFORM = 40_000
 N_BOUNDARY = 10_000  # extra samples clustered near class boundaries
 
 hr, rmssd, spo2, temp, hum, pm25 = make_dataset(N_UNIFORM)
 
 # Boundary-focused samples: jitter around the known threshold values so the
 # sigmoid decision edges get properly fit, not just the bulk of the space.
-thresholds_hr    = [95, 110, 130, 100, 120, 150, 130, 50]
+thresholds_hr = [95, 110, 130, 100, 120, 150, 130, 50]
 thresholds_rmssd = [10, 20, 35, 15, 25, 8, 15]
-thresholds_spo2  = [88, 92, 94, 96]
-thresholds_temp  = [27, 35, 40, 45, 54, 0, 8, 15]
-thresholds_hum   = [40]
-thresholds_pm25  = [35, 75, 150, 300]
+thresholds_spo2 = [88, 92, 94, 96]
+thresholds_temp = [27, 35, 40, 45, 54, 0, 8, 15]
+thresholds_hum = [40]
+thresholds_pm25 = [35, 75, 150, 300]
+
 
 def jittered_pick(thresh_list, lo, hi, n):
     centers = np.random.choice(thresh_list, n)
     return np.clip(centers + np.random.normal(0, (hi - lo) * 0.02, n), lo, hi)
 
-hr_b    = jittered_pick(thresholds_hr, *RANGES["hr"], N_BOUNDARY)
+
+hr_b = jittered_pick(thresholds_hr, *RANGES["hr"], N_BOUNDARY)
 rmssd_b = jittered_pick(thresholds_rmssd, *RANGES["rmssd"], N_BOUNDARY)
-spo2_b  = jittered_pick(thresholds_spo2, *RANGES["spo2"], N_BOUNDARY)
-temp_b  = jittered_pick(thresholds_temp, *RANGES["temp"], N_BOUNDARY)
-hum_b   = jittered_pick(thresholds_hum, *RANGES["hum"], N_BOUNDARY)
-pm25_b  = jittered_pick(thresholds_pm25, *RANGES["pm25"], N_BOUNDARY)
+spo2_b = jittered_pick(thresholds_spo2, *RANGES["spo2"], N_BOUNDARY)
+temp_b = jittered_pick(thresholds_temp, *RANGES["temp"], N_BOUNDARY)
+hum_b = jittered_pick(thresholds_hum, *RANGES["hum"], N_BOUNDARY)
+pm25_b = jittered_pick(thresholds_pm25, *RANGES["pm25"], N_BOUNDARY)
 # shuffle independently per-feature so boundary jitters combine across all dims
 for arr in (hr_b, rmssd_b, spo2_b, temp_b, hum_b, pm25_b):
     np.random.shuffle(arr)
 
-hr    = np.concatenate([hr, hr_b])
+hr = np.concatenate([hr, hr_b])
 rmssd = np.concatenate([rmssd, rmssd_b])
-spo2  = np.concatenate([spo2, spo2_b])
-temp  = np.concatenate([temp, temp_b])
-hum   = np.concatenate([hum, hum_b])
-pm25  = np.concatenate([pm25, pm25_b])
+spo2 = np.concatenate([spo2, spo2_b])
+temp = np.concatenate([temp, temp_b])
+hum = np.concatenate([hum, hum_b])
+pm25 = np.concatenate([pm25, pm25_b])
 
 N = len(hr)
-X = np.stack([
-    normalize(hr,    *RANGES["hr"]),
-    normalize(rmssd, *RANGES["rmssd"]),
-    normalize(spo2,  *RANGES["spo2"]),
-    normalize(temp,  *RANGES["temp"]),
-    normalize(hum,   *RANGES["hum"]),
-    normalize(pm25,  *RANGES["pm25"]),
-], axis=1)  # (N, 6)
+X = np.stack(
+    [
+        normalize(hr, *RANGES["hr"]),
+        normalize(rmssd, *RANGES["rmssd"]),
+        normalize(spo2, *RANGES["spo2"]),
+        normalize(temp, *RANGES["temp"]),
+        normalize(hum, *RANGES["hum"]),
+        normalize(pm25, *RANGES["pm25"]),
+    ],
+    axis=1,
+)  # (N, 6)
 
 y_heat = np.clip(ctsi_score(hr, rmssd, temp, hum) / 100.0, 0, 1)
-y_pol  = np.clip(prsi_score(hr, spo2, pm25, rmssd) / 100.0, 0, 1)
-y_flo  = np.clip(flood_score(hr, temp, rmssd) / 100.0, 0, 1)
+y_pol = np.clip(prsi_score(hr, spo2, pm25, rmssd) / 100.0, 0, 1)
+y_flo = np.clip(flood_score(hr, temp, rmssd) / 100.0, 0, 1)
 Y = np.stack([y_heat, y_pol, y_flo], axis=1)  # (N, 3)
 
 # Train/val split
@@ -177,19 +166,25 @@ X_train, Y_train = X[train_idx], Y[train_idx]
 X_val, Y_val = X[val_idx], Y[val_idx]
 
 print(f"Dataset: {N} samples ({len(train_idx)} train / {len(val_idx)} val)")
-print(f"Label distribution — heat  mean={y_heat.mean():.3f}  pollution mean={y_pol.mean():.3f}  flood mean={y_flo.mean():.3f}")
+print(
+    f"Label distribution: heat={y_heat.mean():.3f}, pol={y_pol.mean():.3f}, flood={y_flo.mean():.3f}"
+)
 
 # 4. Model Definition (6->12->3, Adam)
 IN, HID, OUT = 6, 12, 3
 
+
 def relu(x):
     return np.maximum(0, x)
+
 
 def relu_grad(x):
     return (x > 0).astype(x.dtype)
 
+
 def sigmoid(x):
     return 1.0 / (1.0 + np.exp(-np.clip(x, -30, 30)))
+
 
 # He init for ReLU layer, Xavier for sigmoid layer
 rng = np.random.default_rng(42)
@@ -211,49 +206,53 @@ EPOCHS = 400
 BATCH = 512
 n_train = len(X_train)
 
+
 def forward(X, W1, b1, W2, b2):
-    z1 = X @ W1.T + b1        # (n, HID)
+    z1 = X @ W1.T + b1  # (n, HID)
     a1 = relu(z1)
-    z2 = a1 @ W2.T + b2       # (n, OUT)
+    z2 = a1 @ W2.T + b2  # (n, OUT)
     a2 = sigmoid(z2)
     return z1, a1, z2, a2
+
 
 t = 0
 for epoch in range(1, EPOCHS + 1):
     perm = np.random.permutation(n_train)
     epoch_loss = 0.0
     for start in range(0, n_train, BATCH):
-        batch_idx = perm[start:start + BATCH]
+        batch_idx = perm[start : start + BATCH]
         xb, yb = X_train[batch_idx], Y_train[batch_idx]
         m = len(xb)
 
         z1, a1, z2, a2 = forward(xb, W1, b1, W2, b2)
 
         # MSE loss
-        diff = (a2 - yb)
-        loss = np.mean(diff ** 2)
+        diff = a2 - yb
+        loss = np.mean(diff**2)
         epoch_loss += loss * m
 
         # Backprop
-        dz2 = diff * a2 * (1 - a2) * (2.0 / m)         # d(MSE)/dz2, (m, OUT)
+        dz2 = diff * a2 * (1 - a2) * (2.0 / m)  # d(MSE)/dz2, (m, OUT)
         dW2 = dz2.T @ a1 + L2 * W2
         db2 = dz2.sum(axis=0)
 
-        da1 = dz2 @ W2                                  # (m, HID)
+        da1 = dz2 @ W2  # (m, HID)
         dz1 = da1 * relu_grad(z1)
         dW1 = dz1.T @ xb + L2 * W1
         db1 = dz1.sum(axis=0)
 
         # Adam update
         t += 1
-        for (param, grad, m_state, v_state) in [
-            (W1, dW1, mW1, vW1), (b1, db1, mb1, vb1),
-            (W2, dW2, mW2, vW2), (b2, db2, mb2, vb2),
+        for param, grad, m_state, v_state in [
+            (W1, dW1, mW1, vW1),
+            (b1, db1, mb1, vb1),
+            (W2, dW2, mW2, vW2),
+            (b2, db2, mb2, vb2),
         ]:
             m_state[...] = beta1 * m_state + (1 - beta1) * grad
-            v_state[...] = beta2 * v_state + (1 - beta2) * (grad ** 2)
-            m_hat = m_state / (1 - beta1 ** t)
-            v_hat = v_state / (1 - beta2 ** t)
+            v_state[...] = beta2 * v_state + (1 - beta2) * (grad**2)
+            m_hat = m_state / (1 - beta1**t)
+            v_hat = v_state / (1 - beta2**t)
             param -= LR * m_hat / (np.sqrt(v_hat) + eps)
 
     if epoch % 50 == 0 or epoch == 1:
@@ -261,29 +260,45 @@ for epoch in range(1, EPOCHS + 1):
         val_loss = np.mean((val_pred - Y_val) ** 2)
         print(f"  epoch {epoch:4d}  train_mse={epoch_loss / n_train:.5f}  val_mse={val_loss:.5f}")
 
+
 # 5. Validate against exact scenarios
 def predict(hr_v, rmssd_v, spo2_v, temp_v, hum_v, pm25_v):
-    x = np.array([[
-        normalize(hr_v, *RANGES["hr"]),
-        normalize(rmssd_v, *RANGES["rmssd"]),
-        normalize(spo2_v, *RANGES["spo2"]),
-        normalize(temp_v, *RANGES["temp"]),
-        normalize(hum_v, *RANGES["hum"]),
-        normalize(pm25_v, *RANGES["pm25"]),
-    ]])
+    x = np.array(
+        [
+            [
+                normalize(hr_v, *RANGES["hr"]),
+                normalize(rmssd_v, *RANGES["rmssd"]),
+                normalize(spo2_v, *RANGES["spo2"]),
+                normalize(temp_v, *RANGES["temp"]),
+                normalize(hum_v, *RANGES["hum"]),
+                normalize(pm25_v, *RANGES["pm25"]),
+            ]
+        ]
+    )
     _, _, _, out = forward(x, W1, b1, W2, b2)
     return out[0]
+
 
 print("\nValidation against original docstring examples:")
 scenarios = [
     ("Normal (HR=72, RMSSD=50, SpO2=98, Temp=25, Hum=50, PM2.5=20)", 72, 50, 98, 25, 50, 20, "all outputs < 0.15"),
     ("Heat wave (HR=140, RMSSD=8, SpO2=97, Temp=47, Hum=60, PM2.5=20)", 140, 8, 97, 47, 60, 20, "heat > 0.85"),
-    ("Severe smog (HR=100, RMSSD=30, SpO2=86, Temp=25, Hum=50, PM2.5=400)", 100, 30, 86, 25, 50, 400, "pollution > 0.85"),
+    (
+        "Severe smog (HR=100, RMSSD=30, SpO2=86, Temp=25, Hum=50, PM2.5=400)",
+        100,
+        30,
+        86,
+        25,
+        50,
+        400,
+        "pollution > 0.85",
+    ),
 ]
 for label, hr_v, rmssd_v, spo2_v, temp_v, hum_v, pm25_v, expected in scenarios:
     out = predict(hr_v, rmssd_v, spo2_v, temp_v, hum_v, pm25_v)
     print(f"  {label}")
     print(f"    -> heat={out[0]:.3f}  pollution={out[1]:.3f}  flood={out[2]:.3f}   (expected: {expected})")
+
 
 # 6. Emit ready-to-paste C weights
 def c_format_array2d(name, arr, rows_comment=None):
@@ -295,9 +310,11 @@ def c_format_array2d(name, arr, rows_comment=None):
     lines.append("    },")
     return "\n".join(lines)
 
+
 def c_format_array1d(name, arr):
     vals = ", ".join(f"{v: .6f}f" for v in arr)
     return f"    .{name} = {{ {vals} }},"
+
 
 out_path = "nn_risk_model_trained.c.inc"
 with open(out_path, "w") as f:
@@ -313,5 +330,7 @@ with open(out_path, "w") as f:
     f.write("};\n")
 
 print(f"\nWrote trained weights -> {out_path}")
-print(f"Total parameters: {W1.size + b1.size + W2.size + b2.size} "
-      f"({(W1.size + b1.size + W2.size + b2.size) * 4} bytes as float32)")
+print(
+    f"Total parameters: {W1.size + b1.size + W2.size + b2.size} "
+    f"({(W1.size + b1.size + W2.size + b2.size) * 4} bytes as float32)"
+)

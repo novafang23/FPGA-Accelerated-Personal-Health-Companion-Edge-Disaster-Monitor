@@ -1,21 +1,23 @@
 # Project Roadmap
 
-This document outlines the short-term and long-term goals for the **SIH26181 Health Companion** project. 
+Short, practical roadmap for the SIH26181 Health Companion project — focused on making the codebase reliable and easy to work with.
 
-## ✅ Phase 1: Code Quality, CI/CD, and Hygiene (Completed)
-We recently completed a major audit and hygiene pass of the repository:
-- **CI/CD Integration**: Added GitHub Actions for automated C/Verilog compilation, unit testing, and Python execution (`.github/workflows/ci.yml`).
-- **Security**: Added TruffleHog secret scanning to prevent credential leaks (`.github/workflows/security.yml`).
-- **Linting & Formatting**: Enforced LLVM-style formatting for C code via `.clang-format` and PEP8 styling for Python via `.flake8`.
-- **Engine Hardening**: Removed magic numbers in the C `disaster_risk_engine` and replaced them with centralized macros in the header.
-- **Unit Testing**: Introduced a standalone test suite (`test_disaster_risk_engine.c`) to verify disaster boundary conditions.
+## Phase 1 — Audit & Hygiene (completed / in progress)
+- CI: added GitHub Actions to build the C code, run unit tests, and lint Python (see .github/workflows/ci.yml and ci-extended.yml).
+- Static analysis: added cppcheck and verilator steps and basic linting configs.
+- Engine hardening: moved magic numbers into named macros and added input validation in SIH/disaster_risk_engine.c.
+- Unit tests: basic test harness for the disaster risk logic (SIH/tests/test_disaster_risk.c).
+- Issues: opened prioritized follow-ups for CI, linters, tests, secrets, and docs.
 
-## 🚀 Phase 2: Qualcomm Snapdragon Wear Migration (Next Steps)
-With the Verilog and C firmware validated, the next major milestone is porting the logic to Qualcomm silicon:
-1. **Hexagon DSP Migration**: Port the Verilog O(1) moving average filter to the Qualcomm Hexagon DSP using Hexagon Vector eXtensions (HVX) for sub-milliwatt continuous execution.
-2. **AI Engine Quantization**: Use the Snapdragon Neural Processing Engine (SNPE) SDK to quantize the PyTorch TinyML model (`nn_risk_model.c`) to an INT8 `.dlc` format for execution on the Hexagon NPU.
-3. **Sensor Hub Integration**: Migrate the physical I2C/UART sensor polling from the Zynq ARM CPU down to the Qualcomm Sensor Core (Low-Power Island).
+## Short-term backlog
+1. Turn linting and static checks into blocking CI checks.
+2. Run clang-tidy/cppcheck across the C sources and address the top findings.
+3. Finish SIH hardening: centralize configuration into a header and document thresholds.
+4. Add secret scanning to CI and remediate any findings.
+5. Improve README and add CONTRIBUTING notes for local builds and tests.
 
-## 🌍 Phase 3: Field Validation
-- Conduct simulated disaster scenario tests using thermal chambers to validate the *Cardiovascular Drift* 15-minute early warning hypothesis.
-- Package the final application for Android Wear OS utilizing the Snapdragon Wear W5+ Gen 1 hardware accelerators.
+## Longer-term
+- Porting to Snapdragon/Hexagon (performance work) and field validation (hardware-in-the-loop, thermal tests).
+
+Next step
+- Merge this PR once you’re ready; follow-up work can be split into focused PRs for clarity.
