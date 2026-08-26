@@ -10,6 +10,53 @@
 #include "hrv_analysis.h"
 #include "nn_risk_model.h"
 
+/* --- Heat Risk Thresholds --- */
+#define HEAT_TEMP_BASE_C        27.0f
+#define HEAT_HUMIDITY_BASE_PCT  40.0f
+#define HEAT_INDEX_CRITICAL     54.0f
+#define HEAT_INDEX_HIGH         45.0f
+#define HEAT_INDEX_MODERATE     40.0f
+#define HEAT_INDEX_CAUTION      35.0f
+#define HEAT_BPM_CRITICAL       130.0f
+#define HEAT_BPM_HIGH           110.0f
+#define HEAT_BPM_MODERATE       95.0f
+#define HEAT_RMSSD_CRITICAL     10.0f
+#define HEAT_RMSSD_HIGH         20.0f
+#define HEAT_RMSSD_MODERATE     35.0f
+#define HEAT_CTSI_CRITICAL      70.0f
+#define HEAT_CTSI_HIGH          50.0f
+#define HEAT_CTSI_MODERATE      30.0f
+
+/* --- Pollution Risk Thresholds --- */
+#define POLLUTION_PM25_CRITICAL 300.0f
+#define POLLUTION_PM25_HIGH     150.0f
+#define POLLUTION_PM25_MODERATE 75.0f
+#define POLLUTION_PM25_CAUTION  35.0f
+#define POLLUTION_SPO2_CRITICAL 88.0f
+#define POLLUTION_SPO2_HIGH     92.0f
+#define POLLUTION_SPO2_MODERATE 94.0f
+#define POLLUTION_SPO2_CAUTION  96.0f
+#define POLLUTION_BPM_CRITICAL  120.0f
+#define POLLUTION_BPM_HIGH      100.0f
+#define POLLUTION_RMSSD_CRIT    15.0f
+#define POLLUTION_RMSSD_HIGH    25.0f
+#define POLLUTION_PRSI_CRITICAL 70.0f
+#define POLLUTION_PRSI_HIGH     50.0f
+#define POLLUTION_PRSI_MODERATE 30.0f
+
+/* --- Flood/Cold Risk Thresholds --- */
+#define FLOOD_SKIN_TEMP_CRIT    28.0f
+#define FLOOD_SKIN_TEMP_HIGH    32.0f
+#define FLOOD_SKIN_TEMP_MOD     34.0f
+#define FLOOD_BPM_BRADYCARDIA   50.0f
+#define FLOOD_BPM_TACHY_EXTREME 150.0f
+#define FLOOD_BPM_TACHY_MOD     130.0f
+#define FLOOD_RMSSD_CRITICAL    8.0f
+#define FLOOD_RMSSD_HIGH        15.0f
+#define FLOOD_SCORE_CRITICAL    60.0f
+#define FLOOD_SCORE_HIGH        40.0f
+#define FLOOD_SCORE_MODERATE    20.0f
+
 #ifdef __cplusplus
 extern "C" {
 #endif

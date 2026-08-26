@@ -28,3 +28,7 @@ compile_commands.json
 Thumbs.db
 Desktop.ini
 .DS_Store
+
+# AI Models
+*.dlc
+*.onnx

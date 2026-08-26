@@ -1,0 +1,50 @@
+name: CI
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  build_and_test:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v3
+
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.x'
+
+    - name: Install dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y gcc make clang-format iverilog
+        python -m pip install --upgrade pip
+        pip install flake8
+
+    - name: Lint C code
+      run: |
+        # Use clang-format to check C files in SIH directory
+        find SIH -name '*.c' -o -name '*.h' | xargs clang-format --Werror -n
+
+    - name: Lint Python code
+      run: |
+        flake8 SIH/
+
+    - name: Build C Test Harness
+      working-directory: ./SIH
+      run: |
+        gcc -Wall -Wextra -o test_engine.exe test_disaster_risk_engine.c disaster_risk_engine.c nn_risk_model.c -lm
+
+    - name: Run C Unit Tests
+      working-directory: ./SIH
+      run: |
+        ./test_engine.exe
+
+    - name: Run Verilog Tests
+      working-directory: ./SIH
+      run: |
+        iverilog -o sim_ppg.vvp tb_ppg_system.v axi_ppg_accelerator.v moving_average_8tap.v ppg_peak_detector.v
+        vvp sim_ppg.vvp

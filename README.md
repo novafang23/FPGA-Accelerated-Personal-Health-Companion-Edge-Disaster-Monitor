@@ -271,17 +271,31 @@ To maintain transparent, professional engineering rigor, our validation boundari
 * **Verilog Simulator:** Icarus Verilog (`iverilog` & `vvp`)
 * **Waveform Viewer:** GTKWave
 * **C Compiler:** GCC / MinGW (`gcc`)
+* **Python (Optional):** Python 3.8+ (for ML scripts and linting)
 
 ### One-Click Execution (Windows)
 ```cmd
 # Run interactive compilation, simulation, and real-time C dashboard:
 .\run.bat
-
-# Or run the NN vs Rule Engine comparison harness directly:
-cd SIH
-gcc -Wall -Wextra -o compare_harness.exe compare_harness.c hrv_analysis.c spo2_engine.c disaster_risk_engine.c nn_risk_model.c -lm
-.\compare_harness.exe
 ```
+The interactive menu allows you to launch the simulation, view waveforms, compare the Rule Engine vs NN, and run unit tests.
+
+### Execution (Linux)
+```bash
+cd SIH/
+# Compile and run the health dashboard demo
+gcc -Wall -Wextra -o health_demo.exe main_simulation.c hrv_analysis.c spo2_engine.c disaster_risk_engine.c nn_risk_model.c i2c_hal.c -lm
+./health_demo.exe
+
+# Compile and run unit tests
+gcc -Wall -Wextra -o test_engine.exe test_disaster_risk_engine.c disaster_risk_engine.c nn_risk_model.c -lm
+./test_engine.exe
+```
+
+---
+
+## 🤝 Contributing
+We welcome issues and pull requests! Please see our [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines on code formatting, running unit tests locally, and how to submit a PR.
 
 ---
 

@@ -57,34 +57,34 @@ static risk_level_t assess_heat_risk(
     float heat_index = ambient_temp_c;
     float ctsi = 0.0f;
 
-    if (ambient_temp_c > 27.0f && humidity_pct > 40.0f) {
-        heat_index = ambient_temp_c + 0.5f * (humidity_pct - 40.0f) * 0.1f;
+    if (ambient_temp_c > HEAT_TEMP_BASE_C && humidity_pct > HEAT_HUMIDITY_BASE_PCT) {
+        heat_index = ambient_temp_c + 0.5f * (humidity_pct - HEAT_HUMIDITY_BASE_PCT) * 0.1f;
     }
 
     /* Temperature component (0-40 points) */
-    if (heat_index > 54.0f)      ctsi += 40.0f;
-    else if (heat_index > 45.0f) ctsi += 30.0f;
-    else if (heat_index > 40.0f) ctsi += 20.0f;
-    else if (heat_index > 35.0f) ctsi += 10.0f;
+    if (heat_index > HEAT_INDEX_CRITICAL)      ctsi += 40.0f;
+    else if (heat_index > HEAT_INDEX_HIGH) ctsi += 30.0f;
+    else if (heat_index > HEAT_INDEX_MODERATE) ctsi += 20.0f;
+    else if (heat_index > HEAT_INDEX_CAUTION) ctsi += 10.0f;
 
     /* Cardiovascular drift component (0-30 points) */
-    if (bpm > 130.0f)       ctsi += 30.0f;
-    else if (bpm > 110.0f)  ctsi += 20.0f;
-    else if (bpm > 95.0f)   ctsi += 10.0f;
+    if (bpm > HEAT_BPM_CRITICAL)       ctsi += 30.0f;
+    else if (bpm > HEAT_BPM_HIGH)  ctsi += 20.0f;
+    else if (bpm > HEAT_BPM_MODERATE)   ctsi += 10.0f;
 
     /* HRV depression component (0-30 points) */
-    if (rmssd < 10.0f)       ctsi += 30.0f;
-    else if (rmssd < 20.0f)  ctsi += 20.0f;
-    else if (rmssd < 35.0f)  ctsi += 10.0f;
+    if (rmssd < HEAT_RMSSD_CRITICAL)       ctsi += 30.0f;
+    else if (rmssd < HEAT_RMSSD_HIGH)  ctsi += 20.0f;
+    else if (rmssd < HEAT_RMSSD_MODERATE)  ctsi += 10.0f;
 
     /* Map score to risk level */
-    if (ctsi >= 70.0f) {
+    if (ctsi >= HEAT_CTSI_CRITICAL) {
         *advisory = "DANGER: Heat stroke imminent! Seek cooling, hydrate NOW";
         return RISK_CRITICAL;
-    } else if (ctsi >= 50.0f) {
+    } else if (ctsi >= HEAT_CTSI_HIGH) {
         *advisory = "WARNING: Heat exhaustion risk. Move to shade, drink water";
         return RISK_HIGH;
-    } else if (ctsi >= 30.0f) {
+    } else if (ctsi >= HEAT_CTSI_MODERATE) {
         *advisory = "CAUTION: Moderate heat strain. Stay hydrated, reduce exertion";
         return RISK_MODERATE;
     } else {
@@ -101,33 +101,33 @@ static risk_level_t assess_pollution_risk(
     float prsi = 0.0f;
 
     /* Air quality component (0-40 points) */
-    if (pm25 > 300.0f)       prsi += 40.0f;
-    else if (pm25 > 150.0f)  prsi += 30.0f;
-    else if (pm25 > 75.0f)   prsi += 20.0f;
-    else if (pm25 > 35.0f)   prsi += 10.0f;
+    if (pm25 > POLLUTION_PM25_CRITICAL)       prsi += 40.0f;
+    else if (pm25 > POLLUTION_PM25_HIGH)  prsi += 30.0f;
+    else if (pm25 > POLLUTION_PM25_MODERATE)   prsi += 20.0f;
+    else if (pm25 > POLLUTION_PM25_CAUTION)   prsi += 10.0f;
 
     /* Oxygen desaturation component (0-40 points) */
-    if (spo2 < 88.0f)        prsi += 40.0f;
-    else if (spo2 < 92.0f)   prsi += 30.0f;
-    else if (spo2 < 94.0f)   prsi += 20.0f;
-    else if (spo2 < 96.0f)   prsi += 10.0f;
+    if (spo2 < POLLUTION_SPO2_CRITICAL)        prsi += 40.0f;
+    else if (spo2 < POLLUTION_SPO2_HIGH)   prsi += 30.0f;
+    else if (spo2 < POLLUTION_SPO2_MODERATE)   prsi += 20.0f;
+    else if (spo2 < POLLUTION_SPO2_CAUTION)   prsi += 10.0f;
 
     /* Respiratory compensation — elevated pulse (0-15 points) */
-    if (bpm > 120.0f)        prsi += 15.0f;
-    else if (bpm > 100.0f)   prsi += 8.0f;
+    if (bpm > POLLUTION_BPM_CRITICAL)        prsi += 15.0f;
+    else if (bpm > POLLUTION_BPM_HIGH)   prsi += 8.0f;
 
     /* Autonomic stress response (0-10 points) */
-    if (rmssd < 15.0f)       prsi += 10.0f;
-    else if (rmssd < 25.0f)  prsi += 5.0f;
+    if (rmssd < POLLUTION_RMSSD_CRIT)       prsi += 10.0f;
+    else if (rmssd < POLLUTION_RMSSD_HIGH)  prsi += 5.0f;
 
     /* Map score to risk level */
-    if (prsi >= 70.0f) {
+    if (prsi >= POLLUTION_PRSI_CRITICAL) {
         *advisory = "DANGER: Severe respiratory distress! Use N95 mask, seek clean air";
         return RISK_CRITICAL;
-    } else if (prsi >= 50.0f) {
+    } else if (prsi >= POLLUTION_PRSI_HIGH) {
         *advisory = "WARNING: Respiratory strain. Wear mask, minimize outdoor exposure";
         return RISK_HIGH;
-    } else if (prsi >= 30.0f) {
+    } else if (prsi >= POLLUTION_PRSI_MODERATE) {
         *advisory = "CAUTION: Air quality affecting health. Consider wearing a mask";
         return RISK_MODERATE;
     } else {
@@ -150,27 +150,27 @@ static risk_level_t assess_flood_risk(
     }
 
     /* Hypothermia indicators (0-40 points) */
-    if (skin_temp_c < 28.0f)       score += 40.0f;
-    else if (skin_temp_c < 32.0f)  score += 25.0f;
-    else if (skin_temp_c < 34.0f)  score += 10.0f;
+    if (skin_temp_c < FLOOD_SKIN_TEMP_CRIT)       score += 40.0f;
+    else if (skin_temp_c < FLOOD_SKIN_TEMP_HIGH)  score += 25.0f;
+    else if (skin_temp_c < FLOOD_SKIN_TEMP_MOD)  score += 10.0f;
 
     /* Cardiac stress: bradycardia in hypothermia OR extreme tachycardia (0-30 points) */
-    if (bpm < 50.0f)               score += 30.0f;
-    else if (bpm > 150.0f)         score += 30.0f;
-    else if (bpm > 130.0f)         score += 15.0f;
+    if (bpm < FLOOD_BPM_BRADYCARDIA)               score += 30.0f;
+    else if (bpm > FLOOD_BPM_TACHY_EXTREME)         score += 30.0f;
+    else if (bpm > FLOOD_BPM_TACHY_MOD)         score += 15.0f;
 
     /* Autonomic collapse (0-20 points) */
-    if (rmssd < 8.0f)              score += 20.0f;
-    else if (rmssd < 15.0f)        score += 10.0f;
+    if (rmssd < FLOOD_RMSSD_CRITICAL)              score += 20.0f;
+    else if (rmssd < FLOOD_RMSSD_HIGH)        score += 10.0f;
 
     /* Map score to risk level */
-    if (score >= 60.0f) {
+    if (score >= FLOOD_SCORE_CRITICAL) {
         *advisory = "DANGER: Hypothermia/collapse risk! Seek warmth immediately";
         return RISK_CRITICAL;
-    } else if (score >= 40.0f) {
+    } else if (score >= FLOOD_SCORE_HIGH) {
         *advisory = "WARNING: Cold exposure stress. Dry off and seek shelter";
         return RISK_HIGH;
-    } else if (score >= 20.0f) {
+    } else if (score >= FLOOD_SCORE_MODERATE) {
         *advisory = "CAUTION: Monitor body temperature closely";
         return RISK_MODERATE;
     } else {

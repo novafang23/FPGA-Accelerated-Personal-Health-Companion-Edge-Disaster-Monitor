@@ -41,7 +41,7 @@ echo [OK] health_demo.exe built successfully.
 echo.
 
 :: 4. Compile Compare Harness (Rule Engine vs NN side-by-side)
-echo [4/4] Compiling Compare Harness (Rule Engine vs NN)...
+echo [4/5] Compiling Compare Harness (Rule Engine vs NN)...
 C:\msys64\ucrt64\bin\gcc.exe -Wall -Wextra -o compare_harness.exe compare_harness.c hrv_analysis.c spo2_engine.c disaster_risk_engine.c nn_risk_model.c -lm
 if %errorlevel% neq 0 (
     echo [ERROR] Compare harness compilation failed!
@@ -49,6 +49,17 @@ if %errorlevel% neq 0 (
     exit /b 1
 )
 echo [OK] compare_harness.exe built successfully.
+echo.
+
+:: 5. Compile and Run Unit Tests
+echo [5/5] Compiling Unit Tests...
+C:\msys64\ucrt64\bin\gcc.exe -Wall -Wextra -o test_engine.exe test_disaster_risk_engine.c disaster_risk_engine.c nn_risk_model.c -lm
+if %errorlevel% neq 0 (
+    echo [ERROR] Unit test compilation failed!
+    pause
+    exit /b 1
+)
+echo [OK] test_engine.exe built successfully.
 echo.
 
 :menu
@@ -60,9 +71,10 @@ echo   [2] Launch GTKWave Waveform Viewer (PPG ^& AXI Bus signals)
 echo   [3] Re-run Hardware RTL Testbench
 echo   [4] Run Flood / Hypothermia Scenario Directly
 echo   [5] Run Compare Harness (Rule Engine vs NN side-by-side)
-echo   [6] Exit
+echo   [6] Run Unit Tests
+echo   [7] Exit
 echo ================================================================
-set /p choice="Enter option (1-6): "
+set /p choice="Enter option (1-7): "
 
 if "%choice%"=="1" (
     cls
@@ -89,6 +101,12 @@ if "%choice%"=="5" (
     goto menu
 )
 if "%choice%"=="6" (
+    cls
+    test_engine.exe
+    pause
+    goto menu
+)
+if "%choice%"=="7" (
     exit /b 0
 )
 
