@@ -3,9 +3,6 @@ Language: C
 BasedOnStyle: LLVM
 IndentWidth: 4
 ColumnLimit: 100
-AlignConsecutiveAssignments: true
-AlignConsecutiveDeclarations: true
-AlignTrailingComments: true
 PointerAlignment: Right
 BreakBeforeBraces: Attach
 AllowShortFunctionsOnASingleLine: Empty
