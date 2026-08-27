@@ -32,3 +32,9 @@ Desktop.ini
 # AI Models
 *.dlc
 *.onnx
+
+# Notes and pitch guides
+SIH/THEORY_NOTES.md
+SIH/SIH26181_Master_Theory_Notes.pdf
+SIH/theory_notes_print.html
+
