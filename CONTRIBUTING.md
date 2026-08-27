@@ -31,7 +31,7 @@ Before opening a pull request, ensure that the core disaster risk engines haven'
 
 Alternatively, you can compile and run it directly in `SIH/`:
 ```bash
-gcc -Wall -Wextra -o test_engine.exe test_disaster_risk_engine.c disaster_risk_engine.c nn_risk_model.c -lm
+gcc -Wall -Wextra -o test_engine.exe test_disaster_risk_engine.c disaster_risk_engine.c nn_risk_model.c nn_risk_model_int8.c -lm
 ./test_engine.exe
 ```
 

@@ -4,7 +4,7 @@
 [![Bus Protocol](https://img.shields.io/badge/Interconnect-ARM%20AMBA%20AXI4--Lite-orange.svg)](SIH/HARDWARE_ARCHITECTURE.md)
 [![Verification](https://img.shields.io/badge/Verification-6%2F6%20Passed%20(100%25)-brightgreen.svg)](SIH/tb_ppg_system.v)
 [![Static Timing](https://img.shields.io/badge/STA%20Timing-WNS%20%2B14.28ns%20(Met)-success.svg)](SIH/HARDWARE_ARCHITECTURE.md)
-[![TinyML Engine](https://img.shields.io/badge/AI%20Engine-TinyML%20(6%E2%86%9212%E2%86%923)-purple.svg)](SIH/nn_risk_model.c)
+[![TinyML Engine](https://img.shields.io/badge/AI%20Engine-TinyML%20(6%E2%86%9212%E2%86%923)-purple.svg)](SIH/nn_risk_model_int8.c)
 [![NN Validation](https://img.shields.io/badge/NN%20vs%20Rule%20Engine-r%3D0.97-blueviolet.svg)](SIH/compare_harness.c)
 [![Target Platform](https://img.shields.io/badge/Prototype%20Target-Xilinx%20Zynq%20%7C%20Qualcomm%20Migration-red.svg)](SIH/QUALCOMM_PLATFORM_STRATEGY.md)
 
@@ -17,7 +17,7 @@ An end-to-end heterogeneous System-on-Chip (SoC) combining **synthesizable Veril
 * **Cycle-Accurate Hardware Timing:** Dedicated 50 MHz FPGA timer measures heartbeat Inter-Beat Intervals (IBI) with **20 nanoseconds resolution**, eliminating the 5–20 ms operating system scheduling jitter that corrupts Heart Rate Variability (HRV).
 * **Area-Optimized DSP Architecture:** Dual-channel 8-tap moving average filter implemented using an **O(1) running-sum algorithm with wire-shift division (`>> 3`)**, requiring **0 DSP48 multiplier slices and 0 Block RAMs**.
 * **Robust Bus Interfacing:** Standard ARM AMBA AXI4-Lite slave engine with **decoupled `AW` and `W` channel handshakes**, eliminating bus deadlocks on out-of-order interconnects. Includes **Write-1-to-Clear (W1C)** status registers to prevent interrupt race conditions.
-* **On-Device TinyML Inference:** 2-layer feedforward neural network (6 → 12 → 3) requiring only **123 parameters (492 bytes)** and **108 MAC operations**, executing in **< 1 µs** on an ARM CPU with zero cloud dependency.
+* **On-Device TinyML Inference:** 2-layer feedforward neural network (6 → 12 → 3) requiring only **123 parameters (123 bytes)** and **108 INT8 MAC operations**, executing in **< 1 µs** on an ARM CPU with zero cloud dependency.
 * **Early Disaster Prediction:** Fuses physiological vitals (HR, RMSSD, SpO₂) with environmental metrics (Temperature, Humidity, PM2.5) to detect **Cardiovascular Drift**, providing **15 to 30 minutes of advance warning before heat stroke occurs** *(derived from Montain & Coyle physiological drift models)*.
 * **Qualcomm Silicon Portability:** Prototyped on Xilinx Zynq-7000 with a defined production migration roadmap to **Qualcomm Snapdragon Wear W5+ Gen 1** using **Hexagon™ Vector eXtensions (HVX)** on the Low-Power Island (< 5 mW) and **Qualcomm AI Engine (SNPE/QNN)**.
 
@@ -54,7 +54,7 @@ An end-to-end heterogeneous System-on-Chip (SoC) combining **synthesizable Veril
 │   • driver_ppg.c          : Register-level hardware abstraction & IBI extraction                     │
 │   • hrv_analysis.c        : 20-sample circular buffer computing RMSSD (vagal tone) and SDNN          │
 │   • spo2_engine.c         : Beer-Lambert Ratio-of-Ratios SpO₂ calibration (R = (AC/DC)R / (AC/DC)IR) │
-│   • nn_risk_model.c       : 6→12→3 TinyML Neural Network executing in < 1 µs                         │
+│   • nn_risk_model_int8.c  : 6→12→3 TinyML Neural Network quantized to INT8 executing in < 1 µs       │
 │   • disaster_risk_engine.c: Multi-disaster scoring engine (CTSI Heat Strain & PRSI Pollution Index)  │
 │   • ssd1306.c             : 128×64 OLED graphics driver & real-time offline advisory display         │
 └──────────────────────────────────────────────────────────────────────────────────────────────────────┘
@@ -261,7 +261,7 @@ To maintain transparent, professional engineering rigor, our validation boundari
 │   ├── driver_ppg.c / .h           # Hardware register API & IBI-to-BPM conversion
 │   ├── hrv_analysis.c / .h         # RMSSD & SDNN circular buffer mathematics
 │   ├── spo2_engine.c / .h          # Beer-Lambert ratio-of-ratios pulse oximetry
-│   ├── nn_risk_model.c / .h        # 6→12→3 TinyML Neural Network engine (123 params, 492 bytes)
+│   ├── nn_risk_model_int8.c / .h   # 6→12→3 TinyML Neural Network INT8 engine (123 params, 123 bytes)
 │   ├── disaster_risk_engine.c / .h # Multi-disaster physiological fusion scoring
 │   ├── compare_harness.c           # Side-by-side Rule Engine vs NN validation harness
 │   ├── train_nn_risk_model.py      # PyTorch training script (knowledge distillation)
@@ -303,11 +303,11 @@ The interactive menu allows you to launch the simulation, view waveforms, compar
 ```bash
 cd SIH/
 # Compile and run the health dashboard demo
-gcc -Wall -Wextra -o health_demo.exe main_simulation.c hrv_analysis.c spo2_engine.c disaster_risk_engine.c nn_risk_model.c i2c_hal.c -lm
+gcc -Wall -Wextra -o health_demo.exe main_simulation.c hrv_analysis.c spo2_engine.c disaster_risk_engine.c nn_risk_model.c nn_risk_model_int8.c i2c_hal.c -lm
 ./health_demo.exe
 
 # Compile and run unit tests
-gcc -Wall -Wextra -o test_engine.exe test_disaster_risk_engine.c disaster_risk_engine.c nn_risk_model.c -lm
+gcc -Wall -Wextra -o test_engine.exe test_disaster_risk_engine.c disaster_risk_engine.c nn_risk_model.c nn_risk_model_int8.c -lm
 ./test_engine.exe
 ```
 

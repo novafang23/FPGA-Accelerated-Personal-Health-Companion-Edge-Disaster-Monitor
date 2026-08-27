@@ -1,0 +1,9 @@
+0.7
+2020.2
+Jun 16 2026
+11:10:11
+C:/Users/abhin/OneDrive/Desktop/verilog/SIH/FPGA accelerated medical device-SIH/FPGA accelerated medical device-SIH.sim/sim_1/behav/xsim/glbl.v,1773749341,verilog,,,,glbl,,,,,,,,
+C:/Users/abhin/OneDrive/Desktop/verilog/SIH/axi_ppg_accelerator.v,1787754073,verilog,,C:/Users/abhin/OneDrive/Desktop/verilog/SIH/moving_average_8tap.v,,axi_ppg_accelerator,,,../../../../../../../../../../../AMDDesignTools/2026.1/Vivado/data/rsb/busdef,,,,,
+C:/Users/abhin/OneDrive/Desktop/verilog/SIH/moving_average_8tap.v,1787502133,verilog,,C:/Users/abhin/OneDrive/Desktop/verilog/SIH/ppg_peak_detector.v,,moving_average_8tap,,,../../../../../../../../../../../AMDDesignTools/2026.1/Vivado/data/rsb/busdef,,,,,
+C:/Users/abhin/OneDrive/Desktop/verilog/SIH/ppg_peak_detector.v,1787503229,verilog,,C:/Users/abhin/OneDrive/Desktop/verilog/SIH/tb_ppg_system.v,,ppg_peak_detector,,,../../../../../../../../../../../AMDDesignTools/2026.1/Vivado/data/rsb/busdef,,,,,
+C:/Users/abhin/OneDrive/Desktop/verilog/SIH/tb_ppg_system.v,1787754075,verilog,,,,tb_ppg_system,,,../../../../../../../../../../../AMDDesignTools/2026.1/Vivado/data/rsb/busdef,,,,,

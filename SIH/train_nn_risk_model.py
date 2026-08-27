@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 train_nn_risk_model.py — Knowledge-Distillation Training for SIH26181 TinyML Model
-=====================================================================================
+===================================================================================
 
 Trains the 6->12->3 feedforward network used in nn_risk_model.c against the
 existing rule-based CTSI / PRSI / flood scoring engine (disaster_risk_engine.c)
@@ -14,17 +14,25 @@ Architecture (unchanged from nn_risk_model.h):
     Inputs:  [HR, RMSSD, SpO2, Temp, Humidity, PM2.5]  (min-max normalized)
     Outputs: [heat_risk, pollution_risk, flood_risk]   (regressed to teacher/100)
 
+Quantization:
+    Supports quantization-aware training (QAT) with fake-quant nodes.
+    Exports INT8 weights + per-tensor scales/zero-points for embedded inference.
+
 Usage:
-    python3 train_nn_risk_model.py
+    python3 train_nn_risk_model.py           # float32 training (default)
+    python3 train_nn_risk_model.py --qat     # quantization-aware training
+    python3 train_nn_risk_model.py --int8    # post-training quantization
 
 Outputs:
     - Prints training/validation loss curve summary
     - Prints validation against the 3 example scenarios from the original docstring
     - Writes trained weights as a ready-to-paste C struct to
-      nn_risk_model_trained.c.inc
+      nn_risk_model_trained.c.inc (float32) or nn_risk_model_int8.c.inc (INT8)
 """
 
 import numpy as np
+import argparse
+import sys
 
 np.random.seed(42)
 
@@ -133,9 +141,11 @@ thresholds_temp  = [27, 35, 40, 45, 54, 0, 8, 15]
 thresholds_hum   = [40]
 thresholds_pm25  = [35, 75, 150, 300]
 
+
 def jittered_pick(thresh_list, lo, hi, n):
     centers = np.random.choice(thresh_list, n)
     return np.clip(centers + np.random.normal(0, (hi - lo) * 0.02, n), lo, hi)
+
 
 hr_b    = jittered_pick(thresholds_hr, *RANGES["hr"], N_BOUNDARY)
 rmssd_b = jittered_pick(thresholds_rmssd, *RANGES["rmssd"], N_BOUNDARY)
@@ -182,87 +192,281 @@ print(f"Label distribution — heat  mean={y_heat.mean():.3f}  pollution mean={y
 # 4. Model Definition (6->12->3, Adam)
 IN, HID, OUT = 6, 12, 3
 
+
 def relu(x):
     return np.maximum(0, x)
+
 
 def relu_grad(x):
     return (x > 0).astype(x.dtype)
 
+
 def sigmoid(x):
     return 1.0 / (1.0 + np.exp(-np.clip(x, -30, 30)))
 
-# He init for ReLU layer, Xavier for sigmoid layer
-rng = np.random.default_rng(42)
-W1 = rng.normal(0, np.sqrt(2.0 / IN), (HID, IN)).astype(np.float64)
-b1 = np.zeros(HID)
-W2 = rng.normal(0, np.sqrt(1.0 / HID), (OUT, HID)).astype(np.float64)
-b2 = np.zeros(OUT)
 
-# Adam optimizer state
-mW1, vW1 = np.zeros_like(W1), np.zeros_like(W1)
-mb1, vb1 = np.zeros_like(b1), np.zeros_like(b1)
-mW2, vW2 = np.zeros_like(W2), np.zeros_like(W2)
-mb2, vb2 = np.zeros_like(b2), np.zeros_like(b2)
-beta1, beta2, eps = 0.9, 0.999, 1e-8
-LR = 0.03
-L2 = 1e-4  # small weight decay so weights stay small enough for later INT8 quantization
+# Quantization utilities
+def quantize_per_tensor(x, bits=8):
+    """Symmetric per-tensor quantization to INT8/UINT8."""
+    x_max = np.max(np.abs(x))
+    if x_max == 0:
+        return np.zeros_like(x, dtype=np.int8), 1.0, 0
+    scale = x_max / (2**(bits-1) - 1)
+    q = np.clip(np.round(x / scale), -(2**(bits-1)), 2**(bits-1) - 1).astype(np.int8)
+    return q, float(scale), 0
 
-EPOCHS = 400
-BATCH = 512
-n_train = len(X_train)
 
-def forward(X, W1, b1, W2, b2):
-    z1 = X @ W1.T + b1        # (n, HID)
-    a1 = relu(z1)
-    z2 = a1 @ W2.T + b2       # (n, OUT)
-    a2 = sigmoid(z2)
-    return z1, a1, z2, a2
+def quantize_asymmetric(x, bits=8):
+    """Asymmetric per-tensor quantization (for activations >= 0)."""
+    x_min, x_max = np.min(x), np.max(x)
+    if x_max == x_min:
+        return np.zeros_like(x, dtype=np.uint8), 1.0, 0
+    scale = (x_max - x_min) / (2**bits - 1)
+    zp = int(np.round(-x_min / scale))
+    zp = np.clip(zp, 0, 2**bits - 1)
+    q = np.clip(np.round(x / scale + zp), 0, 2**bits - 1).astype(np.uint8)
+    return q, float(scale), zp
 
-t = 0
-for epoch in range(1, EPOCHS + 1):
-    perm = np.random.permutation(n_train)
-    epoch_loss = 0.0
-    for start in range(0, n_train, BATCH):
-        batch_idx = perm[start:start + BATCH]
-        xb, yb = X_train[batch_idx], Y_train[batch_idx]
-        m = len(xb)
 
-        z1, a1, z2, a2 = forward(xb, W1, b1, W2, b2)
+def fake_quant(x, scale, zp, bits=8):
+    """Fake quantization for QAT: quantize then dequantize."""
+    if zp == 0:
+        x_q = np.clip(np.round(x / scale), -(2**(bits-1)), 2**(bits-1) - 1)
+    else:
+        x_q = np.clip(np.round(x / scale + zp), 0, 2**bits - 1)
+    return (x_q - zp) * scale
 
-        # MSE loss
-        diff = (a2 - yb)
-        loss = np.mean(diff ** 2)
-        epoch_loss += loss * m
 
-        # Backprop
-        dz2 = diff * a2 * (1 - a2) * (2.0 / m)         # d(MSE)/dz2, (m, OUT)
-        dW2 = dz2.T @ a1 + L2 * W2
-        db2 = dz2.sum(axis=0)
+class QATWrapper:
+    """Wraps weights/biases with fake-quant for quantization-aware training."""
+    def __init__(self, W1, b1, W2, b2, qat=False):
+        self.W1 = W1.astype(np.float32)
+        self.b1 = b1.astype(np.float32)
+        self.W2 = W2.astype(np.float32)
+        self.b2 = b2.astype(np.float32)
+        self.qat = qat
+        # Quantization params (learned/calibrated)
+        self.W1_scale = self.W1_zp = None
+        self.b1_scale = self.b1_zp = None
+        self.W2_scale = self.W2_zp = None
+        self.b2_scale = self.b2_zp = None
+        self.act1_scale = self.act1_zp = None
+        self.act2_scale = self.act2_zp = None
+    
+    def calibrate(self, X_calib):
+        """Calibrate quantization parameters using calibration data."""
+        # Forward pass to get activation ranges
+        z1 = X_calib @ self.W1.T + self.b1
+        a1 = relu(z1)
+        z2 = a1 @ self.W2.T + self.b2
+        a2 = sigmoid(z2)
+        
+        # Weight scales
+        self.W1_scale, self.W1_zp = quantize_per_tensor(self.W1)[1:]
+        self.b1_scale, self.b1_zp = quantize_per_tensor(self.b1)[1:]
+        self.W2_scale, self.W2_zp = quantize_per_tensor(self.W2)[1:]
+        self.b2_scale, self.b2_zp = quantize_per_tensor(self.b2)[1:]
+        
+        # Activation scales (asymmetric for ReLU/sigmoid outputs)
+        _, self.act1_scale, self.act1_zp = quantize_asymmetric(a1)
+        _, self.act2_scale, self.act2_zp = quantize_asymmetric(a2)
+    
+    def get_quantized_weights(self):
+        """Return quantized integer weights + scales/zps for deployment."""
+        W1_q, _, _ = quantize_per_tensor(self.W1)
+        b1_q, _, _ = quantize_per_tensor(self.b1)
+        W2_q, _, _ = quantize_per_tensor(self.W2)
+        b2_q, _, _ = quantize_per_tensor(self.b2)
+        return {
+            'W1': W1_q, 'b1': b1_q, 'W2': W2_q, 'b2': b2_q,
+            'W1_scale': self.W1_scale, 'W1_zp': self.W1_zp,
+            'b1_scale': self.b1_scale, 'b1_zp': self.b1_zp,
+            'W2_scale': self.W2_scale, 'W2_zp': self.W2_zp,
+            'b2_scale': self.b2_scale, 'b2_zp': self.b2_zp,
+            'act1_scale': self.act1_scale, 'act1_zp': self.act1_zp,
+            'act2_scale': self.act2_scale, 'act2_zp': self.act2_zp,
+        }
+    
+    def forward(self, X):
+        """Forward pass with optional fake quantization."""
+        # Layer 1
+        if self.qat and self.W1_scale is not None:
+            W1_fq = fake_quant(self.W1, self.W1_scale, self.W1_zp)
+            b1_fq = fake_quant(self.b1, self.b1_scale, self.b1_zp)
+        else:
+            W1_fq, b1_fq = self.W1, self.b1
+        z1 = X @ W1_fq.T + b1_fq
+        a1 = relu(z1)
+        if self.qat and self.act1_scale is not None:
+            a1 = fake_quant(a1, self.act1_scale, self.act1_zp)
+        
+        # Layer 2
+        if self.qat and self.W2_scale is not None:
+            W2_fq = fake_quant(self.W2, self.W2_scale, self.W2_zp)
+            b2_fq = fake_quant(self.b2, self.b2_scale, self.b2_zp)
+        else:
+            W2_fq, b2_fq = self.W2, self.b2
+        z2 = a1 @ W2_fq.T + b2_fq
+        a2 = sigmoid(z2)
+        if self.qat and self.act2_scale is not None:
+            a2 = fake_quant(a2, self.act2_scale, self.act2_zp)
+        return z1, a1, z2, a2
 
-        da1 = dz2 @ W2                                  # (m, HID)
-        dz1 = da1 * relu_grad(z1)
-        dW1 = dz1.T @ xb + L2 * W1
-        db1 = dz1.sum(axis=0)
 
-        # Adam update
-        t += 1
-        for (param, grad, m_state, v_state) in [
-            (W1, dW1, mW1, vW1), (b1, db1, mb1, vb1),
-            (W2, dW2, mW2, vW2), (b2, db2, mb2, vb2),
-        ]:
-            m_state[...] = beta1 * m_state + (1 - beta1) * grad
-            v_state[...] = beta2 * v_state + (1 - beta2) * (grad ** 2)
-            m_hat = m_state / (1 - beta1 ** t)
-            v_hat = v_state / (1 - beta2 ** t)
-            param -= LR * m_hat / (np.sqrt(v_hat) + eps)
+# 5. Training functions
+def train_float32(X_train, Y_train, X_val, Y_val, epochs=400, batch=512, lr=0.03, l2=1e-4):
+    """Standard float32 training."""
+    rng = np.random.default_rng(42)
+    W1 = rng.normal(0, np.sqrt(2.0 / IN), (HID, IN)).astype(np.float32)
+    b1 = np.zeros(HID, dtype=np.float32)
+    W2 = rng.normal(0, np.sqrt(1.0 / HID), (OUT, HID)).astype(np.float32)
+    b2 = np.zeros(OUT, dtype=np.float32)
 
-    if epoch % 50 == 0 or epoch == 1:
-        _, _, _, val_pred = forward(X_val, W1, b1, W2, b2)
-        val_loss = np.mean((val_pred - Y_val) ** 2)
-        print(f"  epoch {epoch:4d}  train_mse={epoch_loss / n_train:.5f}  val_mse={val_loss:.5f}")
+    # Adam optimizer state
+    mW1, vW1 = np.zeros_like(W1), np.zeros_like(W1)
+    mb1, vb1 = np.zeros_like(b1), np.zeros_like(b1)
+    mW2, vW2 = np.zeros_like(W2), np.zeros_like(W2)
+    mb2, vb2 = np.zeros_like(b2), np.zeros_like(b2)
+    beta1, beta2, eps = 0.9, 0.999, 1e-8
 
-# 5. Validate against exact scenarios
-def predict(hr_v, rmssd_v, spo2_v, temp_v, hum_v, pm25_v):
+    n_train = len(X_train)
+    t = 0
+    
+    def forward(X, W1, b1, W2, b2):
+        z1 = X @ W1.T + b1
+        a1 = relu(z1)
+        z2 = a1 @ W2.T + b2
+        a2 = sigmoid(z2)
+        return z1, a1, z2, a2
+
+    for epoch in range(1, epochs + 1):
+        perm = np.random.permutation(n_train)
+        epoch_loss = 0.0
+        for start in range(0, n_train, batch):
+            batch_idx = perm[start:start + batch]
+            xb, yb = X_train[batch_idx], Y_train[batch_idx]
+            m = len(xb)
+
+            z1, a1, z2, a2 = forward(xb, W1, b1, W2, b2)
+
+            # MSE loss
+            diff = (a2 - yb)
+            loss = np.mean(diff ** 2)
+            epoch_loss += loss * m
+
+            # Backprop
+            dz2 = diff * a2 * (1 - a2) * (2.0 / m)
+            dW2 = dz2.T @ a1 + l2 * W2
+            db2 = dz2.sum(axis=0)
+
+            da1 = dz2 @ W2
+            dz1 = da1 * relu_grad(z1)
+            dW1 = dz1.T @ xb + l2 * W1
+            db1 = dz1.sum(axis=0)
+
+            # Adam update
+            t += 1
+            for (param, grad, m_state, v_state) in [
+                (W1, dW1, mW1, vW1), (b1, db1, mb1, vb1),
+                (W2, dW2, mW2, vW2), (b2, db2, mb2, vb2),
+            ]:
+                m_state[...] = beta1 * m_state + (1 - beta1) * grad
+                v_state[...] = beta2 * v_state + (1 - beta2) * (grad ** 2)
+                m_hat = m_state / (1 - beta1 ** t)
+                v_hat = v_state / (1 - beta2 ** t)
+                param -= lr * m_hat / (np.sqrt(v_hat) + eps)
+
+        if epoch % 50 == 0 or epoch == 1:
+            _, _, _, val_pred = forward(X_val, W1, b1, W2, b2)
+            val_loss = np.mean((val_pred - Y_val) ** 2)
+            print(f"  epoch {epoch:4d}  train_mse={epoch_loss / n_train:.5f}  val_mse={val_loss:.5f}")
+
+    return W1, b1, W2, b2
+
+
+def train_qat(X_train, Y_train, X_val, Y_val, epochs=200, batch=512, lr=0.01, l2=1e-4):
+    """Quantization-aware training."""
+    # Initialize with float32 weights
+    rng = np.random.default_rng(42)
+    W1 = rng.normal(0, np.sqrt(2.0 / IN), (HID, IN)).astype(np.float32)
+    b1 = np.zeros(HID, dtype=np.float32)
+    W2 = rng.normal(0, np.sqrt(1.0 / HID), (OUT, HID)).astype(np.float32)
+    b2 = np.zeros(OUT, dtype=np.float32)
+
+    # Adam optimizer state
+    mW1, vW1 = np.zeros_like(W1), np.zeros_like(W1)
+    mb1, vb1 = np.zeros_like(b1), np.zeros_like(b1)
+    mW2, vW2 = np.zeros_like(W2), np.zeros_like(W2)
+    mb2, vb2 = np.zeros_like(b2), np.zeros_like(b2)
+    beta1, beta2, eps = 0.9, 0.999, 1e-8
+
+    model = QATWrapper(W1, b1, W2, b2, qat=True)
+    
+    # Calibrate on subset of training data
+    calib_idx = np.random.choice(len(X_train), min(1000, len(X_train)), replace=False)
+    model.calibrate(X_train[calib_idx])
+
+    n_train = len(X_train)
+    t = 0
+    
+    for epoch in range(1, epochs + 1):
+        perm = np.random.permutation(n_train)
+        epoch_loss = 0.0
+        for start in range(0, n_train, batch):
+            batch_idx = perm[start:start + batch]
+            xb, yb = X_train[batch_idx], Y_train[batch_idx]
+            m = len(xb)
+
+            z1, a1, z2, a2 = model.forward(xb)
+
+            # MSE loss
+            diff = (a2 - yb)
+            loss = np.mean(diff ** 2)
+            epoch_loss += loss * m
+
+            # Backprop (straight-through estimator for fake-quant)
+            dz2 = diff * a2 * (1 - a2) * (2.0 / m)
+            dW2 = dz2.T @ a1 + l2 * model.W2
+            db2 = dz2.sum(axis=0)
+
+            da1 = dz2 @ model.W2
+            dz1 = da1 * relu_grad(z1)
+            dW1 = dz1.T @ xb + l2 * model.W1
+            db1 = dz1.sum(axis=0)
+
+            # Adam update
+            t += 1
+            for (param, grad, m_state, v_state) in [
+                (model.W1, dW1, mW1, vW1), (model.b1, db1, mb1, vb1),
+                (model.W2, dW2, mW2, vW2), (model.b2, db2, mb2, vb2),
+            ]:
+                m_state[...] = beta1 * m_state + (1 - beta1) * grad
+                v_state[...] = beta2 * v_state + (1 - beta2) * (grad ** 2)
+                m_hat = m_state / (1 - beta1 ** t)
+                v_hat = v_state / (1 - beta2 ** t)
+                param -= lr * m_hat / (np.sqrt(v_hat) + eps)
+
+        if epoch % 25 == 0 or epoch == 1:
+            _, _, _, val_pred = model.forward(X_val)
+            val_loss = np.mean((val_pred - Y_val) ** 2)
+            print(f"  epoch {epoch:4d}  train_mse={epoch_loss / n_train:.5f}  val_mse={val_loss:.5f}")
+
+    # Final calibration
+    model.calibrate(X_train[calib_idx])
+    return model
+
+
+def train_post_quant(X_train, Y_train, X_val, Y_val, epochs=400, batch=512, lr=0.03, l2=1e-4):
+    """Train float32 then post-training quantize."""
+    W1, b1, W2, b2 = train_float32(X_train, Y_train, X_val, Y_val, epochs, batch, lr, l2)
+    model = QATWrapper(W1, b1, W2, b2, qat=False)
+    calib_idx = np.random.choice(len(X_train), min(1000, len(X_train)), replace=False)
+    model.calibrate(X_train[calib_idx])
+    return model
+
+
+# 6. Validation against exact scenarios
+def predict(model, hr_v, rmssd_v, spo2_v, temp_v, hum_v, pm25_v):
     x = np.array([[
         normalize(hr_v, *RANGES["hr"]),
         normalize(rmssd_v, *RANGES["rmssd"]),
@@ -271,47 +475,210 @@ def predict(hr_v, rmssd_v, spo2_v, temp_v, hum_v, pm25_v):
         normalize(hum_v, *RANGES["hum"]),
         normalize(pm25_v, *RANGES["pm25"]),
     ]])
-    _, _, _, out = forward(x, W1, b1, W2, b2)
+    _, _, _, out = model.forward(x)
     return out[0]
 
-print("\nValidation against original docstring examples:")
-scenarios = [
-    ("Normal (HR=72, RMSSD=50, SpO2=98, Temp=25, Hum=50, PM2.5=20)", 72, 50, 98, 25, 50, 20, "all outputs < 0.15"),
-    ("Heat wave (HR=140, RMSSD=8, SpO2=97, Temp=47, Hum=60, PM2.5=20)", 140, 8, 97, 47, 60, 20, "heat > 0.85"),
-    ("Severe smog (HR=100, RMSSD=30, SpO2=86, Temp=25, Hum=50, PM2.5=400)", 100, 30, 86, 25, 50, 400, "pollution > 0.85"),
-]
-for label, hr_v, rmssd_v, spo2_v, temp_v, hum_v, pm25_v, expected in scenarios:
-    out = predict(hr_v, rmssd_v, spo2_v, temp_v, hum_v, pm25_v)
-    print(f"  {label}")
-    print(f"    -> heat={out[0]:.3f}  pollution={out[1]:.3f}  flood={out[2]:.3f}   (expected: {expected})")
 
-# 6. Emit ready-to-paste C weights
+def classify(scores):
+    classes = np.zeros_like(scores, dtype=int)
+    classes[scores >= 0.25] = 1
+    classes[scores >= 0.50] = 2
+    classes[scores >= 0.70] = 3
+    return classes
+
+
+# 7. C code emission
 def c_format_array2d(name, arr, rows_comment=None):
     lines = [f"    .{name} = {{"]
     for i, row in enumerate(arr):
-        vals = ", ".join(f"{v: .6f}f" for v in row)
+        vals = ", ".join(f"{int(v)}" for v in row)
         comment = f"  /* {rows_comment[i]} */" if rows_comment else ""
         lines.append(f"        {{ {vals} }},{comment}")
     lines.append("    },")
     return "\n".join(lines)
 
+
 def c_format_array1d(name, arr):
-    vals = ", ".join(f"{v: .6f}f" for v in arr)
+    vals = ", ".join(f"{int(v)}" for v in arr)
     return f"    .{name} = {{ {vals} }},"
 
-out_path = "nn_risk_model_trained.c.inc"
-with open(out_path, "w") as f:
-    f.write("/* Auto-generated by train_nn_risk_model.py — real gradient-descent fit,\n")
-    f.write(" * distilled from the CTSI/PRSI/flood rule engine in disaster_risk_engine.c.\n")
-    f.write(" * Paste this in place of the `default_model` initializer body in nn_risk_model.c\n")
-    f.write(f" * Final train_mse={epoch_loss / n_train:.5f}\n */\n")
-    f.write("static const nn_model_t default_model = {\n")
-    f.write(c_format_array2d("W1", W1) + "\n")
-    f.write(c_format_array1d("b1", b1) + "\n")
-    f.write(c_format_array2d("W2", W2) + "\n")
-    f.write(c_format_array1d("b2", b2) + "\n")
-    f.write("};\n")
 
-print(f"\nWrote trained weights -> {out_path}")
-print(f"Total parameters: {W1.size + b1.size + W2.size + b2.size} "
-      f"({(W1.size + b1.size + W2.size + b2.size) * 4} bytes as float32)")
+def c_format_array1d_float(name, arr):
+    vals = ", ".join(f"{v:.6f}f" for v in arr)
+    return f"    .{name} = {{ {vals} }},"
+
+
+def emit_float32_c(W1, b1, W2, b2, train_loss, out_path="nn_risk_model_trained.c.inc"):
+    with open(out_path, "w") as f:
+        f.write("/* Auto-generated by train_nn_risk_model.py — float32 weights */\n")
+        f.write(f"/* Final train_mse={train_loss:.5f} */\n")
+        f.write("static const nn_model_t default_model = {\n")
+        f.write(c_format_array2d("W1", W1) + "\n")
+        f.write(c_format_array1d_float("b1", b1) + "\n")
+        f.write(c_format_array2d("W2", W2) + "\n")
+        f.write(c_format_array1d_float("b2", b2) + "\n")
+        f.write("};\n")
+    print(f"Wrote float32 weights -> {out_path}")
+
+
+def emit_int8_c(model, train_loss, out_path="nn_risk_model_int8.c.inc"):
+    q = model.get_quantized_weights()
+    with open(out_path, "w") as f:
+        f.write("/* Auto-generated by train_nn_risk_model.py — INT8 quantized weights */\n")
+        f.write("/* Symmetric per-tensor quantization for weights, asymmetric for activations */\n")
+        f.write(f"/* Final train_mse={train_loss:.5f} */\n\n")
+        
+        f.write("#include \"nn_risk_model_int8.h\"\n\n")
+        
+        f.write("const nn_model_int8_t nn_default_model_int8 = {\n")
+        f.write(c_format_array2d("W1", q['W1']) + "\n")
+        f.write(c_format_array1d("b1", q['b1']) + "\n")
+        f.write(c_format_array2d("W2", q['W2']) + "\n")
+        f.write(c_format_array1d("b2", q['b2']) + "\n")
+        f.write("};\n\n")
+        
+        f.write("const nn_quant_params_t nn_quant_params = {\n")
+        f.write(f"    .W1_scale = {q['W1_scale']:.6f}f,\n")
+        f.write(f"    .W1_zp    = {q['W1_zp']},\n")
+        f.write(f"    .b1_scale = {q['b1_scale']:.6f}f,\n")
+        f.write(f"    .b1_zp    = {q['b1_zp']},\n")
+        f.write(f"    .W2_scale = {q['W2_scale']:.6f}f,\n")
+        f.write(f"    .W2_zp    = {q['W2_zp']},\n")
+        f.write(f"    .b2_scale = {q['b2_scale']:.6f}f,\n")
+        f.write(f"    .b2_zp    = {q['b2_zp']},\n")
+        f.write(f"    .act1_scale = {q['act1_scale']:.6f}f,\n")
+        f.write(f"    .act1_zp    = {q['act1_zp']},\n")
+        f.write(f"    .act2_scale = {q['act2_scale']:.6f}f,\n")
+        f.write(f"    .act2_zp    = {q['act2_zp']},\n")
+        f.write("};\n")
+    print(f"Wrote INT8 weights -> {out_path}")
+
+
+def emit_int8_header(out_path="nn_risk_model_int8.h"):
+    with open(out_path, "w") as f:
+        f.write("""/*
+ * nn_risk_model_int8.h
+ * INT8 Quantized Neural Network Risk Assessment Model
+ * Auto-generated by train_nn_risk_model.py
+ */
+
+#ifndef NN_RISK_MODEL_INT8_H
+#define NN_RISK_MODEL_INT8_H
+
+#include <stdint.h>
+
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+/* Model Dimensions */
+#define NN_INPUT_SIZE    6
+#define NN_HIDDEN_SIZE   12
+#define NN_OUTPUT_SIZE   3
+
+/* Quantized Model Structure */
+typedef struct {
+    int8_t  W1[NN_HIDDEN_SIZE][NN_INPUT_SIZE];
+    int8_t  b1[NN_HIDDEN_SIZE];
+    int8_t  W2[NN_OUTPUT_SIZE][NN_HIDDEN_SIZE];
+    int8_t  b2[NN_OUTPUT_SIZE];
+} nn_model_int8_t;
+
+/* Quantization Parameters (per-tensor scales & zero-points) */
+typedef struct {
+    float W1_scale, W2_scale, b1_scale, b2_scale;
+    float act1_scale, act2_scale;
+    int8_t W1_zp, W2_zp, b1_zp, b2_zp;
+    uint8_t act1_zp, act2_zp;
+} nn_quant_params_t;
+
+/* Inference Result (float output for compatibility) */
+typedef struct {
+    float heat_score;
+    float pollution_score;
+    float flood_score;
+} nn_output_t;
+
+/* Extern declarations */
+extern const nn_model_int8_t nn_default_model_int8;
+extern const nn_quant_params_t nn_quant_params;
+
+/* INT8 Inference API */
+void nn_predict_int8(
+    const nn_model_int8_t *model,
+    const nn_quant_params_t *qparams,
+    float hr, float rmssd, float spo2,
+    float temp, float hum, float pm25,
+    nn_output_t *out
+);
+
+#ifdef __cplusplus
+}
+#endif
+
+#endif /* NN_RISK_MODEL_INT8_H */
+""")
+    print(f"Wrote INT8 header -> {out_path}")
+
+
+def main():
+    parser = argparse.ArgumentParser(description="Train NN risk model (float32 or INT8)")
+    parser.add_argument("--qat", action="store_true", help="Quantization-aware training")
+    parser.add_argument("--int8", action="store_true", help="Post-training quantization")
+    parser.add_argument("--epochs", type=int, default=400, help="Training epochs")
+    args = parser.parse_args()
+
+    if args.qat:
+        print("=== Quantization-Aware Training (QAT) ===")
+        model = train_qat(X_train, Y_train, X_val, Y_val, epochs=args.epochs)
+        _, _, _, val_pred = model.forward(X_val)
+        val_loss = np.mean((val_pred - Y_val) ** 2)
+        emit_int8_c(model, val_loss)
+        emit_int8_header()
+    elif args.int8:
+        print("=== Post-Training Quantization (PTQ) ===")
+        model = train_post_quant(X_train, Y_train, X_val, Y_val, epochs=args.epochs)
+        _, _, _, val_pred = model.forward(X_val)
+        val_loss = np.mean((val_pred - Y_val) ** 2)
+        emit_int8_c(model, val_loss)
+        emit_int8_header()
+    else:
+        print("=== Float32 Training ===")
+        W1, b1, W2, b2 = train_float32(X_train, Y_train, X_val, Y_val, epochs=args.epochs)
+        _, _, _, val_pred = forward(X_val, W1, b1, W2, b2)
+        val_loss = np.mean((val_pred - Y_val) ** 2)
+        emit_float32_c(W1, b1, W2, b2, val_loss)
+        # Also emit float32 for backward compatibility
+        model = QATWrapper(W1, b1, W2, b2, qat=False)
+        emit_int8_c(model, val_loss, out_path="nn_risk_model_int8_from_float.c.inc")
+        emit_int8_header()
+
+    # Validation against exact scenarios
+    print("\nValidation against original docstring examples:")
+    scenarios = [
+        ("Normal (HR=72, RMSSD=50, SpO2=98, Temp=25, Hum=50, PM2.5=20)", 72, 50, 98, 25, 50, 20, "all outputs < 0.15"),
+        ("Heat wave (HR=140, RMSSD=8, SpO2=97, Temp=47, Hum=60, PM2.5=20)", 140, 8, 97, 47, 60, 20, "heat > 0.85"),
+        ("Severe smog (HR=100, RMSSD=30, SpO2=86, Temp=25, Hum=50, PM2.5=400)", 100, 30, 86, 25, 50, 400, "pollution > 0.85"),
+    ]
+    for label, hr_v, rmssd_v, spo2_v, temp_v, hum_v, pm25_v, expected in scenarios:
+        out = predict(model, hr_v, rmssd_v, spo2_v, temp_v, hum_v, pm25_v)
+        print(f"  {label}")
+        print(f"    -> heat={out[0]:.3f}  pollution={out[1]:.3f}  flood={out[2]:.3f}   (expected: {expected})")
+
+    # Classification Accuracy
+    _, _, _, val_pred = model.forward(X_val)
+    val_pred_class = classify(val_pred)
+    val_true_class = classify(Y_val)
+    accuracy = np.mean(val_pred_class == val_true_class) * 100.0
+    print(f"\nClassification Accuracy on Validation Set: {accuracy:.2f}%")
+    
+    # Get parameter count from model
+    if hasattr(model, 'W1'):
+        total_params = model.W1.size + model.b1.size + model.W2.size + model.b2.size
+    else:
+        total_params = W1.size + b1.size + W2.size + b2.size
+    print(f"Total parameters: {total_params} ({total_params * 4} bytes float32, {total_params} bytes INT8)")
+
+
+if __name__ == "__main__":
+    main()

@@ -1,0 +1,12 @@
+# compile verilog/system verilog design source files
+verilog xil_defaultlib  --include "../../../../../../../../../../../AMDDesignTools/2026.1/Vivado/data/rsb/busdef" \
+"../../../../../axi_ppg_accelerator.v" \
+"../../../../../moving_average_8tap.v" \
+"../../../../../ppg_peak_detector.v" \
+"../../../../../tb_ppg_system.v" \
+
+# compile glbl module
+verilog xil_defaultlib "glbl.v"
+
+# Do not sort compile order
+nosort

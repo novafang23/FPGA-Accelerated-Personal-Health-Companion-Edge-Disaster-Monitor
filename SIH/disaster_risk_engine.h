@@ -9,6 +9,7 @@
 #include <stdint.h>
 #include "hrv_analysis.h"
 #include "nn_risk_model.h"
+#include "nn_risk_model_int8.h"
 
 /* --- Heat Risk Thresholds --- */
 #define HEAT_TEMP_BASE_C        27.0f
@@ -63,10 +64,10 @@ extern "C" {
 
 /* Risk Levels */
 typedef enum {
-    RISK_NORMAL   = 0,   /* Green  — all parameters within safe range       */
-    RISK_MODERATE = 1,   /* Yellow — early signs, take precautionary action  */
-    RISK_HIGH     = 2,   /* Orange — significant strain, intervene now       */
-    RISK_CRITICAL = 3    /* Red    — imminent danger, emergency response     */
+    RISK_NORMAL   = 0,   /* Green  -- all parameters within safe range       */
+    RISK_MODERATE = 1,   /* Yellow -- early signs, take precautionary action  */
+    RISK_HIGH     = 2,   /* Orange -- significant strain, intervene now       */
+    RISK_CRITICAL = 3    /* Red    -- imminent danger, emergency response     */
 } risk_level_t;
 
 /* Environmental Sensor Inputs */
@@ -97,16 +98,7 @@ const char* risk_level_to_string(risk_level_t level);
 const char* risk_level_to_color(risk_level_t level);
 
 /*
- * Run multi-disaster health risk assessment.
- *
- * Inputs:
- *   hrv   — pointer to HRV analysis state (NULL if unavailable)
- *   spo2  — current SpO2 percentage (0-100)
- *   bpm   — current heart rate in beats per minute
- *   env   — environmental sensor readings
- *
- * Output:
- *   result — filled with per-disaster and overall risk levels + advisories
+ * Run multi-disaster health risk assessment (rule-based).
  */
 void disaster_assess(
     const hrv_state_t   *hrv,
@@ -116,8 +108,17 @@ void disaster_assess(
     risk_assessment_t   *result
 );
 
-/* Run AI-powered neural network disaster risk assessment. */
+/* Run AI-powered neural network disaster risk assessment (float32). */
 void disaster_assess_nn(
+    const hrv_state_t   *hrv,
+    float                spo2,
+    float                bpm,
+    const env_sensors_t *env,
+    risk_assessment_t   *result
+);
+
+/* Run AI-powered neural network disaster risk assessment (INT8 quantized). */
+void disaster_assess_nn_int8(
     const hrv_state_t   *hrv,
     float                spo2,
     float                bpm,

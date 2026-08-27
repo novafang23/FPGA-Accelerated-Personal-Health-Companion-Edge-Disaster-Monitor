@@ -1,15 +1,55 @@
 # run_vivado_synth.tcl
-# Automated Vivado Synthesis & Timing Closure Script
-# Usage: vivado -mode batch -source run_vivado_synth.tcl
+# Automated Vivado Synthesis/Simulation & Timing Closure Script
+# Usage:
+#   Simulation: vivado -mode batch -source run_vivado_synth.tcl -tclargs sim
+#   Synthesis:  vivado -mode batch -source run_vivado_synth.tcl -tclargs synth
 
 puts "=========================================================================="
-puts "  SIH26181: Synthesizing AXI PPG Accelerator IP"
-puts "  Target Part: xc7z020clg400-1 (Zynq-7000)"
+puts "  SIH26181: AXI PPG Accelerator Flow"
 puts "=========================================================================="
 
-# Create in-memory project
+# Parse arguments: first arg is mode (sim | synth)
+set mode [lindex $argv 0]
+if {$mode == ""} { set mode "synth" }
+
+# Target part: Zynq-7000 (xc7z020clg400-1) as per project
+set part "xc7z020clg400-1"
+puts "  Target Part: $part"
+puts "  Mode: $mode"
+puts "=========================================================================="
+
 set_param general.maxThreads 4
-create_project -in_memory -part xc7z020clg400-1
+
+if {$mode == "sim"} {
+    # ---- SIMULATION MODE ----
+    puts ">> Running Behavioral Simulation (xsim)..."
+    create_project -in_memory -part $part
+    read_verilog moving_average_8tap.v
+    read_verilog ppg_peak_detector.v
+    read_verilog axi_ppg_accelerator.v
+    read_verilog tb_ppg_system.v
+    
+    # Compile & elaborate
+    puts ">> Compiling..."
+    xvlog -sv -work xil_defaultlib [glob *.v]
+    
+    # Elaborate
+    puts ">> Elaborating..."
+    xelab -debug typical -top tb_ppg_system -s sim_snapshot -timescale 1ns/1ps
+    
+    # Run simulation
+    puts ">> Simulating..."
+    xsim sim_snapshot -runall -testplusarg VERBOSE
+    
+    puts ">> Simulation complete"
+    exit
+}
+
+# ---- SYNTHESIS MODE ----
+puts "  SIH26181: Synthesizing AXI PPG Accelerator IP"
+puts "=========================================================================="
+
+create_project -in_memory -part $part
 
 # Read RTL source files
 read_verilog moving_average_8tap.v
@@ -21,7 +61,7 @@ read_xdc ppg_accelerator.xdc
 
 # Run Synthesis targeting 50 MHz (20ns period)
 puts ">> Starting RTL Synthesis..."
-synth_design -top axi_ppg_accelerator -part xc7z020clg400-1 -mode out_of_context -flatten_hierarchy rebuilt
+synth_design -top axi_ppg_accelerator -part $part -mode out_of_context -flatten_hierarchy rebuilt
 
 # Generate Synthesis Utilization Report
 puts ">> Generating Utilization Report..."
@@ -57,4 +97,8 @@ puts "    - timing_synth.rpt       (Detailed STA setup/hold slacks)"
 puts "    - power_synth.rpt        (Estimated dynamic and leakage power)"
 puts "=========================================================================="
 
+# Exit with error code if timing violated
+if {$wns < 0.0} {
+    exit 1
+}
 exit

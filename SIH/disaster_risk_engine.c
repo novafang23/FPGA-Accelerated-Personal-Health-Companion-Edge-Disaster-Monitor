@@ -318,8 +318,79 @@ void disaster_assess_nn(
         result->overall_advisory = result->flood_advisory;
     }
 
-    if (result->overall_risk == RISK_NORMAL) {
-        result->overall_advisory = "All vitals normal — AI risk engine clear";
+if (result->overall_risk == RISK_NORMAL) {
+        result->overall_advisory = "All vitals normal -- AI risk engine clear";
     }
+}
+
+/* Run AI-powered neural network disaster risk assessment (INT8 quantized). */
+void disaster_assess_nn_int8(
+    const hrv_state_t   *hrv,
+    float                spo2,
+    float                bpm,
+    const env_sensors_t *env,
+    risk_assessment_t   *result
+) {
+    float rmssd;
+    nn_output_t nn_out;
+
+    if (result == NULL) {
+        return;
+    }
+
+    memset(result, 0, sizeof(risk_assessment_t));
+
+    rmssd = (hrv != NULL) ? hrv->rmssd : 50.0f;
+
+    /* Run INT8 neural network forward pass */
+    nn_predict_int8(&nn_default_model_int8, &nn_quant_params,
+                    bpm, rmssd, spo2,
+                    env->ambient_temp_c, env->humidity_pct, env->pm25,
+                    &nn_out);
+
+    /* Map heat risk output neuron to risk level */
+    result->heat_risk = nn_score_to_risk(
+        nn_out.heat_score, &result->heat_advisory,
+        "DANGER: Neural network detects heat stroke pattern! Seek cooling NOW",
+        "WARNING: AI detects heat exhaustion risk. Move to shade, hydrate",
+        "CAUTION: AI detects moderate thermal strain. Stay hydrated",
+        "Thermal status normal (AI)"
+    );
+
+    /* Map pollution risk output neuron to risk level */
+    result->pollution_risk = nn_score_to_risk(
+        nn_out.pollution_score, &result->pollution_advisory,
+        "DANGER: AI detects severe respiratory distress pattern! Use N95 mask",
+        "WARNING: AI detects respiratory strain. Wear mask, limit exposure",
+        "CAUTION: AI detects mild pollution impact. Consider wearing a mask",
+        "Respiratory status normal (AI)"
+    );
+
+    /* Map flood/cold risk output neuron to risk level */
+    result->flood_risk = nn_score_to_risk(
+        nn_out.flood_score, &result->flood_advisory,
+        "DANGER: AI detects hypothermia/collapse pattern! Seek warmth NOW",
+        "WARNING: AI detects cold exposure stress. Dry off, seek shelter",
+        "CAUTION: AI detects mild exposure risk. Monitor body temperature",
+        "Exposure status normal (AI)"
+    );
+
+    /* Overall risk = worst of all neural network predictions */
+    result->overall_risk     = result->heat_risk;
+    result->overall_advisory = result->heat_advisory;
+
+    if (result->pollution_risk > result->overall_risk) {
+        result->overall_risk     = result->pollution_risk;
+        result->overall_advisory = result->pollution_advisory;
+    }
+    if (result->flood_risk > result->overall_risk) {
+        result->overall_risk     = result->flood_risk;
+        result->overall_advisory = result->flood_advisory;
+    }
+
+    if (result->overall_risk == RISK_NORMAL) {
+        result->overall_advisory = "All vitals normal -- AI risk engine clear (INT8)";
+    }
+}
 }
 

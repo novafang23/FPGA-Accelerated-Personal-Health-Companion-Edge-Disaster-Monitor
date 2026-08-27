@@ -31,7 +31,7 @@ echo.
 
 :: 3. Compile C Disaster Resilience & Health Demo
 echo [3/4] Compiling C Health Monitor ^& Disaster Simulation...
-C:\msys64\ucrt64\bin\gcc.exe -Wall -Wextra -o health_demo.exe main_simulation.c hrv_analysis.c spo2_engine.c disaster_risk_engine.c nn_risk_model.c -lm
+C:\msys64\ucrt64\bin\gcc.exe -Wall -Wextra -o health_demo.exe main_simulation.c hrv_analysis.c spo2_engine.c disaster_risk_engine.c nn_risk_model.c nn_risk_model_int8.c -lm
 if %errorlevel% neq 0 (
     echo [ERROR] C compilation failed!
     pause
@@ -42,7 +42,7 @@ echo.
 
 :: 4. Compile Compare Harness (Rule Engine vs NN side-by-side)
 echo [4/5] Compiling Compare Harness (Rule Engine vs NN)...
-C:\msys64\ucrt64\bin\gcc.exe -Wall -Wextra -o compare_harness.exe compare_harness.c hrv_analysis.c spo2_engine.c disaster_risk_engine.c nn_risk_model.c -lm
+C:\msys64\ucrt64\bin\gcc.exe -Wall -Wextra -o compare_harness.exe compare_harness.c hrv_analysis.c spo2_engine.c disaster_risk_engine.c nn_risk_model.c nn_risk_model_int8.c -lm
 if %errorlevel% neq 0 (
     echo [ERROR] Compare harness compilation failed!
     pause
@@ -53,7 +53,7 @@ echo.
 
 :: 5. Compile and Run Unit Tests
 echo [5/5] Compiling Unit Tests...
-C:\msys64\ucrt64\bin\gcc.exe -Wall -Wextra -o test_engine.exe test_disaster_risk_engine.c disaster_risk_engine.c nn_risk_model.c -lm
+C:\msys64\ucrt64\bin\gcc.exe -Wall -Wextra -o test_engine.exe test_disaster_risk_engine.c disaster_risk_engine.c nn_risk_model.c nn_risk_model_int8.c -lm
 if %errorlevel% neq 0 (
     echo [ERROR] Unit test compilation failed!
     pause
