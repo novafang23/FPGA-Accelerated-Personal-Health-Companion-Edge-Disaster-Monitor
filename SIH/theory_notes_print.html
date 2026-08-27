@@ -301,14 +301,14 @@ strong {
 
 <h1 class="part-title">5. THE SOFTWARE / ML SIDE — EXPLAINED SIMPLY</h1>
 
-<p class="paragraph">Our latest software update (<code>nn<em>risk</em>model.c</code> and <code>disaster<em>risk</em>engine.c</code>) introduces a <strong>Hybrid Risk Assessment Engine</strong>.</p>
+<p class="paragraph">Our latest software update (<code>nn<em>risk</em>model<em>int8.c</code> and <code>disaster</em>risk_engine.c</code>) introduces a <strong>Hybrid Risk Assessment Engine</strong>.</p>
 
 <p class="paragraph"><strong>How we calculate risk:</strong></p>
 <p class="paragraph">We take 6 vital signs and environmental readings: Heart Rate, RMSSD (a measure of stress/HRV), SpO2, Ambient Temp, Humidity, and PM2.5.</p>
 
 <p class="paragraph">We process these in two ways:</p>
 <div class="numbered-item"><span class="num">1.</span> <strong>Rule-Based Engine (<code>disaster<em>risk</em>engine.c</code>):</strong> This calculates medical indices like the Cardio-Thermal Strain Index (CTSI) for heatwaves and the Pollution Respiratory Strain Index (PRSI) for air quality. Just like CTSI combines Temp + HR for heat strain, PRSI combines PM2.5 + SpO2 for pollution strain. For example, if temperature > 40°C AND heart rate > 120 bpm, CTSI immediately flags a Critical Heat Risk.</div>
-<div class="numbered-item"><span class="num">2.</span> <strong>The Neural Network (<code>nn<em>risk</em>model.c</code>):</strong> We implemented a lightweight, custom Artificial Intelligence model (a Multi-Layer Perceptron) entirely in C.</div>
+<div class="numbered-item"><span class="num">2.</span> <strong>The Neural Network (<code>nn<em>risk</em>model_int8.c</code>):</strong> We implemented a lightweight, custom Artificial Intelligence model (a Multi-Layer Perceptron) entirely in C using <strong>INT8 Quantization</strong>. By quantizing the model to 8-bit integers, we avoid expensive floating-point math, drastically reducing memory usage and making it perfect for direct deployment onto Qualcomm's NPU or our custom FPGA.</div>
 
 <p class="paragraph"><img src="nn_arch.png" alt="Neural Network Architecture Diagram" style="width:100%; max-width:550px; display:block; margin: 15px auto;" /></p>
 
