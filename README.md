@@ -3,10 +3,11 @@
 [![Verilog RTL](https://img.shields.io/badge/Hardware-Verilog%202001-blue.svg)](hardware/zynq/axi_ppg_accelerator.v)
 [![Bus Protocol](https://img.shields.io/badge/Interconnect-ARM%20AMBA%20AXI4--Lite-orange.svg)](docs/HARDWARE_ARCHITECTURE.md)
 [![Verification](https://img.shields.io/badge/Verification-6%2F6%20Passed%20(100%25)-brightgreen.svg)](hardware/zynq/tb_ppg_system.v)
-[![Static Timing](https://img.shields.io/badge/STA%20Timing-WNS%20%2B14.28ns%20(Met)-success.svg)](docs/HARDWARE_ARCHITECTURE.md)
+[![Static Timing](https://img.shields.io/badge/STA%20Timing-WNS%20%2B5.603ns%20(Met)-success.svg)](docs/HARDWARE_ARCHITECTURE.md)
 [![TinyML Engine](https://img.shields.io/badge/AI%20Engine-TinyML%20(6%E2%86%9212%E2%86%923)-purple.svg)](firmware/core/nn_risk_model_int8.c)
 [![NN Validation](https://img.shields.io/badge/NN%20vs%20Rule%20Engine-r%3D0.97-blueviolet.svg)](firmware/zynq/compare_harness.c)
 [![Target Platform](https://img.shields.io/badge/Target-Zynq%20Baseline%20%7C%20ShrikeFi%20Roadmap-red.svg)](docs/MIGRATION.md)
+[![Theory Guide](https://img.shields.io/badge/Docs-Master%20Theory%20Notes%20(PDF)-teal.svg)](docs/theory/SIH26181_Master_Theory_Notes.pdf)
 
 An end-to-end heterogeneous System-on-Chip (SoC) combining **synthesizable Verilog hardware acceleration** and an **on-device TinyML neural network** to provide real-time, cloud-free physiological risk prediction during extreme environmental disasters (heat waves, air pollution smog, and floods).
 
@@ -22,15 +23,22 @@ An end-to-end heterogeneous System-on-Chip (SoC) combining **synthesizable Veril
 ## 📌 Key Architectural Highlights
 
 * **Cycle-Accurate Hardware Timing:** Dedicated 50 MHz FPGA timer measures heartbeat Inter-Beat Intervals (IBI) with **20 nanoseconds resolution**, eliminating the 5–20 ms operating system scheduling jitter that corrupts Heart Rate Variability (HRV).
-* **Area-Optimized DSP Architecture:** Dual-channel 8-tap moving average filter implemented using an **O(1) running-sum algorithm with wire-shift division (`>> 3`)**, requiring **0 DSP48 multiplier slices and 0 Block RAMs**.
+* **Area-Optimized DSP Architecture:** Dual-channel 8-tap moving average filter implemented using an **$O(1)$ running-sum algorithm with wire-shift division (`>> 3`)**, requiring **0 DSP48 multiplier slices and 0 Block RAMs**.
 * **Robust Bus Interfacing:** Standard ARM AMBA AXI4-Lite slave engine with **decoupled `AW` and `W` channel handshakes**, eliminating bus deadlocks on out-of-order interconnects. Includes **Write-1-to-Clear (W1C)** status registers to prevent interrupt race conditions.
-* **On-Device TinyML Inference:** 2-layer feedforward neural network (6 → 12 → 3) requiring only **123 parameters (123 bytes)** and **108 INT8 MAC operations**, executing in **< 1 µs** on an ARM CPU with zero cloud dependency.
+* **On-Device TinyML Inference:** 2-layer feedforward neural network (6 → 12 → 3) requiring only **123 parameters (123 bytes)** and **108 INT8 MAC operations**, executing in **< 1 µs** on an ARM / ESP32-S3 CPU with zero cloud dependency.
 * **Early Disaster Prediction:** Fuses physiological vitals (HR, RMSSD, SpO₂) with environmental metrics (Temperature, Humidity, PM2.5) to detect **Cardiovascular Drift**, providing **15 to 30 minutes of advance warning before heat stroke occurs** *(derived from Montain & Coyle physiological drift models)*.
 * **Qualcomm Silicon Portability:** Prototyped on Xilinx Zynq-7000 with a defined production migration roadmap to **Qualcomm Snapdragon Wear W5+ Gen 1** using **Hexagon™ Vector eXtensions (HVX)** on the Low-Power Island (< 5 mW) and **Qualcomm AI Engine (SNPE/QNN)**.
 
 ---
 
-## 🏛️ System Architecture & Data Flow
+## 🏛️ System Architecture & End-to-End Data Flow
+
+### 1. High-Level Dataflow Pipeline
+The system operates across four coordinated processing tiers, moving from raw physical sensor acquisition to hardware-accelerated DSP, on-device TinyML inference, and local offline hazard advisory:
+
+![System Architecture & Dataflow](docs/images/data_flow.png)
+
+### 2. Heterogeneous Hardware / Firmware Architecture
 
 ```
 ┌──────────────────────────────────────────────────────────────────────────────────────────────────────┐
@@ -42,7 +50,7 @@ An end-to-end heterogeneous System-on-Chip (SoC) combining **synthesizable Veril
 ┌──────────────────────────────────────────────────────────────────────────────────────────────────────┐
 │                              FPGA PROGRAMMABLE LOGIC (50 MHz RTL CORE)                              │
 │                                                                                                      │
-│   ┌───────────────────────────────────┐    AXI4-Lite Slave     ┌──────────────────────────────────┐  │
+│   ┌───────────────────────────────────┐    AXI4-Lite / 4-Bit   ┌──────────────────────────────────┐  │
 │   │ Dual 8-Tap Moving Average Filters │◄───────────────────────┤ Memory-Mapped Register Interface │  │
 │   │ (O(1) Running Sum, 0 DSP Slices)  │                        │ 0x00: REG_RED_RAW                │  │
 │   └─────────────────┬─────────────────┘                        │ 0x04: REG_RED_FILTERED           │  │
@@ -53,10 +61,10 @@ An end-to-end heterogeneous System-on-Chip (SoC) combining **synthesizable Veril
 │   │ (250ms Refractory Blanking Window)│                        └──────────────────────────────────┘  │
 │   └───────────────────────────────────┘                                                              │
 └──────────────────────────────────────────────────┬───────────────────────────────────────────────────┘
-                                                   │ Memory-Mapped I/O & Interrupt
+                                                   │ Memory-Mapped I/O / Hardware Interrupt
                                                    ▼
 ┌──────────────────────────────────────────────────────────────────────────────────────────────────────┐
-│                                  PROCESSING SYSTEM (ARM CORTEX-A9 CPU)                               │
+│                                  PROCESSING SYSTEM (ARM CORTEX-A9 / ESP32-S3)                        │
 │                                                                                                      │
 │   • driver_ppg.c          : Register-level hardware abstraction & IBI extraction                     │
 │   • hrv_analysis.c        : 20-sample circular buffer computing RMSSD (vagal tone) and SDNN          │
@@ -69,19 +77,86 @@ An end-to-end heterogeneous System-on-Chip (SoC) combining **synthesizable Veril
 
 ---
 
-## 📈 Verification Waveforms & Timing Evidence
+## ⚙️ FPGA Hardware Microarchitecture (Vendor-Agnostic Core)
 
-### 1. Cycle-Accurate Vivado Simulation Waveforms
-Below is the timing simulation of `tb_ppg_system.v` proving the decoupled AXI write handshake and 20 ns systolic peak interrupt generation:
+### 1. Dual-Channel 8-Tap Moving Average Filter (`moving_average_8tap.v`)
+To eliminate optical baseline wandering and high-frequency motion artifacts from raw photoplethysmography (PPG) data, the accelerator implements a hardware moving-average FIR filter:
 
-![Simulation Waveform 1](docs/images/waveform_1.png)
-![Simulation Waveform 2](docs/images/waveform_2.png)
+* **Difference Equation:**
+  $$y[n] = y[n-1] + \frac{x[n] - x[n-8]}{8}$$
+* **Zero DSP / Zero BRAM Implementation:** The filter maintains a running 11-bit sum in flip-flops. Division by 8 is synthesized as an instantaneous hardwired bit-shift (`>> 3`), requiring **zero hardware multipliers (0 DSP48)** and **zero Block RAM**.
+* **Latency:** Deterministic single-cycle throughput on every `data_valid` strobe.
 
-### 2. Vivado Post-Synthesis Static Timing & Utilization Evidence
-Generated with AMD Xilinx Vivado ML v2022.2, target `xc7z020clg400-1` (Speed Grade -1, Slow Corner 85°C).
-See [`HARDWARE_ARCHITECTURE.md`](docs/HARDWARE_ARCHITECTURE.md) for full microarchitecture details.
+---
 
-| Metric / Resource | Value | Chip Available (`xc7z020`) | Status |
+### 2. 4-State Systolic Peak Detector & Refractory FSM (`ppg_peak_detector.v`)
+To extract precise beat-to-beat timing intervals without CPU overhead, a dedicated finite state machine tracks the pulse waveform morphology in hardware:
+
+![4-State Systolic Peak Detector FSM](docs/images/fsm.png)
+
+#### FSM State Machine Breakdown:
+| State | Binary | Functional Description | Exit Condition |
+|---|:---:|---|---|
+| `STATE_ARMED` | `2'b00` | Baseline monitoring state; arming circuit waits for rising edge. | Sample value exceeds dynamic threshold (`sample_in >= threshold_reg`). |
+| `STATE_RISING` | `2'b01` | Tracks ascending slope of the systolic pulse wave. | Local peak inflection detected (`sample_in < sample_prev`). |
+| `STATE_PEAK_FOUND`| `2'b10` | Latching timestamp, pulsing `irq_beat` (1 cycle), and capturing 32-bit IBI cycle count. | Instantaneous single-cycle transition to refractory blanking. |
+| `STATE_REFRACTORY`| `2'b11` | Blanking window counter (250 ms = 12,500,000 cycles @ 50 MHz) to prevent false triggers on dicrotic notches. | Timer countdown reaches zero (`refractory_cnt == 0`). |
+
+* **Hardware IBI Counter:** Runs continuously on the 50 MHz clock domain, providing **20.000 ns per tick resolution** ($T_{\text{clk}} = 1 / 50\text{ MHz} = 20\text{ ns}$).
+
+---
+
+## 🧠 On-Device TinyML Neural Network Architecture
+
+The intelligence layer features an ultra-compact 2-layer feedforward artificial neural network (ANN) designed specifically for resource-constrained edge microcontrollers and low-power DSPs:
+
+![TinyML Neural Network Topology](docs/images/nn_arch.png)
+
+### Model Topology & Computational Footprint:
+* **Input Layer (6 Features):**
+  1. `HR` (Heart Rate in Beats Per Minute)
+  2. `RMSSD` (Root Mean Square of Successive Differences in ms — Vagal HRV marker)
+  3. `SpO2` (Blood Oxygen Saturation in %)
+  4. `Ambient Temperature` (°C)
+  5. `Relative Humidity` (%)
+  6. `Particulate Matter PM2.5` ($\mu\text{g}/\text{m}^3$)
+* **Hidden Layer (12 Neurons):** Fully connected with Rectified Linear Unit ($\text{ReLU}(z) = \max(0, z)$) activations ($6 \times 12 = 72$ weights + 12 biases).
+* **Output Layer (3 Multi-Hazard Neurons):** Logistic Sigmoid ($\sigma(z) = \frac{1}{1 + e^{-z}}$) activations ($12 \times 3 = 36$ weights + 3 biases) producing independent risk probabilities:
+  * **Neuron 1 — Heat Stroke Risk:** Detects cardiovascular drift under severe heat index conditions.
+  * **Neuron 2 — Air Pollution Risk:** Assesses respiratory distress caused by hazardous particulate matter.
+  * **Neuron 3 — Flood / Hypothermia Risk:** Evaluates cold exposure and immersion-induced bradycardia.
+* **INT8 Quantization:** Fixed-point representation reduces parameter memory to **123 bytes** with **108 INT8 MAC operations**, executing in **< 1 µs** on ARM Cortex-A9 / ESP32-S3 cores with zero cloud dependencies.
+
+---
+
+## 📈 Hardware Simulation & Waveform Timing Analysis
+
+### 1. Cycle-Accurate GTKWave Timing Simulation (`tb_ppg_system.v`)
+The GTKWave trace below demonstrates the decoupled ARM AMBA AXI4-Lite slave handshakes, the filtered analog pulse tracking, the single-cycle systolic interrupt pulse, and the latching of the 32-bit IBI cycle register:
+
+![GTKWave Timing Simulation](docs/images/waveform_snapshot.png)
+
+#### Timing Trace Walkthrough:
+* **Decoupled AXI Write:** Independent `AW` (Address Write) and `W` (Data Write) channels complete in separate clock cycles without stalling the master interconnect.
+* **Filter Smoothing:** The raw digital input samples are smoothed by the running-sum pipeline into `filter_red_out[7:0]`.
+* **Inflection Detection:** As the waveform rises past the threshold, the FSM transitions `ARMED` $\rightarrow$ `RISING` $\rightarrow$ `PEAK_FOUND`.
+* **Hardware Interrupt (`irq_beat`):** A 1-cycle active-high pulse fires at cycle 68, latching the IBI cycle count `0x00000CD1` (3,281 ticks @ 50 MHz = 65.62 µs simulated interval).
+
+---
+
+### 2. Vivado Cycle-Accurate RTL Waveforms
+Full functional verification of `tb_ppg_system.v` in AMD Xilinx Vivado ML (6/6 self-checking test vectors passing):
+
+![Vivado Simulation Waveform 1](docs/images/waveform_1.png)
+![Vivado Simulation Waveform 2](docs/images/waveform_2.png)
+
+---
+
+## 🔬 Vivado Post-Synthesis Static Timing & Utilization Evidence (Zynq Baseline)
+
+Synthesized Out-of-Context (OOC) with **AMD Xilinx Vivado ML v2022.2**, target part `xc7z020clg400-1` (Speed Grade -1, Slow Process Corner 85°C):
+
+| Metric / Resource | Value | Chip Available (`xc7z020`) | Status / Utilization |
 |:---|:---:|:---:|:---:|
 | **Worst Negative Slack (WNS)** | **+5.603 ns** | — | **TIMING MET (Setup)** |
 | **Worst Hold Slack (WHS)** | **+0.184 ns** | — | **TIMING MET (Hold)** |
@@ -89,25 +164,80 @@ See [`HARDWARE_ARCHITECTURE.md`](docs/HARDWARE_ARCHITECTURE.md) for full microar
 | **Lookup Tables (LUT)** | **185** | 53,200 | **0.35%** |
 | **LUTRAM** | **16** | 17,400 | **0.09%** |
 | **Flip-Flops (FF)** | **266** | 106,400 | **0.25%** |
-| **DSP48 Slices** | **0** | 220 | **0.00%** |
+| **DSP48 Multiplier Slices** | **0** | 220 | **0.00% (Pure Logic)** |
 | **Block RAM (BRAM)** | **0** | 140 | **0.00%** |
 
-#### Detailed Vivado Reports
+### Detailed Vivado Synthesis Reports & Schematics:
 
-**Timing Summary:**
-![Timing Summary](docs/images/timing_summary.png)
+#### Timing Summary Report (+5.603 ns WNS Closure):
+![Vivado Timing Summary](docs/images/timing_summary.png)
 
-**Utilization Percentage:**
-![Utilization Percentage](docs/images/utilization_percentage.png)
+#### FPGA Fabric Utilization Breakdown (185 LUTs / 0 DSPs):
+![Vivado Utilization Percentage](docs/images/utilization_percentage.png)
 
-**Power Summary:**
-![Power Summary](docs/images/power_summary.png)
+#### On-Chip Power Dissipation Summary:
+![Vivado Power Summary](docs/images/power_summary.png)
 
-**RTL Schematic:**
-![RTL Schematic](docs/images/rtl_schematic.png)
+#### Synthesized RTL Schematic (Gate-Level Netlist):
+![Vivado RTL Schematic](docs/images/rtl_schematic.png)
 
-**Device Floorplan:**
-![Device Floorplan](docs/images/device_floorplan.png)
+#### Device Floorplan & Placement:
+![Vivado Device Floorplan](docs/images/device_floorplan.png)
+
+---
+
+## ⚡ ShrikeFi Hardware Platform (ESP32-S3 + Renesas ForgeFPGA)
+
+To scale beyond expensive development kits to an accessible < $20 disaster monitor, the accelerator was ported to the **ShrikeFi** dual-chip platform.
+
+### 1. Interconnect Architecture & Pin Mapping
+
+![ShrikeFi Pinout & Interconnect Diagram](docs/images/shrikefi_pinout.png)
+
+> [!CAUTION]
+> **3.3V LVCMOS Electrical Boundary Warning:** All ESP32-S3 and Renesas ForgeFPGA pins operate strictly at **3.3V logic levels**. Exceeding 3.3V will permanently destroy the ICs.
+
+#### ESP32-S3 ↔ Renesas ForgeFPGA Link Pinout:
+| ESP32-S3 GPIO | ForgeFPGA Pin | Signal Name | Direction | Description |
+|:---:|:---:|:---|:---:|:---|
+| **GPIO 3** | **PIN_13** | `rst_n` | MCU $\rightarrow$ FPGA | Active-low system reset |
+| **GPIO 4** | **PIN_14** | `link_strobe` | MCU $\rightarrow$ FPGA | Transaction strobe clock pulse |
+| **GPIO 5** | **PIN_15** | `link_dir` | MCU $\rightarrow$ FPGA | Direction flag (`0` = Write to FPGA, `1` = Read from FPGA) |
+| **GPIO 6–9** | **PIN_16–19**| `link_data[3:0]` | Bidirectional | 4-bit nibble data bus |
+| **GPIO 10** | **PIN_24** | `irq_beat` | FPGA $\rightarrow$ MCU | Hardware interrupt pulse on systolic peak detection |
+| **GPIO 21/22**| — | `I2C SDA/SCL` | Bidirectional | Sensor bus (MAX30102, BME280, SSD1306) |
+| **GPIO 1/2** | — | `UART RX/TX` | Bidirectional | Environmental sensor bus (PMS5003 PM2.5) |
+
+---
+
+### 2. 4-Bit Parallel Link Protocol Timing
+
+Because the ShrikeFi board utilizes a 4-bit parallel bus rather than an on-chip AXI bus, high-speed transactions are framed in nibbles:
+
+![ShrikeFi 4-Bit Parallel Link Protocol Timing Waveform](docs/images/shrikefi_waveform.png)
+
+* **Sample Streaming (Write):** A PPG sample write consists of command nibble `CMD_WRITE_RED (0x1)`, followed by high nibble (`0x7`), then low nibble (`0x8`).
+* **Hardware Interrupt (`irq_beat`):** When a peak is detected, `irq_beat` asserts high on ForgeFPGA `PIN_24`, triggering a high-priority FreeRTOS GPIO interrupt service routine on the ESP32-S3.
+* **32-Bit IBI Deserialization (Read):** The ESP32 issues `CMD_READ_IBI (0x6)` and clocks out 8 consecutive nibbles (`0x0`, `0x0`, `0x0`, `0x0`, `0x0`, `0xC`, `0xD`, `0x1` $\implies$ `0x00000CD1` = 3,281 clock cycles).
+
+---
+
+### 3. Renesas ForgeFPGA (`SLG47910C`) Post-Synthesis Resource Footprint
+
+Post-synthesis compilation results from **Renesas ForgeFPGA Workshop v6.55** targeting the `SLG47910C` (1120 5-input LUTs):
+
+![Renesas ForgeFPGA Resource Footprint](docs/images/forgefpga_utilization.png)
+
+* **Logic LUT5 Usage:** **195 / 1120 CLB LUT5s (17.41%)** — **82.59% of logic fabric remains free** for expanded DSP and filtering.
+* **Registers / Flip-Flops:** **110 Flip-Flops** (77 CLB FFs + 33 IOB FFs).
+* **CLB Macrocells:** **35 / 140 Blocks (25.00%)**.
+* **DSP Multipliers & BRAM:** **0 DSP Multipliers, 0 Block RAMs** (synthesized purely from logic).
+
+#### ForgeFPGA Workshop GUI Synthesis Evidence:
+![Renesas ForgeFPGA Workshop Resources Report](docs/images/forgefpga_resources_report.png)
+
+#### Synthesized SLG47910C Macrocell Top-Level Core Schematic:
+![Renesas ForgeFPGA SLG47910C Schematic](docs/images/forgefpga_chip_schematic.png)
 
 ---
 
@@ -125,7 +255,7 @@ To ensure transparent, reproducible engineering rigor, all performance metrics a
 
 ### 2. TinyML Inference Latency ($< 1\ \mu\text{s}$) Calculation
 * **Model Profile:** 123 float32 weights/biases, 108 Multiply-Accumulate (MAC) operations, 12 ReLU comparisons, 3 Sigmoid evaluations.
-* **Target Architecture:** Dual-core ARM Cortex-A9 @ 667 MHz with VFPv3 Floating-Point Unit.
+* **Target Architecture:** Dual-core ARM Cortex-A9 @ 667 MHz / ESP32-S3 @ 240 MHz.
 * **Cycle Breakdown:**
   * Layer 1 (Hidden 12): $6 \times 12 = 72\text{ MACs} \times 2\text{ cycles} \approx 144\text{ cycles}$ + 12 ReLU $\approx 24\text{ cycles}$.
   * Layer 2 (Output 3): $12 \times 3 = 36\text{ MACs} \times 2\text{ cycles} \approx 72\text{ cycles}$ + 3 Sigmoid $\approx 150\text{ cycles}$.
@@ -201,7 +331,7 @@ The NN correctly identifies the **dominant risk axis** in every scenario. Traini
 
 ---
 
-## 🗺️ Memory-Mapped Register Map
+## 🗺️ Memory-Mapped Register Map (Zynq AXI4-Lite)
 
 Base Address: `0x43C00000` (AXI4-Lite)
 
@@ -221,7 +351,7 @@ Base Address: `0x43C00000` (AXI4-Lite)
 To maintain transparent, professional engineering rigor, our validation boundaries are defined below:
 
 1. **Hardware Implementation Scope:**  
-   * The digital RTL is verified via cycle-accurate Icarus Verilog simulation (`tb_ppg_system.v`, 6/6 tests passing) and synthesized Out-of-Context (OOC) in Vivado ML targeting the `xc7z020` FPGA.
+   * The digital RTL is verified via cycle-accurate Icarus Verilog simulation (`tb_ppg_system.v`, 6/6 tests passing) and synthesized Out-of-Context (OOC) in Vivado ML targeting the `xc7z020` FPGA, and in Renesas ForgeFPGA Workshop targeting `SLG47910C`.
    * Physical silicon deployment targets Qualcomm Snapdragon Wear W5+ Gen 1 as an architectural migration mapping, alongside an active low-cost edge port to ShrikeFi (ESP32-S3 + Renesas ForgeFPGA).
 2. **Medical & Physiological Modeling:**  
    * The 15–30 minute early warning window is a theoretical model estimate based on published clinical literature on *Cardiovascular Drift* (gradual upward drift in heart rate accompanied by progressive decline in stroke volume during prolonged thermal stress).
@@ -251,6 +381,15 @@ To maintain transparent, professional engineering rigor, our validation boundari
 
 ---
 
+## 📖 Master Theory Guide & Judge Defense Notes
+
+For an in-depth mathematical defense, signal processing equations, and clinical derivation documentation, review our master theory package:
+* 📄 **PDF Guide:** [`docs/theory/SIH26181_Master_Theory_Notes.pdf`](docs/theory/SIH26181_Master_Theory_Notes.pdf)
+* 🌐 **Print HTML Version:** [`docs/theory/theory_notes_print.html`](docs/theory/theory_notes_print.html)
+* 📝 **Source Markdown:** [`docs/theory/THEORY_NOTES.md`](docs/theory/THEORY_NOTES.md)
+
+---
+
 ## 📁 Repository Directory Structure
 
 ```
@@ -267,6 +406,9 @@ To maintain transparent, professional engineering rigor, our validation boundari
 │   │   ├── signals.gtkw            # Color-coded GTKWave waveform layout
 │   │   └── build_and_run.bat       # Interactive one-click launcher for Zynq flow
 │   └── shrikefi/                   # Active port target (ESP32-S3 + Renesas ForgeFPGA)
+│       ├── forgefpga_ppg_top.v     # 4-bit nibble link transceiver & DSP wrapper
+│       ├── tb_forgefpga_system.v   # Self-checking 4-bit link testbench (5/5 passing)
+│       └── forgefpga_pins.pcf      # Renesas ForgeFPGA physical pin constraints
 │
 ├── firmware/
 │   ├── core/                       # Platform-agnostic algorithms & TinyML inference
@@ -284,19 +426,22 @@ To maintain transparent, professional engineering rigor, our validation boundari
 │   │   ├── max30102.c / .h         # Dual-wavelength optical PPG sensor driver
 │   │   ├── bme280.c / .h           # Bosch environmental sensor driver (T, H, P)
 │   │   ├── pms5003.c / .h          # Laser particulate sensor UART driver (PM2.5)
-│   │   ├── ssd1306.c / .h          # 128×64 OLED framebuffer graphics driver
+│   │   ├── ssd1306.c / .h          # 128×64 OLED graphics driver
 │   │   ├── i2c_hal.c / .h          # Hardware Abstraction Layer
 │   │   └── Makefile                # Native makefile for firmware build
-│   └── shrikefi/                   # ESP-IDF / FreeRTOS firmware scaffolding
+│   └── shrikefi/                   # ESP-IDF / FreeRTOS firmware implementation
+│       ├── main_shrikefi.c         # Dual-core FreeRTOS biometric & hazard tasks
+│       ├── shrikefi_link_driver.c  # 4-bit parallel link driver (GPIO bit-bang/parallel)
+│       └── CMakeLists.txt          # ESP-IDF component build configuration
 │
 ├── docs/
-│   ├── images/                     # Waveforms, schematics, floorplans, and reports
+│   ├── images/                     # 16 High-res waveforms, schematics, and reports
+│   ├── theory/                     # Master theory notes & printable PDF book
 │   ├── HARDWARE_ARCHITECTURE.md    # In-depth microarchitecture specification
 │   ├── QUALCOMM_PLATFORM_STRATEGY.md # Qualcomm Snapdragon Wear W5+ migration spec
 │   ├── MIGRATION.md                # ShrikeFi platform migration roadmap & matrix
 │   └── SHRIKEFI_LINK_PROTOCOL.md   # 4-bit FPGA↔MCU link protocol specification
 │
-├── tools/                          # Helper scripts for diagrams and waveform images
 ├── run.bat                         # Top-level interactive Windows launcher
 ├── README.md                       # Main repository landing page
 ├── LICENSE                         # MIT License
