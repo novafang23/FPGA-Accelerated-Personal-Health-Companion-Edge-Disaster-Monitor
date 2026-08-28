@@ -38,9 +38,17 @@ Measured post-synthesis results from **Renesas ForgeFPGA Workshop v6.55**:
   * **CLB LUT5s:** **195 / 1120 (17.41%)**
   * **Total Flip-Flops:** **110 FFs** (77 CLB FFs [6.88%] + 33 IOB FFs [4.48%])
   * **CLB Blocks:** **35 / 140 (25.00%)**
+  * **Tiles:** **1 / 1 (100.00%)**
   * **DSP Blocks:** **0 (Pure logic / LUT implementation)**
 * **Verification:** `tb_forgefpga_system.v`, 5/5 self-checking tests passing (100%)
 
+### Renesas ForgeFPGA Workshop GUI Synthesis Evidence & Project Tree:
+![Renesas ForgeFPGA Resources Report](images/forgefpga_resources_report.png)
+
+### Renesas SLG47910C Top-Level FPGA Core Schematic:
+![Renesas ForgeFPGA Chip Schematic](images/forgefpga_chip_schematic.png)
+
+### Fabric Utilization Chart:
 ![Renesas ForgeFPGA Resource Footprint](images/forgefpga_utilization.png)
 
 ---
@@ -52,4 +60,5 @@ Measured post-synthesis results from **Renesas ForgeFPGA Workshop v6.55**:
 
 ### 2. 4-Bit Parallel Link Waveform Simulation
 ![ShrikeFi 4-Bit Parallel Link Protocol Timing Waveform](images/shrikefi_waveform.png)
+
 

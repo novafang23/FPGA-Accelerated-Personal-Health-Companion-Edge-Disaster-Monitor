@@ -386,7 +386,11 @@ strong {
 <div class="bullet-item">• <em>Internal FSM Sub-Blocks:</em></div>
 <div class="bullet-item">• <strong>Command Decoder & Nibble Reassembler (RX Stage):</strong> Decodes command headers (<code>CMD<em>WRITE</em>RED</code>, <code>CMD<em>WRITE</em>IR</code>, <code>CMD<em>WRITE</em>THRESH</code>) and combines sequential 4-bit nibbles into 8-bit sample bytes for DSP execution.</div>
 <div class="bullet-item">• <strong>32-Bit IBI Serializer (TX Stage):</strong> Latches the 32-bit <code>peak<em>ibi</em>cycles</code> timestamp on a heartbeat and streams it across the 4-bit bus as 8 sequential nibbles (<code>[31:28]</code> down to <code>[3:0]</code>) upon receiving <code>CMD<em>READ</em>IBI</code>.</div>
-<div class="bullet-item">• <em>Resource Footprint:</em> Uses only <strong>195 out of 1120 LUT5s (17.41%)</strong> and <strong>110 Flip-Flops</strong>, leaving >82% of the chip available.</div>
+<div class="bullet-item">• <em>Resource Footprint:</em> Uses only <strong>195 out of 1120 LUT5s (17.41%)</strong>, <strong>110 Flip-Flops</strong>, and <strong>35 CLBs</strong>, leaving >82% of the chip available.</div>
+
+<p class="paragraph">!<a href="../images/forgefpga<em>resources</em>report.png">Renesas ForgeFPGA Workshop GUI Resources Report</a></p>
+
+<p class="paragraph">!<a href="../images/forgefpga<em>chip</em>schematic.png">Renesas SLG47910C Chip Top-Level Schematic</a></p>
 
 <p class="paragraph">!<a href="../images/forgefpga_utilization.png">Renesas ForgeFPGA Resource Footprint</a></p>
 

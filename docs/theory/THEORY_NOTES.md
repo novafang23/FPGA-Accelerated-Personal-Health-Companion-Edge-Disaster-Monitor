@@ -179,7 +179,11 @@ Digital hardware circuits do not "execute instructions" like C code or Python. T
    * *Internal FSM Sub-Blocks:*
      * **Command Decoder & Nibble Reassembler (RX Stage):** Decodes command headers (`CMD_WRITE_RED`, `CMD_WRITE_IR`, `CMD_WRITE_THRESH`) and combines sequential 4-bit nibbles into 8-bit sample bytes for DSP execution.
      * **32-Bit IBI Serializer (TX Stage):** Latches the 32-bit `peak_ibi_cycles` timestamp on a heartbeat and streams it across the 4-bit bus as 8 sequential nibbles (`[31:28]` down to `[3:0]`) upon receiving `CMD_READ_IBI`.
-   * *Resource Footprint:* Uses only **195 out of 1120 LUT5s (17.41%)** and **110 Flip-Flops**, leaving >82% of the chip available.
+   * *Resource Footprint:* Uses only **195 out of 1120 LUT5s (17.41%)**, **110 Flip-Flops**, and **35 CLBs**, leaving >82% of the chip available.
+
+![Renesas ForgeFPGA Workshop GUI Resources Report](../images/forgefpga_resources_report.png)
+
+![Renesas SLG47910C Chip Top-Level Schematic](../images/forgefpga_chip_schematic.png)
 
 ![Renesas ForgeFPGA Resource Footprint](../images/forgefpga_utilization.png)
 

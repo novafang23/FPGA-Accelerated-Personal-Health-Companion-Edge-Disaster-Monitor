@@ -15,7 +15,7 @@ An end-to-end heterogeneous System-on-Chip (SoC) combining **synthesizable Veril
 ## 🏷️ Platform Status & Roadmap
 
 * **Verified Baseline:** [Xilinx Zynq-7000 (`xc7z020`)](hardware/zynq/) — Fully verified with 6/6 passing self-checking tests and static timing closed at 69.45 MHz (permanently tagged at `v1.0-zynq-SIH`).
-* **Active Port:** [ShrikeFi (ESP32-S3 + Renesas ForgeFPGA)](hardware/shrikefi/) — Affordable edge hardware migration in progress. See the roadmap and architecture breakdown in [`docs/MIGRATION.md`](docs/MIGRATION.md) and link protocol in [`docs/SHRIKEFI_LINK_PROTOCOL.md`](docs/SHRIKEFI_LINK_PROTOCOL.md).
+* **Active Port:** [ShrikeFi (ESP32-S3 + Renesas ForgeFPGA)](hardware/shrikefi/) — Affordable edge hardware platform. Post-synthesis verified at **195 / 1120 LUT5s (17.41%)** and 5/5 passing self-checking link tests. See [`docs/MIGRATION.md`](docs/MIGRATION.md) for full synthesis reports and [`docs/SHRIKEFI_LINK_PROTOCOL.md`](docs/SHRIKEFI_LINK_PROTOCOL.md) for the 4-bit link specification.
 
 ---
 
