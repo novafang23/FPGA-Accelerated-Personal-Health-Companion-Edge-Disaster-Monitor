@@ -62,10 +62,10 @@ tb_ppg_system.dut.ir_filtered[7:0]
 @24
 tb_ppg_system.dut.reg_threshold[7:0]
 @22
-tb_ppg_system.dut.u_peak_detector.current_state[1:0]
+tb_ppg_system.dut.u_peak_det.current_state[1:0]
 @24
-tb_ppg_system.dut.u_peak_detector.interval_cnt[31:0]
-tb_ppg_system.dut.u_peak_detector.refractory_cnt[31:0]
+tb_ppg_system.dut.u_peak_det.interval_cnt[31:0]
+tb_ppg_system.dut.u_peak_det.refractory_cnt[31:0]
 @1401200
 -group_end
 @c00022
