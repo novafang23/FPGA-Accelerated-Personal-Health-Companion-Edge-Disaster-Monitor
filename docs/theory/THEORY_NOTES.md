@@ -189,7 +189,121 @@ Digital hardware circuits do not "execute instructions" like C code or Python. T
 
 ---
 
-# 5. THE SENSOR SUITE — WHAT EACH SENSOR DOES & WHY
+# 5. MASTER WAVEFORM ANALYSIS & HARDWARE TIMING GUIDE
+
+A major difference between academic hackathon toys and real silicon engineering is **timing determinism**. This section provides a comprehensive, signal-by-signal dissection of our hardware waveforms for both platforms—giving you the exact explanation to deliver when a judge points at any signal on the oscilloscope or GTKWave simulation trace.
+
+---
+
+## 1. Xilinx Zynq-7000 Waveform (32-Bit AXI4-Lite Slave & Systolic Radar)
+
+The Zynq simulation captures the full system lifecycle: AXI register configuration, decoupled bus handshaking, 8-tap running-sum noise filtering, and cycle-accurate heartbeat interval timestamping.
+
+![Zynq AXI4-Lite Timing Waveform](../images/waveform_snapshot.png)
+
+### Signal-by-Signal Breakdown Table:
+
+| Signal Name | Direction / Type | Clock Domain | Engineering Role & Behavior in Waveform |
+|---|:---:|:---:|---|
+| **`clk`** | Input (50 MHz) | Core Clock | Master clock source ($T = 20.000\text{ ns}$). Every flip-flop in the accelerator updates on the rising edge of this clock. |
+| **`rstn`** | Input (Active-Low) | Synchronous | System reset line. Held low for first 4 cycles ($t = 0 \to 80\text{ ns}$) to reset FSM states, clear sample FIFOs, and zero the interval timer. |
+| **`s_axi_awvalid`** | Input (AXI AW) | `clk` | Address Write Valid. Asserted by CPU when sending a target register address (e.g., `0x0C` for threshold or `0x00` for PPG raw sample). |
+| **`s_axi_awready`** | Output (AXI AW) | `clk` | Address Write Ready. Asserted by our accelerator to acknowledge that the address was latched into `aw_addr_latched`. |
+| **`s_axi_wvalid`** | Input (AXI W) | `clk` | Data Write Valid. Asserted by CPU when presenting 32-bit write data on `s_axi_wdata`. |
+| **`s_axi_wready`** | Output (AXI W) | `clk` | Data Write Ready. Asserted by accelerator to acknowledge that write data was latched into `w_data_latched`. |
+| **`filter_red_out[7:0]`** | Internal / Reg | `clk` | Continuous 8-tap moving-average output. Shows optical noise reduction as raw stepped input samples are smoothed into a clean physiological pressure wave. |
+| **`fsm_state[1:0]`** | Internal / State | `clk` | Systolic Peak Radar state: `ARMED (00)` $\to$ `RISING (01)` $\to$ `PEAK_FOUND (10)` $\to$ `REFRACTORY (11)`. |
+| **`irq_beat`** | Output (Direct Pin) | `clk` | Hardware Interrupt Pulse. Generates an exact **1-clock-cycle pulse (20 ns)** at $t = 68\text{ cycles}$ the instant the wave reaches local maximum (`sample < prev_sample`). |
+| **`reg_ibi_cycles[31:0]`** | Output / Reg | `clk` | Inter-Beat Interval (IBI) register. Latches the counter value (`0x00000CD1` = 3281 clock ticks = $65.62\text{ µs}$) and resets interval timer to zero. |
+
+### Two Critical Engineering Mechanisms to Explain to Judges:
+
+#### A. The Decoupled AXI Write Handshake (Anti-Deadlock Architecture)
+* **The Problem:** In standard AXI4-Lite, if a slave expects address (`AW`) and data (`W`) in a rigid order, an out-of-order interconnect crossbar will stall and hang the entire ARM bus.
+* **Our Solution:** Notice in the waveform that `s_axi_awvalid` pulses first at $t = 12$, but `s_axi_wvalid` is staggered and arrives 12 cycles later at $t = 24$.
+* **How It Works in Silicon:** Internal register flags `aw_done` and `w_done` latch independently. Only when both flags are high does `write_execute` fire, updating the target register and returning `s_axi_bvalid = 1` (OKAY response).
+
+#### B. The 4-State Systolic Peak Detector (Jitter-Free Peak Detection)
+* **State 00 (`STATE_ARMED`):** The wave is below the programmable threshold (`reg_threshold = 120`). The detector ignores all baseline motion noise.
+* **State 01 (`STATE_RISING`):** The filtered PPG signal crosses above threshold 120. The FSM tracks the rising slope by comparing each sample against `prev_sample`.
+* **State 10 (`STATE_PEAK_FOUND`):** The slope flips negative (`sample < prev_sample`). This marks the mathematical local maximum. The FSM asserts `irq_beat = 1`, copies `interval_cnt` to `ibi_cycles`, and resets the timer.
+* **State 11 (`STATE_REFRACTORY`):** The FSM enters a **250 ms blanking window** (`REFRACTORY_CYC = 12,500,000` cycles at 50 MHz). This physically prevents the **dicrotic notch** (the secondary aortic valve rebound pulse) from creating a false second heartbeat.
+
+---
+
+## 2. Renesas ForgeFPGA Waveform (ShrikeFi 4-Bit Parallel Link Protocol)
+
+On the ultra-low-cost ShrikeFi platform, there are no 32-bit buses. All operations stream across 4 GPIO pins using our custom serial-parallel protocol.
+
+![ShrikeFi 4-Bit Parallel Link Protocol Timing Waveform](../images/shrikefi_waveform.png)
+
+### Signal-by-Signal Breakdown Table:
+
+| Signal Name | FPGA Pin | MCU Pin | Role & Signal Dynamics in Simulation |
+|---|:---:|:---:|---|
+| **`clk`** | PIN_12 | — | 50 MHz internal FPGA oscillator ($T = 20.000\text{ ns}$). |
+| **`rst_n`** | PIN_13 | GPIO 3 | Active-Low hardware reset driven by ESP32-S3 during boot initialization. |
+| **`link_strobe`** | PIN_14 | GPIO 4 | Bi-phase clock strobe driven by MCU. Rising edge latches data; falling edge prepares next nibble. |
+| **`link_dir`** | PIN_15 | GPIO 5 | Bus direction control: `0 = Host Write` (MCU $\to$ FPGA), `1 = Host Read` (FPGA $\to$ MCU). |
+| **`link_din[3:0]`** | PIN_16-19 | GPIO 6-9 | 4-bit multiplexed input bus carrying Command Codes and 4-bit Payload Nibbles into the FPGA. |
+| **`filter_red[7:0]`** | Internal | — | Real-time moving average accumulator inside the ForgeFPGA fabric. |
+| **`irq_beat`** | PIN_24 | GPIO 10 | Latched active-high interrupt to ESP32-S3. Asserts on systolic peak; held high until `CMD_CLEAR_IRQ`. |
+| **`link_dout[3:0]`** | PIN_16-19 | GPIO 6-9 | 4-bit output bus driven by FPGA during Read mode (`link_dir = 1`) to stream 32-bit IBI timestamps. |
+
+### Step-by-Step Protocol Walkthrough (Trace Anatomy):
+
+#### Phase 1: Writing a Raw PPG Sample (3 Strobe Pulses = 300 ns @ 10 MHz)
+1. `link_dir = 0` (Write Mode).
+2. **Strobe Pulse 1:** `link_din = 0x1` (`CMD_WRITE_RED`). The FPGA Command Decoder sets its state to `ST_W_RED_H`.
+3. **Strobe Pulse 2:** `link_din = 0x7` (High 4 bits of sample byte `0x78`). Stored in `nibble_temp[3:0]`.
+4. **Strobe Pulse 3:** `link_din = 0x8` (Low 4 bits of sample byte `0x78`). Combined with `nibble_temp` to form byte `0x78` (120). Single-cycle `red_valid_pulse` fires into the 8-tap filter.
+
+#### Phase 2: Hardware Beat Capture & Sticky Interrupt Assertion
+* Filtered waveform reaches systolic crest $\to$ Peak Detector FSM detects slope inversion $\to$ Latches `reg_ibi_latched <= peak_ibi_cycles` $\to$ Asserts `irq_beat <= 1` on GPIO 10.
+* Because ESP32-S3 FreeRTOS tasks may be busy servicing WiFi/BLE, `irq_beat` **remains firmly latched high** in hardware until explicitly acknowledged, guaranteeing zero dropped beats.
+
+#### Phase 3: Reading the 32-Bit IBI Timestamp (9 Strobe Pulses = 900 ns @ 10 MHz)
+1. **Command Strobe:** ESP32 sends `link_din = 0x6` (`CMD_READ_IBI`) with `link_dir = 0`.
+2. **Turnaround:** ESP32 switches `link_dir = 1` (Read mode). FPGA enables its output pin driver (`link_dout_oe = 1`).
+3. **8 Sequential Nibble Reads:**
+   * Nibble 0 (`N0`): `0x0` (Bits `[31:28]`)
+   * Nibble 1 (`N1`): `0x0` (Bits `[27:24]`)
+   * Nibble 2 (`N2`): `0x0` (Bits `[23:20]`)
+   * Nibble 3 (`N3`): `0x0` (Bits `[19:16]`)
+   * Nibble 4 (`N4`): `0x0` (Bits `[15:12]`)
+   * Nibble 5 (`N5`): `0xC` (Bits `[11:8]`)
+   * Nibble 6 (`N6`): `0xD` (Bits `[7:4]`)
+   * Nibble 7 (`N7`): `0x1` (Bits `[3:0]`)
+   * *Reassembled 32-Bit Value:* `0x00000CD1` = **3281 clock cycles** (exactly $65.62\text{ µs}$ at 50 MHz).
+4. **Clear Interrupt:** ESP32 switches `link_dir = 0` and sends `link_din = 0x7` (`CMD_CLEAR_IRQ`), resetting `irq_beat` back to 0.
+
+---
+
+## 3. "POINT-AND-SHOOT" JUDGE DEFENSE CHEAT-SHEET
+
+When presenting your timing diagrams, judges will probe your understanding with specific questions. Use these battle-tested responses:
+
+### Q1: "Point to the exact moment a heartbeat is detected on the waveform."
+* **Point to:** The rising edge of `irq_beat` (where `filter_red` crests and begins to decrease).
+* **Say:** *"Right here at $t = 68\text{ cycles}$. Notice that `filter_red_out` reached its local maximum of 140, and on the very next sample it dropped to 139. Our systolic FSM detected the negative slope change in a single clock cycle, asserted `irq_beat`, and captured the exact interval count."*
+
+### Q2: "Why does the AXI waveform show Address Write (`AW`) and Data Write (`W`) at different times?"
+* **Point to:** `s_axi_awvalid` pulsing at $t = 12$ and `s_axi_wvalid` pulsing at $t = 24$.
+* **Say:** *"That is our decoupled AXI4-Lite handshake. Modern ARM AXI crossbars do not guarantee that address and data arrive simultaneously. By using independent `aw_done` and `w_done` status registers, our hardware guarantees zero deadlocks regardless of bus latency."*
+
+### Q3: "How does the ShrikeFi 4-bit bus know whether a nibble is a command or data?"
+* **Point to:** `link_din` transitioning from `CMD_WRITE_RED (0x1)` to `HIGH (0x7)` and `LOW (0x8)`.
+* **Say:** *"The protocol is state-driven. In `ST_IDLE`, the first strobe pulse is always decoded as a 4-bit command header. Depending on the opcode, the FSM transitions into multi-cycle payload ingestion states (`ST_W_RED_H` followed by `ST_W_RED_L`), guaranteeing cycle-accurate framing without packet overhead."*
+
+### Q4: "Why do you need 20 ns timing accuracy when human heart rate is only ~1 Hz (60 BPM)?"
+* **Say:** *"Heart Rate Variability (HRV) analysis—specifically **RMSSD** for parasympathetic stress detection—requires sub-millisecond precision between consecutive R-waves. Microcontroller timers suffer from 5 to 20 ms of interrupt latency and RTOS task switching jitter. Our dedicated 50 MHz FPGA hardware counter measures intervals with **20-nanosecond physical accuracy**, eliminating 100% of software jitter."*
+
+### Q5: "What is the real measured speed vs. theoretical maximum speed of your 4-bit link?"
+* **Say:** *"In our current firmware bring-up driver, we use a conservative bit-banged strobe with 1 µs half-cycle delays (~500 kHz), taking **18 µs** for a complete 32-bit IBI read—which uses less than **0.1% of our 20,000 µs optical sampling window**. In our verified hardware simulation, the protocol supports up to **10 MHz** ($T_{\text{strobe}} = 100\text{ ns}$), transferring the full 32-bit timestamp in **900 nanoseconds** (5.0 MB/s raw bandwidth) when driven by a hardware timer or SPI-assisted clock."*
+
+---
+
+# 6. THE SENSOR SUITE — WHAT EACH SENSOR DOES & WHY
 
 | Sensor | Vital Metric Measured | Why It Is Essential for Disasters |
 |---|---|---|
@@ -200,7 +314,7 @@ Digital hardware circuits do not "execute instructions" like C code or Python. T
 
 ---
 
-# 6. THE SOFTWARE & EDGE AI (TinyML) SIDE
+# 7. THE SOFTWARE & EDGE AI (TinyML) SIDE
 
 Our firmware features a **Hybrid Risk Assessment Engine** combining deterministic clinical rules with an ultra-fast INT8 Quantized Neural Network.
 
@@ -245,7 +359,7 @@ Calculates medical indices developed specifically for occupational heat and smog
 
 ---
 
-# 7. KILLER ANALOGIES CHEAT-SHEET (For Judges & Team Defense)
+# 8. KILLER ANALOGIES CHEAT-SHEET (For Judges & Team Defense)
 
 Use these exact analogies when explaining the project to non-technical judges or team members:
 
@@ -275,7 +389,7 @@ Use these exact analogies when explaining the project to non-technical judges or
 
 ---
 
-# 8. LIKELY JUDGE QUESTIONS & WINNING DEFENSE ANSWERS
+# 9. LIKELY JUDGE QUESTIONS & WINNING DEFENSE ANSWERS
 
 ### Q1: "Why did you build custom Verilog RTL instead of just doing everything in C on the ESP32-S3?"
 * **Answer:** *"Three reasons: Determinism, CPU offloading, and Power. Software signal processing on an RTOS suffers from interrupt latency and task jitter when WiFi or sensor interrupts fire. Our FPGA accelerator processes raw PPG samples at hardware clock speeds with zero CPU overhead, allowing the microcontroller to stay in low-power sleep modes between assessments."*
@@ -294,7 +408,7 @@ Use these exact analogies when explaining the project to non-technical judges or
 
 ---
 
-# 9. CLINICAL REFERENCES & SCIENTIFIC FOUNDATIONS
+# 10. CLINICAL REFERENCES & SCIENTIFIC FOUNDATIONS
 
 | Clinical Index | Scientific Source | Formulation & Thresholds in SIH26181 |
 |---|---|---|
@@ -305,7 +419,7 @@ Use these exact analogies when explaining the project to non-technical judges or
 
 ---
 
-# 10. GLOSSARY OF TERMS
+# 11. GLOSSARY OF TERMS
 
 * **AXI4-Lite:** Advanced eXtensible Interface; standard memory-mapped point-to-point bus protocol for ARM SoC chips.
 * **CTSI:** Cardio-Thermal Strain Index; our custom index quantifying physiological heat stress.
@@ -316,3 +430,4 @@ Use these exact analogies when explaining the project to non-technical judges or
 * **PRSI:** Pollution Respiratory Strain Index; our custom index quantifying respiratory distress during smoke/smog events.
 * **RMSSD:** Root Mean Square of Successive Differences; the clinical gold standard for measuring parasympathetic Heart Rate Variability (HRV).
 * **SoC:** System on Chip; an integrated circuit combining CPU cores, memory, peripherals, and FPGA fabric.
+

@@ -109,6 +109,17 @@ while i < len(lines):
         i += 1
         continue
 
+    # Images
+    img_match = re.match(r'^!\[(.*?)\]\((.*?)\)$', stripped)
+    if img_match:
+        caption = img_match.group(1)
+        rel_img = img_match.group(2)
+        abs_img = os.path.normpath(os.path.join(os.path.dirname(md_path), rel_img))
+        img_url = abs_img.replace(os.sep, '/')
+        html_body.append(f'<div class="img-container"><img src="file:///{img_url}" alt="{caption}"/><div class="img-caption">{caption}</div></div>')
+        i += 1
+        continue
+
     # Headers
     if stripped.startswith("# "):
         html_body.append(f'<h1 class="part-title">{inline_format(stripped[2:])}</h1>')
@@ -334,6 +345,28 @@ a {{
 
 strong {{
     color: #0f172a;
+}}
+
+.img-container {{
+    margin: 18px auto 22px auto;
+    text-align: center;
+    page-break-inside: avoid;
+}}
+
+.img-container img {{
+    max-width: 95%;
+    height: auto;
+    border-radius: 6px;
+    border: 1px solid #cbd5e1;
+    box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.08);
+}}
+
+.img-caption {{
+    font-size: 11px;
+    color: #64748b;
+    margin-top: 6px;
+    font-weight: 500;
+    font-style: italic;
 }}
 </style>
 </head>
