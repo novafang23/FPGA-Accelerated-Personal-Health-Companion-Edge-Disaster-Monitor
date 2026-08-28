@@ -1,0 +1,30 @@
+# ShrikeFi Migration Roadmap
+
+## Rationale
+The primary goal of the ShrikeFi migration is cost accessibility beyond the hackathon prototype. While the Xilinx Zynq-7000 (`xc7z020`) served as a powerful heterogeneous SoC platform for initial prototyping and cycle-accurate verification, its high board cost ($100–$250+) prevents scaling to affordable, distributed disaster-relief edge deployments.
+
+The **ShrikeFi** platform combines an **ESP32-S3** microcontroller with a low-cost **Renesas ForgeFPGA** (1120 5-input LUTs) and on-chip WiFi/BLE connectivity at a fraction of the cost, making edge health monitoring practically deployable.
+
+For interface-level physical and framing details of the FPGA↔MCU link, see [`docs/SHRIKEFI_LINK_PROTOCOL.md`](SHRIKEFI_LINK_PROTOCOL.md).
+
+---
+
+## Platform Comparison Matrix
+
+| Component | Zynq-7000 (baseline) | ShrikeFi | Status |
+|---|---|---|---|
+| **Filter + peak detector RTL** | Verified, 0 DSP/BRAM | Same source (`hardware/common/`), targeting ForgeFPGA HDL mode | Likely direct reuse — unverified until synthesized |
+| **FPGA↔host interface** | AXI4-Lite (memory-mapped registers) | Custom protocol over the 4-bit link | Full redesign — see `SHRIKEFI_LINK_PROTOCOL.md` |
+| **Application code (HRV, SpO2, NN, risk engine)** | Runs on ARM Cortex-A9 (Zynq PS) | Runs on ESP32-S3 (ESP-IDF or Arduino-ESP32) | Rehost — algorithm logic unchanged, runtime environment changes |
+| **Toolchain** | Vivado ML 2022.2 | Renesas ForgeFPGA design software (free, HDL mode) | New flow, new constraints format |
+| **Connectivity** | None | WiFi 4 + BLE 5 (onboard ESP32-S3) | New capability, not required for parity |
+| **Timing figures** | 50 MHz clock, 20 ns IBI resolution, 69.45 MHz Fmax | Not yet measured | Do not reuse Zynq numbers — pull real ForgeFPGA clock/timing data during the port |
+
+---
+
+## Verified Zynq Baseline Reference
+The Zynq-7000 design remains permanently preserved as the verified reference implementation:
+* **Target Part:** `xc7z020clg400-1`, Vivado ML 2022.2
+* **Timing Closure:** WNS +5.603 ns, WHS +0.184 ns, Fmax 69.45 MHz
+* **Resource Utilization:** 185 LUTs (0.35%), 16 LUTRAMs (0.09%), 266 FFs (0.25%), 0 DSP48, 0 BRAM
+* **Verification:** `tb_ppg_system.v`, 6/6 self-checking tests passing
