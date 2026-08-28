@@ -5,29 +5,19 @@
 // Target: Renesas ForgeFPGA (SLG47910) / ShrikeFi Development Board
 // Description:
 //   Top-level FPGA hardware accelerator for ShrikeFi. Interfaces the ESP32-S3
-//   microcontroller with the vendor-agnostic moving-average filters and systolic
-//   peak detector FSM over a high-speed 4-bit parallel nibble link.
-//
-// Hardware Features:
-//   - 0 DSP Slices / 0 Block RAM requirement (Fits in ForgeFPGA 1120 LUT budget)
-//   - Dual-channel 8-tap moving-average filters (Red + IR channels)
-//   - 4-state systolic peak detector with 250ms refractory blanking
-//   - 4-bit synchronous parallel link transceiver (Commands + Data in nibbles)
-//   - Dedicated hardware interrupt line (irq_beat) for zero-jitter CPU notification
-//
-// ELECTRICAL WARNING:
-//   All I/O lines are 3.3V LVCMOS ONLY. Do NOT apply 5V signals.
+//   microcontroller with the moving-average filters and systolic peak detector
+//   over a 4-bit parallel nibble link.
 // =============================================================================
 
 `timescale 1ns / 1ps
 
 module forgefpga_ppg_top #(
-    parameter integer CLK_FREQ_HZ    = 50_000_000, // Core clock (50 MHz = 20ns tick)
+    parameter integer CLK_FREQ_HZ    = 50_000_000, // Core clock (50 MHz)
     parameter integer REFRACTORY_CYC = 12_500_000  // 250ms blanking window at 50MHz
 )(
     // System Clock & Reset
-    input  wire        clk,             // System clock (on-chip oscillator or external)
-    input  wire        rst_n,           // Active-low synchronous/asynchronous reset
+    input  wire        clk,             // 50MHz System clock
+    input  wire        rst_n,           // Active-low synchronous reset
 
     // 4-Bit Parallel Link Interface (from ESP32-S3)
     input  wire        link_strobe,     // Strobe clock pulse driven by ESP32
@@ -104,10 +94,10 @@ module forgefpga_ppg_top #(
 
     // Synchronizer & Edge Detector for link_strobe
     reg [2:0] strobe_sync;
-    wire strobe_rise = (strobe_sync[1] && !strobe_sync[2]);
+    wire strobe_rise = (strobe_sync[1] && (strobe_sync[2] == 1'b0));
 
-    always @(posedge clk or negedge rst_n) begin
-        if (!rst_n) begin
+    always @(posedge clk) begin
+        if (rst_n == 1'b0) begin
             strobe_sync <= 3'b000;
         end else begin
             strobe_sync <= {strobe_sync[1:0], link_strobe};
@@ -151,30 +141,17 @@ module forgefpga_ppg_top #(
         .ibi_cycles    (peak_ibi_cycles)
     );
 
-    // Latch IBI and assert IRQ flag on beat
-    always @(posedge clk or negedge rst_n) begin
-        if (!rst_n) begin
-            reg_ibi_latched <= 32'd0;
-            irq_beat        <= 1'b0;
-        end else begin
-            if (peak_beat_detected) begin
-                reg_ibi_latched <= peak_ibi_cycles;
-                irq_beat        <= 1'b1;
-            end else if (state == ST_IDLE && strobe_rise && !link_dir && link_din == CMD_CLEAR_IRQ) begin
-                irq_beat        <= 1'b0;
-            end
-        end
-    end
-
     // =========================================================================
-    // 4-Bit Parallel Link Protocol FSM
+    // 4-Bit Parallel Link Protocol FSM & IRQ Latch
     // =========================================================================
-    always @(posedge clk or negedge rst_n) begin
-        if (!rst_n) begin
+    always @(posedge clk) begin
+        if (rst_n == 1'b0) begin
             state           <= ST_IDLE;
             reg_red_raw     <= 8'd0;
             reg_ir_raw      <= 8'd0;
             reg_threshold   <= 8'd120; // Default threshold: 120
+            reg_ibi_latched <= 32'd0;
+            irq_beat        <= 1'b0;
             red_valid_pulse <= 1'b0;
             ir_valid_pulse  <= 1'b0;
             nibble_temp     <= 4'd0;
@@ -188,13 +165,19 @@ module forgefpga_ppg_top #(
             // Output Enable control based on direction
             link_dout_oe    <= link_dir;
 
+            // Hardware Beat Latches
+            if (peak_beat_detected) begin
+                reg_ibi_latched <= peak_ibi_cycles;
+                irq_beat        <= 1'b1;
+            end
+
             if (strobe_rise) begin
                 case (state)
                     // ---------------------------------------------------------
                     // IDLE State: Decode Command Nibble
                     // ---------------------------------------------------------
                     ST_IDLE: begin
-                        if (!link_dir) begin
+                        if (link_dir == 1'b0) begin
                             // Write Commands (from ESP32)
                             case (link_din)
                                 CMD_WRITE_RED:    state <= ST_W_RED_H;
@@ -217,6 +200,7 @@ module forgefpga_ppg_top #(
                                     state     <= ST_IDLE;
                                 end
                                 CMD_CLEAR_IRQ: begin
+                                    irq_beat  <= 1'b0;
                                     state     <= ST_IDLE;
                                 end
                                 default:          state <= ST_IDLE;
