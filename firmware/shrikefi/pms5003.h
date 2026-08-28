@@ -8,6 +8,13 @@
 #define PMS5003_H
 
 #include <stdint.h>
+#include <stddef.h>
+
+#ifdef ESP_PLATFORM
+#include "freertos/FreeRTOS.h"
+#else
+typedef uint32_t TickType_t;
+#endif
 
 #ifdef __cplusplus
 extern "C" {

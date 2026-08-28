@@ -15,27 +15,40 @@ static const char *TAG = "MAX30102";
 
 #else
 #include <stdio.h>
+#ifdef _WIN32
+#include <windows.h>
+#else
 #include <unistd.h>
+#endif
+#define ESP_LOGI(tag, ...) do {} while(0)
+#define ESP_LOGE(tag, ...) do {} while(0)
+#define ESP_LOGW(tag, ...) do {} while(0)
+static const char *TAG __attribute__((unused)) = "MAX30102";
 #endif
 
 /* Internal I2C helpers using ESP32 I2C HAL */
 static int max30102_i2c_write_reg(max30102_t *dev, uint8_t reg, uint8_t val) {
-    return esp32_i2c_hal_write_byte(dev->i2c, MAX30102_I2C_ADDR, reg, val);
+    (void)dev;
+    return esp32_i2c_hal_write_byte(MAX30102_I2C_ADDR, reg, val);
 }
 
 static int max30102_i2c_read_reg(max30102_t *dev, uint8_t reg) {
     uint8_t val;
-    int ret = esp32_i2c_hal_read_byte(dev->i2c, MAX30102_I2C_ADDR, reg, &val);
+    (void)dev;
+    int ret = esp32_i2c_hal_read_byte(MAX30102_I2C_ADDR, reg, &val);
     return (ret == I2C_HAL_SUCCESS) ? val : -1;
 }
 
 static int max30102_i2c_write_read(max30102_t *dev, uint8_t reg, uint8_t *data, size_t len) {
-    return esp32_i2c_hal_read(dev->i2c, MAX30102_I2C_ADDR, reg, data, len);
+    (void)dev;
+    return esp32_i2c_hal_read(MAX30102_I2C_ADDR, reg, data, (uint16_t)len);
 }
 
 static void max30102_delay_ms(int ms) {
 #ifdef ESP_PLATFORM
     vTaskDelay(pdMS_TO_TICKS(ms));
+#elif defined(_WIN32)
+    Sleep(ms);
 #else
     usleep(ms * 1000);
 #endif

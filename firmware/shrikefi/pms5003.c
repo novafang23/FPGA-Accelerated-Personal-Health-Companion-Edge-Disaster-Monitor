@@ -14,6 +14,10 @@ static const char *TAG = "PMS5003";
 
 #else
 #include <stdio.h>
+#define ESP_LOGI(tag, ...) do {} while(0)
+#define ESP_LOGE(tag, ...) do {} while(0)
+#define ESP_LOGW(tag, ...) do {} while(0)
+static const char *TAG __attribute__((unused)) = "PMS5003";
 #endif
 
 /* Internal: Extract 16-bit big-endian value from buffer */

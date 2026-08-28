@@ -15,26 +15,37 @@ static const char *TAG = "BME280";
 
 #else
 #include <stdio.h>
+#ifdef _WIN32
+#include <windows.h>
+#else
+#include <unistd.h>
+#endif
+#define ESP_LOGI(tag, ...) do {} while(0)
+#define ESP_LOGE(tag, ...) do {} while(0)
+#define ESP_LOGW(tag, ...) do {} while(0)
+static const char *TAG __attribute__((unused)) = "BME280";
 #endif
 
 /* Internal I2C helpers using ESP32 I2C HAL */
 static int bme280_i2c_write_reg(bme280_t *dev, uint8_t reg, uint8_t val) {
-    return esp32_i2c_hal_write_byte(dev->i2c, dev->addr, reg, val);
+    return esp32_i2c_hal_write_byte(dev->addr, reg, val);
 }
 
 static int bme280_i2c_read_reg(bme280_t *dev, uint8_t reg) {
     uint8_t val;
-    int ret = esp32_i2c_hal_read_byte(dev->i2c, dev->addr, reg, &val);
+    int ret = esp32_i2c_hal_read_byte(dev->addr, reg, &val);
     return (ret == I2C_HAL_SUCCESS) ? val : -1;
 }
 
 static int bme280_i2c_write_read(bme280_t *dev, uint8_t reg, uint8_t *data, size_t len) {
-    return esp32_i2c_hal_read(dev->i2c, dev->addr, reg, data, len);
+    return esp32_i2c_hal_read(dev->addr, reg, data, (uint16_t)len);
 }
 
 static void bme280_delay_ms(int ms) {
 #ifdef ESP_PLATFORM
     vTaskDelay(pdMS_TO_TICKS(ms));
+#elif defined(_WIN32)
+    Sleep(ms);
 #else
     usleep(ms * 1000);
 #endif
