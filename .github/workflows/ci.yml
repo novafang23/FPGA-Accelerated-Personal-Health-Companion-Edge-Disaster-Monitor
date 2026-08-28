@@ -18,10 +18,10 @@ jobs:
           sudo apt-get install -y verilator
       - name: Lint RTL
         run: |
-          cd SIH
           verilator --lint-only -Wall -Wno-UNUSED -Wno-UNOPTFLAT \
             --top-module axi_ppg_accelerator \
-            axi_ppg_accelerator.v ppg_peak_detector.v moving_average_8tap.v
+            -Ihardware/common \
+            hardware/zynq/axi_ppg_accelerator.v hardware/common/ppg_peak_detector.v hardware/common/moving_average_8tap.v
 
   simulate:
     name: Simulate RTL & Firmware
@@ -34,15 +34,13 @@ jobs:
           sudo apt-get install -y iverilog build-essential
       - name: Run Hardware RTL Testbench
         run: |
-          cd SIH
-          iverilog -o sim_ppg.vvp tb_ppg_system.v axi_ppg_accelerator.v moving_average_8tap.v ppg_peak_detector.v
+          iverilog -o sim_ppg.vvp hardware/zynq/tb_ppg_system.v hardware/zynq/axi_ppg_accelerator.v hardware/common/moving_average_8tap.v hardware/common/ppg_peak_detector.v
           vvp sim_ppg.vvp
       - name: Build & Run Firmware Unit Tests
         run: |
-          cd SIH
-          gcc -Wall -Wextra -o test_engine test_disaster_risk_engine.c hrv_analysis.c spo2_engine.c disaster_risk_engine.c nn_risk_model.c nn_risk_model_int8.c -lm
+          gcc -Wall -Wextra -Ifirmware/core -Ifirmware/zynq -o test_engine firmware/zynq/test_disaster_risk_engine.c firmware/core/hrv_analysis.c firmware/core/spo2_engine.c firmware/core/disaster_risk_engine.c firmware/core/nn_risk_model.c firmware/core/nn_risk_model_int8.c -lm
           ./test_engine
-          gcc -Wall -Wextra -o compare_harness compare_harness.c hrv_analysis.c spo2_engine.c disaster_risk_engine.c nn_risk_model.c nn_risk_model_int8.c -lm
+          gcc -Wall -Wextra -Ifirmware/core -Ifirmware/zynq -o compare_harness firmware/zynq/compare_harness.c firmware/core/hrv_analysis.c firmware/core/spo2_engine.c firmware/core/disaster_risk_engine.c firmware/core/nn_risk_model.c firmware/core/nn_risk_model_int8.c -lm
           ./compare_harness
 
   synthesize:
@@ -54,7 +52,7 @@ jobs:
       - uses: actions/checkout@v4
       - name: Synthesize & Check Timing
         run: |
-          cd SIH
+          cd hardware/zynq
           vivado -mode batch -source run_vivado_synth.tcl -tclargs synth
         env:
           XILINX_VIVADO: /opt/Xilinx/Vivado/2023.2
@@ -62,7 +60,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: utilization-report
-          path: SIH/utilization_percentage.png
+          path: docs/images/utilization_percentage.png
 
   nn-train:
     name: Train & Verify NN
@@ -77,9 +75,9 @@ jobs:
         run: pip install numpy
       - name: Train float32 model
         run: |
-          cd SIH
+          cd firmware/core
           python3 train_nn_risk_model.py
       - name: Verify accuracy threshold
         run: |
-          cd SIH
+          cd firmware/core
           python3 -c "import numpy as np; print('NN training verification passed')"

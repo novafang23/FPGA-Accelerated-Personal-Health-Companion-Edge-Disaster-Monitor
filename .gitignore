@@ -34,9 +34,9 @@ Desktop.ini
 *.onnx
 
 # Notes and pitch guides
-SIH/THEORY_NOTES.md
-SIH/SIH26181_Master_Theory_Notes.pdf
-SIH/theory_notes_print.html
+docs/theory/THEORY_NOTES.md
+docs/theory/SIH26181_Master_Theory_Notes.pdf
+docs/theory/theory_notes_print.html
 
 # Zips and archives
 *.zip

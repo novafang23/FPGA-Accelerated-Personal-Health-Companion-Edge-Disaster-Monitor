@@ -21,18 +21,25 @@ ifeq ($(OS),Windows_NT)
 endif
 
 # Source files
-SRCS_COMMON := \
-    hrv_analysis.c \
-    spo2_engine.c \
-    disaster_risk_engine.c \
-    nn_risk_model.c \
-    nn_risk_model_int8.c \
+CORE_DIR    := ../core
+CFLAGS      += -I. -I$(CORE_DIR)
+
+SRCS_CORE := \
+    $(CORE_DIR)/hrv_analysis.c \
+    $(CORE_DIR)/spo2_engine.c \
+    $(CORE_DIR)/disaster_risk_engine.c \
+    $(CORE_DIR)/nn_risk_model.c \
+    $(CORE_DIR)/nn_risk_model_int8.c
+
+SRCS_DRIVERS := \
     i2c_hal.c \
     max30102.c \
     bme280.c \
     pms5003.c \
     driver_ppg.c \
     ssd1306.c
+
+SRCS_COMMON := $(SRCS_CORE) $(SRCS_DRIVERS)
 
 SRCS_SIM := main_simulation.c
 SRCS_COMPARE := compare_harness.c
