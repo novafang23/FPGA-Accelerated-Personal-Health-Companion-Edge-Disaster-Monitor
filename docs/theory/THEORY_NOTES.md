@@ -87,6 +87,9 @@ On the Zynq SoC, the ARM Cortex-A9 CPU communicates with the FPGA fabric over an
 
 ### 2. ShrikeFi: The 4-Bit Parallel Nibble Link
 The Renesas ForgeFPGA is a compact chip with limited I/O pins. A 32-bit AXI bus is physically impossible. We designed an ultra-efficient **4-bit parallel nibble link**:
+
+![ShrikeFi Pinout & Interconnect Diagram](../images/shrikefi_pinout.png)
+
 * **Physical Wires (3.3V LVCMOS):**
   * `mcu_data_in[3:0]`: 4-bit data bus from ESP32-S3 to FPGA (samples & commands).
   * `fpga_data_out[3:0]`: 4-bit data bus from FPGA to ESP32-S3 (IBI timestamps & status).
@@ -105,6 +108,8 @@ The Renesas ForgeFPGA is a compact chip with limited I/O pins. A 32-bit AXI bus 
   3. Link Latency & Throughput:
      - **Measured Bring-Up Driver:** At ~500 kHz software bit-banging (~2 µs strobe period), reading all 9 cycles takes **~18 µs**—occupying <0.1% of the 20,000 µs (50 Hz) optical sampling period.
      - **Protocol Max (Hardware-Timer / SPI-Assisted Target):** At 10 MHz strobe rate ($T_{\text{strobe}} = 100\text{ ns}$), reading 9 cycles takes **900 ns** (5.0 MB/s raw bandwidth).
+
+![ShrikeFi 4-Bit Parallel Link Protocol Timing Waveform](../images/shrikefi_waveform.png)
 
 ### 3. ESP32-S3 Dual-Core FreeRTOS Partitioning
 The ESP32-S3 contains two 240 MHz Xtensa LX7 cores. We strictly partitioned the tasks using FreeRTOS core pinning:
@@ -175,6 +180,8 @@ Digital hardware circuits do not "execute instructions" like C code or Python. T
      * **Command Decoder & Nibble Reassembler (RX Stage):** Decodes command headers (`CMD_WRITE_RED`, `CMD_WRITE_IR`, `CMD_WRITE_THRESH`) and combines sequential 4-bit nibbles into 8-bit sample bytes for DSP execution.
      * **32-Bit IBI Serializer (TX Stage):** Latches the 32-bit `peak_ibi_cycles` timestamp on a heartbeat and streams it across the 4-bit bus as 8 sequential nibbles (`[31:28]` down to `[3:0]`) upon receiving `CMD_READ_IBI`.
    * *Resource Footprint:* Uses only **195 out of 1120 LUT5s (17.41%)** and **110 Flip-Flops**, leaving >82% of the chip available.
+
+![Renesas ForgeFPGA Resource Footprint](../images/forgefpga_utilization.png)
 
 ---
 

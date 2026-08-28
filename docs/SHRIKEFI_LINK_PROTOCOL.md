@@ -24,6 +24,8 @@ Because the ForgeFPGA has no hard AXI bus or ARM processing system, all register
 
 ## 2. Physical Interface & Pin Assignment
 
+![ShrikeFi Pinout & Interconnect Diagram](images/shrikefi_pinout.png)
+
 | Signal Name | FPGA Pin | ESP32-S3 GPIO | Direction (FPGA perspective) | Description |
 |---|:---:|:---:|:---:|---|
 | **`clk`** | PIN_12 | — | Input | 50 MHz FPGA system clock (on-chip oscillator) |
@@ -69,6 +71,8 @@ Every transaction begins with a **1-nibble (4-bit) Command Header** sent while `
 4. Read 8 consecutive nibbles: `[31:28]`, `[27:24]`, ..., `[3:0]` with `link_strobe` pulses.
 5. Send `CMD_CLEAR_IRQ` to acknowledge and reset interrupt line.  
 *Total transaction time: 9 strobe cycles ($\approx 900\text{ ns}$).*
+
+![ShrikeFi 4-Bit Parallel Link Protocol Timing Waveform](images/shrikefi_waveform.png)
 
 ---
 

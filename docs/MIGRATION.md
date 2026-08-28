@@ -40,3 +40,16 @@ Measured post-synthesis results from **Renesas ForgeFPGA Workshop v6.55**:
   * **CLB Blocks:** **35 / 140 (25.00%)**
   * **DSP Blocks:** **0 (Pure logic / LUT implementation)**
 * **Verification:** `tb_forgefpga_system.v`, 5/5 self-checking tests passing (100%)
+
+![Renesas ForgeFPGA Resource Footprint](images/forgefpga_utilization.png)
+
+---
+
+## Hardware Interconnect & Link Verification
+
+### 1. Interconnect Architecture & Pinout
+![ShrikeFi Pinout & Interconnect Diagram](images/shrikefi_pinout.png)
+
+### 2. 4-Bit Parallel Link Waveform Simulation
+![ShrikeFi 4-Bit Parallel Link Protocol Timing Waveform](images/shrikefi_waveform.png)
+

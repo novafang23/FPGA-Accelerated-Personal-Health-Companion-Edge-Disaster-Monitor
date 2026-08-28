@@ -296,6 +296,9 @@ strong {
 
 <h3 class="subsection-title">2. ShrikeFi: The 4-Bit Parallel Nibble Link</h3>
 <p class="paragraph">The Renesas ForgeFPGA is a compact chip with limited I/O pins. A 32-bit AXI bus is physically impossible. We designed an ultra-efficient <strong>4-bit parallel nibble link</strong>:</p>
+
+<p class="paragraph">!<a href="../images/shrikefi_pinout.png">ShrikeFi Pinout & Interconnect Diagram</a></p>
+
 <div class="bullet-item">• <strong>Physical Wires (3.3V LVCMOS):</strong></div>
 <div class="bullet-item">• <code>mcu<em>data</em>in[3:0]</code>: 4-bit data bus from ESP32-S3 to FPGA (samples & commands).</div>
 <div class="bullet-item">• <code>fpga<em>data</em>out[3:0]</code>: 4-bit data bus from FPGA to ESP32-S3 (IBI timestamps & status).</div>
@@ -314,6 +317,8 @@ strong {
 <div class="numbered-item"><span class="num">3.</span> Link Latency & Throughput:</div>
 <div class="bullet-item">• <strong>Measured Bring-Up Driver:</strong> At ~500 kHz software bit-banging (~2 µs strobe period), reading all 9 cycles takes <strong>~18 µs</strong>—occupying <0.1% of the 20,000 µs (50 Hz) optical sampling period.</div>
 <div class="bullet-item">• <strong>Protocol Max (Hardware-Timer / SPI-Assisted Target):</strong> At 10 MHz strobe rate ($T_{\text{strobe}} = 100\text{ ns}$), reading 9 cycles takes <strong>900 ns</strong> (5.0 MB/s raw bandwidth).</div>
+
+<p class="paragraph">!<a href="../images/shrikefi_waveform.png">ShrikeFi 4-Bit Parallel Link Protocol Timing Waveform</a></p>
 
 <h3 class="subsection-title">3. ESP32-S3 Dual-Core FreeRTOS Partitioning</h3>
 <p class="paragraph">The ESP32-S3 contains two 240 MHz Xtensa LX7 cores. We strictly partitioned the tasks using FreeRTOS core pinning:</p>
@@ -382,6 +387,8 @@ strong {
 <div class="bullet-item">• <strong>Command Decoder & Nibble Reassembler (RX Stage):</strong> Decodes command headers (<code>CMD<em>WRITE</em>RED</code>, <code>CMD<em>WRITE</em>IR</code>, <code>CMD<em>WRITE</em>THRESH</code>) and combines sequential 4-bit nibbles into 8-bit sample bytes for DSP execution.</div>
 <div class="bullet-item">• <strong>32-Bit IBI Serializer (TX Stage):</strong> Latches the 32-bit <code>peak<em>ibi</em>cycles</code> timestamp on a heartbeat and streams it across the 4-bit bus as 8 sequential nibbles (<code>[31:28]</code> down to <code>[3:0]</code>) upon receiving <code>CMD<em>READ</em>IBI</code>.</div>
 <div class="bullet-item">• <em>Resource Footprint:</em> Uses only <strong>195 out of 1120 LUT5s (17.41%)</strong> and <strong>110 Flip-Flops</strong>, leaving >82% of the chip available.</div>
+
+<p class="paragraph">!<a href="../images/forgefpga_utilization.png">Renesas ForgeFPGA Resource Footprint</a></p>
 
 <hr class="divider"/>
 
