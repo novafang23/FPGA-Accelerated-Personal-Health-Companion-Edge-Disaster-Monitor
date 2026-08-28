@@ -29,10 +29,10 @@ Before opening a pull request, ensure that the core disaster risk engines haven'
 # Select option [6] Run Unit Tests
 ```
 
-Alternatively, you can compile and run it directly in `SIH/`:
+Alternatively, you can compile and run it directly via GCC:
 ```bash
-gcc -Wall -Wextra -o test_engine.exe test_disaster_risk_engine.c hrv_analysis.c spo2_engine.c disaster_risk_engine.c nn_risk_model.c nn_risk_model_int8.c -lm
-./test_engine.exe
+gcc -Wall -Wextra -Ifirmware/core -Ifirmware/zynq -o test_engine firmware/zynq/test_disaster_risk_engine.c firmware/core/hrv_analysis.c firmware/core/spo2_engine.c firmware/core/disaster_risk_engine.c firmware/core/nn_risk_model.c firmware/core/nn_risk_model_int8.c -lm
+./test_engine
 ```
 
 ## Coding Standards

@@ -1,14 +1,21 @@
 # SIH26181: FPGA-Accelerated Personal Health Companion & Edge Disaster Monitor
 
-[![Verilog RTL](https://img.shields.io/badge/Hardware-Verilog%202001-blue.svg)](SIH/axi_ppg_accelerator.v)
-[![Bus Protocol](https://img.shields.io/badge/Interconnect-ARM%20AMBA%20AXI4--Lite-orange.svg)](SIH/HARDWARE_ARCHITECTURE.md)
-[![Verification](https://img.shields.io/badge/Verification-6%2F6%20Passed%20(100%25)-brightgreen.svg)](SIH/tb_ppg_system.v)
-[![Static Timing](https://img.shields.io/badge/STA%20Timing-WNS%20%2B14.28ns%20(Met)-success.svg)](SIH/HARDWARE_ARCHITECTURE.md)
-[![TinyML Engine](https://img.shields.io/badge/AI%20Engine-TinyML%20(6%E2%86%9212%E2%86%923)-purple.svg)](SIH/nn_risk_model_int8.c)
-[![NN Validation](https://img.shields.io/badge/NN%20vs%20Rule%20Engine-r%3D0.97-blueviolet.svg)](SIH/compare_harness.c)
-[![Target Platform](https://img.shields.io/badge/Prototype%20Target-Xilinx%20Zynq%20%7C%20Qualcomm%20Migration-red.svg)](SIH/QUALCOMM_PLATFORM_STRATEGY.md)
+[![Verilog RTL](https://img.shields.io/badge/Hardware-Verilog%202001-blue.svg)](hardware/zynq/axi_ppg_accelerator.v)
+[![Bus Protocol](https://img.shields.io/badge/Interconnect-ARM%20AMBA%20AXI4--Lite-orange.svg)](docs/HARDWARE_ARCHITECTURE.md)
+[![Verification](https://img.shields.io/badge/Verification-6%2F6%20Passed%20(100%25)-brightgreen.svg)](hardware/zynq/tb_ppg_system.v)
+[![Static Timing](https://img.shields.io/badge/STA%20Timing-WNS%20%2B14.28ns%20(Met)-success.svg)](docs/HARDWARE_ARCHITECTURE.md)
+[![TinyML Engine](https://img.shields.io/badge/AI%20Engine-TinyML%20(6%E2%86%9212%E2%86%923)-purple.svg)](firmware/core/nn_risk_model_int8.c)
+[![NN Validation](https://img.shields.io/badge/NN%20vs%20Rule%20Engine-r%3D0.97-blueviolet.svg)](firmware/zynq/compare_harness.c)
+[![Target Platform](https://img.shields.io/badge/Target-Zynq%20Baseline%20%7C%20ShrikeFi%20Roadmap-red.svg)](docs/MIGRATION.md)
 
 An end-to-end heterogeneous System-on-Chip (SoC) combining **synthesizable Verilog hardware acceleration** and an **on-device TinyML neural network** to provide real-time, cloud-free physiological risk prediction during extreme environmental disasters (heat waves, air pollution smog, and floods).
+
+---
+
+## 🏷️ Platform Status & Roadmap
+
+* **Verified Baseline:** [Xilinx Zynq-7000 (`xc7z020`)](hardware/zynq/) — Fully verified with 6/6 passing self-checking tests and static timing closed at 69.45 MHz (permanently tagged at `v1.0-zynq-SIH`).
+* **Active Port:** [ShrikeFi (ESP32-S3 + Renesas ForgeFPGA)](hardware/shrikefi/) — Affordable edge hardware migration in progress. See the roadmap and architecture breakdown in [`docs/MIGRATION.md`](docs/MIGRATION.md) and link protocol in [`docs/SHRIKEFI_LINK_PROTOCOL.md`](docs/SHRIKEFI_LINK_PROTOCOL.md).
 
 ---
 
@@ -67,12 +74,12 @@ An end-to-end heterogeneous System-on-Chip (SoC) combining **synthesizable Veril
 ### 1. Cycle-Accurate Vivado Simulation Waveforms
 Below is the timing simulation of `tb_ppg_system.v` proving the decoupled AXI write handshake and 20 ns systolic peak interrupt generation:
 
-![Simulation Waveform 1](SIH/waveform_1.png)
-![Simulation Waveform 2](SIH/waveform_2.png)
+![Simulation Waveform 1](docs/images/waveform_1.png)
+![Simulation Waveform 2](docs/images/waveform_2.png)
 
 ### 2. Vivado Post-Synthesis Static Timing & Utilization Evidence
 Generated with AMD Xilinx Vivado ML v2022.2, target `xc7z020clg400-1` (Speed Grade -1, Slow Corner 85°C).
-See [`HARDWARE_ARCHITECTURE.md`](SIH/HARDWARE_ARCHITECTURE.md) for full microarchitecture details.
+See [`HARDWARE_ARCHITECTURE.md`](docs/HARDWARE_ARCHITECTURE.md) for full microarchitecture details.
 
 | Metric / Resource | Value | Chip Available (`xc7z020`) | Status |
 |:---|:---:|:---:|:---:|
@@ -88,19 +95,19 @@ See [`HARDWARE_ARCHITECTURE.md`](SIH/HARDWARE_ARCHITECTURE.md) for full microarc
 #### Detailed Vivado Reports
 
 **Timing Summary:**
-![Timing Summary](SIH/timing_summary.png)
+![Timing Summary](docs/images/timing_summary.png)
 
 **Utilization Percentage:**
-![Utilization Percentage](SIH/utilization_percentage.png)
+![Utilization Percentage](docs/images/utilization_percentage.png)
 
 **Power Summary:**
-![Power Summary](SIH/power_summary.png)
+![Power Summary](docs/images/power_summary.png)
 
 **RTL Schematic:**
-![RTL Schematic](SIH/rtl_schematic.png)
+![RTL Schematic](docs/images/rtl_schematic.png)
 
 **Device Floorplan:**
-![Device Floorplan](SIH/device_floorplan.png)
+![Device Floorplan](docs/images/device_floorplan.png)
 
 ---
 
@@ -190,7 +197,7 @@ Severe Smog (AQI500+)     | MODERATE  CRITICAL  MODERATE  | 0.423     0.916     
 Flash Flood/Hypothermia   | HIGH      MODERATE  CRITICAL  | 0.597     0.490     0.538
 ```
 
-The NN correctly identifies the **dominant risk axis** in every scenario. Training metrics on held-out data: **r = 0.97 (heat), r = 0.97 (pollution), r = 0.94 (flood)** with 78–89% exact risk-band agreement. See [`train_nn_risk_model.py`](SIH/train_nn_risk_model.py) for the full training script.
+The NN correctly identifies the **dominant risk axis** in every scenario. Training metrics on held-out data: **r = 0.97 (heat), r = 0.97 (pollution), r = 0.94 (flood)** with 78–89% exact risk-band agreement. See [`train_nn_risk_model.py`](firmware/core/train_nn_risk_model.py) for the full training script.
 
 ---
 
@@ -215,7 +222,7 @@ To maintain transparent, professional engineering rigor, our validation boundari
 
 1. **Hardware Implementation Scope:**  
    * The digital RTL is verified via cycle-accurate Icarus Verilog simulation (`tb_ppg_system.v`, 6/6 tests passing) and synthesized Out-of-Context (OOC) in Vivado ML targeting the `xc7z020` FPGA.
-   * Physical silicon deployment targets Qualcomm Snapdragon Wear W5+ Gen 1 as an architectural migration mapping.
+   * Physical silicon deployment targets Qualcomm Snapdragon Wear W5+ Gen 1 as an architectural migration mapping, alongside an active low-cost edge port to ShrikeFi (ESP32-S3 + Renesas ForgeFPGA).
 2. **Medical & Physiological Modeling:**  
    * The 15–30 minute early warning window is a theoretical model estimate based on published clinical literature on *Cardiovascular Drift* (gradual upward drift in heart rate accompanied by progressive decline in stroke volume during prolonged thermal stress).
    * **Clinical Disclaimer:** This system is an edge disaster resilience prototype and is **not certified as a diagnostic medical device** under CDSCO/FDA regulations. Clinical deployment would require human subject trial validation.
@@ -248,35 +255,49 @@ To maintain transparent, professional engineering rigor, our validation boundari
 
 ```
 .
-├── SIH/
-│   ├── axi_ppg_accelerator.v       # Top-level AXI4-Lite slave wrapper & DSP top
-│   ├── moving_average_8tap.v       # O(1) running-sum 8-tap digital noise filter
-│   ├── ppg_peak_detector.v         # 4-state systolic FSM with 250ms refractory timer
-│   ├── tb_ppg_system.v             # Self-checking AXI testbench with BFM tasks
-│   ├── ppg_accelerator.xdc         # Xilinx Vivado Static Timing constraints (50 MHz)
-│   ├── run_vivado_synth.tcl        # Automated Vivado batch synthesis script
-│   ├── waveform_snapshot.png       # Timing simulation waveform diagram
-│   ├── signals.gtkw                # Color-coded waveform layout for GTKWave
-│   │
-│   ├── driver_ppg.c / .h           # Hardware register API & IBI-to-BPM conversion
-│   ├── hrv_analysis.c / .h         # RMSSD & SDNN circular buffer mathematics
-│   ├── spo2_engine.c / .h          # Beer-Lambert ratio-of-ratios pulse oximetry
-│   ├── nn_risk_model_int8.c / .h   # 6→12→3 TinyML Neural Network INT8 engine (123 params, 123 bytes)
-│   ├── disaster_risk_engine.c / .h # Multi-disaster physiological fusion scoring
-│   ├── compare_harness.c           # Side-by-side Rule Engine vs NN validation harness
-│   ├── train_nn_risk_model.py      # PyTorch training script (knowledge distillation)
-│   ├── max30102.c / .h             # Dual-wavelength optical PPG sensor driver
-│   ├── bme280.c / .h               # Bosch environmental sensor driver (T, H, P)
-│   ├── pms5003.c / .h              # Laser particulate sensor UART driver (PM2.5)
-│   ├── ssd1306.c / .h              # 128×64 OLED framebuffer graphics driver
-│   ├── i2c_hal.c / .h              # Hardware Abstraction Layer (Zynq HW / PC simulation)
-│   ├── main_simulation.c           # End-to-end interactive multi-disaster console demo
-│   │
+├── hardware/
+│   ├── common/                     # Vendor-agnostic synthesizable Verilog RTL
+│   │   ├── moving_average_8tap.v   # O(1) running-sum 8-tap digital noise filter (0 DSP)
+│   │   └── ppg_peak_detector.v     # 4-state systolic FSM with 250ms refractory timer
+│   ├── zynq/                       # Xilinx Zynq-7000 baseline implementation
+│   │   ├── axi_ppg_accelerator.v   # Top-level AXI4-Lite slave wrapper & DSP top
+│   │   ├── tb_ppg_system.v         # Self-checking AXI testbench (6/6 passing)
+│   │   ├── ppg_accelerator.xdc     # Vivado Static Timing constraints (50 MHz)
+│   │   ├── run_vivado_synth.tcl    # Automated Vivado batch synthesis script
+│   │   ├── signals.gtkw            # Color-coded GTKWave waveform layout
+│   │   └── build_and_run.bat       # Interactive one-click launcher for Zynq flow
+│   └── shrikefi/                   # Active port target (ESP32-S3 + Renesas ForgeFPGA)
+│
+├── firmware/
+│   ├── core/                       # Platform-agnostic algorithms & TinyML inference
+│   │   ├── hrv_analysis.c / .h     # RMSSD & SDNN circular buffer mathematics
+│   │   ├── spo2_engine.c / .h      # Ratio-of-ratios pulse oximetry calculation
+│   │   ├── disaster_risk_engine.c  # CTSI Heat Strain & PRSI Pollution Index scoring
+│   │   ├── nn_risk_model.c / .h    # Float32 feedforward TinyML model (6→12→3)
+│   │   ├── nn_risk_model_int8.c    # INT8 Quantized TinyML engine (123 parameters)
+│   │   └── train_nn_risk_model.py  # Model training & C header generation script
+│   ├── zynq/                       # Zynq PS application, sensor drivers & harnesses
+│   │   ├── main_simulation.c       # Interactive multi-disaster console demo
+│   │   ├── compare_harness.c       # Rule Engine vs TinyML validation harness
+│   │   ├── test_disaster_risk_engine.c # Comprehensive firmware unit test suite
+│   │   ├── driver_ppg.c / .h       # Register-level hardware abstraction layer
+│   │   ├── max30102.c / .h         # Dual-wavelength optical PPG sensor driver
+│   │   ├── bme280.c / .h           # Bosch environmental sensor driver (T, H, P)
+│   │   ├── pms5003.c / .h          # Laser particulate sensor UART driver (PM2.5)
+│   │   ├── ssd1306.c / .h          # 128×64 OLED framebuffer graphics driver
+│   │   ├── i2c_hal.c / .h          # Hardware Abstraction Layer
+│   │   └── Makefile                # Native makefile for firmware build
+│   └── shrikefi/                   # ESP-IDF / FreeRTOS firmware scaffolding
+│
+├── docs/
+│   ├── images/                     # Waveforms, schematics, floorplans, and reports
 │   ├── HARDWARE_ARCHITECTURE.md    # In-depth microarchitecture specification
 │   ├── QUALCOMM_PLATFORM_STRATEGY.md # Qualcomm Snapdragon Wear W5+ migration spec
-│   └── build_and_run.bat           # Interactive one-click build and execution script
+│   ├── MIGRATION.md                # ShrikeFi platform migration roadmap & matrix
+│   └── SHRIKEFI_LINK_PROTOCOL.md   # 4-bit FPGA↔MCU link protocol specification
 │
-├── run.bat                         # Root launcher (calls SIH/build_and_run.bat)
+├── tools/                          # Helper scripts for diagrams and waveform images
+├── run.bat                         # Top-level interactive Windows launcher
 ├── README.md                       # Main repository landing page
 ├── LICENSE                         # MIT License
 └── .gitignore                      # Git artifact exclusion rules
@@ -299,16 +320,19 @@ To maintain transparent, professional engineering rigor, our validation boundari
 ```
 The interactive menu allows you to launch the simulation, view waveforms, compare the Rule Engine vs NN, and run unit tests.
 
-### Execution (Linux)
+### Execution (Linux / Terminal)
 ```bash
-cd SIH/
-# Compile and run the health dashboard demo
-gcc -Wall -Wextra -o health_demo.exe main_simulation.c hrv_analysis.c spo2_engine.c disaster_risk_engine.c nn_risk_model.c nn_risk_model_int8.c i2c_hal.c -lm
-./health_demo.exe
+# 1. Run RTL testbench simulation:
+iverilog -o sim_ppg.vvp hardware/zynq/tb_ppg_system.v hardware/zynq/axi_ppg_accelerator.v hardware/common/moving_average_8tap.v hardware/common/ppg_peak_detector.v
+vvp sim_ppg.vvp
 
-# Compile and run unit tests
-gcc -Wall -Wextra -o test_engine.exe test_disaster_risk_engine.c hrv_analysis.c spo2_engine.c disaster_risk_engine.c nn_risk_model.c nn_risk_model_int8.c -lm
-./test_engine.exe
+# 2. Compile and run health simulation dashboard:
+gcc -Wall -Wextra -Ifirmware/core -Ifirmware/zynq -o health_demo firmware/zynq/main_simulation.c firmware/core/hrv_analysis.c firmware/core/spo2_engine.c firmware/core/disaster_risk_engine.c firmware/core/nn_risk_model.c firmware/core/nn_risk_model_int8.c -lm
+./health_demo
+
+# 3. Compile and run unit tests:
+gcc -Wall -Wextra -Ifirmware/core -Ifirmware/zynq -o test_engine firmware/zynq/test_disaster_risk_engine.c firmware/core/hrv_analysis.c firmware/core/spo2_engine.c firmware/core/disaster_risk_engine.c firmware/core/nn_risk_model.c firmware/core/nn_risk_model_int8.c -lm
+./test_engine
 ```
 
 ---
