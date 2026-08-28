@@ -28,3 +28,15 @@ The Zynq-7000 design remains permanently preserved as the verified reference imp
 * **Timing Closure:** WNS +5.603 ns, WHS +0.184 ns, Fmax 69.45 MHz
 * **Resource Utilization:** 185 LUTs (0.35%), 16 LUTRAMs (0.09%), 266 FFs (0.25%), 0 DSP48, 0 BRAM
 * **Verification:** `tb_ppg_system.v`, 6/6 self-checking tests passing
+
+---
+
+## Verified Renesas ForgeFPGA (ShrikeFi) Implementation
+Measured post-synthesis results from **Renesas ForgeFPGA Workshop v6.55**:
+* **Target Part:** `SLG47910C` (WLCSP20 package, 1120 5-input LUTs)
+* **Resource Utilization:**
+  * **CLB LUT5s:** **195 / 1120 (17.41%)**
+  * **Total Flip-Flops:** **110 FFs** (77 CLB FFs [6.88%] + 33 IOB FFs [4.48%])
+  * **CLB Blocks:** **35 / 140 (25.00%)**
+  * **DSP Blocks:** **0 (Pure logic / LUT implementation)**
+* **Verification:** `tb_forgefpga_system.v`, 5/5 self-checking tests passing (100%)
