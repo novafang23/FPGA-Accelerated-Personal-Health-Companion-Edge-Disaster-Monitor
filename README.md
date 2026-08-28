@@ -8,6 +8,7 @@
 [![NN Validation](https://img.shields.io/badge/NN%20vs%20Rule%20Engine-r%3D0.97-blueviolet.svg)](firmware/zynq/compare_harness.c)
 [![Target Platform](https://img.shields.io/badge/Target-Zynq%20Baseline%20%7C%20ShrikeFi%20Roadmap-red.svg)](docs/MIGRATION.md)
 [![Theory Guide](https://img.shields.io/badge/Docs-Master%20Theory%20Notes%20(PDF)-teal.svg)](docs/theory/SIH26181_Master_Theory_Notes.pdf)
+[![Beginner Guide](https://img.shields.io/badge/Docs-Beginner%20Waveform%20Guide-orange.svg)](docs/theory/BEGINNER_WAVEFORM_GUIDE.md)
 
 An end-to-end heterogeneous System-on-Chip (SoC) combining **synthesizable Verilog hardware acceleration** and an **on-device TinyML neural network** to provide real-time, cloud-free physiological risk prediction during extreme environmental disasters (heat waves, air pollution smog, and floods).
 
@@ -479,6 +480,32 @@ gcc -Wall -Wextra -Ifirmware/core -Ifirmware/zynq -o health_demo firmware/zynq/m
 gcc -Wall -Wextra -Ifirmware/core -Ifirmware/zynq -o test_engine firmware/zynq/test_disaster_risk_engine.c firmware/core/hrv_analysis.c firmware/core/spo2_engine.c firmware/core/disaster_risk_engine.c firmware/core/nn_risk_model.c firmware/core/nn_risk_model_int8.c -lm
 ./test_engine
 ```
+
+---
+
+## 📊 Waveform Viewing (GTKWave)
+
+Pre-configured presentation views for both platforms:
+
+| Platform | Waveform File | Config File | Tests |
+|----------|---------------|-------------|-------|
+| **Zynq-7000** | `ppg_system.vcd` | `hardware/zynq/presentation.gtkw` | 6/6 passing |
+| **ShrikeFi** | `hardware/shrikefi/shrikefi_sim.vcd` | `hardware/shrikefi/presentation.gtkw` | 5/5 passing |
+
+### Quick Start
+```bash
+# Zynq-7000 (verified baseline)
+gtkwave ppg_system.vcd hardware/zynq/presentation.gtkw
+
+# ShrikeFi (ForgeFPGA + ESP32-S3)
+gtkwave hardware/shrikefi/shrikefi_sim.vcd hardware/shrikefi/presentation.gtkw
+```
+
+### What You'll See
+- **Zynq**: AXI4-Lite register transactions, dual 8-tap moving average filters (0 DSP/0 BRAM), 4-state peak detector FSM, beat interrupt + IBI cycles (20 ns resolution)
+- **ShrikeFi**: 4-bit parallel FPGA↔MCU link protocol, same filter/peak detector RTL, link framing + strobe synchronization, beat interrupt to ESP32-S3
+
+See [`docs/WAVEFORM_PRESENTATION_GUIDE.md`](docs/WAVEFORM_PRESENTATION_GUIDE.md) for signal tables and presentation tips.
 
 ---
 
