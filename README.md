@@ -307,7 +307,7 @@ gcc -Wall -Wextra -o health_demo.exe main_simulation.c hrv_analysis.c spo2_engin
 ./health_demo.exe
 
 # Compile and run unit tests
-gcc -Wall -Wextra -o test_engine.exe test_disaster_risk_engine.c disaster_risk_engine.c nn_risk_model.c nn_risk_model_int8.c -lm
+gcc -Wall -Wextra -o test_engine.exe test_disaster_risk_engine.c hrv_analysis.c spo2_engine.c disaster_risk_engine.c nn_risk_model.c nn_risk_model_int8.c -lm
 ./test_engine.exe
 ```
 

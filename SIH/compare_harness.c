@@ -1,18 +1,18 @@
 #include <stdio.h>
+#include <stdlib.h>
+#include <time.h>
 #include "hrv_analysis.h"
 #include "disaster_risk_engine.h"
 #include "nn_risk_model.h"
 
 typedef struct {
     const char *name;
-    float hr, spo2, rmssd, temp, hum, pm25, skin_temp;
+    float hr, spo2, rmssd_target, temp, hum, pm25, skin_temp;
 } scenario_t;
 
 int main(void) {
-    /* End-of-drift steady-state values, taken directly from main_simulation.c's
-       four built-in scenarios (base + drift). skin_temp is the dedicated sensor
-       channel the rule engine's flood assessment actually uses -- NOT the same
-       as ambient temp. */
+    srand((unsigned int)time(NULL));
+    
     scenario_t scenarios[4] = {
         {"Normal Resting",         72.0f, 98.0f, 45.0f, 25.0f, 45.0f,  15.0f, 36.5f},
         {"Heat Wave (Delhi 47C)", 140.0f, 95.0f,  8.0f, 50.0f, 65.0f,  25.0f, 39.0f},
@@ -21,6 +21,10 @@ int main(void) {
     };
 
     const nn_model_t *model = nn_get_default_model();
+    if (model == NULL) {
+        fprintf(stderr, "Failed to load NN model\n");
+        return 1;
+    }
 
     printf("%-25s | %-9s %-9s %-9s | %-9s %-9s %-9s\n",
            "Scenario", "RuleHeat", "RulePoll", "RuleFlood", "NN-Heat", "NN-Poll", "NN-Flood");
@@ -31,7 +35,13 @@ int main(void) {
 
         hrv_state_t hrv;
         hrv_init(&hrv);
-        hrv.rmssd = s->rmssd;  /* inject directly for this steady-state snapshot */
+
+        float ibi_ms = 60000.0f / s->hr;
+        for (int j = 0; j < HRV_MIN_SAMPLES; j++) {
+            float jitter = (float)((j % 11) - 5) * 10.0f;
+            hrv_add_ibi(&hrv, ibi_ms + jitter);
+        }
+        hrv_compute(&hrv);
 
         env_sensors_t env = {0};
         env.ambient_temp_c = s->temp;
@@ -43,7 +53,7 @@ int main(void) {
         disaster_assess(&hrv, s->spo2, s->hr, &env, &rule_result);
 
         nn_output_t nn_out;
-        nn_predict(model, s->hr, s->rmssd, s->spo2, s->temp, s->hum, s->pm25, &nn_out);
+        nn_predict(model, s->hr, hrv.rmssd, s->spo2, s->temp, s->hum, s->pm25, &nn_out);
 
         printf("%-25s | %-9s %-9s %-9s | %-9.3f %-9.3f %-9.3f\n",
                s->name,

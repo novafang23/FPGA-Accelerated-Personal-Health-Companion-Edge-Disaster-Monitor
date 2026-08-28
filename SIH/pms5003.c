@@ -15,9 +15,6 @@
 #endif
 
 /* Internal: Parse a complete frame */
-static pms5003_data_t last_data;
-static int has_valid_data = 0;
-
 static uint16_t extract_u16(const uint8_t *buf, int offset) {
     return (uint16_t)((buf[offset] << 8) | buf[offset + 1]);
 }
@@ -30,34 +27,34 @@ static int pms5003_parse_frame(pms5003_t *dev) {
         return -1;
     }
 
-    /* Verify checksum: sum of bytes 0–29 == bytes 30–31 */
+    /* Verify checksum: sum of bytes 0-29 == bytes 30-31 */
     uint16_t checksum = 0;
     for (int i = 0; i < 30; i++) {
         checksum += buf[i];
     }
     uint16_t expected = extract_u16(buf, 30);
     if (checksum != expected) {
-        return -1;  /* Checksum mismatch — corrupt frame */
+        return -1;  /* Checksum mismatch - corrupt frame */
     }
 
-    /* Extract all fields */
-    last_data.pm1_0_cf1  = extract_u16(buf, 4);
-    last_data.pm2_5_cf1  = extract_u16(buf, 6);
-    last_data.pm10_cf1   = extract_u16(buf, 8);
+    /* Extract all fields into dev->last_data */
+    dev->last_data.pm1_0_cf1   = extract_u16(buf, 4);
+    dev->last_data.pm2_5_cf1   = extract_u16(buf, 6);
+    dev->last_data.pm10_cf1    = extract_u16(buf, 8);
 
-    last_data.pm1_0_atm  = extract_u16(buf, 10);
-    last_data.pm2_5_atm  = extract_u16(buf, 12);
-    last_data.pm10_atm   = extract_u16(buf, 14);
+    dev->last_data.pm1_0_atm   = extract_u16(buf, 10);
+    dev->last_data.pm2_5_atm   = extract_u16(buf, 12);
+    dev->last_data.pm10_atm    = extract_u16(buf, 14);
 
-    last_data.count_0_3um = extract_u16(buf, 16);
-    last_data.count_0_5um = extract_u16(buf, 18);
-    last_data.count_1_0um = extract_u16(buf, 20);
-    last_data.count_2_5um = extract_u16(buf, 22);
-    last_data.count_5_0um = extract_u16(buf, 24);
-    last_data.count_10um  = extract_u16(buf, 26);
+    dev->last_data.count_0_3um = extract_u16(buf, 16);
+    dev->last_data.count_0_5um = extract_u16(buf, 18);
+    dev->last_data.count_1_0um = extract_u16(buf, 20);
+    dev->last_data.count_2_5um = extract_u16(buf, 22);
+    dev->last_data.count_5_0um = extract_u16(buf, 24);
+    dev->last_data.count_10um  = extract_u16(buf, 26);
 
-    last_data.valid = 1;
-    has_valid_data = 1;
+    dev->last_data.valid = 1;
+    dev->has_valid_data = 1;
 
     return 0;
 }
@@ -67,13 +64,12 @@ static int pms5003_parse_frame(pms5003_t *dev) {
 int pms5003_init(pms5003_t *dev, uint32_t uart_base) {
     if (!dev) return -1;
 
-    dev->uart_base   = uart_base;
-    dev->rx_pos      = 0;
-    dev->synced      = 0;
-    dev->initialized = 1;
-
-    last_data.valid = 0;
-    has_valid_data  = 0;
+    dev->uart_base       = uart_base;
+    dev->rx_pos          = 0;
+    dev->synced          = 0;
+    dev->initialized     = 1;
+    dev->last_data.valid = 0;
+    dev->has_valid_data  = 0;
 
     return 0;
 }
@@ -108,7 +104,7 @@ int pms5003_feed_byte(pms5003_t *dev, uint8_t byte) {
     dev->rx_buf[dev->rx_pos++] = byte;
 
     if (dev->rx_pos >= PMS5003_FRAME_LEN) {
-        /* Complete frame received — try to parse */
+        /* Complete frame received - try to parse */
         dev->synced = 0;
         dev->rx_pos = 0;
 
@@ -121,10 +117,9 @@ int pms5003_feed_byte(pms5003_t *dev, uint8_t byte) {
 }
 
 int pms5003_get_data(const pms5003_t *dev, pms5003_data_t *data) {
-    (void)dev;
-    if (!has_valid_data || !data) return -1;
+    if (!dev->has_valid_data || !data) return -1;
 
-    *data = last_data;
+    *data = dev->last_data;
     return 0;
 }
 
@@ -139,7 +134,7 @@ int pms5003_read_blocking(pms5003_t *dev, pms5003_data_t *data, int timeout) {
         if (!(status & SR_RXEMPTY)) {
             uint8_t byte = (uint8_t)(Xil_In32(dev->uart_base + UART_FIFO) & 0xFF);
             if (pms5003_feed_byte(dev, byte) == 1) {
-                *data = last_data;
+                *data = dev->last_data;
                 return 0;
             }
         }
@@ -148,12 +143,12 @@ int pms5003_read_blocking(pms5003_t *dev, pms5003_data_t *data, int timeout) {
 #else
     /* PC simulation: return synthetic "clean air" data */
     (void)timeout;
-    data->pm1_0_cf1  = 8;
-    data->pm2_5_cf1  = 12;
-    data->pm10_cf1   = 18;
-    data->pm1_0_atm  = 8;
-    data->pm2_5_atm  = 12;
-    data->pm10_atm   = 18;
+    data->pm1_0_cf1   = 8;
+    data->pm2_5_cf1   = 12;
+    data->pm10_cf1    = 18;
+    data->pm1_0_atm   = 8;
+    data->pm2_5_atm   = 12;
+    data->pm10_atm    = 18;
     data->count_0_3um = 2100;
     data->count_0_5um = 610;
     data->count_1_0um = 80;
@@ -167,11 +162,11 @@ int pms5003_read_blocking(pms5003_t *dev, pms5003_data_t *data, int timeout) {
 
 /*
  * India NAQI (National Air Quality Index) breakpoints for PM2.5:
- *   Good:         0–30 µg/m³
- *   Satisfactory: 31–60
- *   Moderate:     61–90
- *   Poor:         91–120
- *   Very Poor:    121–250
+ *   Good:         0-30 ug/m3
+ *   Satisfactory: 31-60
+ *   Moderate:     61-90
+ *   Poor:         91-120
+ *   Very Poor:    121-250
  *   Severe:       >250
  */
 const char* pms5003_aqi_category(uint16_t pm25) {

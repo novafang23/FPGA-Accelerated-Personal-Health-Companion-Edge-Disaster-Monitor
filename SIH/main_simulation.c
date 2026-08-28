@@ -17,6 +17,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <time.h>
 
 #ifdef _WIN32
 #ifndef WIN32_LEAN_AND_MEAN
@@ -144,6 +145,17 @@ static void print_dashboard(
     printf(DIM " [TinyML on-device inference | Zero cloud | Qualcomm AI Engine ready]\n" RESET);
 }
 
+/* Pre-seed HRV with synthetic data to make it ready quickly */
+static void seed_hrv(hrv_state_t *hrv, float bpm) {
+    hrv_init(hrv);
+    float ibi_ms = 60000.0f / bpm;
+    for (int i = 0; i < HRV_MIN_SAMPLES; i++) {
+        float jitter = (float)((i % 11) - 5) * 10.0f;
+        hrv_add_ibi(hrv, ibi_ms + jitter);
+    }
+    hrv_compute(hrv);
+}
+
 /* Main Entry Point */
 int main(int argc, char **argv) {
     int s;
@@ -250,6 +262,7 @@ int main(int argc, char **argv) {
     }
 
     global_time = 0.0f;
+    srand((unsigned int)time(NULL));
     hrv_init(&hrv);
 
     /* Hide cursor for cleaner animation */
@@ -257,6 +270,10 @@ int main(int argc, char **argv) {
 
     for (s = start_scenario; s < num_scenarios; s++) {
         scenario_t *sc = &scenarios[s];
+        
+        /* Pre-seed HRV with initial BPM for this scenario */
+        seed_hrv(&hrv, sc->base_hr);
+        
         float elapsed = 0.0f;
 
         while (elapsed < sc->duration_sec) {
@@ -286,12 +303,14 @@ int main(int argc, char **argv) {
 
             /* Simulate IBI from BPM and feed to HRV engine */
             ibi_ms = 60000.0f / bpm;
-            jitter = (float)(rand() % 20 - 10);  /* +/- 10ms variability */
+            /* Unbiased random in [-10, 10] */
+            int r = rand();
+            int range = 21;  /* -10 to +10 inclusive */
+            int max_rand = RAND_MAX - (RAND_MAX % range);
+            while (r >= max_rand) r = rand();
+            jitter = (float)(r % range - 10);
             hrv_add_ibi(&hrv, ibi_ms + jitter);
             hrv_compute(&hrv);
-
-            /* Set dynamic RMSSD for clean demonstration */
-            hrv.rmssd = rmssd;
 
             /* Build environment sensor readings */
             memset(&env, 0, sizeof(env));
@@ -306,7 +325,13 @@ int main(int argc, char **argv) {
             /* Get raw NN confidence scores for dashboard display */
             {
                 const nn_model_t *model = nn_get_default_model();
-                nn_predict(model, bpm, rmssd, spo2, temp, sc->humidity, pm25, &nn_scores);
+                if (model != NULL) {
+                    nn_predict(model, bpm, hrv.rmssd, spo2, temp, sc->humidity, pm25, &nn_scores);
+                } else {
+                    nn_scores.heat_score = 0.0f;
+                    nn_scores.pollution_score = 0.0f;
+                    nn_scores.flood_score = 0.0f;
+                }
             }
 
             /* Render dashboard */
@@ -314,7 +339,7 @@ int main(int argc, char **argv) {
                             hrv.rmssd, hrv.sdnn, &env, &risk, &nn_scores);
 
             /* Pace the simulation */
-            SLEEP_MS(500);
+            SLEEP_MS(1000);
 
             elapsed     += 1.0f;
             global_time += 1.0f;

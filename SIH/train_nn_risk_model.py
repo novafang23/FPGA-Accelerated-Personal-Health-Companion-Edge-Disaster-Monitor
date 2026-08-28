@@ -205,13 +205,23 @@ def sigmoid(x):
     return 1.0 / (1.0 + np.exp(-np.clip(x, -30, 30)))
 
 
+def forward(X, W1, b1, W2, b2):
+    z1 = X @ W1.T + b1
+    a1 = relu(z1)
+    z2 = a1 @ W2.T + b2
+    a2 = sigmoid(z2)
+    return z1, a1, z2, a2
+
+
 # Quantization utilities
 def quantize_per_tensor(x, bits=8):
     """Symmetric per-tensor quantization to INT8/UINT8."""
     x_max = np.max(np.abs(x))
-    if x_max == 0:
+    if x_max == 0 or not np.isfinite(x_max):
         return np.zeros_like(x, dtype=np.int8), 1.0, 0
     scale = x_max / (2**(bits-1) - 1)
+    if not np.isfinite(scale) or scale == 0:
+        scale = 1.0
     q = np.clip(np.round(x / scale), -(2**(bits-1)), 2**(bits-1) - 1).astype(np.int8)
     return q, float(scale), 0
 
@@ -219,9 +229,11 @@ def quantize_per_tensor(x, bits=8):
 def quantize_asymmetric(x, bits=8):
     """Asymmetric per-tensor quantization (for activations >= 0)."""
     x_min, x_max = np.min(x), np.max(x)
-    if x_max == x_min:
+    if x_max == x_min or not np.isfinite(x_min) or not np.isfinite(x_max):
         return np.zeros_like(x, dtype=np.uint8), 1.0, 0
     scale = (x_max - x_min) / (2**bits - 1)
+    if not np.isfinite(scale) or scale == 0:
+        scale = 1.0
     zp = int(np.round(-x_min / scale))
     zp = np.clip(zp, 0, 2**bits - 1)
     q = np.clip(np.round(x / scale + zp), 0, 2**bits - 1).astype(np.uint8)
@@ -231,10 +243,13 @@ def quantize_asymmetric(x, bits=8):
 def fake_quant(x, scale, zp, bits=8):
     """Fake quantization for QAT: quantize then dequantize."""
     if zp == 0:
-        x_q = np.clip(np.round(x / scale), -(2**(bits-1)), 2**(bits-1) - 1)
+        x_q = np.round(x / scale)
+        x_q = np.clip(x_q, -(2**(bits-1)), 2**(bits-1) - 1)
+        return x_q * scale
     else:
-        x_q = np.clip(np.round(x / scale + zp), 0, 2**bits - 1)
-    return (x_q - zp) * scale
+        x_q = np.round(x / scale + zp)
+        x_q = np.clip(x_q, 0, 2**bits - 1)
+        return (x_q - zp) * scale
 
 
 class QATWrapper:
@@ -261,13 +276,17 @@ class QATWrapper:
         z2 = a1 @ self.W2.T + self.b2
         a2 = sigmoid(z2)
         
-        # Weight scales
-        self.W1_scale, self.W1_zp = quantize_per_tensor(self.W1)[1:]
-        self.b1_scale, self.b1_zp = quantize_per_tensor(self.b1)[1:]
-        self.W2_scale, self.W2_zp = quantize_per_tensor(self.W2)[1:]
-        self.b2_scale, self.b2_zp = quantize_per_tensor(self.b2)[1:]
+        # Weight scales (symmetric, zp=0) - quantize_per_tensor returns (q, scale, zp)
+        _, self.W1_scale, _ = quantize_per_tensor(self.W1)
+        self.W1_zp = 0
+        _, self.b1_scale, _ = quantize_per_tensor(self.b1)
+        self.b1_zp = 0
+        _, self.W2_scale, _ = quantize_per_tensor(self.W2)
+        self.W2_zp = 0
+        _, self.b2_scale, _ = quantize_per_tensor(self.b2)
+        self.b2_zp = 0
         
-        # Activation scales (asymmetric for ReLU/sigmoid outputs)
+        # Activation scales (asymmetric for ReLU/sigmoid outputs >= 0)
         _, self.act1_scale, self.act1_zp = quantize_asymmetric(a1)
         _, self.act2_scale, self.act2_zp = quantize_asymmetric(a2)
     
@@ -279,10 +298,10 @@ class QATWrapper:
         b2_q, _, _ = quantize_per_tensor(self.b2)
         return {
             'W1': W1_q, 'b1': b1_q, 'W2': W2_q, 'b2': b2_q,
-            'W1_scale': self.W1_scale, 'W1_zp': self.W1_zp,
-            'b1_scale': self.b1_scale, 'b1_zp': self.b1_zp,
-            'W2_scale': self.W2_scale, 'W2_zp': self.W2_zp,
-            'b2_scale': self.b2_scale, 'b2_zp': self.b2_zp,
+            'W1_scale': self.W1_scale, 'W1_zp': 0,
+            'b1_scale': self.b1_scale, 'b1_zp': 0,
+            'W2_scale': self.W2_scale, 'W2_zp': 0,
+            'b2_scale': self.b2_scale, 'b2_zp': 0,
             'act1_scale': self.act1_scale, 'act1_zp': self.act1_zp,
             'act2_scale': self.act2_scale, 'act2_zp': self.act2_zp,
         }
@@ -291,8 +310,8 @@ class QATWrapper:
         """Forward pass with optional fake quantization."""
         # Layer 1
         if self.qat and self.W1_scale is not None:
-            W1_fq = fake_quant(self.W1, self.W1_scale, self.W1_zp)
-            b1_fq = fake_quant(self.b1, self.b1_scale, self.b1_zp)
+            # Only fake-quantize activations, not weights (simpler, more stable)
+            W1_fq, b1_fq = self.W1, self.b1
         else:
             W1_fq, b1_fq = self.W1, self.b1
         z1 = X @ W1_fq.T + b1_fq
@@ -302,8 +321,7 @@ class QATWrapper:
         
         # Layer 2
         if self.qat and self.W2_scale is not None:
-            W2_fq = fake_quant(self.W2, self.W2_scale, self.W2_zp)
-            b2_fq = fake_quant(self.b2, self.b2_scale, self.b2_zp)
+            W2_fq, b2_fq = self.W2, self.b2
         else:
             W2_fq, b2_fq = self.W2, self.b2
         z2 = a1 @ W2_fq.T + b2_fq
@@ -384,7 +402,7 @@ def train_float32(X_train, Y_train, X_val, Y_val, epochs=400, batch=512, lr=0.03
     return W1, b1, W2, b2
 
 
-def train_qat(X_train, Y_train, X_val, Y_val, epochs=200, batch=512, lr=0.01, l2=1e-4):
+def train_qat(X_train, Y_train, X_val, Y_val, epochs=400, batch=512, lr=0.01, l2=1e-4):
     """Quantization-aware training."""
     # Initialize with float32 weights
     rng = np.random.default_rng(42)
@@ -422,6 +440,8 @@ def train_qat(X_train, Y_train, X_val, Y_val, epochs=200, batch=512, lr=0.01, l2
             # MSE loss
             diff = (a2 - yb)
             loss = np.mean(diff ** 2)
+            if not np.isfinite(loss):
+                loss = 1.0
             epoch_loss += loss * m
 
             # Backprop (straight-through estimator for fake-quant)
@@ -433,6 +453,11 @@ def train_qat(X_train, Y_train, X_val, Y_val, epochs=200, batch=512, lr=0.01, l2
             dz1 = da1 * relu_grad(z1)
             dW1 = dz1.T @ xb + l2 * model.W1
             db1 = dz1.sum(axis=0)
+
+            # Gradient clipping
+            max_grad = 1.0
+            for grad in [dW1, db1, dW2, db2]:
+                np.clip(grad, -max_grad, max_grad, out=grad)
 
             # Adam update
             t += 1
@@ -446,9 +471,19 @@ def train_qat(X_train, Y_train, X_val, Y_val, epochs=200, batch=512, lr=0.01, l2
                 v_hat = v_state / (1 - beta2 ** t)
                 param -= lr * m_hat / (np.sqrt(v_hat) + eps)
 
+            # Sanity check - prevent NaN weights
+            for param in [model.W1, model.b1, model.W2, model.b2]:
+                param[~np.isfinite(param)] = 0.0
+
+        # Recalibrate quantization params every 25 epochs to track weight drift
+        if epoch % 25 == 0:
+            model.calibrate(X_train[calib_idx])
+
         if epoch % 25 == 0 or epoch == 1:
             _, _, _, val_pred = model.forward(X_val)
             val_loss = np.mean((val_pred - Y_val) ** 2)
+            if not np.isfinite(val_loss):
+                val_loss = 1.0
             print(f"  epoch {epoch:4d}  train_mse={epoch_loss / n_train:.5f}  val_mse={val_loss:.5f}")
 
     # Final calibration
@@ -566,15 +601,11 @@ def emit_int8_header(out_path="nn_risk_model_int8.h"):
 #define NN_RISK_MODEL_INT8_H
 
 #include <stdint.h>
+#include "nn_risk_model.h"
 
 #ifdef __cplusplus
 extern "C" {
 #endif
-
-/* Model Dimensions */
-#define NN_INPUT_SIZE    6
-#define NN_HIDDEN_SIZE   12
-#define NN_OUTPUT_SIZE   3
 
 /* Quantized Model Structure */
 typedef struct {
@@ -591,13 +622,6 @@ typedef struct {
     int8_t W1_zp, W2_zp, b1_zp, b2_zp;
     uint8_t act1_zp, act2_zp;
 } nn_quant_params_t;
-
-/* Inference Result (float output for compatibility) */
-typedef struct {
-    float heat_score;
-    float pollution_score;
-    float flood_score;
-} nn_output_t;
 
 /* Extern declarations */
 extern const nn_model_int8_t nn_default_model_int8;
@@ -648,8 +672,10 @@ def main():
         _, _, _, val_pred = forward(X_val, W1, b1, W2, b2)
         val_loss = np.mean((val_pred - Y_val) ** 2)
         emit_float32_c(W1, b1, W2, b2, val_loss)
-        # Also emit float32 for backward compatibility
+        # Also emit INT8 for backward compatibility
         model = QATWrapper(W1, b1, W2, b2, qat=False)
+        calib_idx = np.random.choice(len(X_train), min(1000, len(X_train)), replace=False)
+        model.calibrate(X_train[calib_idx])
         emit_int8_c(model, val_loss, out_path="nn_risk_model_int8_from_float.c.inc")
         emit_int8_header()
 

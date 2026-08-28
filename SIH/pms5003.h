@@ -43,11 +43,13 @@ typedef struct {
 
 /* Driver State */
 typedef struct {
-    uint8_t  rx_buf[PMS5003_FRAME_LEN]; /* Frame receive buffer     */
-    int      rx_pos;                     /* Current position in buffer */
-    int      synced;                     /* 1 if start bytes detected */
-    uint32_t uart_base;                  /* UART controller base addr */
-    int      initialized;
+    uint8_t         rx_buf[PMS5003_FRAME_LEN]; /* Frame receive buffer     */
+    int             rx_pos;                     /* Current position in buffer */
+    int             synced;                     /* 1 if start bytes detected */
+    uint32_t        uart_base;                  /* UART controller base addr */
+    int             initialized;
+    pms5003_data_t  last_data;                  /* Last valid parsed frame    */
+    int             has_valid_data;             /* 1 if last_data is valid    */
 } pms5003_t;
 
 /* Zynq PS UART base addresses */

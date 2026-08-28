@@ -63,4 +63,4 @@ void hrv_compute(hrv_state_t *state) {
 float hrv_get_rmssd(const hrv_state_t *state)  { return state->rmssd;   }
 float hrv_get_sdnn(const hrv_state_t *state)    { return state->sdnn;    }
 float hrv_get_mean_hr(const hrv_state_t *state) { return state->mean_hr; }
-int   hrv_is_ready(const hrv_state_t *state)    { return state->count >= 3; }
+int   hrv_is_ready(const hrv_state_t *state)    { return state->count >= HRV_MIN_SAMPLES; }

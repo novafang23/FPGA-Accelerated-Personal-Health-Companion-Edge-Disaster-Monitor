@@ -30,21 +30,23 @@ static risk_level_t assess_flood_risk(
 
 const char* risk_level_to_string(risk_level_t level) {
     switch (level) {
-        case RISK_NORMAL:   return "NORMAL";
-        case RISK_MODERATE: return "MODERATE";
-        case RISK_HIGH:     return "HIGH";
-        case RISK_CRITICAL: return "CRITICAL";
-        default:            return "UNKNOWN";
+        case RISK_UNKNOWN:    return "UNKNOWN";
+        case RISK_NORMAL:     return "NORMAL";
+        case RISK_MODERATE:   return "MODERATE";
+        case RISK_HIGH:       return "HIGH";
+        case RISK_CRITICAL:   return "CRITICAL";
+        default:              return "INVALID";
     }
 }
 
 const char* risk_level_to_color(risk_level_t level) {
     switch (level) {
-        case RISK_NORMAL:   return "\033[32m";       /* Green  */
-        case RISK_MODERATE: return "\033[33m";       /* Yellow */
-        case RISK_HIGH:     return "\033[38;5;208m"; /* Orange */
-        case RISK_CRITICAL: return "\033[31m";       /* Red    */
-        default:            return "\033[0m";
+        case RISK_UNKNOWN:    return "\033[90m";       /* Dark Gray */
+        case RISK_NORMAL:     return "\033[32m";       /* Green  */
+        case RISK_MODERATE:   return "\033[33m";       /* Yellow */
+        case RISK_HIGH:       return "\033[38;5;208m"; /* Orange */
+        case RISK_CRITICAL:   return "\033[31m";       /* Red    */
+        default:              return "\033[0m";
     }
 }
 
@@ -146,7 +148,7 @@ static risk_level_t assess_flood_risk(
     /* Skip if no skin temperature sensor data available */
     if (skin_temp_c <= 0.0f) {
         *advisory = "No skin temperature data available";
-        return RISK_NORMAL;
+        return RISK_UNKNOWN;
     }
 
     /* Hypothermia indicators (0-40 points) */
@@ -196,8 +198,17 @@ void disaster_assess(
 
     memset(result, 0, sizeof(risk_assessment_t));
 
-    /* Use healthy default RMSSD if HRV data is unavailable */
-    rmssd = (hrv != NULL) ? hrv->rmssd : 50.0f;
+    /* Require valid HRV data (minimum samples) */
+    if (hrv == NULL || !hrv_is_ready(hrv)) {
+        result->heat_risk = RISK_UNKNOWN;
+        result->pollution_risk = RISK_UNKNOWN;
+        result->flood_risk = RISK_UNKNOWN;
+        result->overall_risk = RISK_UNKNOWN;
+        result->overall_advisory = "Insufficient HRV data for risk assessment";
+        return;
+    }
+
+    rmssd = hrv->rmssd;
 
     /* Run each disaster-specific assessment engine */
     result->heat_risk = assess_heat_risk(
@@ -270,7 +281,17 @@ void disaster_assess_nn(
 
     memset(result, 0, sizeof(risk_assessment_t));
 
-    rmssd = (hrv != NULL) ? hrv->rmssd : 50.0f;
+    /* Require valid HRV data */
+    if (hrv == NULL || !hrv_is_ready(hrv)) {
+        result->heat_risk = RISK_UNKNOWN;
+        result->pollution_risk = RISK_UNKNOWN;
+        result->flood_risk = RISK_UNKNOWN;
+        result->overall_risk = RISK_UNKNOWN;
+        result->overall_advisory = "Insufficient HRV data for AI risk assessment";
+        return;
+    }
+
+    rmssd = hrv->rmssd;
 
     /* Run neural network forward pass */
     model = nn_get_default_model();
@@ -340,7 +361,17 @@ void disaster_assess_nn_int8(
 
     memset(result, 0, sizeof(risk_assessment_t));
 
-    rmssd = (hrv != NULL) ? hrv->rmssd : 50.0f;
+    /* Require valid HRV data */
+    if (hrv == NULL || !hrv_is_ready(hrv)) {
+        result->heat_risk = RISK_UNKNOWN;
+        result->pollution_risk = RISK_UNKNOWN;
+        result->flood_risk = RISK_UNKNOWN;
+        result->overall_risk = RISK_UNKNOWN;
+        result->overall_advisory = "Insufficient HRV data for AI risk assessment (INT8)";
+        return;
+    }
+
+    rmssd = hrv->rmssd;
 
     /* Run INT8 neural network forward pass */
     nn_predict_int8(&nn_default_model_int8, &nn_quant_params,
@@ -391,6 +422,5 @@ void disaster_assess_nn_int8(
     if (result->overall_risk == RISK_NORMAL) {
         result->overall_advisory = "All vitals normal -- AI risk engine clear (INT8)";
     }
-}
 }
 

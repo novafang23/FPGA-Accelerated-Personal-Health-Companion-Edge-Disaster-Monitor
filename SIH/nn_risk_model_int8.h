@@ -8,15 +8,11 @@
 #define NN_RISK_MODEL_INT8_H
 
 #include <stdint.h>
+#include "nn_risk_model.h"
 
 #ifdef __cplusplus
 extern "C" {
 #endif
-
-/* Model Dimensions */
-#define NN_INPUT_SIZE    6
-#define NN_HIDDEN_SIZE   12
-#define NN_OUTPUT_SIZE   3
 
 /* Quantized Model Structure */
 typedef struct {
@@ -33,13 +29,6 @@ typedef struct {
     int8_t W1_zp, W2_zp, b1_zp, b2_zp;
     uint8_t act1_zp, act2_zp;
 } nn_quant_params_t;
-
-/* Inference Result (float output for compatibility) */
-typedef struct {
-    float heat_score;
-    float pollution_score;
-    float flood_score;
-} nn_output_t;
 
 /* Extern declarations */
 extern const nn_model_int8_t nn_default_model_int8;

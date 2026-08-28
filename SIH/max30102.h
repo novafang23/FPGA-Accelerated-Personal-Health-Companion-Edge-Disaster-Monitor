@@ -135,6 +135,17 @@ static inline uint8_t max30102_scale_to_8bit(uint32_t raw_18bit) {
 int max30102_shutdown(max30102_t *dev);
 int max30102_wakeup(max30102_t *dev);
 
+/*
+ * Adaptive LED current control based on signal quality.
+ * Adjusts LED1 (Red) and LED2 (IR) pulse amplitude to maintain
+ * optimal signal levels (target: 50-80% of full-scale ADC range).
+ *   dev        — initialized driver
+ *   red_sample — latest Red channel sample (18-bit)
+ *   ir_sample  — latest IR channel sample (18-bit)
+ * Returns 0 on success, -1 on I2C error.
+ */
+int max30102_adjust_led_current(max30102_t *dev, uint32_t red_sample, uint32_t ir_sample);
+
 #ifdef __cplusplus
 }
 #endif

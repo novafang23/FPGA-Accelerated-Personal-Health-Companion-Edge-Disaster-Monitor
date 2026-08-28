@@ -201,6 +201,24 @@ int i2c_read_reg(const i2c_handle_t *handle, uint8_t slave_addr,
 
 #else  /* PC Simulation stubs */
 
+#include <stdlib.h>
+#include <time.h>
+
+/* Error injection: set to non-zero to simulate I2C failures */
+#ifndef I2C_ERROR_RATE
+#define I2C_ERROR_RATE 0  /* 0 = no errors, 10 = 10% error rate */
+#endif
+
+static int i2c_should_fail(void) {
+#if I2C_ERROR_RATE > 0
+    static int seeded = 0;
+    if (!seeded) { srand((unsigned int)time(NULL)); seeded = 1; }
+    return (rand() % 100) < I2C_ERROR_RATE;
+#else
+    return 0;
+#endif
+}
+
 int i2c_init(i2c_handle_t *handle, uint32_t base_addr, uint32_t clk_freq) {
     if (!handle) return -1;
     handle->base_addr   = base_addr;
@@ -212,12 +230,14 @@ int i2c_init(i2c_handle_t *handle, uint32_t base_addr, uint32_t clk_freq) {
 int i2c_write(const i2c_handle_t *handle, uint8_t slave_addr,
               const uint8_t *data, size_t len) {
     (void)handle; (void)slave_addr; (void)data; (void)len;
+    if (i2c_should_fail()) return -1;
     return 0;
 }
 
 int i2c_read(const i2c_handle_t *handle, uint8_t slave_addr,
              uint8_t *data, size_t len) {
     (void)handle; (void)slave_addr;
+    if (i2c_should_fail()) return -1;
     for (size_t i = 0; i < len; i++) data[i] = 0;
     return 0;
 }
@@ -225,6 +245,7 @@ int i2c_read(const i2c_handle_t *handle, uint8_t slave_addr,
 int i2c_write_read(const i2c_handle_t *handle, uint8_t slave_addr,
                    uint8_t reg_addr, uint8_t *data, size_t len) {
     (void)handle; (void)slave_addr; (void)reg_addr;
+    if (i2c_should_fail()) return -1;
     for (size_t i = 0; i < len; i++) data[i] = 0;
     return 0;
 }
@@ -232,12 +253,14 @@ int i2c_write_read(const i2c_handle_t *handle, uint8_t slave_addr,
 int i2c_write_reg(const i2c_handle_t *handle, uint8_t slave_addr,
                   uint8_t reg_addr, uint8_t value) {
     (void)handle; (void)slave_addr; (void)reg_addr; (void)value;
+    if (i2c_should_fail()) return -1;
     return 0;
 }
 
 int i2c_read_reg(const i2c_handle_t *handle, uint8_t slave_addr,
                  uint8_t reg_addr) {
     (void)handle; (void)slave_addr; (void)reg_addr;
+    if (i2c_should_fail()) return -1;
     return 0;
 }
 

@@ -127,6 +127,29 @@ float bme280_read_temperature(bme280_t *dev);
  */
 int bme280_reset(bme280_t *dev);
 
+/*
+ * Initialize BME280 in normal (continuous) mode.
+ *   dev      — pointer to driver state
+ *   i2c      — initialized I2C handle
+ *   addr     — I2C address
+ *   standby  — standby time between measurements (BME280_STANDBY_*)
+ *   filter   — IIR filter coefficient (BME280_FILTER_*)
+ * Returns 0 on success, -1 on failure.
+ */
+int bme280_init_normal_mode(bme280_t *dev, i2c_handle_t *i2c, uint8_t addr,
+                            uint8_t standby, uint8_t filter);
+
+/*
+ * Read latest data from normal mode (non-blocking).
+ * Returns 0 on success, -1 if data not ready or error.
+ */
+int bme280_read_normal(bme280_t *dev, bme280_data_t *data);
+
+/*
+ * Set sensor to sleep mode to save power.
+ */
+int bme280_sleep(bme280_t *dev);
+
 #ifdef __cplusplus
 }
 #endif

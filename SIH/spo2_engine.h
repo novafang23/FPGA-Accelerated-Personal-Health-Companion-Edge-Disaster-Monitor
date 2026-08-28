@@ -14,20 +14,20 @@ extern "C" {
 #define SPO2_WINDOW_SIZE 50  /* Samples per measurement window */
 
 typedef struct {
-    uint8_t red_min, red_max;
-    uint8_t ir_min, ir_max;
-    int     sample_count;
+    uint32_t red_min, red_max;
+    uint32_t ir_min, ir_max;
+    int      sample_count;
 
-    float   ratio_r;
-    float   spo2;
-    int     valid;
+    float    ratio_r;
+    float    spo2;
+    int      valid;
 } spo2_state_t;
 
 /* Initialize / reset SpO2 state */
 void  spo2_init(spo2_state_t *state);
 
-/* Feed a pair of filtered Red and IR samples; SpO2 is recomputed at end of each window */
-void  spo2_add_samples(spo2_state_t *state, uint8_t red_filtered, uint8_t ir_filtered);
+/* Feed a pair of filtered Red and IR samples (18-bit); SpO2 is recomputed at end of each window */
+void  spo2_add_samples(spo2_state_t *state, uint32_t red_filtered, uint32_t ir_filtered);
 
 /* Get the latest SpO2 percentage (0-100) */
 float spo2_get_value(const spo2_state_t *state);

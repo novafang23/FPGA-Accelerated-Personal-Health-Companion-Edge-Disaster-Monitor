@@ -53,7 +53,7 @@ echo.
 
 :: 5. Compile and Run Unit Tests
 echo [5/5] Compiling Unit Tests...
-C:\msys64\ucrt64\bin\gcc.exe -Wall -Wextra -o test_engine.exe test_disaster_risk_engine.c disaster_risk_engine.c nn_risk_model.c nn_risk_model_int8.c -lm
+C:\msys64\ucrt64\bin\gcc.exe -Wall -Wextra -o test_engine.exe test_disaster_risk_engine.c hrv_analysis.c spo2_engine.c disaster_risk_engine.c nn_risk_model.c nn_risk_model_int8.c -lm
 if %errorlevel% neq 0 (
     echo [ERROR] Unit test compilation failed!
     pause

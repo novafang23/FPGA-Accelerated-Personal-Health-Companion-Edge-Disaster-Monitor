@@ -5,6 +5,12 @@
 
 #include "max30102.h"
 
+#ifdef _WIN32
+#include <windows.h>
+#else
+#include <unistd.h>
+#endif
+
 /* Initialization */
 
 int max30102_reset(max30102_t *dev) {
@@ -17,20 +23,22 @@ int max30102_reset(max30102_t *dev) {
     return -1;
   }
 
-  /* Poll until reset bit self-clears (typically < 1ms) */
-  int timeout = 100;
-  while (timeout-- > 0) {
-    int val =
-        i2c_read_reg(dev->i2c, MAX30102_I2C_ADDR, MAX30102_REG_MODE_CONFIG);
-    if (val < 0)
-      return -1;
-    if (!(val & MAX30102_MODE_RESET))
-      break;
-    /* Small delay — on bare-metal this is a busy loop */
-    for (volatile int d = 0; d < 10000; d++)
-      ;
-  }
-  return (timeout > 0) ? 0 : -1;
+/* Poll until reset bit self-clears (typically < 1ms) */
+    int timeout = 100;
+    while (timeout-- > 0) {
+        int val =
+            i2c_read_reg(dev->i2c, MAX30102_I2C_ADDR, MAX30102_REG_MODE_CONFIG);
+        if (val < 0)
+            return -1;
+        if (!(val & MAX30102_MODE_RESET))
+            break;
+#ifdef _WIN32
+        Sleep(1);
+#else
+        usleep(1000);
+#endif
+    }
+    return (timeout > 0) ? 0 : -1;
 }
 
 int max30102_init(max30102_t *dev, i2c_handle_t *i2c) {
@@ -182,20 +190,23 @@ float max30102_read_temperature(max30102_t *dev) {
     return -999.0f;
   }
 
-  /* Wait for measurement (typically ~30ms) */
-  int timeout = 100;
-  while (timeout-- > 0) {
-    int val =
-        i2c_read_reg(dev->i2c, MAX30102_I2C_ADDR, MAX30102_REG_TEMP_CONFIG);
-    if (val < 0)
-      return -999.0f;
-    if (!(val & 0x01))
-      break;
-    for (volatile int d = 0; d < 50000; d++)
-      ;
-  }
-  if (timeout <= 0)
-    return -999.0f;
+/* Wait for measurement (typically ~30ms) */
+    int timeout = 100;
+    while (timeout-- > 0) {
+        int val =
+            i2c_read_reg(dev->i2c, MAX30102_I2C_ADDR, MAX30102_REG_TEMP_CONFIG);
+        if (val < 0)
+            return -999.0f;
+        if (!(val & 0x01))
+            break;
+#ifdef _WIN32
+        Sleep(1);
+#else
+        usleep(1000);
+#endif
+    }
+    if (timeout <= 0)
+        return -999.0f;
 
   /* Read integer + fractional parts */
   int temp_int =
@@ -223,12 +234,48 @@ int max30102_shutdown(max30102_t *dev) {
 }
 
 int max30102_wakeup(max30102_t *dev) {
-  if (!dev || !dev->initialized)
-    return -1;
-  int mode =
-      i2c_read_reg(dev->i2c, MAX30102_I2C_ADDR, MAX30102_REG_MODE_CONFIG);
-  if (mode < 0)
-    return -1;
-  return i2c_write_reg(dev->i2c, MAX30102_I2C_ADDR, MAX30102_REG_MODE_CONFIG,
-                       (uint8_t)(mode & ~MAX30102_MODE_SHDN));
+    if (!dev || !dev->initialized)
+        return -1;
+    int mode =
+        i2c_read_reg(dev->i2c, MAX30102_I2C_ADDR, MAX30102_REG_MODE_CONFIG);
+    if (mode < 0)
+        return -1;
+    return i2c_write_reg(dev->i2c, MAX30102_I2C_ADDR, MAX30102_REG_MODE_CONFIG,
+                         (uint8_t)(mode & ~MAX30102_MODE_SHDN));
+}
+
+/* Adaptive LED Current Control */
+int max30102_adjust_led_current(max30102_t *dev, uint32_t red_sample, uint32_t ir_sample) {
+    if (!dev || !dev->initialized)
+        return -1;
+
+    const uint32_t TARGET_LOW  = (1u << 17);   /* ~50% of 18-bit range */
+    const uint32_t TARGET_HIGH = (1u << 18) * 3 / 4;  /* ~75% of 18-bit range */
+    const uint8_t STEP = 4;  /* Adjustment step (0.8mA per LSB) */
+
+    uint8_t red_pa = i2c_read_reg(dev->i2c, MAX30102_I2C_ADDR, MAX30102_REG_LED1_PA);
+    uint8_t ir_pa  = i2c_read_reg(dev->i2c, MAX30102_I2C_ADDR, MAX30102_REG_LED2_PA);
+    if (red_pa == 0xFF || ir_pa == 0xFF)
+        return -1;
+
+    /* Adjust Red LED */
+    if (red_sample < TARGET_LOW && red_pa < 255 - STEP) {
+        red_pa += STEP;
+    } else if (red_sample > TARGET_HIGH && red_pa > STEP) {
+        red_pa -= STEP;
+    }
+
+    /* Adjust IR LED */
+    if (ir_sample < TARGET_LOW && ir_pa < 255 - STEP) {
+        ir_pa += STEP;
+    } else if (ir_sample > TARGET_HIGH && ir_pa > STEP) {
+        ir_pa -= STEP;
+    }
+
+    if (i2c_write_reg(dev->i2c, MAX30102_I2C_ADDR, MAX30102_REG_LED1_PA, red_pa) != 0)
+        return -1;
+    if (i2c_write_reg(dev->i2c, MAX30102_I2C_ADDR, MAX30102_REG_LED2_PA, ir_pa) != 0)
+        return -1;
+
+    return 0;
 }

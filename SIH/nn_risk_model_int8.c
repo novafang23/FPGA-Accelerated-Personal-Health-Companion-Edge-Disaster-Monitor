@@ -7,6 +7,8 @@
 #include <math.h>
 #include <stdint.h>
 
+#include "nn_risk_model_int8.c.inc"
+
 /* Feature Normalization Ranges (must match nn_risk_model.h) */
 #define NN_HR_MIN        40.0f
 #define NN_HR_MAX        200.0f
@@ -32,6 +34,13 @@ static int8_t quantize_input(float val, float min_val, float max_val, float scal
     return (int8_t)q;
 }
 
+/* Clamp int32 to int8 range */
+static int8_t clamp_int8(int32_t x) {
+    if (x > 127) return 127;
+    if (x < -128) return -128;
+    return (int8_t)x;
+}
+
 /* ReLU for int32 accumulator */
 static int32_t relu_int32(int32_t x) {
     return (x > 0) ? x : 0;
@@ -46,11 +55,6 @@ static float sigmoid_int32(int32_t x, float scale) {
     return 1.0f / (1.0f + expf(-fx));
 }
 
-/* Dequantize int32 accumulator to float */
-static float dequantize(int32_t x, float scale) {
-    return x * scale;
-}
-
 void nn_predict_int8(
     const nn_model_int8_t *model,
     const nn_quant_params_t *qparams,
@@ -58,9 +62,13 @@ void nn_predict_int8(
     float temp, float hum, float pm25,
     nn_output_t *out
 ) {
+    /* Suppress unused static function warnings */
+    (void)quantize_input;
+    (void)clamp_int8;
+    (void)relu_int32;
+    (void)sigmoid_int32;
     int i, j;
     int8_t input_q[NN_INPUT_SIZE];
-    int32_t hidden_acc[NN_HIDDEN_SIZE];
     int8_t hidden_q[NN_HIDDEN_SIZE];
     int32_t output_acc[NN_OUTPUT_SIZE];
 
@@ -74,20 +82,21 @@ void nn_predict_int8(
 
     /* Layer 1: Input(6) -> Hidden(12) with INT8 MAC accumulation into int32 */
     for (i = 0; i < NN_HIDDEN_SIZE; i++) {
-        int32_t sum = (int32_t)model->b1[i] * (int32_t)(1 << 8);  /* bias in q8.0 */
+        /* bias in Q8.0 (INT8 shifted to Q8.0) */
+        int32_t sum = (int32_t)model->b1[i] << 8;
         for (j = 0; j < NN_INPUT_SIZE; j++) {
             sum += (int32_t)model->W1[i][j] * (int32_t)input_q[j];
         }
         /* Apply ReLU and requantize to act1 scale */
         sum = relu_int32(sum);
-        hidden_acc[i] = sum;
         /* Requantize for next layer: sum * W1_scale / act1_scale */
-        hidden_q[i] = (int8_t)roundf((sum * qparams->W1_scale) / qparams->act1_scale + qparams->act1_zp);
+        float val = (sum * qparams->W1_scale) / qparams->act1_scale + qparams->act1_zp;
+        hidden_q[i] = clamp_int8((int32_t)roundf(val));
     }
 
     /* Layer 2: Hidden(12) -> Output(3) */
     for (i = 0; i < NN_OUTPUT_SIZE; i++) {
-        int32_t sum = (int32_t)model->b2[i] * (int32_t)(1 << 8);  /* bias in q8.0 */
+        int32_t sum = (int32_t)model->b2[i] << 8;
         for (j = 0; j < NN_HIDDEN_SIZE; j++) {
             sum += (int32_t)model->W2[i][j] * (int32_t)hidden_q[j];
         }

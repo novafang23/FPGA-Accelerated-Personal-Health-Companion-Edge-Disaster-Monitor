@@ -64,10 +64,11 @@ extern "C" {
 
 /* Risk Levels */
 typedef enum {
-    RISK_NORMAL   = 0,   /* Green  -- all parameters within safe range       */
-    RISK_MODERATE = 1,   /* Yellow -- early signs, take precautionary action  */
-    RISK_HIGH     = 2,   /* Orange -- significant strain, intervene now       */
-    RISK_CRITICAL = 3    /* Red    -- imminent danger, emergency response     */
+    RISK_UNKNOWN   = -1, /* Sensor unavailable / insufficient data            */
+    RISK_NORMAL    = 0,  /* Green  -- all parameters within safe range       */
+    RISK_MODERATE  = 1,  /* Yellow -- early signs, take precautionary action  */
+    RISK_HIGH      = 2,  /* Orange -- significant strain, intervene now       */
+    RISK_CRITICAL  = 3   /* Red    -- imminent danger, emergency response     */
 } risk_level_t;
 
 /* Environmental Sensor Inputs */
