@@ -59,7 +59,7 @@ Here is the exact story and rationale to present:
 |     - Role: Mass-Deployable, Ultra-Low-Cost (<$20 BOM) Pocket Wearable            |
 |     - Target Part: SLG47910C (1120 5-input LUTs) + Dual-Core ESP32-S3             |
 |     - Utilization: Only 195 / 1120 LUTs (17.41%), 110 FFs, 0 DSP, 0 BRAM          |
-|     - Interconnect: Custom 4-Bit Parallel Nibble Link (12.5 MB/s throughput)      |
+|     - Interconnect: Custom 4-Bit Parallel Link (5.0 MB/s max @ 10MHz; 500kHz bring-up)|
 |     - Purpose: Proved commercial feasibility for millions of workers              |
 |                                                                                   |
 |                                        ▼                                          |
@@ -95,13 +95,16 @@ The Renesas ForgeFPGA is a compact chip with limited I/O pins. A 32-bit AXI bus 
 
 #### How Data Travels Across 4 Pins:
 * **Writing an 8-bit PPG Sample:**
-  1. High Nibble: Send bits `[7:4]` with command bit 0. Toggle strobe.
-  2. Low Nibble: Send bits `[3:0]`. Toggle strobe.
-  3. FPGA Reassembler (`shrikefi_link_rx.v`) latches the full byte and triggers the moving-average filter.
+  1. Send Command Nibble (`0x1` for Red, `0x2` for IR). Toggle strobe.
+  2. High Nibble: Send bits `[7:4]`. Toggle strobe.
+  3. Low Nibble: Send bits `[3:0]`. Toggle strobe.
+  4. FPGA Link Receiver FSM inside `forgefpga_ppg_top.v` latches the full byte and triggers the moving-average filter.
 * **Reading a 32-bit IBI Timestamp:**
-  1. The FPGA asserts `fpga_irq` when a heart peak occurs.
-  2. ESP32-S3 reads 8 consecutive 4-bit nibbles (nibble 0 = `[31:28]` down to nibble 7 = `[3:0]`).
-  3. Link throughput: At a conservative 25 MHz GPIO toggle rate, transmitting an 8-nibble packet takes **320 nanoseconds**—over 3,000× faster than the 50 Hz optical sample rate!
+  1. The FPGA asserts `irq_beat` (GPIO 10) when a heart peak occurs.
+  2. ESP32-S3 sends `CMD_READ_IBI` (`0x6`), switches direction to Read, and reads 8 consecutive 4-bit nibbles (`[31:28]` down to `[3:0]`).
+  3. Link Latency & Throughput:
+     - **Measured Bring-Up Driver:** At ~500 kHz software bit-banging (~2 µs strobe period), reading all 9 cycles takes **~18 µs**—occupying <0.1% of the 20,000 µs (50 Hz) optical sampling period.
+     - **Protocol Max (Hardware-Timer / SPI-Assisted Target):** At 10 MHz strobe rate ($T_{\text{strobe}} = 100\text{ ns}$), reading 9 cycles takes **900 ns** (5.0 MB/s raw bandwidth).
 
 ### 3. ESP32-S3 Dual-Core FreeRTOS Partitioning
 The ESP32-S3 contains two 240 MHz Xtensa LX7 cores. We strictly partitioned the tasks using FreeRTOS core pinning:
@@ -148,14 +151,14 @@ Digital hardware circuits do not "execute instructions" like C code or Python. T
     (32-bit AXI4-Lite Bus)             (4-bit Parallel Nibble Bus)
 ```
 
-### The 5 Core Hardware Modules:
+### The Core Hardware Modules & Architecture:
 
-1. **`moving_average_8tap.v` (The Smart Filter):**
-   * *What it does:* Smooths high-frequency noise from skin contact and tremors.
+1. **`moving_average_8tap.v` (`hardware/common/` — The Smart Filter):**
+   * *What it does:* Smooths high-frequency noise from skin contact and tremors on both Red and IR channels.
    * *Mathematical Formula:* $y[n] = y[n-1] + \frac{x[n] - x[n-8]}{8}$
    * *Why it's clever:* A standard filter adds 8 numbers every time. Our $O(1)$ running-sum filter only subtracts the oldest sample and adds the newest sample, using a simple bit-shift (`>> 3`) instead of a divider. Takes **0 DSP multiplier slices** and executes in **1 clock cycle (20 ns)**.
 
-2. **`ppg_peak_detector.v` (The Systolic Peak Radar):**
+2. **`ppg_peak_detector.v` (`hardware/common/` — The Systolic Peak Radar):**
    * *What it does:* Tracks systolic pressure waves and measures the Inter-Beat Interval (IBI) between consecutive heartbeats with **20-nanosecond accuracy**.
    * *The 4-State Flowchart:*
      1. `STATE_ARMED (00)`: Waiting for the signal to rise above the dynamic threshold.
@@ -163,15 +166,15 @@ Digital hardware circuits do not "execute instructions" like C code or Python. T
      3. `STATE_PEAK_FOUND (10)`: Captures the exact clock cycle count, asserts `beat_detected`, and resets the timer.
      4. `STATE_REFRACTORY (11)`: Enforces a 250 ms blanking window so the dicrotic notch (secondary rebound wave in arteries) does not trigger a false second heartbeat.
 
-3. **`forgefpga_ppg_top.v` (The ShrikeFi Top-Level Gateway):**
-   * *What it does:* Houses the RX and TX nibble engines, registers, moving-average filter, and peak detector inside the Renesas ForgeFPGA.
+3. **`axi_ppg_accelerator.v` (`hardware/zynq/` — The Zynq AXI4-Lite Wrapper):**
+   * *What it does:* Memory-mapped AXI4-Lite slave wrapper for the Xilinx Zynq-7000 SoC (`0x43C00000`), providing register-level access (`REG_RED_RAW`, `REG_IBI_CYCLES`, `REG_STATUS_THRESH`) and Write-1-to-Clear interrupt management.
+
+4. **`forgefpga_ppg_top.v` (`hardware/shrikefi/` — ShrikeFi Top-Level Gateway & Link Engine):**
+   * *What it does:* Integrates the dual 8-tap moving-average filters and systolic peak detector with a custom 4-bit parallel link transceiver FSM inside the Renesas ForgeFPGA (SLG47910).
+   * *Internal FSM Sub-Blocks:*
+     * **Command Decoder & Nibble Reassembler (RX Stage):** Decodes command headers (`CMD_WRITE_RED`, `CMD_WRITE_IR`, `CMD_WRITE_THRESH`) and combines sequential 4-bit nibbles into 8-bit sample bytes for DSP execution.
+     * **32-Bit IBI Serializer (TX Stage):** Latches the 32-bit `peak_ibi_cycles` timestamp on a heartbeat and streams it across the 4-bit bus as 8 sequential nibbles (`[31:28]` down to `[3:0]`) upon receiving `CMD_READ_IBI`.
    * *Resource Footprint:* Uses only **195 out of 1120 LUT5s (17.41%)** and **110 Flip-Flops**, leaving >82% of the chip available.
-
-4. **`shrikefi_link_rx.v` (The Nibble Reassembler):**
-   * *What it does:* Takes two 4-bit nibbles sent by the ESP32-S3, combines them into an 8-bit byte, and feeds the DSP pipeline.
-
-5. **`shrikefi_link_tx.v` (The 32-Bit Serializer):**
-   * *What it does:* Latches the 32-bit IBI cycle count on a heartbeat and streams it across the 4-bit bus as 8 sequential nibbles on demand.
 
 ---
 
@@ -249,7 +252,7 @@ Use these exact analogies when explaining the project to non-technical judges or
 
 ### 4. The "4-Lane Walkie-Talkie" (How the ShrikeFi 4-bit Link Works)
 > *"On large computer chips, components talk over 32 separate parallel copper tracks (like a 32-lane highway). On our compact micro-FPGA, we only have 4 data pins.  
-> We built a 4-lane high-speed walkie-talkie: when the ESP32 needs to send an 8-bit sensor reading, it slices it into two 4-bit 'nibbles', sends the first half, rings a digital doorbell (strobe), sends the second half, and rings the bell again. The FPGA snaps the two halves together in hardware in under 40 nanoseconds."*
+> We built a 4-lane high-speed walkie-talkie: when the ESP32 needs to send an 8-bit sensor reading, it sends the command code, slices the sample into two 4-bit 'nibbles', sends the first half, rings a digital doorbell (strobe), sends the second half, and rings the bell again. The FPGA snaps the two halves together in hardware in single-digit microseconds during software bring-up, and under 300 nanoseconds at maximum protocol clocking."*
 
 ### 5. The "Paramedic & The AI Chief Physician" (Dual-Core FreeRTOS Partitioning)
 > *"On the ESP32-S3, Core 0 is our dedicated paramedic in the ambulance: it never leaves the patient, sampling optical vitals at 50 Hz and exchanging packets with the FPGA link without ever dropping a beat.  
@@ -270,7 +273,7 @@ Use these exact analogies when explaining the project to non-technical judges or
 * **Answer:** *"Our architecture was designed from day one to be ultra-lean. By using an $O(1)$ running-sum filter with bit-shift division and an accumulator-based peak detector, our entire ShrikeFi design consumes just **195 LUTs (17.41%)** and **110 flip-flops**, with zero DSP multiplier blocks and zero Block RAM. Over 82% of the FPGA remains free."*
 
 ### Q3: "What makes your 4-bit link better than standard SPI or I2C?"
-* **Answer:** *"I2C is too slow (400 kHz) and SPI has packet framing overhead. Our custom 4-bit parallel nibble link provides a dedicated hardware strobe and direct register-level latching. At 25 MHz GPIO toggling, we transfer 32-bit IBI timestamps in 320 nanoseconds, achieving over 12.5 MB/s bandwidth with zero protocol bloat."*
+* **Answer:** *"I2C is too slow (400 kHz) with heavy bus addressing, and SPI has protocol framing overhead. Our custom 4-bit parallel nibble link provides a dedicated hardware strobe and direct register-level latching. In our current bit-banged bring-up driver, a complete 32-bit IBI timestamp transfer takes only **18 microseconds** (occupying less than 0.1% of the 50 Hz optical sampling window). At our verified 10 MHz simulation target with hardware-assisted strobing, it transfers in **900 nanoseconds** (5.0 MB/s raw bandwidth) with zero protocol bloat."*
 
 ### Q4: "What happens if the PM2.5 air quality sensor gets clogged or malfunctions?"
 * **Answer:** *"Our system uses cross-sensor validation. If the PMS5003 reports hazardous PM2.5 = 500 but the user's blood oxygen is a healthy 99% and heart rate is 65 BPM, our sensor fusion engine recognizes the biometric mismatch, suppresses panic sirens, and flags a 'Sensor Check Advisory' on the OLED display."*

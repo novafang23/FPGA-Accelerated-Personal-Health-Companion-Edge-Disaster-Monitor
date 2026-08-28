@@ -2,9 +2,12 @@ import re
 import os
 import subprocess
 
-md_path = r"c:\Users\abhin\OneDrive\Desktop\verilog\SIH\THEORY_NOTES.md"
-html_path = r"c:\Users\abhin\OneDrive\Desktop\verilog\SIH\theory_notes_print.html"
-pdf_path = r"c:\Users\abhin\OneDrive\Desktop\verilog\SIH\SIH26181_Master_Theory_Notes.pdf"
+script_dir = os.path.dirname(os.path.abspath(__file__))
+repo_root = os.path.dirname(script_dir)
+
+md_path = os.path.join(repo_root, "docs", "theory", "THEORY_NOTES.md")
+html_path = os.path.join(repo_root, "docs", "theory", "theory_notes_print.html")
+pdf_path = os.path.join(repo_root, "docs", "theory", "SIH26181_Master_Theory_Notes.pdf")
 
 with open(md_path, "r", encoding="utf-8") as f:
     lines = f.readlines()

@@ -75,9 +75,19 @@ Every transaction begins with a **1-nibble (4-bit) Command Header** sent while `
 ## 4. Timing & Latency Budget
 
 * **Core FPGA Clock:** 50 MHz internal oscillator ($T_{\text{tick}} = 20.000\text{ ns}$).
-* **Link Strobe Frequency:** 10 MHz bit-banged / SPI-assisted ($T_{\text{strobe}} = 100\text{ ns}$).
 * **Sampling Rate:** 50 Hz optical acquisition (1 sample every 20,000 µs).
-* **Link Bus Utilization:** $< 0.05\%$ of available MCU bus bandwidth, leaving $99.95\%$ of CPU cycles free for FreeRTOS networking and TinyML inference.
+* **Speed & Timing Modes:**
+  * **Measured Bring-Up Baseline (Software Bit-Bang Driver):**
+    * Strobe rate: ~500 kHz ($T_{\text{strobe}} \approx 2\text{ µs}$ using `esp_rom_delay_us(1)` high/low half-cycles).
+    * Sample Write (3 strobe cycles): $\approx 6\text{ µs}$.
+    * 32-Bit IBI Read (9 strobe cycles): $\approx 18\text{ µs}$.
+    * Bus Duty Cycle: $\approx 0.09\%$ at 50 Hz optical sampling, consuming $< 0.1\%$ MCU processing overhead.
+  * **Protocol Theoretical Maximum (Simulation-Verified / Hardware-Assisted Target):**
+    * Strobe rate: 10 MHz ($T_{\text{strobe}} = 100\text{ ns}$, verified in `tb_forgefpga_system.v`).
+    * Sample Write (3 strobe cycles): $300\text{ ns}$.
+    * 32-Bit IBI Read (9 strobe cycles): $900\text{ ns}$.
+    * Raw Link Throughput: $5.0\text{ MB/s}$ (40 Mbps).
+* **MCU CPU Headroom:** $> 99.9\%$ of ESP32-S3 CPU cycles remain completely available for FreeRTOS dual-core multitasking, BLE/WiFi telemetry, and INT8 TinyML inference.
 
 ---
 
