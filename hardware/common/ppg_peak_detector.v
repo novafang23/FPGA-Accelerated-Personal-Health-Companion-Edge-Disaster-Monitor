@@ -29,10 +29,10 @@ module ppg_peak_detector #(
     always @(posedge clk) begin
         if (!rst_n) begin
             current_state   <= STATE_ARMED;
-            prev_sample     <= 0;
-            refractory_cnt  <= 0;
-            interval_cnt    <= 0;
-            ibi_cycles      <= 0;
+            prev_sample     <= {DATA_WIDTH{1'b0}};
+            refractory_cnt  <= 32'd0;
+            interval_cnt    <= 32'd0;
+            ibi_cycles      <= 32'd0;
             beat_detected   <= 1'b0;
             first_beat_seen <= 1'b0;
         end else begin
@@ -40,7 +40,7 @@ module ppg_peak_detector #(
 
             // Timer with saturation clamp at 32'hFFFF_FFFF
             if (interval_cnt != 32'hFFFF_FFFF) begin
-                interval_cnt <= interval_cnt + 1;
+                interval_cnt <= interval_cnt + 32'd1;
             end
 
             if (sample_valid) begin
@@ -64,14 +64,14 @@ module ppg_peak_detector #(
                         beat_detected   <= 1'b0;
                         first_beat_seen <= 1'b1;
                     end
-                    interval_cnt   <= 0;
-                    refractory_cnt <= REFRACTORY_CYC;
+                    interval_cnt   <= 32'd0;
+                    refractory_cnt <= REFRACTORY_CYC[31:0];
                 end
 
                 STATE_REFRACTORY: begin
                     beat_detected <= 1'b0;
-                    if (refractory_cnt > 0) begin
-                        refractory_cnt <= refractory_cnt - 1;
+                    if (refractory_cnt > 32'd0) begin
+                        refractory_cnt <= refractory_cnt - 32'd1;
                     end
                 end
             endcase
@@ -100,7 +100,7 @@ module ppg_peak_detector #(
             end
 
             STATE_REFRACTORY: begin
-                if (refractory_cnt == 0) begin
+                if (refractory_cnt == 32'd0) begin
                     next_state = STATE_ARMED;
                 end
             end

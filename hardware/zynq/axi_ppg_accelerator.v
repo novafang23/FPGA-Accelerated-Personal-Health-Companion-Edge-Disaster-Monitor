@@ -131,8 +131,8 @@ module axi_ppg_accelerator #(
             s_axi_bvalid    <= 1'b0;
             aw_done         <= 1'b0;
             w_done          <= 1'b0;
-            aw_addr_latched <= 0;
-            w_data_latched  <= 0;
+            aw_addr_latched <= {C_S_AXI_ADDR_WIDTH{1'b0}};
+            w_data_latched  <= {C_S_AXI_DATA_WIDTH{1'b0}};
             reg_red_raw        <= 8'd0;
             red_sample_valid   <= 1'b0;
             reg_ir_raw         <= 8'd0;
@@ -201,7 +201,7 @@ module axi_ppg_accelerator #(
             s_axi_arready      <= 1'b0;
             s_axi_rvalid       <= 1'b0;
             s_axi_rdata        <= 32'd0;
-            axi_araddr_latched <= 0;
+            axi_araddr_latched <= {C_S_AXI_ADDR_WIDTH{1'b0}};
         end else begin
             // Address Handshake & Latch
             if (~s_axi_arready && s_axi_arvalid) begin
