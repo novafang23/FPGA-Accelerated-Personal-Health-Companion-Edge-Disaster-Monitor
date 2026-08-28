@@ -1,0 +1,371 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>SIH26181 — Master Theory Notes &amp; Judge Defense Companion</title>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;700&display=swap');
+
+@page {
+    size: A4;
+    margin: 14mm 12mm 14mm 12mm;
+}
+
+body {
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    color: #1e293b;
+    background-color: #ffffff;
+    line-height: 1.55;
+    font-size: 13px;
+    margin: 0;
+    padding: 0;
+}
+
+.header-banner {
+    background: linear-gradient(135deg, #0A2540 0%, #006699 100%);
+    color: white;
+    padding: 22px 24px;
+    border-radius: 8px;
+    margin-bottom: 20px;
+}
+
+.header-banner h1 {
+    font-size: 22px;
+    font-weight: 800;
+    margin: 0 0 6px 0;
+    color: #ffffff;
+    letter-spacing: -0.5px;
+}
+
+.header-banner .subtitle {
+    font-size: 14px;
+    font-weight: 600;
+    color: #38bdf8;
+    margin: 0 0 8px 0;
+}
+
+.header-banner .tagline {
+    font-size: 11px;
+    color: #cbd5e1;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    font-weight: 600;
+}
+
+.part-title {
+    font-size: 17px;
+    font-weight: 800;
+    color: #0A2540;
+    border-bottom: 2px solid #0284c7;
+    padding-bottom: 5px;
+    margin-top: 24px;
+    margin-bottom: 12px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+.section-subtitle {
+    font-size: 14px;
+    font-weight: 700;
+    color: #0369a1;
+    margin-top: 14px;
+    margin-bottom: 6px;
+}
+
+.card {
+    background: #f8fafc;
+    border: 1px solid #e2e8f0;
+    border-left: 4px solid #0284c7;
+    border-radius: 6px;
+    padding: 12px 14px;
+    margin-bottom: 12px;
+    page-break-inside: avoid;
+}
+
+.analogy-card {
+    background: #f0fdf4;
+    border: 1px solid #bbf7d0;
+    border-left: 4px solid #16a34a;
+    border-radius: 6px;
+    padding: 12px 14px;
+    margin-bottom: 12px;
+    page-break-inside: avoid;
+}
+
+.analogy-title {
+    font-weight: 800;
+    color: #15803d;
+    font-size: 13.5px;
+    margin-bottom: 4px;
+}
+
+.qa-card {
+    background: #fefce8;
+    border: 1px solid #fef08a;
+    border-left: 4px solid #ca8a04;
+    border-radius: 6px;
+    padding: 12px 14px;
+    margin-bottom: 12px;
+    page-break-inside: avoid;
+}
+
+.qa-q {
+    font-weight: 800;
+    color: #854d0e;
+    font-size: 13px;
+    margin-bottom: 4px;
+}
+
+table {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 12px 0 16px 0;
+    font-size: 12px;
+}
+
+th {
+    background: #0f172a;
+    color: #ffffff;
+    font-weight: 600;
+    text-align: left;
+    padding: 8px 10px;
+    border: 1px solid #334155;
+}
+
+td {
+    padding: 7px 10px;
+    border: 1px solid #cbd5e1;
+    vertical-align: top;
+}
+
+tr:nth-child(even) {
+    background-color: #f8fafc;
+}
+
+.code-block {
+    background: #0f172a;
+    color: #f1f5f9;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    padding: 10px 12px;
+    border-radius: 6px;
+    overflow-x: auto;
+    line-height: 1.45;
+    margin: 10px 0 14px 0;
+    border: 1px solid #1e293b;
+    page-break-inside: avoid;
+}
+
+code {
+    font-family: 'JetBrains Mono', monospace;
+    background: #f1f5f9;
+    color: #0f172a;
+    padding: 1px 4px;
+    border-radius: 4px;
+    font-size: 11.5px;
+}
+
+.divider {
+    border: 0;
+    border-top: 1px solid #e2e8f0;
+    margin: 20px 0;
+}
+
+strong {
+    color: #0f172a;
+}
+</style>
+</head>
+<body>
+
+<div class="header-banner">
+    <div class="tagline">Qualcomm Hardware Challenge • Smart India Hackathon 2026</div>
+    <h1>SIH26181 — Master Theory Notes &amp; Judge Defense Companion</h1>
+    <div class="subtitle">AI-Powered Personal Health Companion &amp; Edge Disaster Monitor</div>
+    <div style="font-size: 12px; color: #e0f2fe;">Dual-Target FPGA Acceleration: Xilinx Zynq-7000 ➔ Renesas ForgeFPGA (ShrikeFi) ➔ Qualcomm Snapdragon Wear</div>
+</div>
+
+<h1 class="part-title">1. THE ULTIMATE PITCH GUIDE (Executive Summary)</h1>
+
+<p><strong>1. What are we solving? (The Problem)</strong><br>
+In 2024 alone, extreme heatwaves in India claimed over 700 lives in three months, while 380 million outdoor workers (75% of the workforce) faced severe risk of heatstroke, kidney damage, and lost wages. Existing warning systems monitor only the <em>ambient environment</em> (weather apps), leaving workers guessing how much danger their own bodies are in.</p>
+
+<p><strong>2. SIH Problem Statement Alignment (Qualcomm Hardware Challenge)</strong><br>
+Problem <strong>SIH26181</strong> asks for innovative hardware architectures leveraging Qualcomm platforms for societal impact. We built a hardware-accelerated, edge-AI wearable that acts as an offline personal disaster shield, fusing biometrics with environmental telemetry locally.</p>
+
+<p><strong>3. The Hardware Wow-Factor</strong><br>
+Unlike conventional wearables running software loops on slow microcontrollers, we designed custom synthesizable Verilog circuits that filter optical signals and extract heartbeat timing physically at the silicon gate level with <strong>0 DSP blocks, 0 BRAM, and 20 ns resolution</strong>.</p>
+
+<p><strong>4. Novelty: Closing the "Context Gap"</strong><br>
+Apple Watch tracks heart rate but is blind to 45°C heat; weather apps report air pollution but are blind to your lungs. We fuse 6 vitals locally in real-time, calculating occupational strain indices (CTSI and PRSI) and sounding life-saving alerts with zero cloud dependency.</p>
+
+<hr class="divider"/>
+
+<h1 class="part-title">2. THE DUAL-FPGA STRATEGY — WHY TWO FPGAs?</h1>
+
+<div class="card">
+<strong>The Two-Target Hardware Story:</strong>
+<ul>
+  <li><strong>Target 1 — Xilinx Zynq-7000 (Reference Baseline):</strong> Heavy-duty verification powerhouse (`xc7z020`), timing closed @ 69.45 MHz on Vivado ML, 32-bit AXI4-Lite bus. Proved the mathematical integrity of our Verilog filter and peak detector with 6/6 tests passing.</li>
+  <li><strong>Target 2 — Renesas ForgeFPGA + ESP32-S3 (ShrikeFi Wearable):</strong> Ultra-affordable ($15 BOM) mass-deployable wearable. Synthesized to 195/1120 LUTs (17.41%), 110 FFs, communicating over an ultra-efficient 4-bit parallel nibble link.</li>
+  <li><strong>Target 3 — Qualcomm Snapdragon Wear (Commercial Path):</strong> Hardware blocks map cleanly to Hexagon DSP (PPG filter) and NPU (INT8 TinyML model).</li>
+</ul>
+</div>
+
+<table>
+  <thead>
+    <tr>
+      <th>Component</th>
+      <th>Xilinx Zynq-7000 (Baseline)</th>
+      <th>Renesas ForgeFPGA (ShrikeFi)</th>
+      <th>Qualcomm Snapdragon Wear</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><strong>Role</strong></td>
+      <td>Verification &amp; Timing Rig</td>
+      <td>Deployable $15 Pocket Wearable</td>
+      <td>Commercial Smartwatch SoC</td>
+    </tr>
+    <tr>
+      <td><strong>RTL Utilization</strong></td>
+      <td>185 LUT6, 266 FF, 0 DSP, 0 BRAM</td>
+      <td>195 LUT5 (17.41%), 110 FF, 0 DSP</td>
+      <td>Hexagon DSP / Dedicated Core</td>
+    </tr>
+    <tr>
+      <td><strong>Host Interface</strong></td>
+      <td>32-bit AXI4-Lite Register Bus</td>
+      <td>4-bit Parallel Nibble Link (12.5 MB/s)</td>
+      <td>On-die SoC Interconnect</td>
+    </tr>
+    <tr>
+      <td><strong>Inference Engine</strong></td>
+      <td>ARM Cortex-A9 (Float32 / INT8)</td>
+      <td>ESP32-S3 Xtensa Core 1 (&lt; 1 µs INT8)</td>
+      <td>Snapdragon NPU (SNPE)</td>
+    </tr>
+    <tr>
+      <td><strong>Connectivity</strong></td>
+      <td>None (Offline Test Rig)</td>
+      <td>Onboard WiFi 4 + BLE 5</td>
+      <td>5G / LTE Cat-M / BLE / GPS</td>
+    </tr>
+    <tr>
+      <td><strong>Estimated BOM Cost</strong></td>
+      <td>$150 – $250 (Dev Board)</td>
+      <td>&lt; $20 (Complete Wearable BOM)</td>
+      <td>Integrated Commercial Device</td>
+    </tr>
+  </tbody>
+</table>
+
+<hr class="divider"/>
+
+<h1 class="part-title">3. SYSTEM ARCHITECTURE &amp; INTERCONNECTS</h1>
+
+<div class="analogy-card">
+<div class="analogy-title">The "Intercom vs. The 4-Lane Walkie-Talkie" Analogy</div>
+<p>On the Zynq SoC, the CPU and FPGA communicate over a 32-lane private highway (AXI4-Lite). On our micro-sized ForgeFPGA, we only have 4 pins. We built a 4-lane high-speed walkie-talkie: the ESP32 splits 8-bit sensor bytes into two 4-bit nibbles, strobes the digital doorbell, and the FPGA snaps them together in hardware in under 40 nanoseconds.</p>
+</div>
+
+<div class="card">
+<strong>Dual-Core FreeRTOS Partitioning on ESP32-S3:</strong>
+<ul>
+  <li><strong>Core 0 (The Paramedic):</strong> High-speed 50 Hz optical sensor sampling, driving the 4-bit FPGA nibble link, capturing 20 ns IBI timestamps via hardware interrupt, and maintaining rolling HRV (RMSSD).</li>
+  <li><strong>Core 1 (The AI Chief Physician):</strong> Environmental sensor acquisition (BME280/PMS5003), running the INT8 TinyML model in &lt;1 µs, executing the deterministic clinical Rule Engine (CTSI/PRSI), and rendering the OLED GUI.</li>
+</ul>
+</div>
+
+<hr class="divider"/>
+
+<h1 class="part-title">4. THE 7 KILLER ANALOGIES (Judge Defense Cheat-Sheet)</h1>
+
+<div class="analogy-card">
+<div class="analogy-title">1. The "CEO and the Assembly Line" (Why FPGA Acceleration?)</div>
+<p>Think of the CPU as a CEO. If the CEO must manually clean 50 raw optical pulses a second, they burn all their energy and battery. Instead, our FPGA builds a physical automated assembly line that filters noise and extracts pulse intervals in silicon, handing the CEO a finished note: <em>'Heart rate is 128, IBI is 468 ms.'</em> The CEO is 100% free to run our TinyML model.</p>
+</div>
+
+<div class="analogy-card">
+<div class="analogy-title">2. The "Formula 1 Wind Tunnel vs. The Pocket Commuter" (Why Two FPGAs?)</div>
+<p>The Zynq-7000 was our Formula 1 wind tunnel: an industrial testing platform where we proved our Verilog RTL met cycle-accurate timing at 69.45 MHz. But you cannot give a $250 board to a rural laborer. ShrikeFi is our mass-production commuter: running the exact same Verilog filter on a $1.50 micro-FPGA for an ultra-affordable $15 wearable.</p>
+</div>
+
+<div class="analogy-card">
+<div class="analogy-title">3. The "Smart Elevator Scale" (Why is the Filter O(1)?)</div>
+<p>To find the average weight of 8 people in an elevator when someone leaves and enters, a naive algorithm weighs all 8 people again. Our $O(1)$ hardware filter remembers the running total, subtracts the person leaving, adds the person entering, and bit-shifts (`&gt;&gt; 3`) in a single 20-nanosecond clock cycle.</p>
+</div>
+
+<div class="analogy-card">
+<div class="analogy-title">4. The "4-Lane Walkie-Talkie" (The 4-Bit FPGA Link)</div>
+<p>Transmitting 32-bit IBI cycle counts over 4 physical pins by sending 8 sequential nibbles. At 25 MHz GPIO toggling, an entire packet transfers in 320 nanoseconds—over 3,000× faster than optical sampling!</p>
+</div>
+
+<div class="analogy-card">
+<div class="analogy-title">5. The "Paramedic &amp; The AI Chief Physician" (Dual-Core FreeRTOS)</div>
+<p>Core 0 is the paramedic at the patient's side (never drops an optical pulse); Core 1 is the hospital chief physician (runs AI diagnostics and updates the display).</p>
+</div>
+
+<div class="analogy-card">
+<div class="analogy-title">6. The "Teacher and the Student" (Knowledge Distillation)</div>
+<p>The clinical Rule Engine is a strict medical professor (100% accurate, but heavy). The INT8 Neural Network is an eager student trained on 50,000 extreme disaster flashcards. The student learned to make the exact same triage decisions with 83.44% accuracy in &lt;1 microsecond.</p>
+</div>
+
+<div class="analogy-card">
+<div class="analogy-title">7. The "Flight Simulator" (Verilog Self-Checking Testbenches)</div>
+<p>Before touching physical silicon, we validated our Verilog modules in an automated software flight simulator (`tb_ppg_system.v` and `tb_forgefpga_system.v`), testing pulse waves, refractory periods, and noise rejection.</p>
+</div>
+
+<hr class="divider"/>
+
+<h1 class="part-title">5. LIKELY JUDGE QUESTIONS &amp; WINNING DEFENSE</h1>
+
+<div class="qa-card">
+<div class="qa-q">Q1: "Why do you have two FPGA architectures in this project?"</div>
+<p><strong>Answer:</strong> "The Zynq-7000 is our verified architectural reference baseline, proving timing closure at 69.45 MHz and 0 DSP/BRAM usage. The ShrikeFi platform (Renesas ForgeFPGA + ESP32-S3) proves commercial deployability, reducing BOM cost from $250 to under $20 while executing the exact same vendor-agnostic RTL."</p>
+</div>
+
+<div class="qa-card">
+<div class="qa-q">Q2: "Why not do all the filtering in software on the ESP32-S3?"</div>
+<p><strong>Answer:</strong> "Software signal processing on an RTOS suffers from interrupt latency and task jitter when WiFi or sensor interrupts fire. Hardware acceleration guarantees deterministic, jitter-free 20 ns IBI timing while letting the CPU sleep between evaluations."</p>
+</div>
+
+<div class="qa-card">
+<div class="qa-q">Q3: "How does the design fit into only 1120 LUTs on ForgeFPGA?"</div>
+<p><strong>Answer:</strong> "By using an $O(1)$ running-sum filter with bit-shift division and an accumulator-based peak detector, our entire ShrikeFi design consumes just <strong>195 LUT5s (17.41%)</strong> and <strong>110 flip-flops</strong>, leaving over 82% of the chip free."</p>
+</div>
+
+<hr class="divider"/>
+
+<h1 class="part-title">6. CLINICAL REFERENCES &amp; SCIENTIFIC FOUNDATIONS</h1>
+
+<table>
+  <thead>
+    <tr>
+      <th>Index</th>
+      <th>Scientific Source</th>
+      <th>Formulation in SIH26181</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><strong>Steadman Heat Index</strong></td>
+      <td>Robert G. Steadman (1979), <em>Journal of Applied Meteorology</em></td>
+      <td>Combines Temp + Humidity. &gt;40°C = Caution, &gt;54°C = Critical Hazard.</td>
+    </tr>
+    <tr>
+      <td><strong>Cardio-Thermal Strain (CTSI)</strong></td>
+      <td>Physiological Strain Index (Moran et al.) adapted for edge sensor fusion</td>
+      <td>Fuses Heat Index with Cardiovascular Drift (HR &gt; 130 BPM) and HRV collapse (RMSSD &lt; 10 ms).</td>
+    </tr>
+    <tr>
+      <td><strong>Pollution Respiratory Strain (PRSI)</strong></td>
+      <td>WHO Global Air Quality Guidelines (2021) &amp; EPA AQI Standards</td>
+      <td>Fuses PM2.5 &gt; 300 µg/m³ with clinical hypoxemia (SpO2 &lt; 88%).</td>
+    </tr>
+  </tbody>
+</table>
+
+</body>
+</html>

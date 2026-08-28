@@ -33,11 +33,6 @@ Desktop.ini
 *.dlc
 *.onnx
 
-# Notes and pitch guides
-docs/theory/THEORY_NOTES.md
-docs/theory/SIH26181_Master_Theory_Notes.pdf
-docs/theory/theory_notes_print.html
-
 # Zips and archives
 *.zip
 
@@ -47,6 +42,11 @@ docs/theory/theory_notes_print.html
 *.cache/
 *.hw/
 *.ip_user_files/
+
+# ForgeFPGA generated directories
+FPGA-accelerated-healthcare-SIH/ffpga/build/
+FPGA-accelerated-healthcare-SIH/ffpga/full-chip-simulation-models/
+FPGA-accelerated-healthcare-SIH/ffpga/sim/
 
 # Simulation binaries
 sim_ppg

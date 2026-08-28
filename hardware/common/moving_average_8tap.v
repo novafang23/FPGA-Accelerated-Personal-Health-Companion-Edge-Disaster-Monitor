@@ -31,10 +31,10 @@ module moving_average_8tap #(
             end
 
             // Update sum: (Old Sum + New Sample - Oldest Sample)
-            running_sum <= running_sum + data_in - shift_reg[7];
+            running_sum <= running_sum + {3'b000, data_in} - {3'b000, shift_reg[7]};
             
             // Division by 8 via 3-bit right shift
-            data_out    <= (running_sum + data_in - shift_reg[7]) >> 3;
+            data_out    <= (running_sum + {3'b000, data_in} - {3'b000, shift_reg[7]}) >> 3;
             out_valid   <= 1'b1;
         end else begin
             out_valid   <= 1'b0;
