@@ -29,4 +29,13 @@ if %errorlevel% neq 0 (
 echo [OK] VCD Waveform dumped to shrikefi_sim.vcd.
 echo.
 
+:: 3. Launch GTKWave Viewer
+if exist C:\iverilog\gtkwave\bin\gtkwave.exe (
+    echo [3/3] Launching GTKWave Waveform Viewer...
+    start "" C:\iverilog\gtkwave\bin\gtkwave.exe shrikefi_sim.vcd shrikefi_sim.gtkw
+) else (
+    echo GTKWave not found at default path. Open shrikefi_sim.vcd manually.
+)
+
 pause
+

@@ -1,0 +1,33 @@
+[*]
+[*] GTKWave Analyzer v3.3.100 (Renesas ForgeFPGA ShrikeFi 4-Bit Parallel Link)
+[*] SIH26181 Health Companion & Edge Disaster Monitor
+[*]
+[dumpfile] "shrikefi_sim.vcd"
+[savefile] "shrikefi_sim.gtkw"
+[timestart] 0
+[size] 1600 900
+[pos] -1 -1
+*-24.000000 84600000 -1 -1 -1 -1 -1 -1 -1 -1 -1 -1 -1 -1 -1 -1 -1 -1 -1 -1 -1 -1 -1 -1 -1 -1 -1 -1
+[treeopen] tb_forgefpga_system.
+[treeopen] tb_forgefpga_system.dut.
+@28
+tb_forgefpga_system.clk
+tb_forgefpga_system.rst_n
+@22
+tb_forgefpga_system.dut.state[4:0]
+@28
+tb_forgefpga_system.link_strobe
+tb_forgefpga_system.link_dir
+@22
+tb_forgefpga_system.link_din[3:0]
+tb_forgefpga_system.link_dout[3:0]
+@28
+tb_forgefpga_system.irq_beat
+@22
+tb_forgefpga_system.dut.reg_threshold[7:0]
+tb_forgefpga_system.dut.red_filtered[7:0]
+tb_forgefpga_system.dut.ir_filtered[7:0]
+@24
+tb_forgefpga_system.dut.reg_ibi_latched[31:0]
+[pattern_trace] 1
+[pattern_trace] 0
