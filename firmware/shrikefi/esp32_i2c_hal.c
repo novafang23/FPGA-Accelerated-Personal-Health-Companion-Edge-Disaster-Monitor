@@ -12,6 +12,7 @@
 
 static const char *TAG = "I2C_HAL";
 static i2c_port_t s_i2c_num = I2C_NUM_0;
+static esp32_i2c_handle_t s_i2c_handle = { .port = I2C_NUM_0, .initialized = 0 };
 
 int esp32_i2c_hal_init(int sda_pin, int scl_pin, uint32_t clk_speed_hz) {
     i2c_config_t conf = {
@@ -25,7 +26,15 @@ int esp32_i2c_hal_init(int sda_pin, int scl_pin, uint32_t clk_speed_hz) {
     esp_err_t err = i2c_param_config(s_i2c_num, &conf);
     if (err != ESP_OK) return I2C_HAL_ERROR;
     err = i2c_driver_install(s_i2c_num, conf.mode, 0, 0, 0);
-    return (err == ESP_OK) ? I2C_HAL_SUCCESS : I2C_HAL_ERROR;
+    if (err == ESP_OK) {
+        s_i2c_handle.initialized = 1;
+        return I2C_HAL_SUCCESS;
+    }
+    return I2C_HAL_ERROR;
+}
+
+esp32_i2c_handle_t* esp32_i2c_hal_get_handle(void) {
+    return s_i2c_handle.initialized ? &s_i2c_handle : NULL;
 }
 
 int esp32_i2c_hal_read(uint8_t dev_addr, uint8_t reg_addr, uint8_t *data, uint16_t len) {
@@ -57,6 +66,10 @@ int esp32_i2c_hal_read_byte(uint8_t dev_addr, uint8_t reg_addr, uint8_t *val) {
 int esp32_i2c_hal_init(int sda_pin, int scl_pin, uint32_t clk_speed_hz) {
     (void)sda_pin; (void)scl_pin; (void)clk_speed_hz;
     return I2C_HAL_SUCCESS;
+}
+
+esp32_i2c_handle_t* esp32_i2c_hal_get_handle(void) {
+    return NULL;
 }
 
 int esp32_i2c_hal_read(uint8_t dev_addr, uint8_t reg_addr, uint8_t *data, uint16_t len) {

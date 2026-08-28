@@ -18,6 +18,23 @@ extern "C" {
 #define I2C_HAL_ERROR   -1
 #define I2C_HAL_TIMEOUT -2
 
+/* Opaque I2C handle for sensor drivers */
+#ifdef ESP_PLATFORM
+#include "driver/i2c.h"
+typedef struct {
+    i2c_port_t port;
+    int initialized;
+} esp32_i2c_handle_t;
+#else
+typedef void esp32_i2c_handle_t;
+#endif
+
+/**
+ * @brief Get the internal I2C handle for sensor drivers
+ * @return Pointer to I2C handle, or NULL if not initialized
+ */
+esp32_i2c_handle_t* esp32_i2c_hal_get_handle(void);
+
 /**
  * @brief Initialize ESP32-S3 I2C Master Peripheral
  * @param sda_pin GPIO pin for SDA (default: GPIO 1)

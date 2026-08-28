@@ -294,7 +294,11 @@ module tb_forgefpga_system;
             
             // Read 32-bit IBI value across 8 nibbles
             link_read_ibi(read_val32);
-            $display("  Read 32-bit IBI cycles = %0d (%0.2f ms at 50MHz)", read_val32, (read_val32 * 20.0) / 1000000.0);
+            if (read_val32 < 50000) begin
+                $display("  Read 32-bit IBI cycles = %0d (%0.2f µs at 50MHz)", read_val32, (read_val32 * 20.0) / 1000.0);
+            end else begin
+                $display("  Read 32-bit IBI cycles = %0d (%0.2f ms at 50MHz)", read_val32, (read_val32 * 20.0) / 1000000.0);
+            end
             tests_passed = tests_passed + 1;
         end else begin
             $display("  FAIL: irq_beat was not asserted on second beat!");
