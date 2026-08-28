@@ -1,0 +1,125 @@
+[*]
+[*] GTKWave Analyzer — SIH26181 Zynq-7000 PPG System (Presentation View)
+[*] Verified Baseline: 6/6 tests passing, 69.45 MHz Fmax, 0 DSP / 0 BRAM
+[*]
+[dumpfile] "ppg_system.vcd"
+[savefile] "presentation.gtkw"
+[timestart] 0
+[size] 1920 1080
+[pos] -1 -1
+*-24.000000 100000 -1 -1 -1 -1 -1 -1 -1 -1 -1 -1 -1 -1 -1 -1 -1 -1 -1 -1 -1 -1 -1 -1 -1 -1 -1 -1
+[treeopen] tb_ppg_system.
+[treeopen] tb_ppg_system.dut.
+@c00022
+[color] 4
+#{═══════════════════════════════════════════}
+#{   GLOBAL CLOCK & RESET}
+#{═══════════════════════════════════════════}
+@28
+[color] 2
+tb_ppg_system.dut.s_axi_aclk
+[color] 3
+tb_ppg_system.dut.s_axi_aresetn
+@1401200
+-group_end
+@c00022
+[color] 5
+#{═══════════════════════════════════════════}
+#{   AXI4-LITE WRITE CHANNEL (Register Config)}
+#{═══════════════════════════════════════════}
+@22
+[color] 22
+tb_ppg_system.dut.s_axi_awaddr[4:0]
+@28
+tb_ppg_system.dut.s_axi_awvalid
+tb_ppg_system.dut.s_axi_awready
+@22
+[color] 21
+tb_ppg_system.dut.s_axi_wdata[31:0]
+@28
+tb_ppg_system.dut.s_axi_wvalid
+tb_ppg_system.dut.s_axi_wready
+tb_ppg_system.dut.s_axi_bvalid
+tb_ppg_system.dut.s_axi_bready
+@1401200
+-group_end
+@c00022
+[color] 6
+#{═══════════════════════════════════════════}
+#{   AXI4-LITE READ CHANNEL (Data Extraction)}
+#{═══════════════════════════════════════════}
+@22
+[color] 22
+tb_ppg_system.dut.s_axi_araddr[4:0]
+@28
+tb_ppg_system.dut.s_axi_arvalid
+tb_ppg_system.dut.s_axi_arready
+@22
+[color] 21
+tb_ppg_system.dut.s_axi_rdata[31:0]
+@28
+tb_ppg_system.dut.s_axi_rvalid
+tb_ppg_system.dut.s_axi_rready
+@1401200
+-group_end
+@c00022
+[color] 7
+#{═══════════════════════════════════════════}
+#{   MOVING AVERAGE FILTERS (0 DSP / 0 BRAM)}
+#{═══════════════════════════════════════════}
+@24
+[color] 7
+#{RED Channel}
+tb_ppg_system.dut.reg_red_raw[7:0]
+tb_ppg_system.dut.red_filtered[7:0]
+[color] 3
+#{IR Channel}
+tb_ppg_system.dut.reg_ir_raw[7:0]
+tb_ppg_system.dut.ir_filtered[7:0]
+@1401200
+-group_end
+@c00022
+[color] 1
+#{═══════════════════════════════════════════}
+#{   PEAK DETECTOR FSM & TIMING (20ns RESOLUTION)}
+#{═══════════════════════════════════════════}
+@24
+[color] 7
+tb_ppg_system.dut.reg_threshold[7:0]
+@22
+[color] 1
+tb_ppg_system.dut.u_peak_det.current_state[1:0]
+@24
+[color] 3
+tb_ppg_system.dut.u_peak_det.interval_cnt[31:0]
+tb_ppg_system.dut.u_peak_det.refractory_cnt[31:0]
+@1401200
+-group_end
+@c00022
+[color] 2
+#{═══════════════════════════════════════════}
+#{   OUTPUT: BEAT DETECTION & IBI (KEY RESULTS)}
+#{═══════════════════════════════════════════}
+@28
+[color] 1
+tb_ppg_system.dut.hw_beat_pulse
+tb_ppg_system.dut.irq_beat
+tb_ppg_system.dut.beat_flag
+@24
+[color] 3
+tb_ppg_system.dut.hw_ibi_cycles[31:0]
+@1401200
+-group_end
+@c00022
+[color] 8
+#{═══════════════════════════════════════════}
+#{   TESTBENCH SCOREBOARD}
+#{═══════════════════════════════════════════}
+@22
+tb_ppg_system.tests_passed[31:0]
+tb_ppg_system.tests_failed[31:0]
+tb_ppg_system.test_num[31:0]
+@1401200
+-group_end
+[pattern_trace] 1
+[pattern_trace] 0
