@@ -33,10 +33,6 @@ Desktop.ini
 *.dlc
 *.onnx
 
-# Notes and pitch guides
-docs/theory/THEORY_NOTES.md
-docs/theory/SIH26181_Master_Theory_Notes.pdf
-docs/theory/theory_notes_print.html
 
 # Zips and archives
 *.zip
