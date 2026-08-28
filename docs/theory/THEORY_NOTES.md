@@ -213,7 +213,7 @@ The Zynq simulation captures the full system lifecycle: AXI register configurati
 | **`s_axi_wready`** | Output (AXI W) | `clk` | Data Write Ready. Asserted by accelerator to acknowledge that write data was latched into `w_data_latched`. |
 | **`filter_red_out[7:0]`** | Internal / Reg | `clk` | Continuous 8-tap moving-average output. Shows optical noise reduction as raw stepped input samples are smoothed into a clean physiological pressure wave. |
 | **`fsm_state[1:0]`** | Internal / State | `clk` | Systolic Peak Radar state: `ARMED (00)` $\to$ `RISING (01)` $\to$ `PEAK_FOUND (10)` $\to$ `REFRACTORY (11)`. |
-| **`irq_beat`** | Output (Direct Pin) | `clk` | Hardware Interrupt Pulse. Generates an exact **1-clock-cycle pulse (20 ns)** at $t = 68\text{ cycles}$ the instant the wave reaches local maximum (`sample < prev_sample`). |
+| **`irq_beat`** | Output (Direct Pin) | `clk` | Hardware Interrupt Pulse. Generates an exact **1-clock-cycle pulse (20 ns)** at $t = 65\text{ cycles}$ the instant the wave reaches local maximum (`sample < prev_sample`). |
 | **`reg_ibi_cycles[31:0]`** | Output / Reg | `clk` | Inter-Beat Interval (IBI) register. Latches the counter value (`0x00000CD1` = 3281 clock ticks = $65.62\text{ µs}$) and resets interval timer to zero. |
 
 ### Two Critical Engineering Mechanisms to Explain to Judges:
@@ -285,7 +285,7 @@ When presenting your timing diagrams, judges will probe your understanding with 
 
 ### Q1: "Point to the exact moment a heartbeat is detected on the waveform."
 * **Point to:** The rising edge of `irq_beat` (where `filter_red` crests and begins to decrease).
-* **Say:** *"Right here at $t = 68\text{ cycles}$. Notice that `filter_red_out` reached its local maximum of 140, and on the very next sample it dropped to 139. Our systolic FSM detected the negative slope change in a single clock cycle, asserted `irq_beat`, and captured the exact interval count."*
+* **Say:** *"Right here at $t = 65\text{ cycles}$. Notice that `filter_red_out` reached its local maximum of 140, and on the very next sample it dropped to 139. Our systolic FSM detected the negative slope change in a single clock cycle, asserted `irq_beat`, and captured the exact interval count."*
 
 ### Q2: "Why does the AXI waveform show Address Write (`AW`) and Data Write (`W`) at different times?"
 * **Point to:** `s_axi_awvalid` pulsing at $t = 12$ and `s_axi_wvalid` pulsing at $t = 24$.
