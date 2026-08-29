@@ -104,6 +104,25 @@ module forgefpga_ppg_top #(
         end
     end
 
+    // Synchronizer for link_dir (asynchronous control input from ESP32,
+    // same clock-domain-crossing hazard as link_strobe above). Previously
+    // sampled directly with no synchronizer, relying entirely on the
+    // software-side delay margins between direction changes and strobes to
+    // avoid metastability -- correct in practice given the ~1us settling
+    // delay in shrikefi_link_driver.c, but not something the hardware itself
+    // guaranteed. Two flip-flops is the standard minimum for a single-bit
+    // level synchronizer (no edge detection needed here, unlike strobe).
+    reg [1:0] dir_sync;
+    wire link_dir_sync = dir_sync[1];
+
+    always @(posedge clk) begin
+        if (rst_n == 1'b0) begin
+            dir_sync <= 2'b00;
+        end else begin
+            dir_sync <= {dir_sync[0], link_dir};
+        end
+    end
+
     // =========================================================================
     // Core DSP Submodules Instantiation
     // =========================================================================
@@ -163,7 +182,7 @@ module forgefpga_ppg_top #(
             ir_valid_pulse  <= 1'b0;
 
             // Output Enable control based on direction
-            link_dout_oe    <= link_dir;
+            link_dout_oe    <= link_dir_sync;
 
             // Hardware Beat Latches
             if (peak_beat_detected) begin
@@ -177,7 +196,7 @@ module forgefpga_ppg_top #(
                     // IDLE State: Decode Command Nibble
                     // ---------------------------------------------------------
                     ST_IDLE: begin
-                        if (link_dir == 1'b0) begin
+                        if (link_dir_sync == 1'b0) begin
                             // Write Commands (from ESP32)
                             case (link_din)
                                 CMD_WRITE_RED:    state <= ST_W_RED_H;

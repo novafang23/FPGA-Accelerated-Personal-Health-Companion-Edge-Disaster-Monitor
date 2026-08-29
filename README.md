@@ -189,7 +189,7 @@ Synthesized Out-of-Context (OOC) with **AMD Xilinx Vivado ML v2022.2**, target p
 
 ## ⚡ ShrikeFi Hardware Platform (ESP32-S3 + Renesas ForgeFPGA)
 
-To scale beyond expensive development kits to an accessible < $20 disaster monitor, the accelerator was ported to the **ShrikeFi** dual-chip platform.
+To scale beyond expensive development kits to an accessible disaster monitor (projected <$20 at-scale bulk manufacturing BOM), the accelerator was ported to the **ShrikeFi** dual-chip platform.
 
 ### 1. Interconnect Architecture & Pin Mapping
 

@@ -264,7 +264,7 @@ strong {
 <div class="bullet-item">• <strong>Vulnerable Citizens:</strong> Elderly individuals, asthma patients, and individuals with cardiovascular disease during extreme climate events.</div>
 
 <h3 class="subsection-title">6. The Vision (Closing the Pitch)</h3>
-<p class="paragraph"><em>"We have validated our custom hardware on the Xilinx Zynq-7000 baseline, deployed an ultra-affordable $15 wearable architecture on the Renesas ForgeFPGA + ESP32-S3 ShrikeFi platform, and mapped the full migration path to Qualcomm Snapdragon Wear."</em></p>
+<p class="paragraph"><em>"We have validated our custom hardware on the Xilinx Zynq-7000 baseline, deployed an ultra-affordable wearable architecture (projected <$20 at-scale bulk manufacturing BOM) on the Renesas ForgeFPGA + ESP32-S3 ShrikeFi platform, and mapped the full migration path to Qualcomm Snapdragon Wear."</em></p>
 
 <hr class="divider"/>
 
@@ -287,7 +287,7 @@ strong {
 |                                        ▼                                          |
 |                                                                                   |
 |  2. RENESAS ForgeFPGA + ESP32-S3 (ShrikeFi Target)                                |
-|     - Role: Mass-Deployable, Ultra-Low-Cost (&lt;$20 BOM) Pocket Wearable            |
+|     - Role: Mass-Deployable, Ultra-Low-Cost (<$20 at-scale BOM) Pocket Wearable   |
 |     - Target Part: SLG47910C (1120 5-input LUTs) + Dual-Core ESP32-S3             |
 |     - Utilization: Only 195 / 1120 LUTs (17.41%), 110 FFs, 0 DSP, 0 BRAM          |
 |     - Interconnect: Custom 4-Bit Parallel Link (5.0 MB/s max @ 10MHz; 500kHz bring-up)|
@@ -303,7 +303,7 @@ strong {
 
 <h3 class="subsection-title">The "Formula 1 Rig vs. The Pocket Commuter" Analogy</h3>
 <div class="bullet-item">• <strong>Xilinx Zynq-7000 = The Formula 1 Wind Tunnel:</strong> A heavy, multi-hundred-dollar development platform used by aerospace engineers to test aerodynamic wings under extreme conditions. It proved our Verilog RTL was mathematically flawless and met strict 20 ns timing resolution.</div>
-<div class="bullet-item">• <strong>ShrikeFi (ForgeFPGA + ESP32-S3) = The Mass-Market Commuter:</strong> You cannot hand a $250 development board to a construction worker in Delhi. ShrikeFi pairs a $1.50 Renesas ForgeFPGA with a $3.00 ESP32-S3 to deliver the exact same silicon-level acceleration in a $15 total Bill of Materials (BOM).</div>
+<div class="bullet-item">• <strong>ShrikeFi (ForgeFPGA + ESP32-S3) = The Mass-Market Commuter:</strong> You cannot hand a $250 development board to a construction worker in Delhi. ShrikeFi pairs a $1.50 Renesas ForgeFPGA with a $3.00 ESP32-S3 to deliver the exact same silicon-level acceleration with a projected at-scale manufacturing Bill of Materials (BOM) under $20.</div>
 <div class="bullet-item">• <strong>Vendor-Agnostic Core:</strong> We did <strong>not</strong> rewrite the filter or peak detector for ShrikeFi. The core Verilog math in <code>hardware/common/</code> is 100% vendor-agnostic and synthesized directly onto both Xilinx (6-input LUTs) and Renesas (5-input LUTs).</div>
 
 <hr class="divider"/>
@@ -718,7 +718,7 @@ strong {
 <div class="callout-box">*"Think of the microcontroller CPU as a brilliant CEO. If you force the CEO to manually inspect 50 raw optical heartbeat readings every second, they have to stop everything, do math, and burn battery. They become overwhelmed and have no time to make big decisions.<br>Instead, we used the FPGA fabric to build an <strong>automated factory conveyor belt</strong>. The raw light signals pass through our hardware filter and peak detector, which smooth the wave and count the pulse intervals in silicon. The hardware conveyor belt simply hands the CEO a finished note saying: 'Heart rate is 128, IBI is 468 ms.' Now the CEO's entire brain is free to run our TinyML Neural Network."*</div>
 
 <h3 class="subsection-title">2. The "Formula 1 Wind Tunnel vs. The Pocket Commuter" (Why Two FPGAs?)</h3>
-<div class="callout-box">*"The Xilinx Zynq-7000 was our Formula 1 wind tunnel: an industrial-grade testing platform where we proved our custom Verilog circuits were mathematically sound and closed timing at 69.45 MHz.<br>But you can't give a $250 development board to an agricultural worker in rural Bihar. The ShrikeFi platform (Renesas ForgeFPGA + ESP32-S3) is our production pocket commuter: it runs the exact same Verilog filter logic on a $1.50 micro-FPGA, cutting the entire device cost under $20 while retaining hardware acceleration."*</div>
+<div class="callout-box">*"The Xilinx Zynq-7000 was our Formula 1 wind tunnel: an industrial-grade testing platform where we proved our custom Verilog circuits were mathematically sound and closed timing at 69.45 MHz.<br>But you can't give a $250 development board to an agricultural worker in rural Bihar. The ShrikeFi platform (Renesas ForgeFPGA + ESP32-S3) is our production pocket commuter: it runs the exact same Verilog filter logic on a $1.50 micro-FPGA, projecting the entire at-scale device cost under $20 while retaining hardware acceleration."*</div>
 
 <h3 class="subsection-title">3. The "Smart Elevator Scale" (Why is the Filter $O(1)$?)</h3>
 <div class="callout-box">*"Imagine calculating the average weight of 8 people inside an elevator. When a new person steps in and the oldest person leaves, a naive algorithm asks all 8 people to step on the scale again, adds up their weights, and divides by 8. That wastes time.<br>Our $O(1)$ hardware filter acts like a smart scale: it remembers the previous running sum, subtracts the weight of the person who left, and adds the new person. It does this in a single 20-nanosecond clock cycle, regardless of how large the filter window is."*</div>

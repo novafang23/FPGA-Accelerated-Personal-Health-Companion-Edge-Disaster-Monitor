@@ -160,12 +160,47 @@ pm25_b  = jittered_pick(thresholds_pm25, *RANGES["pm25"], N_BOUNDARY)
 for arr in (hr_b, rmssd_b, spo2_b, temp_b, hum_b, pm25_b):
     np.random.shuffle(arr)
 
-hr    = np.concatenate([hr, hr_b])
-rmssd = np.concatenate([rmssd, rmssd_b])
-spo2  = np.concatenate([spo2, spo2_b])
-temp  = np.concatenate([temp, temp_b])
-hum   = np.concatenate([hum, hum_b])
-pm25  = np.concatenate([pm25, pm25_b])
+# Joint multi-feature extreme scenarios: the per-feature jitter above covers
+# each threshold individually (e.g. "temp near 45C" OR "HR near 130"), but
+# never combines them the way a real disaster does (temp near 45C AND HR
+# near 130 AND humidity high, all at once). Sample directly from the
+# neighborhood of each named disaster archetype so those joint combinations
+# get real training signal, not just each axis in isolation.
+N_SCENARIO = 12_000
+scenario_centers = [
+    # (hr, rmssd, spo2, temp, hum, pm25)  -- roughly matches the project's own demo scenarios
+    (140.0,  8.0, 95.0, 50.0, 65.0,  25.0),   # Heat wave
+    (150.0,  6.0, 93.0, 47.0, 70.0,  20.0),   # Severe heat wave / heatstroke
+    (123.0, 12.0, 86.0, 12.0, 85.0, 400.0),   # Severe smog
+    (115.0, 15.0, 87.0, 20.0, 60.0, 320.0),   # High pollution + moderate heat
+    (140.0,  6.0, 93.0,  6.0, 98.0,  20.0),   # Flash flood / cold shock (tachycardia)
+    ( 42.0,  6.0, 92.0,  4.0, 95.0,  15.0),   # Hypothermia (bradycardia)
+    ( 72.0, 45.0, 98.0, 25.0, 45.0,  15.0),   # Normal resting (anchor so "everything fine" stays fine)
+]
+
+
+def scenario_pick(centers, ranges, n):
+    """Sample n points jittered around randomly chosen scenario centers."""
+    idx = np.random.choice(len(centers), n)
+    chosen = np.array(centers)[idx]  # (n, 6)
+    spans = np.array([ranges[k][1] - ranges[k][0] for k in
+                       ("hr", "rmssd", "spo2", "temp", "hum", "pm25")])
+    jitter = np.random.normal(0, 1, (n, 6)) * (spans * 0.06)
+    out = chosen + jitter
+    for i, k in enumerate(("hr", "rmssd", "spo2", "temp", "hum", "pm25")):
+        out[:, i] = np.clip(out[:, i], *ranges[k])
+    return out
+
+
+scenario_pts = scenario_pick(scenario_centers, RANGES, N_SCENARIO)
+hr_s, rmssd_s, spo2_s, temp_s, hum_s, pm25_s = [scenario_pts[:, i] for i in range(6)]
+
+hr    = np.concatenate([hr, hr_b, hr_s])
+rmssd = np.concatenate([rmssd, rmssd_b, rmssd_s])
+spo2  = np.concatenate([spo2, spo2_b, spo2_s])
+temp  = np.concatenate([temp, temp_b, temp_s])
+hum   = np.concatenate([hum, hum_b, hum_s])
+pm25  = np.concatenate([pm25, pm25_b, pm25_s])
 
 N = len(hr)
 X = np.stack([

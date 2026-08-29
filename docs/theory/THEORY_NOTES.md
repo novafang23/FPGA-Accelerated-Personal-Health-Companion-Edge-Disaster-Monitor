@@ -32,7 +32,7 @@ We bridge the "Context Gap" and eliminate "Cloud Vulnerability" via **Hardware-A
 * **Vulnerable Citizens:** Elderly individuals, asthma patients, and individuals with cardiovascular disease during extreme climate events.
 
 ### 6. The Vision (Closing the Pitch)
-*"We have validated our custom hardware on the Xilinx Zynq-7000 baseline, deployed an ultra-affordable $15 wearable architecture on the Renesas ForgeFPGA + ESP32-S3 ShrikeFi platform, and mapped the full migration path to Qualcomm Snapdragon Wear."*
+*"We have validated our custom hardware on the Xilinx Zynq-7000 baseline, deployed an ultra-affordable wearable architecture (projected <$20 at-scale bulk manufacturing BOM) on the Renesas ForgeFPGA + ESP32-S3 ShrikeFi platform, and mapped the full migration path to Qualcomm Snapdragon Wear."*
 
 ---
 
@@ -56,7 +56,7 @@ Here is the exact story and rationale to present:
 |                                        ▼                                          |
 |                                                                                   |
 |  2. RENESAS ForgeFPGA + ESP32-S3 (ShrikeFi Target)                                |
-|     - Role: Mass-Deployable, Ultra-Low-Cost (<$20 BOM) Pocket Wearable            |
+|     - Role: Mass-Deployable, Ultra-Low-Cost (<$20 at-scale BOM) Pocket Wearable   |
 |     - Target Part: SLG47910C (1120 5-input LUTs) + Dual-Core ESP32-S3             |
 |     - Utilization: Only 195 / 1120 LUTs (17.41%), 110 FFs, 0 DSP, 0 BRAM          |
 |     - Interconnect: Custom 4-Bit Parallel Link (5.0 MB/s max @ 10MHz; 500kHz bring-up)|
@@ -72,7 +72,7 @@ Here is the exact story and rationale to present:
 
 ### The "Formula 1 Rig vs. The Pocket Commuter" Analogy
 * **Xilinx Zynq-7000 = The Formula 1 Wind Tunnel:** A heavy, multi-hundred-dollar development platform used by aerospace engineers to test aerodynamic wings under extreme conditions. It proved our Verilog RTL was mathematically flawless and met strict 20 ns timing resolution.
-* **ShrikeFi (ForgeFPGA + ESP32-S3) = The Mass-Market Commuter:** You cannot hand a $250 development board to a construction worker in Delhi. ShrikeFi pairs a $1.50 Renesas ForgeFPGA with a $3.00 ESP32-S3 to deliver the exact same silicon-level acceleration in a $15 total Bill of Materials (BOM).
+* **ShrikeFi (ForgeFPGA + ESP32-S3) = The Mass-Market Commuter:** You cannot hand a $250 development board to a construction worker in Delhi. ShrikeFi pairs a $1.50 Renesas ForgeFPGA with a $3.00 ESP32-S3 to deliver the exact same silicon-level acceleration with a projected at-scale manufacturing Bill of Materials (BOM) under $20.
 * **Vendor-Agnostic Core:** We did **not** rewrite the filter or peak detector for ShrikeFi. The core Verilog math in `hardware/common/` is 100% vendor-agnostic and synthesized directly onto both Xilinx (6-input LUTs) and Renesas (5-input LUTs).
 
 ---
@@ -369,7 +369,7 @@ Use these exact analogies when explaining the project to non-technical judges or
 
 ### 2. The "Formula 1 Wind Tunnel vs. The Pocket Commuter" (Why Two FPGAs?)
 > *"The Xilinx Zynq-7000 was our Formula 1 wind tunnel: an industrial-grade testing platform where we proved our custom Verilog circuits were mathematically sound and closed timing at 69.45 MHz.  
-> But you can't give a $250 development board to an agricultural worker in rural Bihar. The ShrikeFi platform (Renesas ForgeFPGA + ESP32-S3) is our production pocket commuter: it runs the exact same Verilog filter logic on a $1.50 micro-FPGA, cutting the entire device cost under $20 while retaining hardware acceleration."*
+> But you can't give a $250 development board to an agricultural worker in rural Bihar. The ShrikeFi platform (Renesas ForgeFPGA + ESP32-S3) is our production pocket commuter: it runs the exact same Verilog filter logic on a $1.50 micro-FPGA, projecting the entire at-scale device cost under $20 while retaining hardware acceleration."*
 
 ### 3. The "Smart Elevator Scale" (Why is the Filter $O(1)$?)
 > *"Imagine calculating the average weight of 8 people inside an elevator. When a new person steps in and the oldest person leaves, a naive algorithm asks all 8 people to step on the scale again, adds up their weights, and divides by 8. That wastes time.  

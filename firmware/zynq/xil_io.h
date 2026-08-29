@@ -1,5 +1,27 @@
-#ifndef XIL_IO_H
-#define XIL_IO_H
+/*
+ * xil_io.h -- PC-SIMULATION SHIM, NOT THE REAL XILINX BSP HEADER.
+ *
+ * =====================================================================
+ *  DO NOT compile this file into a real Vitis/Xilinx SDK project.
+ *  Xilinx ships its own xil_io.h as part of the BSP; this file exists
+ *  only so the C files under firmware/zynq/ can be built and unit-tested on a plain
+ *  Linux/gcc host (see the Makefile's `all`/`test` targets).
+ *
+ *  Before bringing this up on real Zynq hardware in Vitis:
+ *    1. Delete this file (or exclude it from the Vitis project sources).
+ *    2. Let Vitis link against the BSP-generated xil_io.h instead.
+ *
+ *  The include guard below is deliberately NOT "XIL_IO_H" (the name the
+ *  real Xilinx header uses). If it were, and both headers ended up on
+ *  the include path, whichever got #include'd first would silently win
+ *  with no compiler warning -- you could end up running this simplified
+ *  stand-in on real hardware without ever finding out. Using a distinct
+ *  guard means that situation instead fails loudly (duplicate Xil_In32
+ *  definition), which is what you want.
+ * =====================================================================
+ */
+#ifndef SIH26181_SIM_XIL_IO_H
+#define SIH26181_SIM_XIL_IO_H
 
 #include <stdint.h>
 
@@ -52,4 +74,4 @@ static inline void Xil_Out8(uintptr_t Addr, uint8_t Value) {
 }
 #endif
 
-#endif /* XIL_IO_H */
+#endif /* SIH26181_SIM_XIL_IO_H */
