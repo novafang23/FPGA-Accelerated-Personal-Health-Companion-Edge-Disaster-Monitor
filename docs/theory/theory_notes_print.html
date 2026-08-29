@@ -705,8 +705,8 @@ strong {
 <div class="bullet-item">• <strong>INT8 Quantization:</strong> All floating-point operations were converted to 8-bit integer matrix multiplications using pre-calculated scale factors and zero-points. Inference takes <strong>under 1 microsecond</strong> on an ESP32-S3 or ARM CPU, consuming negligible battery.</div>
 <div class="bullet-item">• <strong>Knowledge Distillation Training:</strong></div>
 <div class="bullet-item">• The deterministic Rule Engine served as the <strong>"Teacher"</strong>.</div>
-<div class="bullet-item">• We synthesized 50,000 extreme multi-variable disaster scenarios and trained the <strong>"Student"</strong> (Neural Network) to mimic the clinical score gradient.</div>
-<div class="bullet-item">• Achieved <strong>83.44% classification accuracy</strong> on a 5,000-scenario unseen validation test set while running 10× faster than full floating-point evaluation.</div>
+<div class="bullet-item">• We synthesized 62,000 extreme multi-variable disaster scenarios and trained the <strong>"Student"</strong> (Neural Network) to mimic the clinical score gradient.</div>
+<div class="bullet-item">• Achieved <strong>85.71% classification accuracy</strong> on a 6,200-scenario unseen validation test set while running 10× faster than full floating-point evaluation.</div>
 
 <hr class="divider"/>
 
@@ -730,7 +730,7 @@ strong {
 <div class="callout-box">*"On the ESP32-S3, Core 0 is our dedicated paramedic in the ambulance: it never leaves the patient, sampling optical vitals at 50 Hz and exchanging packets with the FPGA link without ever dropping a beat.<br>Core 1 is the Chief Physician at the hospital: it takes the clean data, gathers environmental readings, runs the AI Neural Network, calculates disaster risk scores, and updates the wrist display."*</div>
 
 <h3 class="subsection-title">6. The "Teacher and the Student" (How the AI was Trained)</h3>
-<div class="callout-box">*"Our clinical Rule Engine is a strict medical professor: 100% accurate according to published papers, but heavy and slow to calculate.<br>Our Neural Network is an eager student. We gave the student 50,000 flashcards of extreme heatwaves and toxic smog scenarios. The professor graded every flashcard. By learning from its mistakes over 100 epochs of gradient descent, the student learned to make the exact same life-saving triage decisions in under 1 microsecond."*</div>
+<div class="callout-box">*"Our clinical Rule Engine is a strict medical professor: 100% accurate according to published papers, but heavy and slow to calculate.<br>Our Neural Network is an eager student. We gave the student 62,000 flashcards of extreme heatwaves and toxic smog scenarios. The professor graded every flashcard. By learning from its mistakes over 100 epochs of gradient descent, the student learned to make the exact same life-saving triage decisions in under 1 microsecond."*</div>
 
 <hr class="divider"/>
 

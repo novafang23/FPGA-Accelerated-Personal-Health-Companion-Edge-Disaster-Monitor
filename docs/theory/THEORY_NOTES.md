@@ -354,8 +354,8 @@ Calculates medical indices developed specifically for occupational heat and smog
 * **INT8 Quantization:** All floating-point operations were converted to 8-bit integer matrix multiplications using pre-calculated scale factors and zero-points. Inference takes **under 1 microsecond** on an ESP32-S3 or ARM CPU, consuming negligible battery.
 * **Knowledge Distillation Training:**
   * The deterministic Rule Engine served as the **"Teacher"**.
-  * We synthesized 50,000 extreme multi-variable disaster scenarios and trained the **"Student"** (Neural Network) to mimic the clinical score gradient.
-  * Achieved **83.44% classification accuracy** on a 5,000-scenario unseen validation test set while running 10× faster than full floating-point evaluation.
+  * We synthesized 62,000 extreme multi-variable disaster scenarios and trained the **"Student"** (Neural Network) to mimic the clinical score gradient.
+  * Achieved **85.71% classification accuracy** on a 6,200-scenario unseen validation test set while running 10× faster than full floating-point evaluation.
 
 ---
 
@@ -385,7 +385,7 @@ Use these exact analogies when explaining the project to non-technical judges or
 
 ### 6. The "Teacher and the Student" (How the AI was Trained)
 > *"Our clinical Rule Engine is a strict medical professor: 100% accurate according to published papers, but heavy and slow to calculate.  
-> Our Neural Network is an eager student. We gave the student 50,000 flashcards of extreme heatwaves and toxic smog scenarios. The professor graded every flashcard. By learning from its mistakes over 100 epochs of gradient descent, the student learned to make the exact same life-saving triage decisions in under 1 microsecond."*
+> Our Neural Network is an eager student. We gave the student 62,000 flashcards of extreme heatwaves and toxic smog scenarios. The professor graded every flashcard. By learning from its mistakes over 100 epochs of gradient descent, the student learned to make the exact same life-saving triage decisions in under 1 microsecond."*
 
 ---
 
