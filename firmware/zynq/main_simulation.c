@@ -9,9 +9,16 @@
  *   4. Flash Flood & Cold Water Immersion (Hypothermia, Cold Shock, RMSSD collapse)
  *
  * Compile & Run:
- *   gcc -o health_demo main_simulation.c hrv_analysis.c spo2_engine.c disaster_risk_engine.c nn_risk_model.c -lm
+ *   gcc -o health_demo main_simulation.c hrv_analysis.c disaster_risk_engine.c nn_risk_model.c nn_risk_model_int8.c -lm
  *   ./health_demo
  *   ./health_demo --hypothermia
+ *
+ * Note: nn_risk_model_int8.c is required at link time because
+ * disaster_risk_engine.c defines disaster_assess_nn_int8(), which this
+ * file doesn't call but which still pulls in nn_predict_int8() and the
+ * default INT8 model/quant-params symbols. spo2_engine.c is not needed
+ * here since this simulator doesn't call into it (see README/known
+ * gaps for the ShrikeFi build, which does).
  */
 
 #include <stdio.h>
@@ -145,12 +152,18 @@ static void print_dashboard(
     printf(DIM " [TinyML on-device inference | Zero cloud | Qualcomm AI Engine ready]\n" RESET);
 }
 
-/* Pre-seed HRV with synthetic data to make it ready quickly */
-static void seed_hrv(hrv_state_t *hrv, float bpm) {
+/* Pre-seed HRV with synthetic data to make it ready quickly.
+ *
+ * target_rmssd sets the jitter amplitude so the seeded buffer's RMSSD
+ * starts at the scenario's scripted base value (see the derivation in
+ * the comment above the live-loop jitter below), instead of using a
+ * fixed jitter pattern that ignores the scenario entirely. */
+static void seed_hrv(hrv_state_t *hrv, float bpm, float target_rmssd) {
     hrv_init(hrv);
     float ibi_ms = 60000.0f / bpm;
+    float jitter_amplitude = target_rmssd * 1.224745f; /* sqrt(1.5) */
     for (int i = 0; i < HRV_MIN_SAMPLES; i++) {
-        float jitter = (float)((i % 11) - 5) * 10.0f;
+        float jitter = (((float)rand() / (float)RAND_MAX) * 2.0f - 1.0f) * jitter_amplitude;
         hrv_add_ibi(hrv, ibi_ms + jitter);
     }
     hrv_compute(hrv);
@@ -271,8 +284,8 @@ int main(int argc, char **argv) {
     for (s = start_scenario; s < num_scenarios; s++) {
         scenario_t *sc = &scenarios[s];
         
-        /* Pre-seed HRV with initial BPM for this scenario */
-        seed_hrv(&hrv, sc->base_hr);
+        /* Pre-seed HRV with initial BPM/RMSSD for this scenario */
+        seed_hrv(&hrv, sc->base_hr, sc->hrv_rmssd_base);
         
         float elapsed = 0.0f;
 
@@ -301,14 +314,25 @@ int main(int argc, char **argv) {
                 rmssd = 1.0f;
             }
 
-            /* Simulate IBI from BPM and feed to HRV engine */
+            /* Simulate IBI from BPM and feed to HRV engine.
+             *
+             * Jitter amplitude is derived from the scripted `rmssd` value
+             * computed just above, so the *actual* hrv.rmssd that the risk
+             * engines see (and that gets displayed) tracks each scenario's
+             * narrative (e.g. "RMSSD collapses to 6ms") instead of being a
+             * fixed amplitude that produces roughly the same RMSSD no
+             * matter which scenario is running.
+             *
+             * Derivation: RMSSD = RMS of successive IBI differences. For
+             * i.i.d. jitter ~ Uniform[-A, A] added independently to each
+             * IBI sample, Var(diff) = 2*Var(jitter) = 2*(A^2/3), so
+             * RMSSD ≈ sqrt(2/3)*A  =>  A = rmssd * sqrt(1.5) reproduces
+             * the target RMSSD on average. */
             ibi_ms = 60000.0f / bpm;
-            /* Unbiased random in [-10, 10] */
-            int r = rand();
-            int range = 21;  /* -10 to +10 inclusive */
-            int max_rand = RAND_MAX - (RAND_MAX % range);
-            while (r >= max_rand) r = rand();
-            jitter = (float)(r % range - 10);
+            {
+                float jitter_amplitude = rmssd * 1.224745f; /* sqrt(1.5) */
+                jitter = (((float)rand() / (float)RAND_MAX) * 2.0f - 1.0f) * jitter_amplitude;
+            }
             hrv_add_ibi(&hrv, ibi_ms + jitter);
             hrv_compute(&hrv);
 

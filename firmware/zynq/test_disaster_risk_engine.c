@@ -111,6 +111,29 @@ static void test_flood_unknown_skin_temp() {
     printf("test_flood_unknown_skin_temp: PASS\n");
 }
 
+/* Regression test: a NULL env pointer must degrade to RISK_UNKNOWN, not crash.
+ * (hrv is deliberately valid/ready here so this isolates the env==NULL path
+ * specifically, rather than overlapping with test_hrv_not_ready above.) */
+static void test_null_env() {
+    hrv_state_t hrv;
+    init_hrv_ready(&hrv, 75.0f);
+    risk_assessment_t result;
+
+    disaster_assess(&hrv, 98.0f, 75.0f, NULL, &result);
+    assert(result.heat_risk == RISK_UNKNOWN);
+    assert(result.pollution_risk == RISK_UNKNOWN);
+    assert(result.flood_risk == RISK_UNKNOWN);
+    assert(result.overall_risk == RISK_UNKNOWN);
+
+    disaster_assess_nn(&hrv, 98.0f, 75.0f, NULL, &result);
+    assert(result.overall_risk == RISK_UNKNOWN);
+
+    disaster_assess_nn_int8(&hrv, 98.0f, 75.0f, NULL, &result);
+    assert(result.overall_risk == RISK_UNKNOWN);
+
+    printf("test_null_env: PASS\n");
+}
+
 /* Map a raw NN score [0,1] to the same 4-tier scale nn_score_to_risk() uses
  * in disaster_risk_engine.c, so we can catch the specific failure mode of
  * "float and int8 land in different risk tiers" -- not just "the numbers
@@ -198,6 +221,7 @@ int main() {
     test_pollution_risk();
     test_flood_risk();
     test_hrv_not_ready();
+    test_null_env();
     test_flood_unknown_skin_temp();
     test_int8_matches_float_nn();
     printf("ALL TESTS PASSED.\n");

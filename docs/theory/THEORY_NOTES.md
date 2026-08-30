@@ -91,9 +91,9 @@ The Renesas ForgeFPGA is a compact chip with limited I/O pins. A 32-bit AXI bus 
 ![ShrikeFi Pinout & Interconnect Diagram](../images/shrikefi_pinout.png)
 
 * **Physical Wires (3.3V LVCMOS):**
-  * `mcu_data_in[3:0]`: 4-bit data bus from ESP32-S3 to FPGA (samples & commands).
-  * `fpga_data_out[3:0]`: 4-bit data bus from FPGA to ESP32-S3 (IBI timestamps & status).
-  * `nibble_strobe`: Clock/handshake line toggled by MCU on each 4-bit transfer.
+  * `link_data[3:0]`: 4-bit bidirectional data bus carrying commands, samples, and timestamps.
+  * `link_dir`: Direction control pin (0 = MCU $\to$ FPGA, 1 = FPGA $\to$ MCU).
+  * `link_strobe`: Clock/handshake line toggled by MCU on each transfer.
   * `fpga_irq`: Active-high hardware interrupt asserting on detected R-peaks.
 
 #### How Data Travels Across 4 Pins:

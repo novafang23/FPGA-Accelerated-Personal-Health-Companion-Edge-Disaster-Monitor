@@ -36,9 +36,15 @@ int main(void) {
         hrv_state_t hrv;
         hrv_init(&hrv);
 
+        /* Jitter amplitude is derived from s->rmssd_target so the seeded
+         * hrv.rmssd actually lands near the scenario's intended value
+         * instead of a fixed pattern that ignores rmssd_target entirely
+         * (previously every scenario produced a similar RMSSD regardless
+         * of the authored target -- see derivation in main_simulation.c). */
         float ibi_ms = 60000.0f / s->hr;
+        float jitter_amplitude = s->rmssd_target * 1.224745f; /* sqrt(1.5) */
         for (int j = 0; j < HRV_MIN_SAMPLES; j++) {
-            float jitter = (float)((j % 11) - 5) * 10.0f;
+            float jitter = (((float)rand() / (float)RAND_MAX) * 2.0f - 1.0f) * jitter_amplitude;
             hrv_add_ibi(&hrv, ibi_ms + jitter);
         }
         hrv_compute(&hrv);

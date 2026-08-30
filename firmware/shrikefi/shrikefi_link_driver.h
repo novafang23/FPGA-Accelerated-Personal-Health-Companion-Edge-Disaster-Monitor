@@ -46,6 +46,12 @@ typedef enum {
 } shrikefi_err_t;
 
 /**
+ * @brief Flash the bitstream to the ForgeFPGA over I2C at boot
+ * @return SHRIKEFI_OK if successful, otherwise error code
+ */
+shrikefi_err_t shrikefi_fpga_flash_init(void);
+
+/**
  * @brief Initialize ESP32 GPIOs for the 4-bit ForgeFPGA parallel link
  * @param pins Pointer to pin configuration struct (or NULL for default pins)
  */

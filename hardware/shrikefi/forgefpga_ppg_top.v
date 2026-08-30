@@ -11,6 +11,7 @@
 
 `timescale 1ns / 1ps
 
+(* top *)
 module forgefpga_ppg_top #(
     parameter integer CLK_FREQ_HZ    = 50_000_000, // Core clock (50 MHz)
     parameter integer REFRACTORY_CYC = 12_500_000  // 250ms blanking window at 50MHz

@@ -299,7 +299,20 @@ module tb_forgefpga_system;
             end else begin
                 $display("  Read 32-bit IBI cycles = %0d (%0.2f ms at 50MHz)", read_val32, (read_val32 * 20.0) / 1000000.0);
             end
-            tests_passed = tests_passed + 1;
+            // Sanity-check the IBI value itself, not just that the IRQ fired.
+            // Expected ~3000 cycles (the scripted inter-beat gap) plus a few
+            // hundred cycles of link/pulse-generation overhead; band is wide
+            // enough to tolerate timing tweaks but tight enough to catch a
+            // badly wrong reading (e.g. a spurious extra peak detection
+            // resetting the interval counter mid-pulse, which used to make
+            // this read back as ~134 cycles instead of ~3000).
+            if (read_val32 > 2900 && read_val32 < 3600) begin
+                $display("  PASS: IBI value is within expected range (2900-3600 cycles)");
+                tests_passed = tests_passed + 1;
+            end else begin
+                $display("  FAIL: IBI value %0d is outside expected range (2900-3600 cycles)", read_val32);
+                tests_failed = tests_failed + 1;
+            end
         end else begin
             $display("  FAIL: irq_beat was not asserted on second beat!");
             tests_failed = tests_failed + 1;

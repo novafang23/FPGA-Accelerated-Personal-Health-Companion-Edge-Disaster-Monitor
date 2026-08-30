@@ -24,6 +24,7 @@
 #include "spo2_engine.h"
 #include "disaster_risk_engine.h"
 #include "nn_risk_model_int8.h"
+#include "wifi_mqtt_manager.h"
 
 #ifdef ESP_PLATFORM
 #include "freertos/FreeRTOS.h"
@@ -41,7 +42,11 @@ typedef struct {
     float r_peak_interval_ms;
     float hrv_rmssd;
     float hrv_sdnn;
+    int   hrv_sample_count;   /* mirrors hrv_state_t.count from Core 0; used
+                                * so Core 1 knows whether HRV data is real,
+                                * instead of assuming it's always ready */
     float spo2_percent;
+    int   spo2_valid;         /* mirrors spo2_is_valid() from Core 0 */
     float ambient_temp_c;
     float humidity_percent;
     float pm25_ugm3;
@@ -77,6 +82,8 @@ static void task_ppg_accelerator(void *pvParameters) {
     hrv_state_t hrv_state;
     hrv_init(&hrv_state);
     max30102_sample_t ppg_sample;
+    spo2_state_t spo2_state;
+    spo2_init(&spo2_state);
 
     ESP_LOGI(TAG, "Core 0: PPG FPGA Accelerator Task Started.");
 
@@ -89,6 +96,26 @@ static void task_ppg_accelerator(void *pvParameters) {
             /* 2. Stream to ForgeFPGA over 4-bit parallel link */
             shrikefi_write_red_sample(raw_red);
             shrikefi_write_ir_sample(raw_ir);
+
+            /* 2b. Feed the FPGA's filtered Red/IR outputs into the SpO2
+             * engine. spo2_add_samples() computes SpO2 from an AC/DC
+             * ratio (red_ac/red_dc)/(ir_ac/ir_dc), which is scale-
+             * invariant, so the 8-bit filtered values available over
+             * the nibble link are fine even though they're a coarser
+             * scale than the MAX30102's native 18-bit reading. It
+             * accumulates internally and only produces a new value
+             * once every SPO2_WINDOW_SIZE samples. */
+            uint8_t filt_red = shrikefi_read_filtered_red();
+            uint8_t filt_ir  = shrikefi_read_filtered_ir();
+            spo2_add_samples(&spo2_state, filt_red, filt_ir);
+
+            if (spo2_is_valid(&spo2_state)) {
+                if (xSemaphoreTake(s_data_mutex, pdMS_TO_TICKS(10)) == pdTRUE) {
+                    g_state.spo2_percent = spo2_get_value(&spo2_state);
+                    g_state.spo2_valid = 1;
+                    xSemaphoreGive(s_data_mutex);
+                }
+            }
         }
 
         /* 3. Check for hardware beat interrupt from ForgeFPGA */
@@ -106,6 +133,7 @@ static void task_ppg_accelerator(void *pvParameters) {
                     g_state.heart_rate = 60000.0f / ibi_ms;
                     g_state.hrv_rmssd = hrv_state.rmssd;
                     g_state.hrv_sdnn = hrv_state.sdnn;
+                    g_state.hrv_sample_count = hrv_state.count;
                     xSemaphoreGive(s_data_mutex);
                 }
             }
@@ -147,13 +175,21 @@ static void task_disaster_monitor(void *pvParameters) {
         /* Skin temperature not available from current sensors */
         env.skin_temp_c = 0.0f;
 
-        /* Get latest HR/HRV from Core 0 */
+        /* Get latest HR/HRV/SpO2 from Core 0 */
         if (xSemaphoreTake(s_data_mutex, pdMS_TO_TICKS(50)) == pdTRUE) {
             if (g_state.heart_rate > 30.0f) hr = g_state.heart_rate;
-            spo2 = g_state.spo2_percent > 0.0f ? g_state.spo2_percent : 96.0f; // Fallback
+            /* Fallback of 96.0 only applies until Core 0 has produced its
+             * first valid SpO2 window (see spo2_is_valid() in task_ppg_
+             * accelerator) -- not permanently, as before. */
+            spo2 = g_state.spo2_valid ? g_state.spo2_percent : 96.0f;
             hrv_snapshot.rmssd = g_state.hrv_rmssd;
             hrv_snapshot.sdnn = g_state.hrv_sdnn;
-            hrv_snapshot.count = 50;
+            /* Real sample count from Core 0, not a hardcoded "always
+             * ready" value -- disaster_assess() correctly reports
+             * RISK_UNKNOWN via hrv_is_ready() until this reaches
+             * HRV_MIN_SAMPLES, instead of scoring a startup RMSSD=0.0
+             * as if it were a genuine autonomic-collapse reading. */
+            hrv_snapshot.count = g_state.hrv_sample_count;
             xSemaphoreGive(s_data_mutex);
         }
 
@@ -174,6 +210,9 @@ static void task_disaster_monitor(void *pvParameters) {
         ESP_LOGI(TAG, "[TinyML] Heat: %.3f | Pollution: %.3f | Flood: %.3f | Overall: %s",
                  nn_out.heat_score, nn_out.pollution_score, nn_out.flood_score,
                  risk_level_to_string(risk.overall_risk));
+
+        /* 4. Publish to Cloud Dashboard */
+        cloud_publish_health_data(hr, hrv_snapshot.rmssd, spo2, env.ambient_temp_c, env.pm25, risk_level_to_string(risk.overall_risk));
 
         vTaskDelay(pdMS_TO_TICKS(1000)); // 1 Hz assessment rate
     }
@@ -199,12 +238,18 @@ void app_main(void) {
 
     s_data_mutex = xSemaphoreCreateMutex();
 
+    /* Initialize I2C HAL for sensors (SDA=GPIO1, SCL=GPIO2, 400kHz) */
+    esp32_i2c_hal_init(1, 2, 400000);
+
+    /* Flash ForgeFPGA bitstream via I2C */
+    shrikefi_fpga_flash_init();
+
     /* Initialize 4-bit link to ForgeFPGA */
     shrikefi_link_init(NULL);
     shrikefi_set_threshold(120);
 
-    /* Initialize I2C HAL for sensors (SDA=GPIO1, SCL=GPIO2, 400kHz) */
-    esp32_i2c_hal_init(1, 2, 400000);
+    /* Initialize WiFi & MQTT Cloud Sync */
+    wifi_mqtt_init();
 
     /* Initialize MAX30102 (PPG sensor) */
     if (max30102_init(&s_max30102, esp32_i2c_hal_get_handle()) != 0) {

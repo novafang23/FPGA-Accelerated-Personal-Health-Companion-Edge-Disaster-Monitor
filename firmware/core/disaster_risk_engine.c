@@ -55,11 +55,21 @@ static risk_level_t assess_heat_risk(
     float bpm, float rmssd, float ambient_temp_c, float humidity_pct,
     const char **advisory
 ) {
+    /* Guard: heat-related illness is physiologically impossible in cold
+     * environments. Without this check, a low RMSSD from hypothermia
+     * (or any other non-heat cause) incorrectly inflates the CTSI
+     * score, producing a false "thermal strain" advisory when the
+     * actual problem is cold exposure. */
+    if (ambient_temp_c < HEAT_TEMP_BASE_C) {
+        *advisory = "Thermal status normal";
+        return RISK_NORMAL;
+    }
+
     /* Simplified Steadman Heat Index approximation */
     float heat_index = ambient_temp_c;
     float ctsi = 0.0f;
 
-    if (ambient_temp_c > HEAT_TEMP_BASE_C && humidity_pct > HEAT_HUMIDITY_BASE_PCT) {
+    if (humidity_pct > HEAT_HUMIDITY_BASE_PCT) {
         heat_index = ambient_temp_c + 0.5f * (humidity_pct - HEAT_HUMIDITY_BASE_PCT) * 0.1f;
     }
 
@@ -101,6 +111,17 @@ static risk_level_t assess_pollution_risk(
     const char **advisory
 ) {
     float prsi = 0.0f;
+
+    /* Guard: if the air itself is clean (PM2.5 at or below the lowest
+     * caution threshold), don't let autonomic/SpO2 body-response
+     * components inflate the score — those abnormal readings are
+     * caused by something else (heat exhaustion, hypothermia, exertion)
+     * not by air pollution. Only report pollution risk when the air
+     * quality component itself is elevated. */
+    if (pm25 <= POLLUTION_PM25_CAUTION) {
+        *advisory = "Respiratory status normal";
+        return RISK_NORMAL;
+    }
 
     /* Air quality component (0-40 points) */
     if (pm25 > POLLUTION_PM25_CRITICAL)       prsi += 40.0f;
@@ -198,8 +219,8 @@ void disaster_assess(
 
     memset(result, 0, sizeof(risk_assessment_t));
 
-    /* Require valid HRV data (minimum samples) */
-    if (hrv == NULL || !hrv_is_ready(hrv)) {
+    /* Require valid HRV data (minimum samples) and a valid env pointer */
+    if (hrv == NULL || env == NULL || !hrv_is_ready(hrv)) {
         result->heat_risk = RISK_UNKNOWN;
         result->pollution_risk = RISK_UNKNOWN;
         result->flood_risk = RISK_UNKNOWN;
@@ -281,8 +302,8 @@ void disaster_assess_nn(
 
     memset(result, 0, sizeof(risk_assessment_t));
 
-    /* Require valid HRV data */
-    if (hrv == NULL || !hrv_is_ready(hrv)) {
+    /* Require valid HRV data and a valid env pointer */
+    if (hrv == NULL || env == NULL || !hrv_is_ready(hrv)) {
         result->heat_risk = RISK_UNKNOWN;
         result->pollution_risk = RISK_UNKNOWN;
         result->flood_risk = RISK_UNKNOWN;
@@ -339,7 +360,7 @@ void disaster_assess_nn(
         result->overall_advisory = result->flood_advisory;
     }
 
-if (result->overall_risk == RISK_NORMAL) {
+    if (result->overall_risk == RISK_NORMAL) {
         result->overall_advisory = "All vitals normal -- AI risk engine clear";
     }
 }
@@ -361,8 +382,8 @@ void disaster_assess_nn_int8(
 
     memset(result, 0, sizeof(risk_assessment_t));
 
-    /* Require valid HRV data */
-    if (hrv == NULL || !hrv_is_ready(hrv)) {
+    /* Require valid HRV data and a valid env pointer */
+    if (hrv == NULL || env == NULL || !hrv_is_ready(hrv)) {
         result->heat_risk = RISK_UNKNOWN;
         result->pollution_risk = RISK_UNKNOWN;
         result->flood_risk = RISK_UNKNOWN;

@@ -21,6 +21,7 @@ set(COMPONENT_SRCS
     "${CORE_DIR}/disaster_risk_engine.c"
     "${CORE_DIR}/nn_risk_model.c"
     "${CORE_DIR}/nn_risk_model_int8.c"
+    "wifi_mqtt_manager.c"
 )
 
 set(COMPONENT_ADD_INCLUDEDIRS
@@ -32,6 +33,10 @@ set(COMPONENT_REQUIRES
     driver
     freertos
     log
+    esp_wifi
+    esp_netif
+    nvs_flash
+    mqtt
 )
 
 idf_component_register(

@@ -24,6 +24,12 @@ module ppg_peak_detector #(
     reg [31:0] refractory_cnt;
     reg [31:0] interval_cnt;
     reg        first_beat_seen;  // Guard: IBI only valid from 2nd beat
+    reg [1:0]  fall_count;       // Consecutive decreasing samples seen while
+                                 // in STATE_RISING; requiring 2 before
+                                 // committing to a peak means a single-
+                                 // sample dip (filter/quantization noise)
+                                 // on the rising edge can't prematurely
+                                 // truncate the real systolic peak.
 
     // Sequential state & timer management
     always @(posedge clk) begin
@@ -35,6 +41,7 @@ module ppg_peak_detector #(
             ibi_cycles      <= 32'd0;
             beat_detected   <= 1'b0;
             first_beat_seen <= 1'b0;
+            fall_count      <= 2'd0;
         end else begin
             current_state <= next_state;
 
@@ -50,10 +57,18 @@ module ppg_peak_detector #(
             case (current_state)
                 STATE_ARMED: begin
                     beat_detected <= 1'b0;
+                    fall_count    <= 2'd0;  // clear any stale count before the next rise
                 end
 
                 STATE_RISING: begin
                     beat_detected <= 1'b0;
+                    if (sample_valid) begin
+                        if (sample_in < prev_sample) begin
+                            fall_count <= fall_count + 2'd1;
+                        end else begin
+                            fall_count <= 2'd0;  // any non-decrease resets the run
+                        end
+                    end
                 end
 
                 STATE_PEAK_FOUND: begin
@@ -89,8 +104,12 @@ module ppg_peak_detector #(
             end
 
             STATE_RISING: begin
-                // True peak crest detected when slope flips negative
-                if (sample_valid && (sample_in < prev_sample)) begin
+                // True peak crest detected when slope flips negative for
+                // 2 consecutive samples (fall_count already >=1 from a
+                // prior decrease this rise, and this sample is also a
+                // decrease) -- not on the very first downward tick, which
+                // may just be a single-sample dip rather than the real peak.
+                if (sample_valid && (sample_in < prev_sample) && (fall_count >= 2'd1)) begin
                     next_state = STATE_PEAK_FOUND;
                 end
             end
@@ -100,7 +119,13 @@ module ppg_peak_detector #(
             end
 
             STATE_REFRACTORY: begin
-                if (refractory_cnt == 32'd0) begin
+                // Don't re-arm just because the timer expired -- also
+                // require the signal to have actually returned below
+                // threshold first. Otherwise, if refractory clears while
+                // the pulse is still decaying above threshold, STATE_ARMED
+                // immediately re-triggers STATE_RISING on the tail of the
+                // very same pulse instead of waiting for the next real beat.
+                if (refractory_cnt == 32'd0 && sample_valid && (sample_in < dyn_threshold)) begin
                     next_state = STATE_ARMED;
                 end
             end

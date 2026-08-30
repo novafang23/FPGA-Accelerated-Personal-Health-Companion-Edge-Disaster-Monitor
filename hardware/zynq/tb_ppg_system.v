@@ -319,11 +319,11 @@ module tb_ppg_system;
             end
         end
 
-        if (beat_count >= 1) begin
-            $display("  PASS: %0d beat(s) detected", beat_count);
+        if (beat_count == 2) begin
+            $display("  PASS: %0d beat(s) detected (expected 2: pulse 1 suppressed by first_beat_seen)", beat_count);
             tests_passed = tests_passed + 1;
         end else begin
-            $display("  WARN: No beats detected (may need threshold tuning)");
+            $display("  WARN: expected exactly 2 beats (got %0d) -- may need threshold tuning, or a beat is being spuriously double/under-counted", beat_count);
             tests_failed = tests_failed + 1;
         end
 

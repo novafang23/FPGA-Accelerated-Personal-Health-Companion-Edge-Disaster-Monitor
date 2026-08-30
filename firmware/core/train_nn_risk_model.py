@@ -56,9 +56,14 @@ def normalize(v, lo, hi):
 
 # 2. Teacher models (port of disaster_risk_engine.c)
 def ctsi_score(bpm, rmssd, temp, hum):
-    """Cardio-Thermal Strain Index, 0-100. Direct port of assess_heat_risk()."""
+    """Cardio-Thermal Strain Index, 0-100. Direct port of assess_heat_risk().
+
+    Guard: heat-related illness is impossible when temp < 27 C (HEAT_TEMP_BASE_C).
+    Without this, HRV collapse from hypothermia falsely inflates the score."""
+    # Temperature guard: zero the entire score when ambient temp is cold
+    cold_mask = temp < 27.0
     heat_index = np.where(
-        (temp > 27.0) & (hum > 40.0),
+        hum > 40.0,
         temp + 0.5 * (hum - 40.0) * 0.1,
         temp,
     )
@@ -72,11 +77,17 @@ def ctsi_score(bpm, rmssd, temp, hum):
     ctsi += np.select(
         [rmssd < 10.0, rmssd < 20.0, rmssd < 35.0],
         [30.0, 20.0, 10.0], default=0.0)
+    # Zero out scores for cold environments
+    ctsi = np.where(cold_mask, 0.0, ctsi)
     return ctsi
 
 
 def prsi_score(bpm, spo2, pm25, rmssd):
-    """Pollution Respiratory Strain Index, 0-100. Direct port of assess_pollution_risk()."""
+    """Pollution Respiratory Strain Index, 0-100. Direct port of assess_pollution_risk().
+
+    Guard: if PM2.5 <= 35 (POLLUTION_PM25_CAUTION), the air is clean and
+    body-response components (SpO2, HR, RMSSD) must not inflate the score."""
+    clean_air_mask = pm25 <= 35.0
     prsi = np.zeros_like(bpm)
     prsi += np.select(
         [pm25 > 300.0, pm25 > 150.0, pm25 > 75.0, pm25 > 35.0],
@@ -90,6 +101,8 @@ def prsi_score(bpm, spo2, pm25, rmssd):
     prsi += np.select(
         [rmssd < 15.0, rmssd < 25.0],
         [10.0, 5.0], default=0.0)
+    # Zero out scores when air is clean
+    prsi = np.where(clean_air_mask, 0.0, prsi)
     return prsi
 
 

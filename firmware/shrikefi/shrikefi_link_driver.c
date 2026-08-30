@@ -15,6 +15,14 @@
 #define DELAY_NS() ((void)0)
 #endif
 
+#include "forgefpga_bitstream.h"
+#include "esp32_i2c_hal.h"
+#include "esp_log.h"
+
+#define FORGEFPGA_I2C_ADDR 0x08
+
+static const char* LINK_TAG = "SHRIKEFI_LINK";
+
 /* Default ShrikeFi Pin Mapping */
 static shrikefi_pins_t s_pins = {
     .pin_strobe = 4,   /* GPIO 4: Link Strobe */
@@ -202,4 +210,36 @@ bool shrikefi_is_beat_detected(void) {
 #else
     return s_sim_irq;
 #endif
+}
+
+shrikefi_err_t shrikefi_fpga_flash_init(void) {
+#ifdef ESP_PLATFORM
+    ESP_LOGI(LINK_TAG, "Flashing ForgeFPGA Bitstream (%lu bytes)...", forgefpga_bitstream_length);
+    
+    // Write bitstream in 16-byte chunks (standard for I2C EEPROM/NVM flashing)
+    uint32_t offset = 0;
+    while (offset < forgefpga_bitstream_length) {
+        uint16_t chunk_size = 16;
+        if (offset + chunk_size > forgefpga_bitstream_length) {
+            chunk_size = forgefpga_bitstream_length - offset;
+        }
+        
+        // Use a generic I2C block write. For real production, we'd follow the exact 
+        // ForgeFPGA NVM programming sequence (Enter programming mode -> Write -> Reset).
+        // For this hackathon prototype, we send standard block writes.
+        int err = esp32_i2c_hal_write(FORGEFPGA_I2C_ADDR, (uint8_t)(offset & 0xFF), &forgefpga_bitstream[offset], chunk_size);
+        if (err != 0) {
+            ESP_LOGE(LINK_TAG, "Failed to write bitstream at offset %lu", offset);
+            return SHRIKEFI_ERR_INVALID_ARG;
+        }
+        
+        offset += chunk_size;
+        
+        // Small delay to allow NVM write cycle
+        vTaskDelay(pdMS_TO_TICKS(10));
+    }
+    
+    ESP_LOGI(LINK_TAG, "ForgeFPGA flashed successfully.");
+#endif
+    return SHRIKEFI_OK;
 }
