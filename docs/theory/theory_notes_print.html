@@ -1,280 +1,57 @@
+
 <!DOCTYPE html>
-<html lang="en">
+<html>
 <head>
-<meta charset="UTF-8">
-<title>SIH26181 — Master Theory Notes &amp; Judge Defense Companion</title>
-<style>
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;700&display=swap');
-
-@page {
-    size: A4;
-    margin: 16mm 14mm 16mm 14mm;
-}
-
-body {
-    font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-    color: #1e293b;
-    background-color: #ffffff;
-    line-height: 1.55;
-    font-size: 13.5px;
-    margin: 0;
-    padding: 0;
-}
-
-.header-banner {
-    background: linear-gradient(135deg, #0A2540 0%, #006699 100%);
-    color: white;
-    padding: 24px 28px;
-    border-radius: 8px;
-    margin-bottom: 24px;
-}
-
-.header-banner h1 {
-    font-size: 24px;
-    font-weight: 800;
-    margin: 0 0 6px 0;
-    color: #ffffff;
-    letter-spacing: -0.5px;
-}
-
-.header-banner .subtitle {
-    font-size: 15px;
-    font-weight: 600;
-    color: #38bdf8;
-    margin: 0 0 10px 0;
-}
-
-.header-banner .tagline {
-    font-size: 12px;
-    color: #cbd5e1;
-    text-transform: uppercase;
-    letter-spacing: 1px;
-    font-weight: 600;
-}
-
-.part-title {
-    font-size: 19px;
-    font-weight: 800;
-    color: #0A2540;
-    border-bottom: 2px solid #0284c7;
-    padding-bottom: 6px;
-    margin-top: 32px;
-    margin-bottom: 16px;
-    page-break-after: avoid;
-}
-
-.section-title {
-    font-size: 16px;
-    font-weight: 700;
-    color: #0369a1;
-    margin-top: 24px;
-    margin-bottom: 12px;
-    page-break-after: avoid;
-}
-
-.subsection-title {
-    font-size: 14.5px;
-    font-weight: 700;
-    color: #0f172a;
-    margin-top: 18px;
-    margin-bottom: 8px;
-    page-break-after: avoid;
-}
-
-.question-title {
-    font-size: 13.5px;
-    font-weight: 700;
-    color: #0369a1;
-    margin-top: 16px;
-    margin-bottom: 6px;
-    page-break-after: avoid;
-}
-
-.paragraph {
-    margin: 0 0 10px 0;
-    color: #334155;
-    text-align: justify;
-}
-
-.bullet-item {
-    margin: 3px 0 3px 14px;
-    color: #334155;
-}
-
-.numbered-item {
-    margin: 4px 0 4px 14px;
-    color: #334155;
-}
-
-.numbered-item .num {
-    font-weight: 600;
-    color: #0284c7;
-}
-
-.callout-box {
-    background-color: #f0fdf4;
-    border-left: 4px solid #16a34a;
-    padding: 12px 16px;
-    border-radius: 0 6px 6px 0;
-    margin: 12px 0 16px 0;
-    font-size: 13px;
-    color: #14532d;
-    page-break-inside: avoid;
-}
-
-.table-container {
-    margin: 14px 0 18px 0;
-    page-break-inside: avoid;
-}
-
-table {
-    width: 100%;
-    border-collapse: collapse;
-    font-size: 12px;
-    background: #ffffff;
-}
-
-th {
-    background: #0A2540;
-    color: #ffffff;
-    font-weight: 600;
-    text-align: left;
-    padding: 8px 10px;
-    border: 1px solid #cbd5e1;
-}
-
-td {
-    padding: 7px 10px;
-    border: 1px solid #e2e8f0;
-    color: #334155;
-    vertical-align: top;
-}
-
-tr:nth-child(even) {
-    background-color: #f8fafc;
-}
-
-.code-block {
-    background: #0f172a;
-    color: #f1f5f9;
-    font-family: 'JetBrains Mono', monospace;
-    font-size: 11.5px;
-    padding: 12px 14px;
-    border-radius: 6px;
-    overflow-x: auto;
-    line-height: 1.45;
-    margin: 12px 0 16px 0;
-    border: 1px solid #1e293b;
-    page-break-inside: avoid;
-}
-
-code {
-    font-family: 'JetBrains Mono', monospace;
-    background: #f1f5f9;
-    color: #0f172a;
-    padding: 1px 5px;
-    border-radius: 4px;
-    font-size: 12px;
-}
-
-pre code {
-    background: transparent;
-    color: inherit;
-    padding: 0;
-}
-
-.divider {
-    border: 0;
-    border-top: 1px solid #e2e8f0;
-    margin: 24px 0;
-}
-
-a {
-    color: #0284c7;
-    text-decoration: none;
-}
-
-strong {
-    color: #0f172a;
-}
-
-.img-container {
-    margin: 18px auto 22px auto;
-    text-align: center;
-    page-break-inside: avoid;
-}
-
-.img-container img {
-    max-width: 95%;
-    height: auto;
-    border-radius: 6px;
-    border: 1px solid #cbd5e1;
-    box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.08);
-}
-
-.img-caption {
-    font-size: 11px;
-    color: #64748b;
-    margin-top: 6px;
-    font-weight: 500;
-    font-style: italic;
-}
-</style>
+    <meta charset="utf-8">
+    <style>
+        body { font-family: Arial, sans-serif; line-height: 1.6; margin: 40px; color: #333; }
+        h1, h2, h3 { color: #222; border-bottom: 1px solid #ccc; padding-bottom: 5px; }
+        table { border-collapse: collapse; width: 100%; margin-bottom: 20px; }
+        th, td { border: 1px solid #ddd; padding: 8px; text-align: left; }
+        th { background-color: #f2f2f2; }
+        code { background-color: #f9f2f4; color: #c7254e; padding: 2px 4px; border-radius: 4px; }
+        pre code { background-color: #f5f5f5; color: #333; display: block; padding: 10px; overflow-x: auto; }
+        img { max-width: 100%; height: auto; display: block; margin: 20px auto; }
+    </style>
 </head>
 <body>
-
-<div class="header-banner">
-    <div class="tagline">Qualcomm Hardware Challenge • Smart India Hackathon 2026</div>
-    <h1>SIH26181 — Master Theory Notes &amp; Judge Defense Companion</h1>
-    <div class="subtitle">AI-Powered Personal Health Companion &amp; Edge Disaster Monitor</div>
-    <div style="font-size: 12px; color: #e0f2fe;">FPGA-Accelerated, Cloud-Free Biometric &amp; Disaster Resilience Engine</div>
-</div>
-
-<h1 class="part-title">SIH26181 Master Theory Notes & Judge Defense Companion</h1>
-
-<p class="paragraph"><strong>Project Title:</strong> AI-Powered Personal Health Companion & Edge Disaster Monitor</p>
-<p class="paragraph"><strong>Challenge:</strong> Qualcomm Hardware Challenge — Smart India Hackathon 2026 (Problem SIH26181)</p>
-<p class="paragraph"><strong>Target Platforms:</strong> Xilinx Zynq-7000 (Reference Baseline) ➔ Renesas ForgeFPGA + ESP32-S3 ShrikeFi (Ultra-Low-Cost Wearable) ➔ Qualcomm Snapdragon Wear / QCS6490 (Commercial Road-map)</p>
-
-<hr class="divider"/>
-
-<h1 class="part-title">1. THE ULTIMATE PITCH GUIDE (Executive Summary)</h1>
-
-<p class="paragraph">If you have 3 minutes to pitch this to a panel of judges, hit these exact points in this order:</p>
-
-<h3 class="subsection-title">1. What are we solving? (The Problem)</h3>
-<p class="paragraph">In 2024 alone, extreme heatwaves in India claimed over 700 lives in just three months, while 380 million outdoor workers (75% of the national workforce) faced severe risk of heatstroke, acute kidney injury, and lost wages. Current early-warning systems only monitor the <em>environment</em> (e.g., weather apps or city air monitors), leaving vulnerable outdoor workers guessing how much physiological danger their own bodies are actually in.</p>
-
-<h3 class="subsection-title">2. How does it relate to the SIH Problem Statement? (Qualcomm Hardware Challenge)</h3>
-<p class="paragraph">Problem <strong>SIH26181</strong> calls for innovative hardware architectures leveraging Qualcomm platforms for societal impact. We built a hardware-accelerated, edge-AI wearable that acts as a personal disaster shield. It proves custom silicon offloading while solving a massive humanitarian crisis: protecting vulnerable populations during heatwaves, toxic smog, and flood immersion <strong>100% offline with zero cloud dependency</strong>.</p>
-
-<p class="paragraph"><em>(HARDWARE WOW-FACTOR)</em>: Most hackathon health wearables run everything in software on a standard microcontroller. We went much deeper: we designed custom digital hardware circuits in synthesizable Verilog that filter noisy optical signals and extract heartbeat intervals physically at the silicon gate level, taking 0 DSP slices and 0 Block RAM.</p>
-
-<h3 class="subsection-title">3. Who is doing this in the world? (The Competitor Gap)</h3>
-<div class="bullet-item">• <strong>Fitness Wearables (Apple Watch / Garmin / Fitbit):</strong> Track heart rate in air-conditioned gyms, but have zero awareness if you are standing in 46°C heat or toxic PM2.5 = 400 smog.</div>
-<div class="bullet-item">• <strong>Environmental Monitors (PurpleAir / Weather Apps):</strong> Measure ambient air quality, but don't know if <em>your</em> specific lungs or cardiovascular system are collapsing because of it. Furthermore, they depend on cellular networks that fail during disasters.</div>
-
-<h3 class="subsection-title">4. How are we improving / What is our Novelty?</h3>
-<p class="paragraph">We bridge the "Context Gap" and eliminate "Cloud Vulnerability" via <strong>Hardware-Accelerated Sensor Fusion</strong>:</p>
-<div class="bullet-item">• <strong>The Fusion:</strong> We fuse 6 biometric and environmental vitals (Heart Rate, RMSSD/HRV, SpO2, Ambient Temperature, Humidity, and PM2.5) locally.</div>
-<div class="bullet-item">• <strong>The Intelligence:</strong> If ambient heat hits 45°C and humidity prevents sweat evaporation, our INT8 TinyML Neural Network and Rule Engine detect cardiovascular drift and HRV collapse in real-time, sounding a life-saving alarm before heatstroke occurs.</div>
-
-<h3 class="subsection-title">5. Who is this for? (Target Demographics)</h3>
-<div class="bullet-item">• <strong>Frontline & Outdoor Workers:</strong> Construction laborers, agricultural workers, traffic police, and disaster relief personnel.</div>
-<div class="bullet-item">• <strong>Vulnerable Citizens:</strong> Elderly individuals, asthma patients, and individuals with cardiovascular disease during extreme climate events.</div>
-
-<h3 class="subsection-title">6. The Vision (Closing the Pitch)</h3>
-<p class="paragraph"><em>"We have validated our custom hardware on the Xilinx Zynq-7000 baseline, deployed an ultra-affordable wearable architecture (projected <$20 at-scale bulk manufacturing BOM) on the Renesas ForgeFPGA + ESP32-S3 ShrikeFi platform, and mapped the full migration path to Qualcomm Snapdragon Wear."</em></p>
-
-<hr class="divider"/>
-
-<h1 class="part-title">2. THE DUAL-FPGA STRATEGY — WHY TWO FPGAs?</h1>
-
-<p class="paragraph">A common question from technical judges is: <em>"Why does your repository have both Xilinx Zynq-7000 and Renesas ForgeFPGA (ShrikeFi) implementations?"</em></p>
-
-<p class="paragraph">Here is the exact story and rationale to present:</p>
-
-<pre class="code-block "><code>+-----------------------------------------------------------------------------------+
+<h1>SIH26181 Master Theory Notes &amp; Judge Defense Companion</h1>
+<p><strong>Project Title:</strong> AI-Powered Personal Health Companion &amp; Edge Disaster Monitor<br />
+<strong>Challenge:</strong> Qualcomm Hardware Challenge — Smart India Hackathon 2026 (Problem SIH26181)<br />
+<strong>Target Platforms:</strong> Xilinx Zynq-7000 (Reference Baseline) ➔ Renesas ForgeFPGA + ESP32-S3 ShrikeFi (Ultra-Low-Cost Wearable) ➔ Qualcomm Snapdragon Wear / QCS6490 (Commercial Road-map)</p>
+<hr />
+<h1>1. THE ULTIMATE PITCH GUIDE (Executive Summary)</h1>
+<p>If you have 3 minutes to pitch this to a panel of judges, hit these exact points in this order:</p>
+<h3>1. What are we solving? (The Problem)</h3>
+<p>In 2024 alone, extreme heatwaves in India claimed over 700 lives in just three months, while 380 million outdoor workers (75% of the national workforce) faced severe risk of heatstroke, acute kidney injury, and lost wages. Current early-warning systems only monitor the <em>environment</em> (e.g., weather apps or city air monitors), leaving vulnerable outdoor workers guessing how much physiological danger their own bodies are actually in.</p>
+<h3>2. How does it relate to the SIH Problem Statement? (Qualcomm Hardware Challenge)</h3>
+<p>Problem <strong>SIH26181</strong> calls for innovative hardware architectures leveraging Qualcomm platforms for societal impact. We built a hardware-accelerated, edge-AI wearable that acts as a personal disaster shield. It proves custom silicon offloading while solving a massive humanitarian crisis: protecting vulnerable populations during heatwaves, toxic smog, and flood immersion <strong>100% offline with zero cloud dependency</strong>.</p>
+<p><em>(HARDWARE WOW-FACTOR)</em>: Most hackathon health wearables run everything in software on a standard microcontroller. We went much deeper: we designed custom digital hardware circuits in synthesizable Verilog that filter noisy optical signals and extract heartbeat intervals physically at the silicon gate level, taking 0 DSP slices and 0 Block RAM.</p>
+<h3>3. Who is doing this in the world? (The Competitor Gap)</h3>
+<ul>
+<li><strong>Fitness Wearables (Apple Watch / Garmin / Fitbit):</strong> Track heart rate in air-conditioned gyms, but have zero awareness if you are standing in 46°C heat or toxic PM2.5 = 400 smog.</li>
+<li><strong>Environmental Monitors (PurpleAir / Weather Apps):</strong> Measure ambient air quality, but don't know if <em>your</em> specific lungs or cardiovascular system are collapsing because of it. Furthermore, they depend on cellular networks that fail during disasters.</li>
+</ul>
+<h3>4. How are we different? (The "Tick in the Ass" Defense)</h3>
+<p>If asked why this isn't just another Arduino/Raspberry Pi project, use these 4 core differentiators:</p>
+<ol>
+<li><strong>Custom Silicon vs. Software Loops:</strong> Normal smartwatches read sensors using a C <code>while()</code> loop, suffering 5–20 ms of OS scheduling jitter that ruins Heart Rate Variability (HRV). We wrote <strong>custom Verilog RTL</strong> to move signal filtering and systolic peak detection directly into physical FPGA hardware. This gives us <strong>20-nanosecond deterministic accuracy</strong>, zeroing out OS jitter entirely.</li>
+<li><strong>Edge AI (TinyML) vs. Lazy Cloud AI:</strong> Most projects send data to AWS to run AI models—terrible for battery, privacy, and useless in a disaster zone. We compressed our Neural Network to <strong>123 bytes (INT8 Quantization)</strong> to run entirely <em>on the physical device</em> in under <strong>1 microsecond</strong>, with zero cloud dependency.</li>
+<li><strong>Predictive vs. Reactive:</strong> Most monitors beep <em>after</em> a heat stroke. By fusing physiological data (HRV, SpO2) with environmental data (Temp, Humidity, PM2.5) in our TinyML model, we detect <strong>Cardiovascular Drift</strong> (heart rate rising while stroke volume drops) to provide a <strong>15 to 30-minute advance warning</strong> <em>before</em> a heat stroke physically occurs.</li>
+<li><strong>Real-World Manufacturing Economics:</strong> We didn't just build a prototype on an expensive $200 Zynq board. We engineered a custom 4-bit parallel protocol to port the exact same hardware logic to the ultra-cheap ShrikeFi board ($5 ESP32 + $1 Renesas ForgeFPGA), proving our medical-grade architecture can be mass-manufactured for pennies.</li>
+</ol>
+<h3>5. Who is this for? (Target Demographics)</h3>
+<ul>
+<li><strong>Frontline &amp; Outdoor Workers:</strong> Construction laborers, agricultural workers, traffic police, and disaster relief personnel.</li>
+<li><strong>Vulnerable Citizens:</strong> Elderly individuals, asthma patients, and individuals with cardiovascular disease during extreme climate events.</li>
+</ul>
+<h3>6. The Vision (Closing the Pitch)</h3>
+<p><em>"We have validated our custom hardware on the Xilinx Zynq-7000 baseline, deployed an ultra-affordable wearable architecture (projected &lt;$20 at-scale bulk manufacturing BOM) on the Renesas ForgeFPGA + ESP32-S3 ShrikeFi platform, and mapped the full migration path to Qualcomm Snapdragon Wear."</em></p>
+<hr />
+<h1>2. THE DUAL-FPGA STRATEGY — WHY TWO FPGAs?</h1>
+<p>A common question from technical judges is: <em>"Why does your repository have both Xilinx Zynq-7000 and Renesas ForgeFPGA (ShrikeFi) implementations?"</em></p>
+<p>Here is the exact story and rationale to present:</p>
+<p><code>+-----------------------------------------------------------------------------------+
 |                            THE TWO-TARGET HARDWARE STORY                          |
 +-----------------------------------------------------------------------------------+
 |  1. XILINX ZYNQ-7000 (Reference Baseline)                                         |
@@ -287,7 +64,7 @@ strong {
 |                                        ▼                                          |
 |                                                                                   |
 |  2. RENESAS ForgeFPGA + ESP32-S3 (ShrikeFi Target)                                |
-|     - Role: Mass-Deployable, Ultra-Low-Cost (<$20 at-scale BOM) Pocket Wearable   |
+|     - Role: Mass-Deployable, Ultra-Low-Cost (&lt;$20 at-scale BOM) Pocket Wearable   |
 |     - Target Part: SLG47910C (1120 5-input LUTs) + Dual-Core ESP32-S3             |
 |     - Utilization: Only 195 / 1120 LUTs (17.41%), 110 FFs, 0 DSP, 0 BRAM          |
 |     - Interconnect: Custom 4-Bit Parallel Link (5.0 MB/s max @ 10MHz; 500kHz bring-up)|
@@ -298,54 +75,50 @@ strong {
 |  3. QUALCOMM SNAPDRAGON WEAR (Commercial Road-map)                                |
 |     - Role: Mass-Market Integrated Smartwatch SoC (QCS6490 / Snapdragon Wear)     |
 |     - Hardware Blocks: Hexagon DSP (PPG filtering) + NPU (INT8 TinyML Model)      |
-+-----------------------------------------------------------------------------------+
-</code></pre>
-
-<h3 class="subsection-title">The "Formula 1 Rig vs. The Pocket Commuter" Analogy</h3>
-<div class="bullet-item">• <strong>Xilinx Zynq-7000 = The Formula 1 Wind Tunnel:</strong> A heavy, multi-hundred-dollar development platform used by aerospace engineers to test aerodynamic wings under extreme conditions. It proved our Verilog RTL was mathematically flawless and met strict 20 ns timing resolution.</div>
-<div class="bullet-item">• <strong>ShrikeFi (ForgeFPGA + ESP32-S3) = The Mass-Market Commuter:</strong> You cannot hand a $250 development board to a construction worker in Delhi. ShrikeFi pairs a $1.50 Renesas ForgeFPGA with a $3.00 ESP32-S3 to deliver the exact same silicon-level acceleration with a projected at-scale manufacturing Bill of Materials (BOM) under $20.</div>
-<div class="bullet-item">• <strong>Vendor-Agnostic Core:</strong> We did <strong>not</strong> rewrite the filter or peak detector for ShrikeFi. The core Verilog math in <code>hardware/common/</code> is 100% vendor-agnostic and synthesized directly onto both Xilinx (6-input LUTs) and Renesas (5-input LUTs).</div>
-
-<hr class="divider"/>
-
-<h1 class="part-title">3. SYSTEM ARCHITECTURE & HARDWARE INTERCONNECTS</h1>
-
-<h3 class="subsection-title">1. Zynq-7000: The 32-Bit AXI4-Lite Register Bus</h3>
-<p class="paragraph">On the Zynq SoC, the ARM Cortex-A9 CPU communicates with the FPGA fabric over an AMBA AXI4-Lite memory-mapped bus (<code>0x43C00000</code>):</p>
-<div class="bullet-item">• <strong>Direct Register Map:</strong> <code>REG<em>RED</em>RAW</code> (0x00), <code>REG<em>RED</em>FILTERED</code> (0x04), <code>REG<em>IBI</em>CYCLES</code> (0x08), <code>REG<em>STATUS</em>THRESH</code> (0x0C).</div>
-<div class="bullet-item">• <strong>Decoupled Handshake:</strong> Independent Address Write (<code>AW</code>) and Data Write (<code>W</code>) channels prevent interconnect deadlocks.</div>
-<div class="bullet-item">• <strong>Write-1-to-Clear (W1C):</strong> Bit [0] of <code>REG<em>STATUS</em>THRESH</code> latches when a heartbeat occurs and clears atomically on write, eliminating CPU race conditions.</div>
-
-<h3 class="subsection-title">2. ShrikeFi: The 4-Bit Parallel Nibble Link</h3>
-<p class="paragraph">The Renesas ForgeFPGA is a compact chip with limited I/O pins. A 32-bit AXI bus is physically impossible. We designed an ultra-efficient <strong>4-bit parallel nibble link</strong>:</p>
-
-<div class="img-container"><img src="file:///C:/Users/abhin/OneDrive/Desktop/verilog/docs/images/shrikefi_pinout.png" alt="ShrikeFi Pinout & Interconnect Diagram"/><div class="img-caption">ShrikeFi Pinout & Interconnect Diagram</div></div>
-
-<div class="bullet-item">• <strong>Physical Wires (3.3V LVCMOS):</strong></div>
-<div class="bullet-item">• <code>mcu<em>data</em>in[3:0]</code>: 4-bit data bus from ESP32-S3 to FPGA (samples & commands).</div>
-<div class="bullet-item">• <code>fpga<em>data</em>out[3:0]</code>: 4-bit data bus from FPGA to ESP32-S3 (IBI timestamps & status).</div>
-<div class="bullet-item">• <code>nibble_strobe</code>: Clock/handshake line toggled by MCU on each 4-bit transfer.</div>
-<div class="bullet-item">• <code>fpga_irq</code>: Active-high hardware interrupt asserting on detected R-peaks.</div>
-
-<h4 class="question-title">How Data Travels Across 4 Pins:</h4>
-<div class="bullet-item">• <strong>Writing an 8-bit PPG Sample:</strong></div>
-<div class="numbered-item"><span class="num">1.</span> Send Command Nibble (<code>0x1</code> for Red, <code>0x2</code> for IR). Toggle strobe.</div>
-<div class="numbered-item"><span class="num">2.</span> High Nibble: Send bits <code>[7:4]</code>. Toggle strobe.</div>
-<div class="numbered-item"><span class="num">3.</span> Low Nibble: Send bits <code>[3:0]</code>. Toggle strobe.</div>
-<div class="numbered-item"><span class="num">4.</span> FPGA Link Receiver FSM inside <code>forgefpga<em>ppg</em>top.v</code> latches the full byte and triggers the moving-average filter.</div>
-<div class="bullet-item">• <strong>Reading a 32-bit IBI Timestamp:</strong></div>
-<div class="numbered-item"><span class="num">1.</span> The FPGA asserts <code>irq_beat</code> (GPIO 10) when a heart peak occurs.</div>
-<div class="numbered-item"><span class="num">2.</span> ESP32-S3 sends <code>CMD<em>READ</em>IBI</code> (<code>0x6</code>), switches direction to Read, and reads 8 consecutive 4-bit nibbles (<code>[31:28]</code> down to <code>[3:0]</code>).</div>
-<div class="numbered-item"><span class="num">3.</span> Link Latency & Throughput:</div>
-<div class="bullet-item">• <strong>Measured Bring-Up Driver:</strong> At ~500 kHz software bit-banging (~2 µs strobe period), reading all 9 cycles takes <strong>~18 µs</strong>—occupying <0.1% of the 20,000 µs (50 Hz) optical sampling period.</div>
-<div class="bullet-item">• <strong>Protocol Max (Hardware-Timer / SPI-Assisted Target):</strong> At 10 MHz strobe rate ($T_{\text{strobe}} = 100\text{ ns}$), reading 9 cycles takes <strong>900 ns</strong> (5.0 MB/s raw bandwidth).</div>
-
-<div class="img-container"><img src="file:///C:/Users/abhin/OneDrive/Desktop/verilog/docs/images/shrikefi_waveform.png" alt="ShrikeFi 4-Bit Parallel Link Protocol Timing Waveform"/><div class="img-caption">ShrikeFi 4-Bit Parallel Link Protocol Timing Waveform</div></div>
-
-<h3 class="subsection-title">3. ESP32-S3 Dual-Core FreeRTOS Partitioning</h3>
-<p class="paragraph">The ESP32-S3 contains two 240 MHz Xtensa LX7 cores. We strictly partitioned the tasks using FreeRTOS core pinning:</p>
-
-<pre class="code-block "><code>+------------------------------------+    +------------------------------------+
++-----------------------------------------------------------------------------------+</code></p>
+<h3>The "Formula 1 Rig vs. The Pocket Commuter" Analogy</h3>
+<ul>
+<li><strong>Xilinx Zynq-7000 = The Formula 1 Wind Tunnel:</strong> A heavy, multi-hundred-dollar development platform used by aerospace engineers to test aerodynamic wings under extreme conditions. It proved our Verilog RTL was mathematically flawless and met strict 20 ns timing resolution.</li>
+<li><strong>ShrikeFi (ForgeFPGA + ESP32-S3) = The Mass-Market Commuter:</strong> You cannot hand a $250 development board to a construction worker in Delhi. ShrikeFi pairs a $1.50 Renesas ForgeFPGA with a $3.00 ESP32-S3 to deliver the exact same silicon-level acceleration with a projected at-scale manufacturing Bill of Materials (BOM) under $20.</li>
+<li><strong>Vendor-Agnostic Core:</strong> We did <strong>not</strong> rewrite the filter or peak detector for ShrikeFi. The core Verilog math in <code>hardware/common/</code> is 100% vendor-agnostic and synthesized directly onto both Xilinx (6-input LUTs) and Renesas (5-input LUTs).</li>
+</ul>
+<hr />
+<h1>3. SYSTEM ARCHITECTURE &amp; HARDWARE INTERCONNECTS</h1>
+<h3>1. Zynq-7000: The 32-Bit AXI4-Lite Register Bus</h3>
+<p>On the Zynq SoC, the ARM Cortex-A9 CPU communicates with the FPGA fabric over an AMBA AXI4-Lite memory-mapped bus (<code>0x43C00000</code>):
+* <strong>Direct Register Map:</strong> <code>REG_RED_RAW</code> (0x00), <code>REG_RED_FILTERED</code> (0x04), <code>REG_IBI_CYCLES</code> (0x08), <code>REG_STATUS_THRESH</code> (0x0C).
+* <strong>Decoupled Handshake:</strong> Independent Address Write (<code>AW</code>) and Data Write (<code>W</code>) channels prevent interconnect deadlocks.
+* <strong>Write-1-to-Clear (W1C):</strong> Bit [0] of <code>REG_STATUS_THRESH</code> latches when a heartbeat occurs and clears atomically on write, eliminating CPU race conditions.</p>
+<h3>2. ShrikeFi: The 4-Bit Parallel Nibble Link</h3>
+<p>The Renesas ForgeFPGA is a compact chip with limited I/O pins. A 32-bit AXI bus is physically impossible. We designed an ultra-efficient <strong>4-bit parallel nibble link</strong>:</p>
+<p><img alt="ShrikeFi Pinout &amp; Interconnect Diagram" src="../images/shrikefi_pinout.png" /></p>
+<ul>
+<li><strong>Physical Wires (3.3V LVCMOS):</strong></li>
+<li><code>link_data[3:0]</code>: 4-bit bidirectional data bus carrying commands, samples, and timestamps.</li>
+<li><code>link_dir</code>: Direction control pin (0 = MCU $\to$ FPGA, 1 = FPGA $\to$ MCU).</li>
+<li><code>link_strobe</code>: Clock/handshake line toggled by MCU on each transfer.</li>
+<li><code>fpga_irq</code>: Active-high hardware interrupt asserting on detected R-peaks.</li>
+</ul>
+<h4>How Data Travels Across 4 Pins:</h4>
+<ul>
+<li><strong>Writing an 8-bit PPG Sample:</strong></li>
+<li>Send Command Nibble (<code>0x1</code> for Red, <code>0x2</code> for IR). Toggle strobe.</li>
+<li>High Nibble: Send bits <code>[7:4]</code>. Toggle strobe.</li>
+<li>Low Nibble: Send bits <code>[3:0]</code>. Toggle strobe.</li>
+<li>FPGA Link Receiver FSM inside <code>forgefpga_ppg_top.v</code> latches the full byte and triggers the moving-average filter.</li>
+<li><strong>Reading a 32-bit IBI Timestamp:</strong></li>
+<li>The FPGA asserts <code>irq_beat</code> (GPIO 10) when a heart peak occurs.</li>
+<li>ESP32-S3 sends <code>CMD_READ_IBI</code> (<code>0x6</code>), switches direction to Read, and reads 8 consecutive 4-bit nibbles (<code>[31:28]</code> down to <code>[3:0]</code>).</li>
+<li>Link Latency &amp; Throughput:<ul>
+<li><strong>Measured Bring-Up Driver:</strong> At ~500 kHz software bit-banging (~2 µs strobe period), reading all 9 cycles takes <strong>~18 µs</strong>—occupying &lt;0.1% of the 20,000 µs (50 Hz) optical sampling period.</li>
+<li><strong>Protocol Max (Hardware-Timer / SPI-Assisted Target):</strong> At 10 MHz strobe rate ($T_{\text{strobe}} = 100\text{ ns}$), reading 9 cycles takes <strong>900 ns</strong> (5.0 MB/s raw bandwidth).</li>
+</ul>
+</li>
+</ul>
+<p><img alt="ShrikeFi 4-Bit Parallel Link Protocol Timing Waveform" src="../images/shrikefi_waveform.png" /></p>
+<h3>3. ESP32-S3 Dual-Core FreeRTOS Partitioning</h3>
+<p>The ESP32-S3 contains two 240 MHz Xtensa LX7 cores. We strictly partitioned the tasks using FreeRTOS core pinning:</p>
+<p><code>+------------------------------------+    +------------------------------------+
 |         CORE 0: ACQUISITION        |    |       CORE 1: INTELLIGENCE &amp; UI    |
 |   (The Dedicated Paramedic)        |    |      (The AI Chief Physician)      |
 +------------------------------------+    +------------------------------------+
@@ -355,16 +128,11 @@ strong {
 | • Rolling HRV Calculation (RMSSD)  |    | • SSD1306 OLED Real-Time Display   |
 +------------------------------------+    +------------------------------------+
                   │                                         ▲
-                  └─────── Thread-Safe Mutex Queue ─────────┘
-</code></pre>
-
-<hr class="divider"/>
-
-<h1 class="part-title">4. THE CUSTOM VERILOG RTL — EXPLAINED FOR NON-HARDWARE PEOPLE</h1>
-
-<p class="paragraph">Digital hardware circuits do not "execute instructions" like C code or Python. They are physical arrays of logic gates, flip-flops, and wires operating simultaneously at 50,000,000 clock cycles per second.</p>
-
-<pre class="code-block "><code>                      RAW PPG SAMPLES (50 Hz)
+                  └─────── Thread-Safe Mutex Queue ─────────┘</code></p>
+<hr />
+<h1>4. THE CUSTOM VERILOG RTL — EXPLAINED FOR NON-HARDWARE PEOPLE</h1>
+<p>Digital hardware circuits do not "execute instructions" like C code or Python. They are physical arrays of logic gates, flip-flops, and wires operating simultaneously at 50,000,000 clock cycles per second.</p>
+<p><code>RAW PPG SAMPLES (50 Hz)
                                  │
                                  ▼
                      +───────────────────────+
@@ -382,274 +150,281 @@ strong {
                  ▼                               ▼
        [ ZYNQ-7000 TARGET ]            [ SHRIKEFI TARGET ]
     axi_ppg_accelerator.v              forgefpga_ppg_top.v
-    (32-bit AXI4-Lite Bus)             (4-bit Parallel Nibble Bus)
-</code></pre>
-
-<h3 class="subsection-title">The Core Hardware Modules & Architecture:</h3>
-
-<div class="numbered-item"><span class="num">1.</span> <strong><code>moving<em>average</em>8tap.v</code> (<code>hardware/common/</code> — The Smart Filter):</strong></div>
-<div class="bullet-item">• <em>What it does:</em> Smooths high-frequency noise from skin contact and tremors on both Red and IR channels.</div>
-<div class="bullet-item">• <em>Mathematical Formula:</em> $y[n] = y[n-1] + \frac{x[n] - x[n-8]}{8}$</div>
-<div class="bullet-item">• <em>Why it's clever:</em> A standard filter adds 8 numbers every time. Our $O(1)$ running-sum filter only subtracts the oldest sample and adds the newest sample, using a simple bit-shift (<code>>> 3</code>) instead of a divider. Takes <strong>0 DSP multiplier slices</strong> and executes in <strong>1 clock cycle (20 ns)</strong>.</div>
-
-<div class="numbered-item"><span class="num">2.</span> <strong><code>ppg<em>peak</em>detector.v</code> (<code>hardware/common/</code> — The Systolic Peak Radar):</strong></div>
-<div class="bullet-item">• <em>What it does:</em> Tracks systolic pressure waves and measures the Inter-Beat Interval (IBI) between consecutive heartbeats with <strong>20-nanosecond accuracy</strong>.</div>
-<div class="bullet-item">• <em>The 4-State Flowchart:</em></div>
-<div class="numbered-item"><span class="num">1.</span> <code>STATE_ARMED (00)</code>: Waiting for the signal to rise above the dynamic threshold.</div>
-<div class="numbered-item"><span class="num">2.</span> <code>STATE<em>RISING (01)</code>: Tracking the rising slope until the sample drops (<code>sample < prev</em>sample</code>), confirming the local maximum.</div>
-<div class="numbered-item"><span class="num">3.</span> <code>STATE<em>PEAK</em>FOUND (10)</code>: Captures the exact clock cycle count, asserts <code>beat_detected</code>, and resets the timer.</div>
-<div class="numbered-item"><span class="num">4.</span> <code>STATE_REFRACTORY (11)</code>: Enforces a 250 ms blanking window so the dicrotic notch (secondary rebound wave in arteries) does not trigger a false second heartbeat.</div>
-
-<div class="numbered-item"><span class="num">3.</span> <strong><code>axi<em>ppg</em>accelerator.v</code> (<code>hardware/zynq/</code> — The Zynq AXI4-Lite Wrapper):</strong></div>
-<div class="bullet-item">• <em>What it does:</em> Memory-mapped AXI4-Lite slave wrapper for the Xilinx Zynq-7000 SoC (<code>0x43C00000</code>), providing register-level access (<code>REG<em>RED</em>RAW</code>, <code>REG<em>IBI</em>CYCLES</code>, <code>REG<em>STATUS</em>THRESH</code>) and Write-1-to-Clear interrupt management.</div>
-
-<div class="numbered-item"><span class="num">4.</span> <strong><code>forgefpga<em>ppg</em>top.v</code> (<code>hardware/shrikefi/</code> — ShrikeFi Top-Level Gateway & Link Engine):</strong></div>
-<div class="bullet-item">• <em>What it does:</em> Integrates the dual 8-tap moving-average filters and systolic peak detector with a custom 4-bit parallel link transceiver FSM inside the Renesas ForgeFPGA (SLG47910).</div>
-<div class="bullet-item">• <em>Internal FSM Sub-Blocks:</em></div>
-<div class="bullet-item">• <strong>Command Decoder & Nibble Reassembler (RX Stage):</strong> Decodes command headers (<code>CMD<em>WRITE</em>RED</code>, <code>CMD<em>WRITE</em>IR</code>, <code>CMD<em>WRITE</em>THRESH</code>) and combines sequential 4-bit nibbles into 8-bit sample bytes for DSP execution.</div>
-<div class="bullet-item">• <strong>32-Bit IBI Serializer (TX Stage):</strong> Latches the 32-bit <code>peak<em>ibi</em>cycles</code> timestamp on a heartbeat and streams it across the 4-bit bus as 8 sequential nibbles (<code>[31:28]</code> down to <code>[3:0]</code>) upon receiving <code>CMD<em>READ</em>IBI</code>.</div>
-<div class="bullet-item">• <em>Resource Footprint:</em> Uses only <strong>195 out of 1120 LUT5s (17.41%)</strong>, <strong>110 Flip-Flops</strong>, and <strong>35 CLBs</strong>, leaving >82% of the chip available.</div>
-
-<div class="img-container"><img src="file:///C:/Users/abhin/OneDrive/Desktop/verilog/docs/images/forgefpga_resources_report.png" alt="Renesas ForgeFPGA Workshop GUI Resources Report"/><div class="img-caption">Renesas ForgeFPGA Workshop GUI Resources Report</div></div>
-
-<div class="img-container"><img src="file:///C:/Users/abhin/OneDrive/Desktop/verilog/docs/images/forgefpga_chip_schematic.png" alt="Renesas SLG47910C Chip Top-Level Schematic"/><div class="img-caption">Renesas SLG47910C Chip Top-Level Schematic</div></div>
-
-<div class="img-container"><img src="file:///C:/Users/abhin/OneDrive/Desktop/verilog/docs/images/forgefpga_utilization.png" alt="Renesas ForgeFPGA Resource Footprint"/><div class="img-caption">Renesas ForgeFPGA Resource Footprint</div></div>
-
-<hr class="divider"/>
-
-<h1 class="part-title">5. MASTER WAVEFORM ANALYSIS & HARDWARE TIMING GUIDE</h1>
-
-<p class="paragraph">A major difference between academic hackathon toys and real silicon engineering is <strong>timing determinism</strong>. This section provides a comprehensive, signal-by-signal dissection of our hardware waveforms for both platforms—giving you the exact explanation to deliver when a judge points at any signal on the oscilloscope or GTKWave simulation trace.</p>
-
-<hr class="divider"/>
-
-<h2 class="section-title">1. Xilinx Zynq-7000 Waveform (32-Bit AXI4-Lite Slave & Systolic Radar)</h2>
-
-<p class="paragraph">The Zynq simulation captures the full system lifecycle: AXI register configuration, decoupled bus handshaking, 8-tap running-sum noise filtering, and cycle-accurate heartbeat interval timestamping.</p>
-
-<div class="img-container"><img src="file:///C:/Users/abhin/OneDrive/Desktop/verilog/docs/images/waveform_snapshot.png" alt="Zynq AXI4-Lite Timing Waveform"/><div class="img-caption">Zynq AXI4-Lite Timing Waveform</div></div>
-
-<h3 class="subsection-title">Signal-by-Signal Breakdown Table:</h3>
-
-<div class="table-container"><table>
-<thead><tr>
+    (32-bit AXI4-Lite Bus)             (4-bit Parallel Nibble Bus)</code></p>
+<h3>The Core Hardware Modules &amp; Architecture:</h3>
+<ol>
+<li><strong><code>moving_average_8tap.v</code> (<code>hardware/common/</code> — The Smart Filter):</strong></li>
+<li><em>What it does:</em> Smooths high-frequency noise from skin contact and tremors on both Red and IR channels.</li>
+<li><em>Mathematical Formula:</em> $y[n] = y[n-1] + \frac{x[n] - x[n-8]}{8}$</li>
+<li>
+<p><em>Why it's clever:</em> A standard filter adds 8 numbers every time. Our $O(1)$ running-sum filter only subtracts the oldest sample and adds the newest sample, using a simple bit-shift (<code>&gt;&gt; 3</code>) instead of a divider. Takes <strong>0 DSP multiplier slices</strong> and executes in <strong>1 clock cycle (20 ns)</strong>.</p>
+</li>
+<li>
+<p><strong><code>ppg_peak_detector.v</code> (<code>hardware/common/</code> — The Systolic Peak Radar):</strong></p>
+</li>
+<li><em>What it does:</em> Tracks systolic pressure waves and measures the Inter-Beat Interval (IBI) between consecutive heartbeats with <strong>20-nanosecond accuracy</strong>.</li>
+<li>
+<p><em>The 4-State Flowchart:</em></p>
+<ol>
+<li><code>STATE_ARMED (00)</code>: Waiting for the signal to rise above the dynamic threshold.</li>
+<li><code>STATE_RISING (01)</code>: Tracking the rising slope until the sample drops (<code>sample &lt; prev_sample</code>), confirming the local maximum.</li>
+<li><code>STATE_PEAK_FOUND (10)</code>: Captures the exact clock cycle count, asserts <code>beat_detected</code>, and resets the timer.</li>
+<li><code>STATE_REFRACTORY (11)</code>: Enforces a 250 ms blanking window so the dicrotic notch (secondary rebound wave in arteries) does not trigger a false second heartbeat.</li>
+</ol>
+</li>
+<li>
+<p><strong><code>axi_ppg_accelerator.v</code> (<code>hardware/zynq/</code> — The Zynq AXI4-Lite Wrapper):</strong></p>
+</li>
+<li>
+<p><em>What it does:</em> Memory-mapped AXI4-Lite slave wrapper for the Xilinx Zynq-7000 SoC (<code>0x43C00000</code>), providing register-level access (<code>REG_RED_RAW</code>, <code>REG_IBI_CYCLES</code>, <code>REG_STATUS_THRESH</code>) and Write-1-to-Clear interrupt management.</p>
+</li>
+<li>
+<p><strong><code>forgefpga_ppg_top.v</code> (<code>hardware/shrikefi/</code> — ShrikeFi Top-Level Gateway &amp; Link Engine):</strong></p>
+</li>
+<li><em>What it does:</em> Integrates the dual 8-tap moving-average filters and systolic peak detector with a custom 4-bit parallel link transceiver FSM inside the Renesas ForgeFPGA (SLG47910).</li>
+<li><em>Internal FSM Sub-Blocks:</em><ul>
+<li><strong>Command Decoder &amp; Nibble Reassembler (RX Stage):</strong> Decodes command headers (<code>CMD_WRITE_RED</code>, <code>CMD_WRITE_IR</code>, <code>CMD_WRITE_THRESH</code>) and combines sequential 4-bit nibbles into 8-bit sample bytes for DSP execution.</li>
+<li><strong>32-Bit IBI Serializer (TX Stage):</strong> Latches the 32-bit <code>peak_ibi_cycles</code> timestamp on a heartbeat and streams it across the 4-bit bus as 8 sequential nibbles (<code>[31:28]</code> down to <code>[3:0]</code>) upon receiving <code>CMD_READ_IBI</code>.</li>
+</ul>
+</li>
+<li><em>Resource Footprint:</em> Uses only <strong>195 out of 1120 LUT5s (17.41%)</strong>, <strong>110 Flip-Flops</strong>, and <strong>35 CLBs</strong>, leaving &gt;82% of the chip available.</li>
+</ol>
+<p><img alt="Renesas ForgeFPGA Workshop GUI Resources Report" src="../images/forgefpga_resources_report.png" /></p>
+<p><img alt="Renesas SLG47910C Chip Top-Level Schematic" src="../images/forgefpga_chip_schematic.png" /></p>
+<p><img alt="Renesas ForgeFPGA Resource Footprint" src="../images/forgefpga_utilization.png" /></p>
+<hr />
+<h1>5. MASTER WAVEFORM ANALYSIS &amp; HARDWARE TIMING GUIDE</h1>
+<p>A major difference between academic hackathon toys and real silicon engineering is <strong>timing determinism</strong>. This section provides a comprehensive, signal-by-signal dissection of our hardware waveforms for both platforms—giving you the exact explanation to deliver when a judge points at any signal on the oscilloscope or GTKWave simulation trace.</p>
+<hr />
+<h2>1. Xilinx Zynq-7000 Waveform (32-Bit AXI4-Lite Slave &amp; Systolic Radar)</h2>
+<p>The Zynq simulation captures the full system lifecycle: AXI register configuration, decoupled bus handshaking, 8-tap running-sum noise filtering, and cycle-accurate heartbeat interval timestamping.</p>
+<p><img alt="Zynq AXI4-Lite Timing Waveform" src="../images/waveform_snapshot.png" /></p>
+<h3>Signal-by-Signal Breakdown Table:</h3>
+<table>
+<thead>
+<tr>
 <th>Signal Name</th>
-<th>Direction / Type</th>
-<th>Clock Domain</th>
-<th>Engineering Role & Behavior in Waveform</th>
-</tr></thead><tbody>
+<th style="text-align: center;">Direction / Type</th>
+<th style="text-align: center;">Clock Domain</th>
+<th>Engineering Role &amp; Behavior in Waveform</th>
+</tr>
+</thead>
+<tbody>
 <tr>
 <td><strong><code>clk</code></strong></td>
-<td>Input (50 MHz)</td>
-<td>Core Clock</td>
+<td style="text-align: center;">Input (50 MHz)</td>
+<td style="text-align: center;">Core Clock</td>
 <td>Master clock source ($T = 20.000\text{ ns}$). Every flip-flop in the accelerator updates on the rising edge of this clock.</td>
 </tr>
 <tr>
 <td><strong><code>rstn</code></strong></td>
-<td>Input (Active-Low)</td>
-<td>Synchronous</td>
+<td style="text-align: center;">Input (Active-Low)</td>
+<td style="text-align: center;">Synchronous</td>
 <td>System reset line. Held low for first 4 cycles ($t = 0 \to 80\text{ ns}$) to reset FSM states, clear sample FIFOs, and zero the interval timer.</td>
 </tr>
 <tr>
-<td><strong><code>s<em>axi</em>awvalid</code></strong></td>
-<td>Input (AXI AW)</td>
-<td><code>clk</code></td>
+<td><strong><code>s_axi_awvalid</code></strong></td>
+<td style="text-align: center;">Input (AXI AW)</td>
+<td style="text-align: center;"><code>clk</code></td>
 <td>Address Write Valid. Asserted by CPU when sending a target register address (e.g., <code>0x0C</code> for threshold or <code>0x00</code> for PPG raw sample).</td>
 </tr>
 <tr>
-<td><strong><code>s<em>axi</em>awready</code></strong></td>
-<td>Output (AXI AW)</td>
-<td><code>clk</code></td>
-<td>Address Write Ready. Asserted by our accelerator to acknowledge that the address was latched into <code>aw<em>addr</em>latched</code>.</td>
+<td><strong><code>s_axi_awready</code></strong></td>
+<td style="text-align: center;">Output (AXI AW)</td>
+<td style="text-align: center;"><code>clk</code></td>
+<td>Address Write Ready. Asserted by our accelerator to acknowledge that the address was latched into <code>aw_addr_latched</code>.</td>
 </tr>
 <tr>
-<td><strong><code>s<em>axi</em>wvalid</code></strong></td>
-<td>Input (AXI W)</td>
-<td><code>clk</code></td>
-<td>Data Write Valid. Asserted by CPU when presenting 32-bit write data on <code>s<em>axi</em>wdata</code>.</td>
+<td><strong><code>s_axi_wvalid</code></strong></td>
+<td style="text-align: center;">Input (AXI W)</td>
+<td style="text-align: center;"><code>clk</code></td>
+<td>Data Write Valid. Asserted by CPU when presenting 32-bit write data on <code>s_axi_wdata</code>.</td>
 </tr>
 <tr>
-<td><strong><code>s<em>axi</em>wready</code></strong></td>
-<td>Output (AXI W)</td>
-<td><code>clk</code></td>
-<td>Data Write Ready. Asserted by accelerator to acknowledge that write data was latched into <code>w<em>data</em>latched</code>.</td>
+<td><strong><code>s_axi_wready</code></strong></td>
+<td style="text-align: center;">Output (AXI W)</td>
+<td style="text-align: center;"><code>clk</code></td>
+<td>Data Write Ready. Asserted by accelerator to acknowledge that write data was latched into <code>w_data_latched</code>.</td>
 </tr>
 <tr>
-<td><strong><code>filter<em>red</em>out[7:0]</code></strong></td>
-<td>Internal / Reg</td>
-<td><code>clk</code></td>
+<td><strong><code>filter_red_out[7:0]</code></strong></td>
+<td style="text-align: center;">Internal / Reg</td>
+<td style="text-align: center;"><code>clk</code></td>
 <td>Continuous 8-tap moving-average output. Shows optical noise reduction as raw stepped input samples are smoothed into a clean physiological pressure wave.</td>
 </tr>
 <tr>
 <td><strong><code>fsm_state[1:0]</code></strong></td>
-<td>Internal / State</td>
-<td><code>clk</code></td>
+<td style="text-align: center;">Internal / State</td>
+<td style="text-align: center;"><code>clk</code></td>
 <td>Systolic Peak Radar state: <code>ARMED (00)</code> $\to$ <code>RISING (01)</code> $\to$ <code>PEAK_FOUND (10)</code> $\to$ <code>REFRACTORY (11)</code>.</td>
 </tr>
 <tr>
 <td><strong><code>irq_beat</code></strong></td>
-<td>Output (Direct Pin)</td>
-<td><code>clk</code></td>
-<td>Hardware Interrupt Pulse. Generates an exact <strong>1-clock-cycle pulse (20 ns)</strong> at $t = 68\text{ cycles}$ the instant the wave reaches local maximum (<code>sample < prev_sample</code>).</td>
+<td style="text-align: center;">Output (Direct Pin)</td>
+<td style="text-align: center;"><code>clk</code></td>
+<td>Hardware Interrupt Pulse. Generates an exact <strong>1-clock-cycle pulse (20 ns)</strong> at $t = 65\text{ cycles}$ the instant the wave reaches local maximum (<code>sample &lt; prev_sample</code>).</td>
 </tr>
 <tr>
-<td><strong><code>reg<em>ibi</em>cycles[31:0]</code></strong></td>
-<td>Output / Reg</td>
-<td><code>clk</code></td>
+<td><strong><code>reg_ibi_cycles[31:0]</code></strong></td>
+<td style="text-align: center;">Output / Reg</td>
+<td style="text-align: center;"><code>clk</code></td>
 <td>Inter-Beat Interval (IBI) register. Latches the counter value (<code>0x00000CD1</code> = 3281 clock ticks = $65.62\text{ µs}$) and resets interval timer to zero.</td>
 </tr>
-</tbody></table></div>
-
-<h3 class="subsection-title">Two Critical Engineering Mechanisms to Explain to Judges:</h3>
-
-<h4 class="question-title">A. The Decoupled AXI Write Handshake (Anti-Deadlock Architecture)</h4>
-<div class="bullet-item">• <strong>The Problem:</strong> In standard AXI4-Lite, if a slave expects address (<code>AW</code>) and data (<code>W</code>) in a rigid order, an out-of-order interconnect crossbar will stall and hang the entire ARM bus.</div>
-<div class="bullet-item">• <strong>Our Solution:</strong> Notice in the waveform that <code>s<em>axi</em>awvalid</code> pulses first at $t = 12$, but <code>s<em>axi</em>wvalid</code> is staggered and arrives 12 cycles later at $t = 24$.</div>
-<div class="bullet-item">• <strong>How It Works in Silicon:</strong> Internal register flags <code>aw<em>done</code> and <code>w</em>done</code> latch independently. Only when both flags are high does <code>write<em>execute</code> fire, updating the target register and returning <code>s</em>axi_bvalid = 1</code> (OKAY response).</div>
-
-<h4 class="question-title">B. The 4-State Systolic Peak Detector (Jitter-Free Peak Detection)</h4>
-<div class="bullet-item">• <strong>State 00 (<code>STATE<em>ARMED</code>):</strong> The wave is below the programmable threshold (<code>reg</em>threshold = 120</code>). The detector ignores all baseline motion noise.</div>
-<div class="bullet-item">• <strong>State 01 (<code>STATE<em>RISING</code>):</strong> The filtered PPG signal crosses above threshold 120. The FSM tracks the rising slope by comparing each sample against <code>prev</em>sample</code>.</div>
-<div class="bullet-item">• <strong>State 10 (<code>STATE<em>PEAK</em>FOUND</code>):</strong> The slope flips negative (<code>sample < prev<em>sample</code>). This marks the mathematical local maximum. The FSM asserts <code>irq</em>beat = 1</code>, copies <code>interval<em>cnt</code> to <code>ibi</em>cycles</code>, and resets the timer.</div>
-<div class="bullet-item">• <strong>State 11 (<code>STATE<em>REFRACTORY</code>):</strong> The FSM enters a <strong>250 ms blanking window</strong> (<code>REFRACTORY</em>CYC = 12,500,000</code> cycles at 50 MHz). This physically prevents the <strong>dicrotic notch</strong> (the secondary aortic valve rebound pulse) from creating a false second heartbeat.</div>
-
-<hr class="divider"/>
-
-<h2 class="section-title">2. Renesas ForgeFPGA Waveform (ShrikeFi 4-Bit Parallel Link Protocol)</h2>
-
-<p class="paragraph">On the ultra-low-cost ShrikeFi platform, there are no 32-bit buses. All operations stream across 4 GPIO pins using our custom serial-parallel protocol.</p>
-
-<div class="img-container"><img src="file:///C:/Users/abhin/OneDrive/Desktop/verilog/docs/images/shrikefi_waveform.png" alt="ShrikeFi 4-Bit Parallel Link Protocol Timing Waveform"/><div class="img-caption">ShrikeFi 4-Bit Parallel Link Protocol Timing Waveform</div></div>
-
-<h3 class="subsection-title">Signal-by-Signal Breakdown Table:</h3>
-
-<div class="table-container"><table>
-<thead><tr>
+</tbody>
+</table>
+<h3>Two Critical Engineering Mechanisms to Explain to Judges:</h3>
+<h4>A. The Decoupled AXI Write Handshake (Anti-Deadlock Architecture)</h4>
+<ul>
+<li><strong>The Problem:</strong> In standard AXI4-Lite, if a slave expects address (<code>AW</code>) and data (<code>W</code>) in a rigid order, an out-of-order interconnect crossbar will stall and hang the entire ARM bus.</li>
+<li><strong>Our Solution:</strong> Notice in the waveform that <code>s_axi_awvalid</code> pulses first at $t = 12$, but <code>s_axi_wvalid</code> is staggered and arrives 12 cycles later at $t = 24$.</li>
+<li><strong>How It Works in Silicon:</strong> Internal register flags <code>aw_done</code> and <code>w_done</code> latch independently. Only when both flags are high does <code>write_execute</code> fire, updating the target register and returning <code>s_axi_bvalid = 1</code> (OKAY response).</li>
+</ul>
+<h4>B. The 4-State Systolic Peak Detector (Jitter-Free Peak Detection)</h4>
+<ul>
+<li><strong>State 00 (<code>STATE_ARMED</code>):</strong> The wave is below the programmable threshold (<code>reg_threshold = 120</code>). The detector ignores all baseline motion noise.</li>
+<li><strong>State 01 (<code>STATE_RISING</code>):</strong> The filtered PPG signal crosses above threshold 120. The FSM tracks the rising slope by comparing each sample against <code>prev_sample</code>.</li>
+<li><strong>State 10 (<code>STATE_PEAK_FOUND</code>):</strong> The slope flips negative (<code>sample &lt; prev_sample</code>). This marks the mathematical local maximum. The FSM asserts <code>irq_beat = 1</code>, copies <code>interval_cnt</code> to <code>ibi_cycles</code>, and resets the timer.</li>
+<li><strong>State 11 (<code>STATE_REFRACTORY</code>):</strong> The FSM enters a <strong>250 ms blanking window</strong> (<code>REFRACTORY_CYC = 12,500,000</code> cycles at 50 MHz). This physically prevents the <strong>dicrotic notch</strong> (the secondary aortic valve rebound pulse) from creating a false second heartbeat.</li>
+</ul>
+<hr />
+<h2>2. Renesas ForgeFPGA Waveform (ShrikeFi 4-Bit Parallel Link Protocol)</h2>
+<p>On the ultra-low-cost ShrikeFi platform, there are no 32-bit buses. All operations stream across 4 GPIO pins using our custom serial-parallel protocol.</p>
+<p><img alt="ShrikeFi 4-Bit Parallel Link Protocol Timing Waveform" src="../images/shrikefi_waveform.png" /></p>
+<h3>Signal-by-Signal Breakdown Table:</h3>
+<table>
+<thead>
+<tr>
 <th>Signal Name</th>
-<th>FPGA Pin</th>
-<th>MCU Pin</th>
-<th>Role & Signal Dynamics in Simulation</th>
-</tr></thead><tbody>
+<th style="text-align: center;">FPGA Pin</th>
+<th style="text-align: center;">MCU Pin</th>
+<th>Role &amp; Signal Dynamics in Simulation</th>
+</tr>
+</thead>
+<tbody>
 <tr>
 <td><strong><code>clk</code></strong></td>
-<td>PIN_12</td>
-<td>—</td>
+<td style="text-align: center;">PIN_12</td>
+<td style="text-align: center;">—</td>
 <td>50 MHz internal FPGA oscillator ($T = 20.000\text{ ns}$).</td>
 </tr>
 <tr>
 <td><strong><code>rst_n</code></strong></td>
-<td>PIN_13</td>
-<td>GPIO 3</td>
+<td style="text-align: center;">PIN_13</td>
+<td style="text-align: center;">GPIO 3</td>
 <td>Active-Low hardware reset driven by ESP32-S3 during boot initialization.</td>
 </tr>
 <tr>
 <td><strong><code>link_strobe</code></strong></td>
-<td>PIN_14</td>
-<td>GPIO 4</td>
+<td style="text-align: center;">PIN_14</td>
+<td style="text-align: center;">GPIO 4</td>
 <td>Bi-phase clock strobe driven by MCU. Rising edge latches data; falling edge prepares next nibble.</td>
 </tr>
 <tr>
 <td><strong><code>link_dir</code></strong></td>
-<td>PIN_15</td>
-<td>GPIO 5</td>
+<td style="text-align: center;">PIN_15</td>
+<td style="text-align: center;">GPIO 5</td>
 <td>Bus direction control: <code>0 = Host Write</code> (MCU $\to$ FPGA), <code>1 = Host Read</code> (FPGA $\to$ MCU).</td>
 </tr>
 <tr>
 <td><strong><code>link_din[3:0]</code></strong></td>
-<td>PIN_16-19</td>
-<td>GPIO 6-9</td>
+<td style="text-align: center;">PIN_16-19</td>
+<td style="text-align: center;">GPIO 6-9</td>
 <td>4-bit multiplexed input bus carrying Command Codes and 4-bit Payload Nibbles into the FPGA.</td>
 </tr>
 <tr>
 <td><strong><code>filter_red[7:0]</code></strong></td>
-<td>Internal</td>
-<td>—</td>
+<td style="text-align: center;">Internal</td>
+<td style="text-align: center;">—</td>
 <td>Real-time moving average accumulator inside the ForgeFPGA fabric.</td>
 </tr>
 <tr>
 <td><strong><code>irq_beat</code></strong></td>
-<td>PIN_24</td>
-<td>GPIO 10</td>
-<td>Latched active-high interrupt to ESP32-S3. Asserts on systolic peak; held high until <code>CMD<em>CLEAR</em>IRQ</code>.</td>
+<td style="text-align: center;">PIN_24</td>
+<td style="text-align: center;">GPIO 10</td>
+<td>Latched active-high interrupt to ESP32-S3. Asserts on systolic peak; held high until <code>CMD_CLEAR_IRQ</code>.</td>
 </tr>
 <tr>
 <td><strong><code>link_dout[3:0]</code></strong></td>
-<td>PIN_16-19</td>
-<td>GPIO 6-9</td>
+<td style="text-align: center;">PIN_16-19</td>
+<td style="text-align: center;">GPIO 6-9</td>
 <td>4-bit output bus driven by FPGA during Read mode (<code>link_dir = 1</code>) to stream 32-bit IBI timestamps.</td>
 </tr>
-</tbody></table></div>
-
-<h3 class="subsection-title">Step-by-Step Protocol Walkthrough (Trace Anatomy):</h3>
-
-<h4 class="question-title">Phase 1: Writing a Raw PPG Sample (3 Strobe Pulses = 300 ns @ 10 MHz)</h4>
-<div class="numbered-item"><span class="num">1.</span> <code>link_dir = 0</code> (Write Mode).</div>
-<div class="numbered-item"><span class="num">2.</span> <strong>Strobe Pulse 1:</strong> <code>link<em>din = 0x1</code> (<code>CMD</em>WRITE<em>RED</code>). The FPGA Command Decoder sets its state to <code>ST</em>W<em>RED</em>H</code>.</div>
-<div class="numbered-item"><span class="num">3.</span> <strong>Strobe Pulse 2:</strong> <code>link<em>din = 0x7</code> (High 4 bits of sample byte <code>0x78</code>). Stored in <code>nibble</em>temp[3:0]</code>.</div>
-<div class="numbered-item"><span class="num">4.</span> <strong>Strobe Pulse 3:</strong> <code>link<em>din = 0x8</code> (Low 4 bits of sample byte <code>0x78</code>). Combined with <code>nibble</em>temp</code> to form byte <code>0x78</code> (120). Single-cycle <code>red<em>valid</em>pulse</code> fires into the 8-tap filter.</div>
-
-<h4 class="question-title">Phase 2: Hardware Beat Capture & Sticky Interrupt Assertion</h4>
-<div class="bullet-item">• Filtered waveform reaches systolic crest $\to$ Peak Detector FSM detects slope inversion $\to$ Latches <code>reg<em>ibi</em>latched <= peak<em>ibi</em>cycles</code> $\to$ Asserts <code>irq_beat <= 1</code> on GPIO 10.</div>
-<div class="bullet-item">• Because ESP32-S3 FreeRTOS tasks may be busy servicing WiFi/BLE, <code>irq_beat</code> <strong>remains firmly latched high</strong> in hardware until explicitly acknowledged, guaranteeing zero dropped beats.</div>
-
-<h4 class="question-title">Phase 3: Reading the 32-Bit IBI Timestamp (9 Strobe Pulses = 900 ns @ 10 MHz)</h4>
-<div class="numbered-item"><span class="num">1.</span> <strong>Command Strobe:</strong> ESP32 sends <code>link<em>din = 0x6</code> (<code>CMD</em>READ<em>IBI</code>) with <code>link</em>dir = 0</code>.</div>
-<div class="numbered-item"><span class="num">2.</span> <strong>Turnaround:</strong> ESP32 switches <code>link<em>dir = 1</code> (Read mode). FPGA enables its output pin driver (<code>link</em>dout_oe = 1</code>).</div>
-<div class="numbered-item"><span class="num">3.</span> <strong>8 Sequential Nibble Reads:</strong></div>
-<div class="bullet-item">• Nibble 0 (<code>N0</code>): <code>0x0</code> (Bits <code>[31:28]</code>)</div>
-<div class="bullet-item">• Nibble 1 (<code>N1</code>): <code>0x0</code> (Bits <code>[27:24]</code>)</div>
-<div class="bullet-item">• Nibble 2 (<code>N2</code>): <code>0x0</code> (Bits <code>[23:20]</code>)</div>
-<div class="bullet-item">• Nibble 3 (<code>N3</code>): <code>0x0</code> (Bits <code>[19:16]</code>)</div>
-<div class="bullet-item">• Nibble 4 (<code>N4</code>): <code>0x0</code> (Bits <code>[15:12]</code>)</div>
-<div class="bullet-item">• Nibble 5 (<code>N5</code>): <code>0xC</code> (Bits <code>[11:8]</code>)</div>
-<div class="bullet-item">• Nibble 6 (<code>N6</code>): <code>0xD</code> (Bits <code>[7:4]</code>)</div>
-<div class="bullet-item">• Nibble 7 (<code>N7</code>): <code>0x1</code> (Bits <code>[3:0]</code>)</div>
-<div class="bullet-item">• <em>Reassembled 32-Bit Value:</em> <code>0x00000CD1</code> = <strong>3281 clock cycles</strong> (exactly $65.62\text{ µs}$ at 50 MHz).</div>
-<div class="numbered-item"><span class="num">4.</span> <strong>Clear Interrupt:</strong> ESP32 switches <code>link<em>dir = 0</code> and sends <code>link</em>din = 0x7</code> (<code>CMD<em>CLEAR</em>IRQ</code>), resetting <code>irq_beat</code> back to 0.</div>
-
-<hr class="divider"/>
-
-<h2 class="section-title">3. "POINT-AND-SHOOT" JUDGE DEFENSE CHEAT-SHEET</h2>
-
-<p class="paragraph">When presenting your timing diagrams, judges will probe your understanding with specific questions. Use these battle-tested responses:</p>
-
-<h3 class="subsection-title">Q1: "Point to the exact moment a heartbeat is detected on the waveform."</h3>
-<div class="bullet-item">• <strong>Point to:</strong> The rising edge of <code>irq<em>beat</code> (where <code>filter</em>red</code> crests and begins to decrease).</div>
-<div class="bullet-item">• <strong>Say:</strong> <em>"Right here at $t = 68\text{ cycles}$. Notice that <code>filter<em>red</em>out</code> reached its local maximum of 140, and on the very next sample it dropped to 139. Our systolic FSM detected the negative slope change in a single clock cycle, asserted <code>irq_beat</code>, and captured the exact interval count."</em></div>
-
-<h3 class="subsection-title">Q2: "Why does the AXI waveform show Address Write (<code>AW</code>) and Data Write (<code>W</code>) at different times?"</h3>
-<div class="bullet-item">• <strong>Point to:</strong> <code>s<em>axi</em>awvalid</code> pulsing at $t = 12$ and <code>s<em>axi</em>wvalid</code> pulsing at $t = 24$.</div>
-<div class="bullet-item">• <strong>Say:</strong> <em>"That is our decoupled AXI4-Lite handshake. Modern ARM AXI crossbars do not guarantee that address and data arrive simultaneously. By using independent <code>aw<em>done</code> and <code>w</em>done</code> status registers, our hardware guarantees zero deadlocks regardless of bus latency."</em></div>
-
-<h3 class="subsection-title">Q3: "How does the ShrikeFi 4-bit bus know whether a nibble is a command or data?"</h3>
-<div class="bullet-item">• <strong>Point to:</strong> <code>link<em>din</code> transitioning from <code>CMD</em>WRITE_RED (0x1)</code> to <code>HIGH (0x7)</code> and <code>LOW (0x8)</code>.</div>
-<div class="bullet-item">• <strong>Say:</strong> <em>"The protocol is state-driven. In <code>ST<em>IDLE</code>, the first strobe pulse is always decoded as a 4-bit command header. Depending on the opcode, the FSM transitions into multi-cycle payload ingestion states (<code>ST</em>W<em>RED</em>H</code> followed by <code>ST<em>W</em>RED_L</code>), guaranteeing cycle-accurate framing without packet overhead."</em></div>
-
-<h3 class="subsection-title">Q4: "Why do you need 20 ns timing accuracy when human heart rate is only ~1 Hz (60 BPM)?"</h3>
-<div class="bullet-item">• <strong>Say:</strong> <em>"Heart Rate Variability (HRV) analysis—specifically <strong>RMSSD</strong> for parasympathetic stress detection—requires sub-millisecond precision between consecutive R-waves. Microcontroller timers suffer from 5 to 20 ms of interrupt latency and RTOS task switching jitter. Our dedicated 50 MHz FPGA hardware counter measures intervals with <strong>20-nanosecond physical accuracy</strong>, eliminating 100% of software jitter."</em></div>
-
-<h3 class="subsection-title">Q5: "What is the real measured speed vs. theoretical maximum speed of your 4-bit link?"</h3>
-<div class="bullet-item">• <strong>Say:</strong> <em>"In our current firmware bring-up driver, we use a conservative bit-banged strobe with 1 µs half-cycle delays (~500 kHz), taking <strong>18 µs</strong> for a complete 32-bit IBI read—which uses less than <strong>0.1% of our 20,000 µs optical sampling window</strong>. In our verified hardware simulation, the protocol supports up to <strong>10 MHz</strong> ($T_{\text{strobe}} = 100\text{ ns}$), transferring the full 32-bit timestamp in <strong>900 nanoseconds</strong> (5.0 MB/s raw bandwidth) when driven by a hardware timer or SPI-assisted clock."</em></div>
-
-<hr class="divider"/>
-
-<h1 class="part-title">6. THE SENSOR SUITE — WHAT EACH SENSOR DOES & WHY</h1>
-
-<div class="table-container"><table>
-<thead><tr>
+</tbody>
+</table>
+<h3>Step-by-Step Protocol Walkthrough (Trace Anatomy):</h3>
+<h4>Phase 1: Writing a Raw PPG Sample (3 Strobe Pulses = 300 ns @ 10 MHz)</h4>
+<ol>
+<li><code>link_dir = 0</code> (Write Mode).</li>
+<li><strong>Strobe Pulse 1:</strong> <code>link_din = 0x1</code> (<code>CMD_WRITE_RED</code>). The FPGA Command Decoder sets its state to <code>ST_W_RED_H</code>.</li>
+<li><strong>Strobe Pulse 2:</strong> <code>link_din = 0x7</code> (High 4 bits of sample byte <code>0x78</code>). Stored in <code>nibble_temp[3:0]</code>.</li>
+<li><strong>Strobe Pulse 3:</strong> <code>link_din = 0x8</code> (Low 4 bits of sample byte <code>0x78</code>). Combined with <code>nibble_temp</code> to form byte <code>0x78</code> (120). Single-cycle <code>red_valid_pulse</code> fires into the 8-tap filter.</li>
+</ol>
+<h4>Phase 2: Hardware Beat Capture &amp; Sticky Interrupt Assertion</h4>
+<ul>
+<li>Filtered waveform reaches systolic crest $\to$ Peak Detector FSM detects slope inversion $\to$ Latches <code>reg_ibi_latched &lt;= peak_ibi_cycles</code> $\to$ Asserts <code>irq_beat &lt;= 1</code> on GPIO 10.</li>
+<li>Because ESP32-S3 FreeRTOS tasks may be busy servicing WiFi/BLE, <code>irq_beat</code> <strong>remains firmly latched high</strong> in hardware until explicitly acknowledged, guaranteeing zero dropped beats.</li>
+</ul>
+<h4>Phase 3: Reading the 32-Bit IBI Timestamp (9 Strobe Pulses = 900 ns @ 10 MHz)</h4>
+<ol>
+<li><strong>Command Strobe:</strong> ESP32 sends <code>link_din = 0x6</code> (<code>CMD_READ_IBI</code>) with <code>link_dir = 0</code>.</li>
+<li><strong>Turnaround:</strong> ESP32 switches <code>link_dir = 1</code> (Read mode). FPGA enables its output pin driver (<code>link_dout_oe = 1</code>).</li>
+<li><strong>8 Sequential Nibble Reads:</strong></li>
+<li>Nibble 0 (<code>N0</code>): <code>0x0</code> (Bits <code>[31:28]</code>)</li>
+<li>Nibble 1 (<code>N1</code>): <code>0x0</code> (Bits <code>[27:24]</code>)</li>
+<li>Nibble 2 (<code>N2</code>): <code>0x0</code> (Bits <code>[23:20]</code>)</li>
+<li>Nibble 3 (<code>N3</code>): <code>0x0</code> (Bits <code>[19:16]</code>)</li>
+<li>Nibble 4 (<code>N4</code>): <code>0x0</code> (Bits <code>[15:12]</code>)</li>
+<li>Nibble 5 (<code>N5</code>): <code>0xC</code> (Bits <code>[11:8]</code>)</li>
+<li>Nibble 6 (<code>N6</code>): <code>0xD</code> (Bits <code>[7:4]</code>)</li>
+<li>Nibble 7 (<code>N7</code>): <code>0x1</code> (Bits <code>[3:0]</code>)</li>
+<li><em>Reassembled 32-Bit Value:</em> <code>0x00000CD1</code> = <strong>3281 clock cycles</strong> (exactly $65.62\text{ µs}$ at 50 MHz).</li>
+<li><strong>Clear Interrupt:</strong> ESP32 switches <code>link_dir = 0</code> and sends <code>link_din = 0x7</code> (<code>CMD_CLEAR_IRQ</code>), resetting <code>irq_beat</code> back to 0.</li>
+</ol>
+<hr />
+<h2>3. "POINT-AND-SHOOT" JUDGE DEFENSE CHEAT-SHEET</h2>
+<p>When presenting your timing diagrams, judges will probe your understanding with specific questions. Use these battle-tested responses:</p>
+<h3>Q1: "Point to the exact moment a heartbeat is detected on the waveform."</h3>
+<ul>
+<li><strong>Point to:</strong> The rising edge of <code>irq_beat</code> (where <code>filter_red</code> crests and begins to decrease).</li>
+<li><strong>Say:</strong> <em>"Right here at $t = 65\text{ cycles}$. Notice that <code>filter_red_out</code> reached its local maximum of 140, and on the very next sample it dropped to 139. Our systolic FSM detected the negative slope change in a single clock cycle, asserted <code>irq_beat</code>, and captured the exact interval count."</em></li>
+</ul>
+<h3>Q2: "Why does the AXI waveform show Address Write (<code>AW</code>) and Data Write (<code>W</code>) at different times?"</h3>
+<ul>
+<li><strong>Point to:</strong> <code>s_axi_awvalid</code> pulsing at $t = 12$ and <code>s_axi_wvalid</code> pulsing at $t = 24$.</li>
+<li><strong>Say:</strong> <em>"That is our decoupled AXI4-Lite handshake. Modern ARM AXI crossbars do not guarantee that address and data arrive simultaneously. By using independent <code>aw_done</code> and <code>w_done</code> status registers, our hardware guarantees zero deadlocks regardless of bus latency."</em></li>
+</ul>
+<h3>Q3: "How does the ShrikeFi 4-bit bus know whether a nibble is a command or data?"</h3>
+<ul>
+<li><strong>Point to:</strong> <code>link_din</code> transitioning from <code>CMD_WRITE_RED (0x1)</code> to <code>HIGH (0x7)</code> and <code>LOW (0x8)</code>.</li>
+<li><strong>Say:</strong> <em>"The protocol is state-driven. In <code>ST_IDLE</code>, the first strobe pulse is always decoded as a 4-bit command header. Depending on the opcode, the FSM transitions into multi-cycle payload ingestion states (<code>ST_W_RED_H</code> followed by <code>ST_W_RED_L</code>), guaranteeing cycle-accurate framing without packet overhead."</em></li>
+</ul>
+<h3>Q4: "Why do you need 20 ns timing accuracy when human heart rate is only ~1 Hz (60 BPM)?"</h3>
+<ul>
+<li><strong>Say:</strong> <em>"Heart Rate Variability (HRV) analysis—specifically </em><em>RMSSD</em><em> for parasympathetic stress detection—requires sub-millisecond precision between consecutive R-waves. Microcontroller timers suffer from 5 to 20 ms of interrupt latency and RTOS task switching jitter. Our dedicated 50 MHz FPGA hardware counter measures intervals with </em><em>20-nanosecond physical accuracy</em><em>, eliminating 100% of software jitter."</em></li>
+</ul>
+<h3>Q5: "What is the real measured speed vs. theoretical maximum speed of your 4-bit link?"</h3>
+<ul>
+<li><strong>Say:</strong> <em>"In our current firmware bring-up driver, we use a conservative bit-banged strobe with 1 µs half-cycle delays (~500 kHz), taking </em><em>18 µs</em><em> for a complete 32-bit IBI read—which uses less than </em><em>0.1% of our 20,000 µs optical sampling window</em><em>. In our verified hardware simulation, the protocol supports up to </em><em>10 MHz</em><em> ($T_{\text{strobe}} = 100\text{ ns}$), transferring the full 32-bit timestamp in </em><em>900 nanoseconds</em><em> (5.0 MB/s raw bandwidth) when driven by a hardware timer or SPI-assisted clock."</em></li>
+</ul>
+<hr />
+<h1>6. THE SENSOR SUITE — WHAT EACH SENSOR DOES &amp; WHY</h1>
+<table>
+<thead>
+<tr>
 <th>Sensor</th>
 <th>Vital Metric Measured</th>
 <th>Why It Is Essential for Disasters</th>
-</tr></thead><tbody>
+</tr>
+</thead>
+<tbody>
 <tr>
 <td><strong>MAX30102</strong></td>
-<td>Red & IR Photoplethysmography (PPG), Blood Oxygen (SpO2), On-Chip Die Temperature</td>
+<td>Red &amp; IR Photoplethysmography (PPG), Blood Oxygen (SpO2), On-Chip Die Temperature</td>
 <td>Detects heart rate, Heart Rate Variability (HRV), hypoxemia from smoke inhalation, and skin microclimate cooling during flood immersion.</td>
 </tr>
 <tr>
 <td><strong>BME280</strong></td>
-<td>Ambient Temperature (°C) & Relative Humidity (%)</td>
+<td>Ambient Temperature (°C) &amp; Relative Humidity (%)</td>
 <td>Calculates the Steadman Heat Index. High humidity prevents sweat evaporation, causing lethal core temperature spikes even at 38°C.</td>
 </tr>
 <tr>
@@ -662,15 +437,12 @@ strong {
 <td>128×64 Monochrome OLED Display</td>
 <td>Provides real-time visual triaging (Green/Yellow/Orange/Red) directly on the worker's wrist without needing a paired phone or cellular signal.</td>
 </tr>
-</tbody></table></div>
-
-<hr class="divider"/>
-
-<h1 class="part-title">7. THE SOFTWARE & EDGE AI (TinyML) SIDE</h1>
-
-<p class="paragraph">Our firmware features a <strong>Hybrid Risk Assessment Engine</strong> combining deterministic clinical rules with an ultra-fast INT8 Quantized Neural Network.</p>
-
-<pre class="code-block "><code>       [ 6-INPUT SENSOR FUSION VECTOR ]
+</tbody>
+</table>
+<hr />
+<h1>7. THE SOFTWARE &amp; EDGE AI (TinyML) SIDE</h1>
+<p>Our firmware features a <strong>Hybrid Risk Assessment Engine</strong> combining deterministic clinical rules with an ultra-fast INT8 Quantized Neural Network.</p>
+<p><code>[ 6-INPUT SENSOR FUSION VECTOR ]
   ┌───────────────────────────────────────────────┐
   │ 1. Heart Rate (BPM)    4. Ambient Temp (°C)   │
   │ 2. HRV RMSSD (ms)      5. Relative Hum (%)    │
@@ -692,111 +464,120 @@ strong {
                                ▼
             [ UNIFIED TRIAGE &amp; ADVISORY OUTPUT ]
             • Normal (Green)     • High (Orange)
-            • Moderate (Yellow)  • Critical (Red Alert)
-</code></pre>
-
-<h3 class="subsection-title">1. The Clinical Rule Engine (<code>disaster<em>risk</em>engine.c</code>)</h3>
-<p class="paragraph">Calculates medical indices developed specifically for occupational heat and smog strain:</p>
-<div class="bullet-item">• <strong>Cardio-Thermal Strain Index (CTSI):</strong> Combines ambient heat index with cardiovascular drift ($\Delta\text{HR}$) and HRV collapse. If Temp > 42°C and HR > 130 BPM with RMSSD < 10 ms, flags <strong>CRITICAL HEAT RISK</strong>.</div>
-<div class="bullet-item">• <strong>Pollution Respiratory Strain Index (PRSI):</strong> Fuses PM2.5 particulate concentration with blood oxygen desaturation. If PM2.5 > 300 $\mu\text{g}/\text{m}^3$ and $\text{SpO}_2 < 88\%$, flags <strong>CRITICAL POLLUTION RISK</strong>.</div>
-
-<h3 class="subsection-title">2. INT8 Quantized Neural Network (<code>nn<em>risk</em>model_int8.c</code>)</h3>
-<div class="bullet-item">• <strong>Architecture:</strong> Multi-Layer Perceptron (6 Input neurons $\rightarrow$ 12 Hidden neurons with ReLU $\rightarrow$ 3 Output neurons with Sigmoid: Heat, Pollution, and Flood risk scores).</div>
-<div class="bullet-item">• <strong>INT8 Quantization:</strong> All floating-point operations were converted to 8-bit integer matrix multiplications using pre-calculated scale factors and zero-points. Inference takes <strong>under 1 microsecond</strong> on an ESP32-S3 or ARM CPU, consuming negligible battery.</div>
-<div class="bullet-item">• <strong>Knowledge Distillation Training:</strong></div>
-<div class="bullet-item">• The deterministic Rule Engine served as the <strong>"Teacher"</strong>.</div>
-<div class="bullet-item">• We synthesized 62,000 extreme multi-variable disaster scenarios and trained the <strong>"Student"</strong> (Neural Network) to mimic the clinical score gradient.</div>
-<div class="bullet-item">• Achieved <strong>85.71% classification accuracy</strong> on a 6,200-scenario unseen validation test set while running 10× faster than full floating-point evaluation.</div>
-
-<hr class="divider"/>
-
-<h1 class="part-title">8. KILLER ANALOGIES CHEAT-SHEET (For Judges & Team Defense)</h1>
-
-<p class="paragraph">Use these exact analogies when explaining the project to non-technical judges or team members:</p>
-
-<h3 class="subsection-title">1. The "CEO and the Automated Assembly Line" (Why FPGA Acceleration?)</h3>
-<div class="callout-box">*"Think of the microcontroller CPU as a brilliant CEO. If you force the CEO to manually inspect 50 raw optical heartbeat readings every second, they have to stop everything, do math, and burn battery. They become overwhelmed and have no time to make big decisions.<br>Instead, we used the FPGA fabric to build an <strong>automated factory conveyor belt</strong>. The raw light signals pass through our hardware filter and peak detector, which smooth the wave and count the pulse intervals in silicon. The hardware conveyor belt simply hands the CEO a finished note saying: 'Heart rate is 128, IBI is 468 ms.' Now the CEO's entire brain is free to run our TinyML Neural Network."*</div>
-
-<h3 class="subsection-title">2. The "Formula 1 Wind Tunnel vs. The Pocket Commuter" (Why Two FPGAs?)</h3>
-<div class="callout-box">*"The Xilinx Zynq-7000 was our Formula 1 wind tunnel: an industrial-grade testing platform where we proved our custom Verilog circuits were mathematically sound and closed timing at 69.45 MHz.<br>But you can't give a $250 development board to an agricultural worker in rural Bihar. The ShrikeFi platform (Renesas ForgeFPGA + ESP32-S3) is our production pocket commuter: it runs the exact same Verilog filter logic on a $1.50 micro-FPGA, projecting the entire at-scale device cost under $20 while retaining hardware acceleration."*</div>
-
-<h3 class="subsection-title">3. The "Smart Elevator Scale" (Why is the Filter $O(1)$?)</h3>
-<div class="callout-box">*"Imagine calculating the average weight of 8 people inside an elevator. When a new person steps in and the oldest person leaves, a naive algorithm asks all 8 people to step on the scale again, adds up their weights, and divides by 8. That wastes time.<br>Our $O(1)$ hardware filter acts like a smart scale: it remembers the previous running sum, subtracts the weight of the person who left, and adds the new person. It does this in a single 20-nanosecond clock cycle, regardless of how large the filter window is."*</div>
-
-<h3 class="subsection-title">4. The "4-Lane Walkie-Talkie" (How the ShrikeFi 4-bit Link Works)</h3>
-<div class="callout-box">*"On large computer chips, components talk over 32 separate parallel copper tracks (like a 32-lane highway). On our compact micro-FPGA, we only have 4 data pins.<br>We built a 4-lane high-speed walkie-talkie: when the ESP32 needs to send an 8-bit sensor reading, it sends the command code, slices the sample into two 4-bit 'nibbles', sends the first half, rings a digital doorbell (strobe), sends the second half, and rings the bell again. The FPGA snaps the two halves together in hardware in single-digit microseconds during software bring-up, and under 300 nanoseconds at maximum protocol clocking."*</div>
-
-<h3 class="subsection-title">5. The "Paramedic & The AI Chief Physician" (Dual-Core FreeRTOS Partitioning)</h3>
-<div class="callout-box">*"On the ESP32-S3, Core 0 is our dedicated paramedic in the ambulance: it never leaves the patient, sampling optical vitals at 50 Hz and exchanging packets with the FPGA link without ever dropping a beat.<br>Core 1 is the Chief Physician at the hospital: it takes the clean data, gathers environmental readings, runs the AI Neural Network, calculates disaster risk scores, and updates the wrist display."*</div>
-
-<h3 class="subsection-title">6. The "Teacher and the Student" (How the AI was Trained)</h3>
-<div class="callout-box">*"Our clinical Rule Engine is a strict medical professor: 100% accurate according to published papers, but heavy and slow to calculate.<br>Our Neural Network is an eager student. We gave the student 62,000 flashcards of extreme heatwaves and toxic smog scenarios. The professor graded every flashcard. By learning from its mistakes over 100 epochs of gradient descent, the student learned to make the exact same life-saving triage decisions in under 1 microsecond."*</div>
-
-<hr class="divider"/>
-
-<h1 class="part-title">9. LIKELY JUDGE QUESTIONS & WINNING DEFENSE ANSWERS</h1>
-
-<h3 class="subsection-title">Q1: "Why did you build custom Verilog RTL instead of just doing everything in C on the ESP32-S3?"</h3>
-<div class="bullet-item">• <strong>Answer:</strong> <em>"Three reasons: Determinism, CPU offloading, and Power. Software signal processing on an RTOS suffers from interrupt latency and task jitter when WiFi or sensor interrupts fire. Our FPGA accelerator processes raw PPG samples at hardware clock speeds with zero CPU overhead, allowing the microcontroller to stay in low-power sleep modes between assessments."</em></div>
-
-<h3 class="subsection-title">Q2: "How did you manage to fit your design into Renesas ForgeFPGA's tiny 1120 LUT capacity?"</h3>
-<div class="bullet-item">• <strong>Answer:</strong> <em>"Our architecture was designed from day one to be ultra-lean. By using an $O(1)$ running-sum filter with bit-shift division and an accumulator-based peak detector, our entire ShrikeFi design consumes just <strong>195 LUTs (17.41%)</strong> and <strong>110 flip-flops</strong>, with zero DSP multiplier blocks and zero Block RAM. Over 82% of the FPGA remains free."</em></div>
-
-<h3 class="subsection-title">Q3: "What makes your 4-bit link better than standard SPI or I2C?"</h3>
-<div class="bullet-item">• <strong>Answer:</strong> <em>"I2C is too slow (400 kHz) with heavy bus addressing, and SPI has protocol framing overhead. Our custom 4-bit parallel nibble link provides a dedicated hardware strobe and direct register-level latching. In our current bit-banged bring-up driver, a complete 32-bit IBI timestamp transfer takes only <strong>18 microseconds</strong> (occupying less than 0.1% of the 50 Hz optical sampling window). At our verified 10 MHz simulation target with hardware-assisted strobing, it transfers in <strong>900 nanoseconds</strong> (5.0 MB/s raw bandwidth) with zero protocol bloat."</em></div>
-
-<h3 class="subsection-title">Q4: "What happens if the PM2.5 air quality sensor gets clogged or malfunctions?"</h3>
-<div class="bullet-item">• <strong>Answer:</strong> <em>"Our system uses cross-sensor validation. If the PMS5003 reports hazardous PM2.5 = 500 but the user's blood oxygen is a healthy 99% and heart rate is 65 BPM, our sensor fusion engine recognizes the biometric mismatch, suppresses panic sirens, and flags a 'Sensor Check Advisory' on the OLED display."</em></div>
-
-<h3 class="subsection-title">Q5: "How does this project transition to Qualcomm Snapdragon Wear?"</h3>
-<div class="bullet-item">• <strong>Answer:</strong> <em>"Our architecture is explicitly decoupled for platform migration. The Verilog DSP pipeline in <code>hardware/common/</code> maps directly onto Qualcomm's Hexagon DSP core, while our C-based INT8 Neural Network executes natively on the Qualcomm Snapdragon Neural Processing Engine (SNPE) / NPU without architectural changes."</em></div>
-
-<hr class="divider"/>
-
-<h1 class="part-title">10. CLINICAL REFERENCES & SCIENTIFIC FOUNDATIONS</h1>
-
-<div class="table-container"><table>
-<thead><tr>
+            • Moderate (Yellow)  • Critical (Red Alert)</code></p>
+<h3>1. The Clinical Rule Engine (<code>disaster_risk_engine.c</code>)</h3>
+<p>Calculates medical indices developed specifically for occupational heat and smog strain:
+* <strong>Cardio-Thermal Strain Index (CTSI):</strong> Combines ambient heat index with cardiovascular drift ($\Delta\text{HR}$) and HRV collapse. If Temp &gt; 42°C and HR &gt; 130 BPM with RMSSD &lt; 10 ms, flags <strong>CRITICAL HEAT RISK</strong>.
+* <strong>Pollution Respiratory Strain Index (PRSI):</strong> Fuses PM2.5 particulate concentration with blood oxygen desaturation. If PM2.5 &gt; 300 $\mu\text{g}/\text{m}^3$ and $\text{SpO}_2 &lt; 88\%$, flags <strong>CRITICAL POLLUTION RISK</strong>.</p>
+<h3>2. INT8 Quantized Neural Network (<code>nn_risk_model_int8.c</code>)</h3>
+<ul>
+<li><strong>Architecture:</strong> Multi-Layer Perceptron (6 Input neurons $\rightarrow$ 12 Hidden neurons with ReLU $\rightarrow$ 3 Output neurons with Sigmoid: Heat, Pollution, and Flood risk scores).</li>
+<li><strong>INT8 Quantization:</strong> All floating-point operations were converted to 8-bit integer matrix multiplications using pre-calculated scale factors and zero-points. Inference takes <strong>under 1 microsecond</strong> on an ESP32-S3 or ARM CPU, consuming negligible battery.</li>
+<li><strong>Knowledge Distillation Training:</strong></li>
+<li>The deterministic Rule Engine served as the <strong>"Teacher"</strong>.</li>
+<li>We synthesized 62,000 extreme multi-variable disaster scenarios and trained the <strong>"Student"</strong> (Neural Network) to mimic the clinical score gradient.</li>
+<li>Achieved <strong>85.71% classification accuracy</strong> on a 6,200-scenario unseen validation test set while running 10× faster than full floating-point evaluation.</li>
+</ul>
+<hr />
+<h1>8. KILLER ANALOGIES CHEAT-SHEET (For Judges &amp; Team Defense)</h1>
+<p>Use these exact analogies when explaining the project to non-technical judges or team members:</p>
+<h3>1. The "CEO and the Automated Assembly Line" (Why FPGA Acceleration?)</h3>
+<blockquote>
+<p><em>"Think of the microcontroller CPU as a brilliant CEO. If you force the CEO to manually inspect 50 raw optical heartbeat readings every second, they have to stop everything, do math, and burn battery. They become overwhelmed and have no time to make big decisions.<br />
+Instead, we used the FPGA fabric to build an </em><em>automated factory conveyor belt</em><em>. The raw light signals pass through our hardware filter and peak detector, which smooth the wave and count the pulse intervals in silicon. The hardware conveyor belt simply hands the CEO a finished note saying: 'Heart rate is 128, IBI is 468 ms.' Now the CEO's entire brain is free to run our TinyML Neural Network."</em></p>
+</blockquote>
+<h3>2. The "Formula 1 Wind Tunnel vs. The Pocket Commuter" (Why Two FPGAs?)</h3>
+<blockquote>
+<p><em>"The Xilinx Zynq-7000 was our Formula 1 wind tunnel: an industrial-grade testing platform where we proved our custom Verilog circuits were mathematically sound and closed timing at 69.45 MHz.<br />
+But you can't give a $250 development board to an agricultural worker in rural Bihar. The ShrikeFi platform (Renesas ForgeFPGA + ESP32-S3) is our production pocket commuter: it runs the exact same Verilog filter logic on a $1.50 micro-FPGA, projecting the entire at-scale device cost under $20 while retaining hardware acceleration."</em></p>
+</blockquote>
+<h3>3. The "Smart Elevator Scale" (Why is the Filter $O(1)$?)</h3>
+<blockquote>
+<p><em>"Imagine calculating the average weight of 8 people inside an elevator. When a new person steps in and the oldest person leaves, a naive algorithm asks all 8 people to step on the scale again, adds up their weights, and divides by 8. That wastes time.<br />
+Our $O(1)$ hardware filter acts like a smart scale: it remembers the previous running sum, subtracts the weight of the person who left, and adds the new person. It does this in a single 20-nanosecond clock cycle, regardless of how large the filter window is."</em></p>
+</blockquote>
+<h3>4. The "4-Lane Walkie-Talkie" (How the ShrikeFi 4-bit Link Works)</h3>
+<blockquote>
+<p><em>"On large computer chips, components talk over 32 separate parallel copper tracks (like a 32-lane highway). On our compact micro-FPGA, we only have 4 data pins.<br />
+We built a 4-lane high-speed walkie-talkie: when the ESP32 needs to send an 8-bit sensor reading, it sends the command code, slices the sample into two 4-bit 'nibbles', sends the first half, rings a digital doorbell (strobe), sends the second half, and rings the bell again. The FPGA snaps the two halves together in hardware in single-digit microseconds during software bring-up, and under 300 nanoseconds at maximum protocol clocking."</em></p>
+</blockquote>
+<h3>5. The "Paramedic &amp; The AI Chief Physician" (Dual-Core FreeRTOS Partitioning)</h3>
+<blockquote>
+<p><em>"On the ESP32-S3, Core 0 is our dedicated paramedic in the ambulance: it never leaves the patient, sampling optical vitals at 50 Hz and exchanging packets with the FPGA link without ever dropping a beat.<br />
+Core 1 is the Chief Physician at the hospital: it takes the clean data, gathers environmental readings, runs the AI Neural Network, calculates disaster risk scores, and updates the wrist display."</em></p>
+</blockquote>
+<h3>6. The "Teacher and the Student" (How the AI was Trained)</h3>
+<blockquote>
+<p><em>"Our clinical Rule Engine is a strict medical professor: 100% accurate according to published papers, but heavy and slow to calculate.<br />
+Our Neural Network is an eager student. We gave the student 62,000 flashcards of extreme heatwaves and toxic smog scenarios. The professor graded every flashcard. By learning from its mistakes over 100 epochs of gradient descent, the student learned to make the exact same life-saving triage decisions in under 1 microsecond."</em></p>
+</blockquote>
+<hr />
+<h1>9. LIKELY JUDGE QUESTIONS &amp; WINNING DEFENSE ANSWERS</h1>
+<h3>Q1: "Why did you build custom Verilog RTL instead of just doing everything in C on the ESP32-S3?"</h3>
+<ul>
+<li><strong>Answer:</strong> <em>"Three reasons: Determinism, CPU offloading, and Power. Software signal processing on an RTOS suffers from interrupt latency and task jitter when WiFi or sensor interrupts fire. Our FPGA accelerator processes raw PPG samples at hardware clock speeds with zero CPU overhead, allowing the microcontroller to stay in low-power sleep modes between assessments."</em></li>
+</ul>
+<h3>Q2: "How did you manage to fit your design into Renesas ForgeFPGA's tiny 1120 LUT capacity?"</h3>
+<ul>
+<li><strong>Answer:</strong> <em>"Our architecture was designed from day one to be ultra-lean. By using an $O(1)$ running-sum filter with bit-shift division and an accumulator-based peak detector, our entire ShrikeFi design consumes just </em><em>195 LUTs (17.41%)</em><em> and </em><em>110 flip-flops</em><em>, with zero DSP multiplier blocks and zero Block RAM. Over 82% of the FPGA remains free."</em></li>
+</ul>
+<h3>Q3: "What makes your 4-bit link better than standard SPI or I2C?"</h3>
+<ul>
+<li><strong>Answer:</strong> <em>"I2C is too slow (400 kHz) with heavy bus addressing, and SPI has protocol framing overhead. Our custom 4-bit parallel nibble link provides a dedicated hardware strobe and direct register-level latching. In our current bit-banged bring-up driver, a complete 32-bit IBI timestamp transfer takes only </em><em>18 microseconds</em><em> (occupying less than 0.1% of the 50 Hz optical sampling window). At our verified 10 MHz simulation target with hardware-assisted strobing, it transfers in </em><em>900 nanoseconds</em><em> (5.0 MB/s raw bandwidth) with zero protocol bloat."</em></li>
+</ul>
+<h3>Q4: "What happens if the PM2.5 air quality sensor gets clogged or malfunctions?"</h3>
+<ul>
+<li><strong>Answer:</strong> <em>"Our system uses cross-sensor validation. If the PMS5003 reports hazardous PM2.5 = 500 but the user's blood oxygen is a healthy 99% and heart rate is 65 BPM, our sensor fusion engine recognizes the biometric mismatch, suppresses panic sirens, and flags a 'Sensor Check Advisory' on the OLED display."</em></li>
+</ul>
+<h3>Q5: "How does this project transition to Qualcomm Snapdragon Wear?"</h3>
+<ul>
+<li><strong>Answer:</strong> <em>"Our architecture is explicitly decoupled for platform migration. The Verilog DSP pipeline in <code>hardware/common/</code> maps directly onto Qualcomm's Hexagon DSP core, while our C-based INT8 Neural Network executes natively on the Qualcomm Snapdragon Neural Processing Engine (SNPE) / NPU without architectural changes."</em></li>
+</ul>
+<hr />
+<h1>10. CLINICAL REFERENCES &amp; SCIENTIFIC FOUNDATIONS</h1>
+<table>
+<thead>
+<tr>
 <th>Clinical Index</th>
 <th>Scientific Source</th>
-<th>Formulation & Thresholds in SIH26181</th>
-</tr></thead><tbody>
+<th>Formulation &amp; Thresholds in SIH26181</th>
+</tr>
+</thead>
+<tbody>
 <tr>
 <td><strong>Steadman Heat Index</strong></td>
 <td>Robert G. Steadman (1979), <em>"The Assessment of Sultriness"</em>, Journal of Applied Meteorology.</td>
-<td>Combines Ambient Temp + Humidity. Index $> 40^\circ\text{C}$ triggers Caution; $> 54^\circ\text{C}$ triggers Critical Heat Hazard.</td>
+<td>Combines Ambient Temp + Humidity. Index $&gt; 40^\circ\text{C}$ triggers Caution; $&gt; 54^\circ\text{C}$ triggers Critical Heat Hazard.</td>
 </tr>
 <tr>
 <td><strong>Cardio-Thermal Strain (CTSI)</strong></td>
 <td>Moran et al., Physiological Strain Index (PSI) adapted for multi-sensor edge wearables.</td>
-<td>Fuses Heat Index with Cardiovascular Drift ($\text{HR} > 130\text{ BPM}$) and HRV collapse ($\text{RMSSD} < 10\text{ ms}$).</td>
+<td>Fuses Heat Index with Cardiovascular Drift ($\text{HR} &gt; 130\text{ BPM}$) and HRV collapse ($\text{RMSSD} &lt; 10\text{ ms}$).</td>
 </tr>
 <tr>
 <td><strong>Pollution Respiratory Strain (PRSI)</strong></td>
-<td>WHO Global Air Quality Guidelines (2021) & EPA AQI Technical Assistance Document.</td>
-<td>Fuses $\text{PM2.5} > 300\,\mu\text{g}/\text{m}^3$ (EPA "Hazardous" ceiling) with clinical hypoxemia ($\text{SpO}_2 < 88\%$).</td>
+<td>WHO Global Air Quality Guidelines (2021) &amp; EPA AQI Technical Assistance Document.</td>
+<td>Fuses $\text{PM2.5} &gt; 300\,\mu\text{g}/\text{m}^3$ (EPA "Hazardous" ceiling) with clinical hypoxemia ($\text{SpO}_2 &lt; 88\%$).</td>
 </tr>
 <tr>
-<td><strong>Hypothermia & Cold Shock</strong></td>
-<td>Golden & Tipton, <em>"Essentials of Sea Survival"</em>, Cold Water Immersion Stages.</td>
-<td>Tracks skin temperature proxy $< 32^\circ\text{C}$ combined with initial cold-shock tachycardia followed by severe bradycardia ($\text{HR} < 50\text{ BPM}$).</td>
+<td><strong>Hypothermia &amp; Cold Shock</strong></td>
+<td>Golden &amp; Tipton, <em>"Essentials of Sea Survival"</em>, Cold Water Immersion Stages.</td>
+<td>Tracks skin temperature proxy $&lt; 32^\circ\text{C}$ combined with initial cold-shock tachycardia followed by severe bradycardia ($\text{HR} &lt; 50\text{ BPM}$).</td>
 </tr>
-</tbody></table></div>
-
-<hr class="divider"/>
-
-<h1 class="part-title">11. GLOSSARY OF TERMS</h1>
-
-<div class="bullet-item">• <strong>AXI4-Lite:</strong> Advanced eXtensible Interface; standard memory-mapped point-to-point bus protocol for ARM SoC chips.</div>
-<div class="bullet-item">• <strong>CTSI:</strong> Cardio-Thermal Strain Index; our custom index quantifying physiological heat stress.</div>
-<div class="bullet-item">• <strong>FSM:</strong> Finite State Machine; a sequential digital hardware circuit transitioning between distinct operating states.</div>
-<div class="bullet-item">• <strong>IBI:</strong> Inter-Beat Interval; the exact elapsed time (in milliseconds or 20 ns clock ticks) between consecutive R-wave peaks.</div>
-<div class="bullet-item">• <strong>INT8 Quantization:</strong> Compressing 32-bit floating-point neural network weights into 8-bit signed integers for high-speed integer ALU execution.</div>
-<div class="bullet-item">• <strong>Nibble:</strong> A 4-bit aggregation of binary data (half an 8-bit byte).</div>
-<div class="bullet-item">• <strong>PRSI:</strong> Pollution Respiratory Strain Index; our custom index quantifying respiratory distress during smoke/smog events.</div>
-<div class="bullet-item">• <strong>RMSSD:</strong> Root Mean Square of Successive Differences; the clinical gold standard for measuring parasympathetic Heart Rate Variability (HRV).</div>
-<div class="bullet-item">• <strong>SoC:</strong> System on Chip; an integrated circuit combining CPU cores, memory, peripherals, and FPGA fabric.</div>
-
-
+</tbody>
+</table>
+<hr />
+<h1>11. GLOSSARY OF TERMS</h1>
+<ul>
+<li><strong>AXI4-Lite:</strong> Advanced eXtensible Interface; standard memory-mapped point-to-point bus protocol for ARM SoC chips.</li>
+<li><strong>CTSI:</strong> Cardio-Thermal Strain Index; our custom index quantifying physiological heat stress.</li>
+<li><strong>FSM:</strong> Finite State Machine; a sequential digital hardware circuit transitioning between distinct operating states.</li>
+<li><strong>IBI:</strong> Inter-Beat Interval; the exact elapsed time (in milliseconds or 20 ns clock ticks) between consecutive R-wave peaks.</li>
+<li><strong>INT8 Quantization:</strong> Compressing 32-bit floating-point neural network weights into 8-bit signed integers for high-speed integer ALU execution.</li>
+<li><strong>Nibble:</strong> A 4-bit aggregation of binary data (half an 8-bit byte).</li>
+<li><strong>PRSI:</strong> Pollution Respiratory Strain Index; our custom index quantifying respiratory distress during smoke/smog events.</li>
+<li><strong>RMSSD:</strong> Root Mean Square of Successive Differences; the clinical gold standard for measuring parasympathetic Heart Rate Variability (HRV).</li>
+<li><strong>SoC:</strong> System on Chip; an integrated circuit combining CPU cores, memory, peripherals, and FPGA fabric.</li>
+</ul>
 </body>
 </html>
