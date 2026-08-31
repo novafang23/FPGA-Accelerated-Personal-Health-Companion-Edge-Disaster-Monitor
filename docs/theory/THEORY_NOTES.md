@@ -35,7 +35,7 @@ If asked why this isn't just another Arduino/Raspberry Pi project, use these 4 c
 * **Vulnerable Citizens:** Elderly individuals, asthma patients, and individuals with cardiovascular disease during extreme climate events.
 
 ### 6. The Vision (Closing the Pitch)
-*"We have validated our custom hardware on the Xilinx Zynq-7000 baseline, deployed an ultra-affordable wearable architecture (projected <$20 at-scale bulk manufacturing BOM) on the Renesas ForgeFPGA + ESP32-S3 ShrikeFi platform, and mapped the full migration path to Qualcomm Snapdragon Wear."*
+*"We have validated our custom hardware on the Xilinx Zynq-7000 baseline, deployed an ultra-affordable wearable architecture (prototype cost ~$51: ~$11.50 for the integrated ShrikeFi ForgeFPGA/ESP32 board + ~$40 sensors, projected <$20 at-scale bulk manufacturing BOM) on the ShrikeFi platform, and mapped the full migration path to Qualcomm Snapdragon Wear."*
 
 ---
 
@@ -75,7 +75,7 @@ Here is the exact story and rationale to present:
 
 ### The "Formula 1 Rig vs. The Pocket Commuter" Analogy
 * **Xilinx Zynq-7000 = The Formula 1 Wind Tunnel:** A heavy, multi-hundred-dollar development platform used by aerospace engineers to test aerodynamic wings under extreme conditions. It proved our Verilog RTL was mathematically flawless and met strict 20 ns timing resolution.
-* **ShrikeFi (ForgeFPGA + ESP32-S3) = The Mass-Market Commuter:** You cannot hand a $250 development board to a construction worker in Delhi. ShrikeFi pairs a $1.50 Renesas ForgeFPGA with a $3.00 ESP32-S3 to deliver the exact same silicon-level acceleration with a projected at-scale manufacturing Bill of Materials (BOM) under $20.
+* **ShrikeFi (ForgeFPGA + ESP32-S3) = The Mass-Market Commuter:** You cannot hand a $250 development board to a construction worker in Delhi. ShrikeFi pairs a Renesas ForgeFPGA with an ESP32-S3 on a single integrated development board for ~$11.50. Combined with a ~$40 sensor suite, it delivers the exact same silicon-level acceleration for ~$51 (prototype), with a projected at-scale manufacturing BOM under $20.
 * **Vendor-Agnostic Core:** We did **not** rewrite the filter or peak detector for ShrikeFi. The core Verilog math in `hardware/common/` is 100% vendor-agnostic and synthesized directly onto both Xilinx (6-input LUTs) and Renesas (5-input LUTs).
 
 ---
@@ -169,10 +169,10 @@ Digital hardware circuits do not "execute instructions" like C code or Python. T
 2. **`ppg_peak_detector.v` (`hardware/common/` — The Systolic Peak Radar):**
    * *What it does:* Tracks systolic pressure waves and measures the Inter-Beat Interval (IBI) between consecutive heartbeats with **20-nanosecond accuracy**.
    * *The 4-State Flowchart:*
-     1. `STATE_ARMED (00)`: Waiting for the signal to rise above the dynamic threshold.
-     2. `STATE_RISING (01)`: Tracking the rising slope until the sample drops (`sample < prev_sample`), confirming the local maximum.
+     1. `STATE_ARMED (00)`: Waiting for the signal to rise above the dynamic threshold (`reg_threshold`).
+     2. `STATE_RISING (01)`: Tracking the rising slope. To filter out quantization noise, it requires **two consecutive decreasing samples** before confirming the local maximum.
      3. `STATE_PEAK_FOUND (10)`: Captures the exact clock cycle count, asserts `beat_detected`, and resets the timer.
-     4. `STATE_REFRACTORY (11)`: Enforces a 250 ms blanking window so the dicrotic notch (secondary rebound wave in arteries) does not trigger a false second heartbeat.
+     4. `STATE_REFRACTORY (11)`: Enforces a 250 ms blanking window so the dicrotic notch does not trigger a false second heartbeat. Crucially, the signal must also **drop back below the dynamic threshold** before re-arming, preventing false triggers on elevated baselines.
 
 3. **`axi_ppg_accelerator.v` (`hardware/zynq/` — The Zynq AXI4-Lite Wrapper):**
    * *What it does:* Memory-mapped AXI4-Lite slave wrapper for the Xilinx Zynq-7000 SoC (`0x43C00000`), providing register-level access (`REG_RED_RAW`, `REG_IBI_CYCLES`, `REG_STATUS_THRESH`) and Write-1-to-Clear interrupt management.
@@ -228,9 +228,9 @@ The Zynq simulation captures the full system lifecycle: AXI register configurati
 
 #### B. The 4-State Systolic Peak Detector (Jitter-Free Peak Detection)
 * **State 00 (`STATE_ARMED`):** The wave is below the programmable threshold (`reg_threshold = 120`). The detector ignores all baseline motion noise.
-* **State 01 (`STATE_RISING`):** The filtered PPG signal crosses above threshold 120. The FSM tracks the rising slope by comparing each sample against `prev_sample`.
-* **State 10 (`STATE_PEAK_FOUND`):** The slope flips negative (`sample < prev_sample`). This marks the mathematical local maximum. The FSM asserts `irq_beat = 1`, copies `interval_cnt` to `ibi_cycles`, and resets the timer.
-* **State 11 (`STATE_REFRACTORY`):** The FSM enters a **250 ms blanking window** (`REFRACTORY_CYC = 12,500,000` cycles at 50 MHz). This physically prevents the **dicrotic notch** (the secondary aortic valve rebound pulse) from creating a false second heartbeat.
+* **State 01 (`STATE_RISING`):** The filtered PPG signal crosses above threshold 120. The FSM tracks the rising slope and requires **two consecutive decreasing samples** to confirm a peak, eliminating single-sample noise glitches.
+* **State 10 (`STATE_PEAK_FOUND`):** The true peak is confirmed. The FSM asserts `irq_beat = 1`, copies `interval_cnt` to `ibi_cycles`, and resets the timer.
+* **State 11 (`STATE_REFRACTORY`):** The FSM enters a **250 ms blanking window** (`REFRACTORY_CYC = 12,500,000` cycles at 50 MHz). The signal must also completely drop back below the threshold before re-arming, preventing false triggers.
 
 ---
 
@@ -276,8 +276,8 @@ On the ultra-low-cost ShrikeFi platform, there are no 32-bit buses. All operatio
    * Nibble 4 (`N4`): `0x0` (Bits `[15:12]`)
    * Nibble 5 (`N5`): `0xC` (Bits `[11:8]`)
    * Nibble 6 (`N6`): `0xD` (Bits `[7:4]`)
-   * Nibble 7 (`N7`): `0x1` (Bits `[3:0]`)
-   * *Reassembled 32-Bit Value:* `0x00000CD1` = **3281 clock cycles** (exactly $65.62\text{ µs}$ at 50 MHz).
+   * Nibble 7 (`N7`): `0xF` (Bits `[3:0]`)
+   * *Reassembled 32-Bit Value:* `0x00000CCF` = **3279 clock cycles** (exactly $65.58\text{ µs}$ at 50 MHz).
 4. **Clear Interrupt:** ESP32 switches `link_dir = 0` and sends `link_din = 0x7` (`CMD_CLEAR_IRQ`), resetting `irq_beat` back to 0.
 
 ---
@@ -288,7 +288,7 @@ When presenting your timing diagrams, judges will probe your understanding with 
 
 ### Q1: "Point to the exact moment a heartbeat is detected on the waveform."
 * **Point to:** The rising edge of `irq_beat` (where `filter_red` crests and begins to decrease).
-* **Say:** *"Right here at $t = 65\text{ cycles}$. Notice that `filter_red_out` reached its local maximum of 140, and on the very next sample it dropped to 139. Our systolic FSM detected the negative slope change in a single clock cycle, asserted `irq_beat`, and captured the exact interval count."*
+* **Say:** *"Right here at $t = 65\text{ cycles}$. Notice that `filter_red_out` reached its local maximum, and we waited for exactly **two consecutive dropping samples** to ensure it wasn't just quantization noise. Once confirmed, our systolic FSM asserted `irq_beat`, capturing the interval count."*
 
 ### Q2: "Why does the AXI waveform show Address Write (`AW`) and Data Write (`W`) at different times?"
 * **Point to:** `s_axi_awvalid` pulsing at $t = 12$ and `s_axi_wvalid` pulsing at $t = 24$.
@@ -349,7 +349,7 @@ Our firmware features a **Hybrid Risk Assessment Engine** combining deterministi
 
 ### 1. The Clinical Rule Engine (`disaster_risk_engine.c`)
 Calculates medical indices developed specifically for occupational heat and smog strain:
-* **Cardio-Thermal Strain Index (CTSI):** Combines ambient heat index with cardiovascular drift ($\Delta\text{HR}$) and HRV collapse. If Temp > 42°C and HR > 130 BPM with RMSSD < 10 ms, flags **CRITICAL HEAT RISK**.
+* **Cardio-Thermal Strain Index (CTSI):** Combines ambient heat index with cardiovascular drift ($\Delta\text{HR}$) and HRV collapse. If Heat Index > 54°C and HR > 130 BPM with RMSSD < 10 ms, flags **CRITICAL HEAT RISK**.
 * **Pollution Respiratory Strain Index (PRSI):** Fuses PM2.5 particulate concentration with blood oxygen desaturation. If PM2.5 > 300 $\mu\text{g}/\text{m}^3$ and $\text{SpO}_2 < 88\%$, flags **CRITICAL POLLUTION RISK**.
 
 ### 2. INT8 Quantized Neural Network (`nn_risk_model_int8.c`)
@@ -415,10 +415,10 @@ Use these exact analogies when explaining the project to non-technical judges or
 
 | Clinical Index | Scientific Source | Formulation & Thresholds in SIH26181 |
 |---|---|---|
-| **Steadman Heat Index** | Robert G. Steadman (1979), *"The Assessment of Sultriness"*, Journal of Applied Meteorology. | Combines Ambient Temp + Humidity. Index $> 40^\circ\text{C}$ triggers Caution; $> 54^\circ\text{C}$ triggers Critical Heat Hazard. |
+| **Steadman Heat Index** | Robert G. Steadman (1979), *"The Assessment of Sultriness"*, Journal of Applied Meteorology. | Combines Ambient Temp + Humidity. Index $> 35^\circ\text{C}$ triggers Caution, $> 40^\circ\text{C}$ triggers Moderate; $> 54^\circ\text{C}$ triggers Critical Heat Hazard. |
 | **Cardio-Thermal Strain (CTSI)** | Moran et al., Physiological Strain Index (PSI) adapted for multi-sensor edge wearables. | Fuses Heat Index with Cardiovascular Drift ($\text{HR} > 130\text{ BPM}$) and HRV collapse ($\text{RMSSD} < 10\text{ ms}$). |
 | **Pollution Respiratory Strain (PRSI)** | WHO Global Air Quality Guidelines (2021) & EPA AQI Technical Assistance Document. | Fuses $\text{PM2.5} > 300\,\mu\text{g}/\text{m}^3$ (EPA "Hazardous" ceiling) with clinical hypoxemia ($\text{SpO}_2 < 88\%$). |
-| **Hypothermia & Cold Shock** | Golden & Tipton, *"Essentials of Sea Survival"*, Cold Water Immersion Stages. | Tracks skin temperature proxy $< 32^\circ\text{C}$ combined with initial cold-shock tachycardia followed by severe bradycardia ($\text{HR} < 50\text{ BPM}$). |
+| **Hypothermia & Cold Shock** | Golden & Tipton, *"Essentials of Sea Survival"*, Cold Water Immersion Stages. | Tracks skin temperature proxy $< 32^\circ\text{C}$ (High) and $< 28^\circ\text{C}$ (Critical) combined with initial cold-shock tachycardia followed by severe bradycardia ($\text{HR} < 50\text{ BPM}$). |
 
 ---
 

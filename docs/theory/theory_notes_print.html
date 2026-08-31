@@ -46,7 +46,7 @@
 <li><strong>Vulnerable Citizens:</strong> Elderly individuals, asthma patients, and individuals with cardiovascular disease during extreme climate events.</li>
 </ul>
 <h3>6. The Vision (Closing the Pitch)</h3>
-<p><em>"We have validated our custom hardware on the Xilinx Zynq-7000 baseline, deployed an ultra-affordable wearable architecture (projected &lt;$20 at-scale bulk manufacturing BOM) on the Renesas ForgeFPGA + ESP32-S3 ShrikeFi platform, and mapped the full migration path to Qualcomm Snapdragon Wear."</em></p>
+<p><em>"We have validated our custom hardware on the Xilinx Zynq-7000 baseline, deployed an ultra-affordable wearable architecture (prototype cost ~$51: ~$11.50 for the integrated ShrikeFi ForgeFPGA/ESP32 board + ~$40 sensors, projected &lt;$20 at-scale bulk manufacturing BOM) on the ShrikeFi platform, and mapped the full migration path to Qualcomm Snapdragon Wear."</em></p>
 <hr />
 <h1>2. THE DUAL-FPGA STRATEGY — WHY TWO FPGAs?</h1>
 <p>A common question from technical judges is: <em>"Why does your repository have both Xilinx Zynq-7000 and Renesas ForgeFPGA (ShrikeFi) implementations?"</em></p>
@@ -79,7 +79,7 @@
 <h3>The "Formula 1 Rig vs. The Pocket Commuter" Analogy</h3>
 <ul>
 <li><strong>Xilinx Zynq-7000 = The Formula 1 Wind Tunnel:</strong> A heavy, multi-hundred-dollar development platform used by aerospace engineers to test aerodynamic wings under extreme conditions. It proved our Verilog RTL was mathematically flawless and met strict 20 ns timing resolution.</li>
-<li><strong>ShrikeFi (ForgeFPGA + ESP32-S3) = The Mass-Market Commuter:</strong> You cannot hand a $250 development board to a construction worker in Delhi. ShrikeFi pairs a $1.50 Renesas ForgeFPGA with a $3.00 ESP32-S3 to deliver the exact same silicon-level acceleration with a projected at-scale manufacturing Bill of Materials (BOM) under $20.</li>
+<li><strong>ShrikeFi (ForgeFPGA + ESP32-S3) = The Mass-Market Commuter:</strong> You cannot hand a $250 development board to a construction worker in Delhi. ShrikeFi pairs a Renesas ForgeFPGA with an ESP32-S3 on a single integrated development board for ~$11.50. Combined with a ~$40 sensor suite, it delivers the exact same silicon-level acceleration for ~$51 (prototype), with a projected at-scale manufacturing BOM under $20.</li>
 <li><strong>Vendor-Agnostic Core:</strong> We did <strong>not</strong> rewrite the filter or peak detector for ShrikeFi. The core Verilog math in <code>hardware/common/</code> is 100% vendor-agnostic and synthesized directly onto both Xilinx (6-input LUTs) and Renesas (5-input LUTs).</li>
 </ul>
 <hr />
@@ -166,10 +166,10 @@
 <li>
 <p><em>The 4-State Flowchart:</em></p>
 <ol>
-<li><code>STATE_ARMED (00)</code>: Waiting for the signal to rise above the dynamic threshold.</li>
-<li><code>STATE_RISING (01)</code>: Tracking the rising slope until the sample drops (<code>sample &lt; prev_sample</code>), confirming the local maximum.</li>
+<li><code>STATE_ARMED (00)</code>: Waiting for the signal to rise above the dynamic threshold (<code>reg_threshold</code>).</li>
+<li><code>STATE_RISING (01)</code>: Tracking the rising slope. To filter out quantization noise, it requires <strong>two consecutive decreasing samples</strong> before confirming the local maximum.</li>
 <li><code>STATE_PEAK_FOUND (10)</code>: Captures the exact clock cycle count, asserts <code>beat_detected</code>, and resets the timer.</li>
-<li><code>STATE_REFRACTORY (11)</code>: Enforces a 250 ms blanking window so the dicrotic notch (secondary rebound wave in arteries) does not trigger a false second heartbeat.</li>
+<li><code>STATE_REFRACTORY (11)</code>: Enforces a 250 ms blanking window so the dicrotic notch does not trigger a false second heartbeat. Crucially, the signal must also <strong>drop back below the dynamic threshold</strong> before re-arming, preventing false triggers on elevated baselines.</li>
 </ol>
 </li>
 <li>
@@ -282,9 +282,9 @@
 <h4>B. The 4-State Systolic Peak Detector (Jitter-Free Peak Detection)</h4>
 <ul>
 <li><strong>State 00 (<code>STATE_ARMED</code>):</strong> The wave is below the programmable threshold (<code>reg_threshold = 120</code>). The detector ignores all baseline motion noise.</li>
-<li><strong>State 01 (<code>STATE_RISING</code>):</strong> The filtered PPG signal crosses above threshold 120. The FSM tracks the rising slope by comparing each sample against <code>prev_sample</code>.</li>
-<li><strong>State 10 (<code>STATE_PEAK_FOUND</code>):</strong> The slope flips negative (<code>sample &lt; prev_sample</code>). This marks the mathematical local maximum. The FSM asserts <code>irq_beat = 1</code>, copies <code>interval_cnt</code> to <code>ibi_cycles</code>, and resets the timer.</li>
-<li><strong>State 11 (<code>STATE_REFRACTORY</code>):</strong> The FSM enters a <strong>250 ms blanking window</strong> (<code>REFRACTORY_CYC = 12,500,000</code> cycles at 50 MHz). This physically prevents the <strong>dicrotic notch</strong> (the secondary aortic valve rebound pulse) from creating a false second heartbeat.</li>
+<li><strong>State 01 (<code>STATE_RISING</code>):</strong> The filtered PPG signal crosses above threshold 120. The FSM tracks the rising slope and requires <strong>two consecutive decreasing samples</strong> to confirm a peak, eliminating single-sample noise glitches.</li>
+<li><strong>State 10 (<code>STATE_PEAK_FOUND</code>):</strong> The true peak is confirmed. The FSM asserts <code>irq_beat = 1</code>, copies <code>interval_cnt</code> to <code>ibi_cycles</code>, and resets the timer.</li>
+<li><strong>State 11 (<code>STATE_REFRACTORY</code>):</strong> The FSM enters a <strong>250 ms blanking window</strong> (<code>REFRACTORY_CYC = 12,500,000</code> cycles at 50 MHz). The signal must also completely drop back below the threshold before re-arming, preventing false triggers.</li>
 </ul>
 <hr />
 <h2>2. Renesas ForgeFPGA Waveform (ShrikeFi 4-Bit Parallel Link Protocol)</h2>
@@ -376,8 +376,8 @@
 <li>Nibble 4 (<code>N4</code>): <code>0x0</code> (Bits <code>[15:12]</code>)</li>
 <li>Nibble 5 (<code>N5</code>): <code>0xC</code> (Bits <code>[11:8]</code>)</li>
 <li>Nibble 6 (<code>N6</code>): <code>0xD</code> (Bits <code>[7:4]</code>)</li>
-<li>Nibble 7 (<code>N7</code>): <code>0x1</code> (Bits <code>[3:0]</code>)</li>
-<li><em>Reassembled 32-Bit Value:</em> <code>0x00000CD1</code> = <strong>3281 clock cycles</strong> (exactly $65.62\text{ µs}$ at 50 MHz).</li>
+<li>Nibble 7 (<code>N7</code>): <code>0xF</code> (Bits <code>[3:0]</code>)</li>
+<li><em>Reassembled 32-Bit Value:</em> <code>0x00000CCF</code> = <strong>3279 clock cycles</strong> (exactly $65.58\text{ µs}$ at 50 MHz).</li>
 <li><strong>Clear Interrupt:</strong> ESP32 switches <code>link_dir = 0</code> and sends <code>link_din = 0x7</code> (<code>CMD_CLEAR_IRQ</code>), resetting <code>irq_beat</code> back to 0.</li>
 </ol>
 <hr />
@@ -386,7 +386,7 @@
 <h3>Q1: "Point to the exact moment a heartbeat is detected on the waveform."</h3>
 <ul>
 <li><strong>Point to:</strong> The rising edge of <code>irq_beat</code> (where <code>filter_red</code> crests and begins to decrease).</li>
-<li><strong>Say:</strong> <em>"Right here at $t = 65\text{ cycles}$. Notice that <code>filter_red_out</code> reached its local maximum of 140, and on the very next sample it dropped to 139. Our systolic FSM detected the negative slope change in a single clock cycle, asserted <code>irq_beat</code>, and captured the exact interval count."</em></li>
+<li><strong>Say:</strong> <em>"Right here at $t = 65\text{ cycles}$. Notice that <code>filter_red_out</code> reached its local maximum, and we waited for exactly </em><em>two consecutive dropping samples</em><em> to ensure it wasn't just quantization noise. Once confirmed, our systolic FSM asserted <code>irq_beat</code>, capturing the interval count."</em></li>
 </ul>
 <h3>Q2: "Why does the AXI waveform show Address Write (<code>AW</code>) and Data Write (<code>W</code>) at different times?"</h3>
 <ul>
@@ -467,7 +467,7 @@
             • Moderate (Yellow)  • Critical (Red Alert)</code></p>
 <h3>1. The Clinical Rule Engine (<code>disaster_risk_engine.c</code>)</h3>
 <p>Calculates medical indices developed specifically for occupational heat and smog strain:
-* <strong>Cardio-Thermal Strain Index (CTSI):</strong> Combines ambient heat index with cardiovascular drift ($\Delta\text{HR}$) and HRV collapse. If Temp &gt; 42°C and HR &gt; 130 BPM with RMSSD &lt; 10 ms, flags <strong>CRITICAL HEAT RISK</strong>.
+* <strong>Cardio-Thermal Strain Index (CTSI):</strong> Combines ambient heat index with cardiovascular drift ($\Delta\text{HR}$) and HRV collapse. If Heat Index &gt; 54°C and HR &gt; 130 BPM with RMSSD &lt; 10 ms, flags <strong>CRITICAL HEAT RISK</strong>.
 * <strong>Pollution Respiratory Strain Index (PRSI):</strong> Fuses PM2.5 particulate concentration with blood oxygen desaturation. If PM2.5 &gt; 300 $\mu\text{g}/\text{m}^3$ and $\text{SpO}_2 &lt; 88\%$, flags <strong>CRITICAL POLLUTION RISK</strong>.</p>
 <h3>2. INT8 Quantized Neural Network (<code>nn_risk_model_int8.c</code>)</h3>
 <ul>
@@ -547,7 +547,7 @@ Our Neural Network is an eager student. We gave the student 62,000 flashcards of
 <tr>
 <td><strong>Steadman Heat Index</strong></td>
 <td>Robert G. Steadman (1979), <em>"The Assessment of Sultriness"</em>, Journal of Applied Meteorology.</td>
-<td>Combines Ambient Temp + Humidity. Index $&gt; 40^\circ\text{C}$ triggers Caution; $&gt; 54^\circ\text{C}$ triggers Critical Heat Hazard.</td>
+<td>Combines Ambient Temp + Humidity. Index $&gt; 35^\circ\text{C}$ triggers Caution, $&gt; 40^\circ\text{C}$ triggers Moderate; $&gt; 54^\circ\text{C}$ triggers Critical Heat Hazard.</td>
 </tr>
 <tr>
 <td><strong>Cardio-Thermal Strain (CTSI)</strong></td>
@@ -562,7 +562,7 @@ Our Neural Network is an eager student. We gave the student 62,000 flashcards of
 <tr>
 <td><strong>Hypothermia &amp; Cold Shock</strong></td>
 <td>Golden &amp; Tipton, <em>"Essentials of Sea Survival"</em>, Cold Water Immersion Stages.</td>
-<td>Tracks skin temperature proxy $&lt; 32^\circ\text{C}$ combined with initial cold-shock tachycardia followed by severe bradycardia ($\text{HR} &lt; 50\text{ BPM}$).</td>
+<td>Tracks skin temperature proxy $&lt; 32^\circ\text{C}$ (High) and $&lt; 28^\circ\text{C}$ (Critical) combined with initial cold-shock tachycardia followed by severe bradycardia ($\text{HR} &lt; 50\text{ BPM}$).</td>
 </tr>
 </tbody>
 </table>
