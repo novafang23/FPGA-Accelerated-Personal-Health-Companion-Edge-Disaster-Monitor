@@ -1,54 +1,67 @@
-# Binary executables and simulation outputs
+# ============================================================
+# SIH26181 Health Companion — .gitignore
+# ============================================================
+
+# ── Binary executables and simulation outputs ────────────────
 *.exe
 *.vvp
 *.vcd
 *.o
 *.obj
-*.log
 
-# Vivado and EDA artifacts
+# ── Vivado / AMD Xilinx EDA artifacts ────────────────────────
 .Xil/
 *.jou
+*.log
 *.str
 *.pb
 *.dmp
-*.jou
-
-# Python
-__pycache__/
-*.pyc
-
-# Editor and Tool Caches
-.vscode/
-.cache/
-.clangd
-compile_commands.json
-
-# OS files
-Thumbs.db
-Desktop.ini
-.DS_Store
-
-# AI Models
-*.dlc
-*.onnx
-
-# Zips and archives
-*.zip
-
-# Vivado generated directories
 *.runs/
 *.sim/
 *.cache/
 *.hw/
 *.ip_user_files/
+*.wcfg
 
-# ForgeFPGA generated directories
-FPGA-accelerated-healthcare-SIH/ffpga/build/
-FPGA-accelerated-healthcare-SIH/ffpga/full-chip-simulation-models/
-FPGA-accelerated-healthcare-SIH/ffpga/sim/
+# ── Renesas ForgeFPGA synthesis intermediates ────────────────
+# Keep: bitstream/, post_synth_report.txt, post_synth_results.v,
+#       simulation-models/, simulation/
+FPGA-MED-DEVICE/ffpga/build/minplacer/
+FPGA-MED-DEVICE/ffpga/build/ta_message/
+FPGA-MED-DEVICE/ffpga/build/netlist.edif
+FPGA-MED-DEVICE/ffpga/build/synth_script.ys
 
-# Simulation binaries
+# ── ESP-IDF build artifacts (firmware/shrikefi) ──────────────
+firmware/shrikefi/build/
+firmware/shrikefi/sdkconfig
+firmware/shrikefi/sdkconfig.old
+firmware/shrikefi/main/
+
+# ── Python ───────────────────────────────────────────────────
+__pycache__/
+*.pyc
+*.pyo
+
+# ── IDE and editor caches ────────────────────────────────────
+.vscode/
+.cache/
+.clangd
+compile_commands.json
+
+# ── AI models (binary, use Git LFS if needed) ───────────────
+*.dlc
+*.onnx
+
+# ── Archives ─────────────────────────────────────────────────
+*.zip
+
+# ── OS metadata ──────────────────────────────────────────────
+Thumbs.db
+Desktop.ini
+.DS_Store
+
+# ── Simulation binaries ─────────────────────────────────────
 sim_ppg
 
-
+# ── Agent instructions (internal) ────────────────────────────
+AGENTS.md

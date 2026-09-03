@@ -1,9 +1,0 @@
-read_verilog -sv "../src/forgefpga_ppg_top.v" "../src/moving_average_8tap.v" "../src/ppg_peak_detector.v"
-hierarchy -check
-flatten -noscopeinfo
-synth_xilinx -nobram -noiopad -nodsp -abc9 
-clean
-autoname
-write_verilog "post_synth_results.v"
-write_edif "netlist.edif"
-tee -q -o post_synth_report.txt stat

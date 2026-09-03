@@ -398,7 +398,8 @@ For an in-depth mathematical defense, signal processing equations, and clinical 
 ├── hardware/
 │   ├── common/                     # Vendor-agnostic synthesizable Verilog RTL
 │   │   ├── moving_average_8tap.v   # O(1) running-sum 8-tap digital noise filter (0 DSP)
-│   │   └── ppg_peak_detector.v     # 4-state systolic FSM with 250ms refractory timer
+│   │   ├── ppg_peak_detector.v     # 4-state systolic FSM with 250ms refractory timer
+│   │   └── tb_ppg_peak_detector.v  # Unit testbench for peak detector
 │   ├── zynq/                       # Xilinx Zynq-7000 baseline implementation
 │   │   ├── axi_ppg_accelerator.v   # Top-level AXI4-Lite slave wrapper & DSP top
 │   │   ├── tb_ppg_system.v         # Self-checking AXI testbench (6/6 passing)
@@ -435,7 +436,12 @@ For an in-depth mathematical defense, signal processing equations, and clinical 
 │       ├── shrikefi_link_driver.c  # 4-bit parallel link driver & I2C bitstream flasher
 │       ├── wifi_mqtt_manager.c     # ESP-IDF WiFi connectivity & MQTT cloud sync
 │       ├── forgefpga_bitstream.h   # Auto-generated C header of the ForgeFPGA bitstream
-│       └── CMakeLists.txt          # ESP-IDF component build configuration
+│       ├── CMakeLists.txt          # ESP-IDF component build configuration
+│       ├── build_and_flash.bat     # One-click ESP-IDF build + flash + monitor
+│       └── monitor.bat             # Serial monitor shortcut
+│
+├── FPGA-MED-DEVICE/                # Renesas ForgeFPGA project (synthesis evidence)
+├── FPGA-MED-DEVICE-1/              # Xilinx Vivado project (synthesis evidence)
 │
 ├── docs/
 │   ├── images/                     # 16 High-res waveforms, schematics, and reports
@@ -445,7 +451,10 @@ For an in-depth mathematical defense, signal processing equations, and clinical 
 │   ├── MIGRATION.md                # ShrikeFi platform migration roadmap & matrix
 │   └── SHRIKEFI_LINK_PROTOCOL.md   # 4-bit FPGA↔MCU link protocol specification
 │
+├── .github/workflows/              # CI: compilation, testing, secret scanning
 ├── run.bat                         # Top-level interactive Windows launcher
+├── CONTRIBUTING.md                 # Contribution guidelines
+├── ROADMAP.md                      # Project roadmap & milestones
 ├── README.md                       # Main repository landing page
 ├── LICENSE                         # MIT License
 └── .gitignore                      # Git artifact exclusion rules

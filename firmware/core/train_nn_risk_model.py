@@ -291,9 +291,9 @@ def quantize_asymmetric(x, bits=8):
     return q, float(scale), zp
 
 
-def fake_quant(x, scale, zp, bits=8):
+def fake_quant(x, scale, zp, bits=8, is_signed=True):
     """Fake quantization for QAT: quantize then dequantize."""
-    if zp == 0:
+    if is_signed:
         x_q = np.round(x / scale)
         x_q = np.clip(x_q, -(2**(bits-1)), 2**(bits-1) - 1)
         return x_q * scale
@@ -362,25 +362,30 @@ class QATWrapper:
         """Forward pass with optional fake quantization."""
         # Layer 1
         if self.qat and self.W1_scale is not None:
-            W1_fq = fake_quant(self.W1, self.W1_scale, self.W1_zp)
-            b1_fq = fake_quant(self.b1, self.b1_scale, self.b1_zp)
+            W1_fq = fake_quant(self.W1, self.W1_scale, self.W1_zp, is_signed=True)
+            b1_fq = fake_quant(self.b1, self.b1_scale, self.b1_zp, is_signed=True)
         else:
             W1_fq, b1_fq = self.W1, self.b1
         z1 = X @ W1_fq.T + b1_fq
         a1 = relu(z1)
         if self.qat and self.act1_scale is not None:
-            a1 = fake_quant(a1, self.act1_scale, self.act1_zp)
+            a1 = fake_quant(a1, self.act1_scale, self.act1_zp, is_signed=False)
         
         # Layer 2
         if self.qat and self.W2_scale is not None:
-            W2_fq = fake_quant(self.W2, self.W2_scale, self.W2_zp)
-            b2_fq = fake_quant(self.b2, self.b2_scale, self.b2_zp)
+            W2_fq = fake_quant(self.W2, self.W2_scale, self.W2_zp, is_signed=True)
+            b2_fq = fake_quant(self.b2, self.b2_scale, self.b2_zp, is_signed=True)
         else:
             W2_fq, b2_fq = self.W2, self.b2
         z2 = a1 @ W2_fq.T + b2_fq
-        a2 = sigmoid(z2)
+        a2_unq = sigmoid(z2)
         if self.qat and self.act2_scale is not None:
-            a2 = fake_quant(a2, self.act2_scale, self.act2_zp)
+            a2 = fake_quant(a2_unq, self.act2_scale, self.act2_zp, is_signed=False)
+        else:
+            a2 = a2_unq
+            
+        if getattr(self, '_return_fq', False):
+            return z1, a1, z2, a2, W1_fq, W2_fq
         return z1, a1, z2, a2
 
 
@@ -455,14 +460,11 @@ def train_float32(X_train, Y_train, X_val, Y_val, epochs=400, batch=512, lr=0.03
     return W1, b1, W2, b2
 
 
-def train_qat(X_train, Y_train, X_val, Y_val, epochs=400, batch=512, lr=0.01, l2=1e-4):
-    """Quantization-aware training."""
-    # Initialize with float32 weights
-    rng = np.random.default_rng(42)
-    W1 = rng.normal(0, np.sqrt(2.0 / IN), (HID, IN)).astype(np.float32)
-    b1 = np.zeros(HID, dtype=np.float32)
-    W2 = rng.normal(0, np.sqrt(1.0 / HID), (OUT, HID)).astype(np.float32)
-    b2 = np.zeros(OUT, dtype=np.float32)
+def train_qat(X_train, Y_train, X_val, Y_val, epochs=400, batch=512, lr=0.001, l2=1e-4):
+    """Quantization-aware training (fine-tuning from float32)."""
+    print("  Pre-training float32 model for QAT initialization...")
+    W1, b1, W2, b2 = train_float32(X_train, Y_train, X_val, Y_val, epochs=epochs, batch=batch, lr=0.03, l2=l2)
+    print("  Beginning QAT fine-tuning...")
 
     # Adam optimizer state
     mW1, vW1 = np.zeros_like(W1), np.zeros_like(W1)
@@ -483,12 +485,13 @@ def train_qat(X_train, Y_train, X_val, Y_val, epochs=400, batch=512, lr=0.01, l2
     for epoch in range(1, epochs + 1):
         perm = np.random.permutation(n_train)
         epoch_loss = 0.0
+        model._return_fq = True
         for start in range(0, n_train, batch):
             batch_idx = perm[start:start + batch]
             xb, yb = X_train[batch_idx], Y_train[batch_idx]
             m = len(xb)
 
-            z1, a1, z2, a2 = model.forward(xb)
+            z1, a1, z2, a2, W1_fq, W2_fq = model.forward(xb)
 
             # MSE loss
             diff = (a2 - yb)
@@ -498,11 +501,13 @@ def train_qat(X_train, Y_train, X_val, Y_val, epochs=400, batch=512, lr=0.01, l2
             epoch_loss += loss * m
 
             # Backprop (straight-through estimator for fake-quant)
-            dz2 = diff * a2 * (1 - a2) * (2.0 / m)
+            # Use unquantized sigmoid output for the gradient to prevent vanishing gradients
+            a2_unq = sigmoid(z2)
+            dz2 = diff * a2_unq * (1 - a2_unq) * (2.0 / m)
             dW2 = dz2.T @ a1 + l2 * model.W2
             db2 = dz2.sum(axis=0)
 
-            da1 = dz2 @ model.W2
+            da1 = dz2 @ W2_fq
             dz1 = da1 * relu_grad(z1)
             dW1 = dz1.T @ xb + l2 * model.W1
             db1 = dz1.sum(axis=0)
@@ -533,6 +538,7 @@ def train_qat(X_train, Y_train, X_val, Y_val, epochs=400, batch=512, lr=0.01, l2
             model.calibrate(X_train[calib_idx])
 
         if epoch % 25 == 0 or epoch == 1:
+            model._return_fq = False
             _, _, _, val_pred = model.forward(X_val)
             val_loss = np.mean((val_pred - Y_val) ** 2)
             if not np.isfinite(val_loss):

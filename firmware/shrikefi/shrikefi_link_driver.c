@@ -9,15 +9,20 @@
 #ifdef ESP_PLATFORM
 #include "driver/gpio.h"
 #include "esp_rom_sys.h"
+#include "esp_log.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
 #define DELAY_NS() esp_rom_delay_us(1)
 #else
 #include <stdio.h>
 #define DELAY_NS() ((void)0)
+#define ESP_LOGI(tag, ...) do {} while(0)
+#define ESP_LOGE(tag, ...) do {} while(0)
+#define ESP_LOGW(tag, ...) do {} while(0)
 #endif
 
 #include "forgefpga_bitstream.h"
 #include "esp32_i2c_hal.h"
-#include "esp_log.h"
 
 #define FORGEFPGA_I2C_ADDR 0x08
 

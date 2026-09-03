@@ -18,10 +18,10 @@
 #include "nvs_flash.h"
 #include "mqtt_client.h"
 
-#define WIFI_SSID      "YOUR_WIFI_SSID"
-#define WIFI_PASS      "YOUR_WIFI_PASS"
-#define MQTT_BROKER_URI "mqtt://192.168.1.100"  // Change to your MQTT broker IP or URL
-#define MQTT_TOPIC     "shrikefi/health_monitor"
+#define WIFI_SSID      "Airtel_Abhi-506"     // NOTE: ESP32-S3 is 2.4GHz ONLY
+#define WIFI_PASS      "Abhinav@2006"
+#define MQTT_BROKER_URI "mqtt://broker.hivemq.com"  // Free public test broker
+#define MQTT_TOPIC     "sih26181/shrikefi/health"
 
 static const char *TAG = "WIFI_MQTT";
 static esp_mqtt_client_handle_t mqtt_client = NULL;
@@ -48,7 +48,10 @@ static void wifi_event_handler(void* arg, esp_event_base_t event_base,
 
 /* Event handler for MQTT events */
 static void mqtt_event_handler(void *handler_args, esp_event_base_t base, int32_t event_id, void *event_data) {
-    esp_mqtt_event_handle_t event = event_data;
+    esp_mqtt_event_handle_t event = (esp_mqtt_event_handle_t)event_data;
+    (void)event;
+    (void)handler_args;
+    (void)base;
     switch ((esp_mqtt_event_id_t)event_id) {
         case MQTT_EVENT_CONNECTED:
             ESP_LOGI(TAG, "MQTT Connected to %s", MQTT_BROKER_URI);

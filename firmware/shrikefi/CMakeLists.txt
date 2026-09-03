@@ -6,41 +6,6 @@
 
 cmake_minimum_required(VERSION 3.16)
 
-# Include core platform-agnostic algorithms
-set(CORE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../core")
+include($ENV{IDF_PATH}/tools/cmake/project.cmake)
+project(shrikefi_health_companion)
 
-set(COMPONENT_SRCS
-    "main_shrikefi.c"
-    "shrikefi_link_driver.c"
-    "esp32_i2c_hal.c"
-    "max30102.c"
-    "bme280.c"
-    "pms5003.c"
-    "${CORE_DIR}/hrv_analysis.c"
-    "${CORE_DIR}/spo2_engine.c"
-    "${CORE_DIR}/disaster_risk_engine.c"
-    "${CORE_DIR}/nn_risk_model.c"
-    "${CORE_DIR}/nn_risk_model_int8.c"
-    "wifi_mqtt_manager.c"
-)
-
-set(COMPONENT_ADD_INCLUDEDIRS
-    "."
-    "${CORE_DIR}"
-)
-
-set(COMPONENT_REQUIRES
-    driver
-    freertos
-    log
-    esp_wifi
-    esp_netif
-    nvs_flash
-    mqtt
-)
-
-idf_component_register(
-    SRCS ${COMPONENT_SRCS}
-    INCLUDE_DIRS ${COMPONENT_ADD_INCLUDEDIRS}
-    REQUIRES ${COMPONENT_REQUIRES}
-)
