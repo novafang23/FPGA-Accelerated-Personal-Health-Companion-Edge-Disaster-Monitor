@@ -1,8 +1,8 @@
 import markdown
 import codecs
 
-input_file = 'docs/theory/THEORY_NOTES.md'
-output_file = 'docs/theory/THEORY_NOTES_TEMP.html'
+input_file = 'docs/SHRIKEFI_HARDWARE_CONNECTIONS.md'
+output_file = 'docs/SHRIKEFI_HARDWARE_CONNECTIONS.html'
 
 with codecs.open(input_file, mode='r', encoding='utf-8') as f:
     text = f.read()

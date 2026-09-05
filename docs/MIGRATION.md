@@ -35,11 +35,12 @@ The Zynq-7000 design remains permanently preserved as the verified reference imp
 Measured post-synthesis results from **Renesas ForgeFPGA Workshop v6.55**:
 * **Target Part:** `SLG47910C` (WLCSP20 package, 1120 5-input LUTs)
 * **Resource Utilization:**
-  * **CLB LUT5s:** **195 / 1120 (17.41%)**
-  * **Total Flip-Flops:** **110 FFs** (77 CLB FFs [6.88%] + 33 IOB FFs [4.48%])
-  * **CLB Blocks:** **35 / 140 (25.00%)**
+  * **CLB LUT5s:** **443 / 1120 (39.55%)**
+  * **Total Flip-Flops:** **353 FFs** (345 CLB FFs [30.80%] + 8 IOB FFs [1.09%])
+  * **CLB Blocks:** **85 / 140 (60.71%)**
   * **Tiles:** **1 / 1 (100.00%)**
-  * **DSP Blocks:** **0 (Pure logic / LUT implementation)**
+  * **4k BRAMs:** **0 / 8 (0.00%)**
+  * **PLLs:** **1 / 1 (100.00%)**
 * **Verification:** `tb_forgefpga_system.v`, 5/5 self-checking tests passing (100%)
 
 ### Renesas ForgeFPGA Workshop GUI Synthesis Evidence & Project Tree:
