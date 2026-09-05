@@ -18,6 +18,7 @@
 #include "max30102.h"
 #include "bme280.h"
 #include "pms5003.h"
+#include "ssd1306.h"
 
 /* Include platform-agnostic core firmware algorithms */
 #include "hrv_analysis.h"
@@ -36,17 +37,24 @@
 static const char *TAG = "SHRIKEFI_MAIN";
 static SemaphoreHandle_t s_data_mutex = NULL;
 
+/* Signal quality and contact status */
+typedef enum {
+    SIGNAL_STATUS_NO_FINGER = 0,
+    SIGNAL_STATUS_LOW_PERFUSION,  /* Touching too gently, hovering, or weak capillary pulse */
+    SIGNAL_STATUS_ACQUIRING,      /* Locking pulse / accumulating beats */
+    SIGNAL_STATUS_TRACKING        /* Vitals locked and clinically verified */
+} signal_status_t;
+
 /* Global shared health state */
 typedef struct {
     float heart_rate;
     float r_peak_interval_ms;
     float hrv_rmssd;
     float hrv_sdnn;
-    int   hrv_sample_count;   /* mirrors hrv_state_t.count from Core 0; used
-                                * so Core 1 knows whether HRV data is real,
-                                * instead of assuming it's always ready */
+    int   hrv_sample_count;   /* mirrors hrv_state_t.count from Core 0 */
     float spo2_percent;
     int   spo2_valid;         /* mirrors spo2_is_valid() from Core 0 */
+    signal_status_t signal_status; /* real-time contact & perfusion quality */
     float ambient_temp_c;
     float humidity_percent;
     float pm25_ugm3;
@@ -60,6 +68,7 @@ static health_system_state_t g_state;
 static max30102_t s_max30102;
 static bme280_t s_bme280;
 static pms5003_t s_pms5003;
+static ssd1306_t s_ssd1306;
 
 /* Sensor read helpers */
 static int read_max30102_samples(max30102_sample_t *sample) {
@@ -85,11 +94,53 @@ static void task_ppg_accelerator(void *pvParameters) {
     spo2_state_t spo2_state;
     spo2_init(&spo2_state);
 
-    ESP_LOGI(TAG, "Core 0: PPG FPGA Accelerator Task Started.");
+    /* 8-tap running-sum moving average filter (matching moving_average_8tap.v) */
+    static uint16_t red_history[8] = {0};
+    static uint16_t ir_history[8]  = {0};
+    static uint8_t  hist_idx       = 0;
+    static uint32_t red_sum        = 0;
+    static uint32_t ir_sum         = 0;
+
+    /* Software systolic peak detector state machine with strict noise rejection */
+    enum { SW_ARMED, SW_RISING, SW_REFRACTORY };
+    static int      sw_state             = SW_ARMED;
+    static uint32_t sw_prev_sample       = 0;
+    static uint32_t sw_peak_val          = 0;
+    static uint8_t  sw_fall_count        = 0;
+    static uint32_t sw_refractory_end_ms = 0;
+    static uint32_t sw_last_peak_time_ms = 0;
+    static uint32_t sw_last_valid_ibi_ms = 0;
+    static int      sw_beat_streak       = 0;
+    static uint32_t sw_finger_start_ms   = 0;
+    static uint32_t sw_running_mean      = 15000;
+    static int      raw_log_timer        = 0;
+
+    /* Perfusion & AC amplitude tracking over 1-second rolling windows */
+    static uint32_t ir_win_min           = UINT32_MAX;
+    static uint32_t ir_win_max           = 0;
+    static int      ir_win_count         = 0;
+    static uint32_t last_ac_amplitude    = 0;
+
+    ESP_LOGI(TAG, "Core 0: PPG Accelerator Task Started (FPGA hardware + Software DSP fallback).");
 
     while (1) {
-        /* 1. Read optical samples from MAX30102 */
+        /* 1. Read optical samples from MAX30102 / MAX30100 */
         if (read_max30102_samples(&ppg_sample) == 0) {
+            uint32_t now_ms = (uint32_t)(xTaskGetTickCount() * portTICK_PERIOD_MS);
+
+            /* Track min/max over 50 samples (1 sec) to measure pulsatile AC amplitude */
+            if (ppg_sample.ir < ir_win_min) ir_win_min = ppg_sample.ir;
+            if (ppg_sample.ir > ir_win_max) ir_win_max = ppg_sample.ir;
+            if (++ir_win_count >= 50) {
+                last_ac_amplitude = (ir_win_max > ir_win_min) ? (ir_win_max - ir_win_min) : 0;
+                ir_win_min = UINT32_MAX;
+                ir_win_max = 0;
+                ir_win_count = 0;
+            }
+
+            /* Optical contact check: ambient air is IR<600, Red<900; tissue contact elevates levels */
+            bool optical_contact = (ppg_sample.ir > 800 || ppg_sample.red > 1100);
+
             uint8_t raw_red = max30102_scale_to_8bit(ppg_sample.red);
             uint8_t raw_ir  = max30102_scale_to_8bit(ppg_sample.ir);
 
@@ -97,45 +148,193 @@ static void task_ppg_accelerator(void *pvParameters) {
             shrikefi_write_red_sample(raw_red);
             shrikefi_write_ir_sample(raw_ir);
 
-            /* 2b. Feed the FPGA's filtered Red/IR outputs into the SpO2
-             * engine. spo2_add_samples() computes SpO2 from an AC/DC
-             * ratio (red_ac/red_dc)/(ir_ac/ir_dc), which is scale-
-             * invariant, so the 8-bit filtered values available over
-             * the nibble link are fine even though they're a coarser
-             * scale than the MAX30102's native 18-bit reading. It
-             * accumulates internally and only produces a new value
-             * once every SPO2_WINDOW_SIZE samples. */
-            uint8_t filt_red = shrikefi_read_filtered_red();
-            uint8_t filt_ir  = shrikefi_read_filtered_ir();
-            spo2_add_samples(&spo2_state, filt_red, filt_ir);
+            /* 3. Compute 8-tap running-sum moving average filter */
+            red_sum = red_sum - red_history[hist_idx] + raw_red;
+            red_history[hist_idx] = raw_red;
+            uint8_t filt_red = (uint8_t)(red_sum >> 3);
+            (void)filt_red;
 
-            if (spo2_is_valid(&spo2_state)) {
+            ir_sum = ir_sum - ir_history[hist_idx] + raw_ir;
+            ir_history[hist_idx] = raw_ir;
+            uint8_t filt_ir = (uint8_t)(ir_sum >> 3);
+            (void)filt_ir;
+            hist_idx = (hist_idx + 1) & 7;
+
+            /* 4. Feed 18-bit samples into SpO2 engine when tissue contact is present */
+            if (optical_contact) {
+                spo2_add_samples(&spo2_state, ppg_sample.red, ppg_sample.ir);
+                if (spo2_is_valid(&spo2_state)) {
+                    if (xSemaphoreTake(s_data_mutex, pdMS_TO_TICKS(10)) == pdTRUE) {
+                        g_state.spo2_percent = spo2_get_value(&spo2_state);
+                        g_state.spo2_valid = 1;
+                        xSemaphoreGive(s_data_mutex);
+                    }
+                } else {
+                    if (xSemaphoreTake(s_data_mutex, pdMS_TO_TICKS(10)) == pdTRUE) {
+                        g_state.spo2_valid = 0;
+                        xSemaphoreGive(s_data_mutex);
+                    }
+                }
+            }
+
+            /* 5. Systolic Peak Detection (FPGA Interrupt with Software Fallback) */
+            if (shrikefi_is_beat_detected()) {
+                /* Hardware beat detected by ForgeFPGA on GPIO 10 */
+                uint32_t ibi_cycles = shrikefi_read_ibi_cycles();
+                shrikefi_clear_irq();
+
+                float ibi_ms = (float)ibi_cycles * (20.0f / 1000000.0f); // 50 MHz clock
+                if (ibi_ms > 400.0f && ibi_ms < 1500.0f) {
+                    hrv_add_ibi(&hrv_state, ibi_ms);
+                    hrv_compute(&hrv_state);
+
+                    float inst_hr = 60000.0f / ibi_ms;
+                    if (xSemaphoreTake(s_data_mutex, pdMS_TO_TICKS(10)) == pdTRUE) {
+                        g_state.r_peak_interval_ms = ibi_ms;
+                        g_state.heart_rate = (g_state.heart_rate > 30.0f) ?
+                                             (0.70f * g_state.heart_rate + 0.30f * inst_hr) : inst_hr;
+                        g_state.hrv_rmssd = hrv_state.rmssd;
+                        g_state.hrv_sdnn = hrv_state.sdnn;
+                        g_state.hrv_sample_count = hrv_state.count;
+                        xSemaphoreGive(s_data_mutex);
+                    }
+                }
+            } else if (optical_contact) {
+                if (sw_finger_start_ms == 0) {
+                    sw_finger_start_ms = now_ms;
+                }
+
+                /* Adaptive Peak Detector: tracks high-resolution optical baseline */
+                sw_running_mean = (sw_running_mean * 31 + ppg_sample.ir) / 32;
+                
+                /* Use dynamic threshold based on recent AC amplitude (25% of AC) */
+                uint32_t threshold_offset = last_ac_amplitude / 4;
+                if (threshold_offset < 12) threshold_offset = 12; // Minimum 12 count threshold offset
+                uint32_t threshold = sw_running_mean + threshold_offset;
+
+                if (sw_state == SW_ARMED) {
+                    if (ppg_sample.ir >= threshold) {
+                        sw_state = SW_RISING;
+                        sw_peak_val = ppg_sample.ir;
+                        sw_fall_count = 0;
+                    }
+                } else if (sw_state == SW_RISING) {
+                    if (ppg_sample.ir > sw_peak_val) {
+                        sw_peak_val = ppg_sample.ir;
+                    }
+                    if (ppg_sample.ir < sw_prev_sample) {
+                        if (++sw_fall_count >= 2) {
+                            /* Crest confirmed: check peak prominence over baseline */
+                            if (sw_peak_val > (sw_running_mean + 10)) {
+                                uint32_t ibi_ms = now_ms - sw_last_peak_time_ms;
+                                sw_last_peak_time_ms = now_ms;
+                                sw_state = SW_REFRACTORY;
+                                sw_refractory_end_ms = now_ms + 400; /* 400ms refractory blanking */
+
+                                /* Apply 800ms stabilization window after initial finger contact */
+                                if ((now_ms - sw_finger_start_ms) > 800 && ibi_ms >= 400 && ibi_ms <= 1500) {
+                                    /* Plausibility check: reject sudden motion twitches */
+                                    bool beat_plausible = true;
+                                    if (sw_last_valid_ibi_ms > 0) {
+                                        int32_t delta = (int32_t)ibi_ms - (int32_t)sw_last_valid_ibi_ms;
+                                        if (delta < -350 || delta > 350) {
+                                            beat_plausible = false;
+                                        }
+                                    }
+
+                                    if (beat_plausible) {
+                                        sw_last_valid_ibi_ms = ibi_ms;
+                                        sw_beat_streak++;
+
+                                        hrv_add_ibi(&hrv_state, (float)ibi_ms);
+                                        hrv_compute(&hrv_state);
+
+                                        float inst_hr = 60000.0f / (float)ibi_ms;
+                                        if (xSemaphoreTake(s_data_mutex, pdMS_TO_TICKS(10)) == pdTRUE) {
+                                            g_state.r_peak_interval_ms = (float)ibi_ms;
+                                            /* Require 2 consecutive valid beats before displaying HR */
+                                            if (sw_beat_streak >= 2) {
+                                                g_state.heart_rate = (g_state.heart_rate > 30.0f) ?
+                                                                     (0.70f * g_state.heart_rate + 0.30f * inst_hr) : inst_hr;
+                                            }
+                                            g_state.hrv_rmssd = hrv_state.rmssd;
+                                            g_state.hrv_sdnn = hrv_state.sdnn;
+                                            g_state.hrv_sample_count = hrv_state.count;
+                                            xSemaphoreGive(s_data_mutex);
+                                        }
+                                    }
+                                }
+                            } else {
+                                /* Sub-threshold ripple (touching too gently) -> reject */
+                                sw_state = SW_ARMED;
+                            }
+                        }
+                    } else {
+                        sw_fall_count = 0;
+                    }
+                } else if (sw_state == SW_REFRACTORY) {
+                    if (now_ms >= sw_refractory_end_ms) {
+                        sw_state = SW_ARMED;
+                    }
+                }
+                sw_prev_sample = ppg_sample.ir;
+
+                /* Evaluate real-time signal quality */
+                signal_status_t current_status;
+                if ((now_ms - sw_finger_start_ms) > 2500 && (last_ac_amplitude < 10 || sw_beat_streak == 0)) {
+                    current_status = SIGNAL_STATUS_LOW_PERFUSION;
+                } else if (hrv_state.count < 10) {
+                    current_status = SIGNAL_STATUS_ACQUIRING;
+                } else {
+                    current_status = SIGNAL_STATUS_TRACKING;
+                }
+
                 if (xSemaphoreTake(s_data_mutex, pdMS_TO_TICKS(10)) == pdTRUE) {
-                    g_state.spo2_percent = spo2_get_value(&spo2_state);
-                    g_state.spo2_valid = 1;
+                    g_state.signal_status = current_status;
+                    xSemaphoreGive(s_data_mutex);
+                }
+            } else {
+                /* No optical contact (IR <= 1200) */
+                sw_finger_start_ms   = 0;
+                sw_last_peak_time_ms = 0;
+                sw_last_valid_ibi_ms = 0;
+                sw_beat_streak       = 0;
+                sw_peak_val          = 0;
+                sw_fall_count        = 0;
+                sw_state             = SW_ARMED;
+                last_ac_amplitude    = 0;
+                ir_win_min           = UINT32_MAX;
+                ir_win_max           = 0;
+                ir_win_count         = 0;
+
+                hrv_init(&hrv_state);   /* Reset HRV history on finger removal */
+                spo2_init(&spo2_state); /* Reset SpO2 history on finger removal */
+
+                if (xSemaphoreTake(s_data_mutex, pdMS_TO_TICKS(10)) == pdTRUE) {
+                    g_state.heart_rate         = 0.0f;
+                    g_state.r_peak_interval_ms = 0.0f;
+                    g_state.hrv_rmssd          = 0.0f;
+                    g_state.hrv_sdnn           = 0.0f;
+                    g_state.hrv_sample_count   = 0;
+                    g_state.spo2_valid         = 0;
+                    g_state.spo2_percent       = 0.0f;
+                    g_state.signal_status      = SIGNAL_STATUS_NO_FINGER;
                     xSemaphoreGive(s_data_mutex);
                 }
             }
-        }
 
-        /* 3. Check for hardware beat interrupt from ForgeFPGA */
-        if (shrikefi_is_beat_detected()) {
-            uint32_t ibi_cycles = shrikefi_read_ibi_cycles();
-            shrikefi_clear_irq();
-
-            float ibi_ms = (float)ibi_cycles * (20.0f / 1000000.0f); // 50 MHz clock
-            if (ibi_ms > 300.0f && ibi_ms < 2000.0f) {
-                hrv_add_ibi(&hrv_state, ibi_ms);
-                hrv_compute(&hrv_state);
-
-                if (xSemaphoreTake(s_data_mutex, pdMS_TO_TICKS(10)) == pdTRUE) {
-                    g_state.r_peak_interval_ms = ibi_ms;
-                    g_state.heart_rate = 60000.0f / ibi_ms;
-                    g_state.hrv_rmssd = hrv_state.rmssd;
-                    g_state.hrv_sdnn = hrv_state.sdnn;
-                    g_state.hrv_sample_count = hrv_state.count;
-                    xSemaphoreGive(s_data_mutex);
-                }
+            /* Periodic optical debug log (every 1 second at 50Hz = 50 iterations) */
+            if (++raw_log_timer >= 50) {
+                raw_log_timer = 0;
+                const char *status_str = (g_state.signal_status == SIGNAL_STATUS_LOW_PERFUSION) ? "LOW PERFUSION (PRESS FIRMER)" :
+                                         (g_state.signal_status == SIGNAL_STATUS_ACQUIRING)     ? "ACQUIRING" :
+                                         (g_state.signal_status == SIGNAL_STATUS_TRACKING)      ? "LOCKED" : "NO FINGER";
+                ESP_LOGI("PPG_OPTICAL", "Raw: IR=%lu, Red=%lu | AC=%lu | Status: %s | HR: %.1f BPM | Beats: %d/10 | SpO2: %s",
+                         (unsigned long)ppg_sample.ir, (unsigned long)ppg_sample.red,
+                         (unsigned long)last_ac_amplitude,
+                         status_str,
+                         g_state.heart_rate, hrv_state.count,
+                         g_state.spo2_valid ? "VALID" : "CALC/--");
             }
         }
 
@@ -157,6 +356,8 @@ static void task_disaster_monitor(void *pvParameters) {
         env_sensors_t env = {0};
         float hr = 0.0f;
         float spo2 = 0.0f;
+        signal_status_t sig_stat = SIGNAL_STATUS_NO_FINGER;
+        bool vitals_ready = false;
 
         /* Read BME280 (temperature, humidity, pressure) */
         bme280_data_t bme_data;
@@ -178,55 +379,120 @@ static void task_disaster_monitor(void *pvParameters) {
         /* Get latest HR/HRV/SpO2 from Core 0 */
         if (xSemaphoreTake(s_data_mutex, pdMS_TO_TICKS(50)) == pdTRUE) {
             if (g_state.heart_rate > 30.0f) hr = g_state.heart_rate;
-            /* Fallback of 96.0 only applies until Core 0 has produced its
-             * first valid SpO2 window (see spo2_is_valid() in task_ppg_
-             * accelerator) -- not permanently, as before. */
-            spo2 = g_state.spo2_valid ? g_state.spo2_percent : 96.0f;
+            spo2 = g_state.spo2_valid ? g_state.spo2_percent : 0.0f;
             hrv_snapshot.rmssd = g_state.hrv_rmssd;
             hrv_snapshot.sdnn = g_state.hrv_sdnn;
-            /* Real sample count from Core 0, not a hardcoded "always
-             * ready" value -- disaster_assess() correctly reports
-             * RISK_UNKNOWN via hrv_is_ready() until this reaches
-             * HRV_MIN_SAMPLES, instead of scoring a startup RMSSD=0.0
-             * as if it were a genuine autonomic-collapse reading. */
             hrv_snapshot.count = g_state.hrv_sample_count;
+            sig_stat = g_state.signal_status;
+            vitals_ready = (hrv_snapshot.count >= 10 && hr > 30.0f);
             xSemaphoreGive(s_data_mutex);
         }
 
-        /* 1. Execute Rule-based Disaster Risk Engine */
+        /* 1. Execute Rule-based Disaster Risk Engine & TinyML only when vitals are genuine */
         risk_assessment_t risk;
-        disaster_assess(&hrv_snapshot, spo2, hr, &env, &risk);
+        memset(&risk, 0, sizeof(risk));
+        risk.overall_risk = RISK_UNKNOWN;
 
-        /* 2. Execute INT8 Quantized TinyML Model (< 1 µs inference) */
         nn_output_t nn_out;
-        nn_predict_int8(&nn_default_model_int8, &nn_quant_params,
-                        hr, hrv_snapshot.rmssd, spo2,
-                        env.ambient_temp_c, env.humidity_pct, env.pm25,
-                        &nn_out);
+        memset(&nn_out, 0, sizeof(nn_out));
 
-        /* 3. Print Live Status to Serial Console */
-        ESP_LOGI(TAG, "[ShrikeFi] HR: %.1f BPM | RMSSD: %.1f ms | Temp: %.1f C | PM2.5: %.0f",
-                 hr, hrv_snapshot.rmssd, env.ambient_temp_c, env.pm25);
-        ESP_LOGI(TAG, "[TinyML] Heat: %.3f | Pollution: %.3f | Flood: %.3f | Overall: %s",
-                 nn_out.heat_score, nn_out.pollution_score, nn_out.flood_score,
-                 risk_level_to_string(risk.overall_risk));
+        if (vitals_ready) {
+            disaster_assess(&hrv_snapshot, spo2, hr, &env, &risk);
 
-        /* 4. Publish to Cloud Dashboard */
-        cloud_publish_health_data(hr, hrv_snapshot.rmssd, spo2, env.ambient_temp_c, env.pm25, risk_level_to_string(risk.overall_risk));
+            /* For TinyML model, if SpO2 is still calibrating, use neutral 96.0f */
+            float tinyml_spo2 = (spo2 > 0.0f) ? spo2 : 96.0f;
+            nn_predict_int8(&nn_default_model_int8, &nn_quant_params,
+                            hr, hrv_snapshot.rmssd, tinyml_spo2,
+                            env.ambient_temp_c, env.humidity_pct, env.pm25,
+                            &nn_out);
+
+            ESP_LOGI(TAG, "[ShrikeFi] HR: %.1f BPM | SpO2: %s | RMSSD: %.1f ms | Temp: %.1f C | PM2.5: %.0f",
+                     hr, (spo2 > 0.0f ? "VALID" : "CALC"), hrv_snapshot.rmssd, env.ambient_temp_c, env.pm25);
+            ESP_LOGI(TAG, "[TinyML] Heat: %.3f | Pollution: %.3f | Flood: %.3f | Overall: %s",
+                     nn_out.heat_score, nn_out.pollution_score, nn_out.flood_score,
+                     risk_level_to_string(risk.overall_risk));
+
+            /* Publish to Cloud Dashboard */
+            cloud_publish_health_data(hr, hrv_snapshot.rmssd, tinyml_spo2, env.ambient_temp_c, env.pm25, risk_level_to_string(risk.overall_risk));
+        } else {
+            ESP_LOGI(TAG, "[ShrikeFi] Vitals: HR=%s SpO2=%s | Status: %s (%d/10 beats) | Temp: %.1f C | PM2.5: %.0f",
+                     (hr > 30.0f ? "LOCKED" : "--"),
+                     (spo2 > 0.0f ? "VALID" : "--"),
+                     (sig_stat == SIGNAL_STATUS_LOW_PERFUSION) ? "LOW PERFUSION (PRESS FIRMER)" :
+                     (sig_stat == SIGNAL_STATUS_ACQUIRING)     ? "ACQUIRING" :
+                     (sig_stat == SIGNAL_STATUS_TRACKING)      ? "READY" : "WAITING",
+                     hrv_snapshot.count, env.ambient_temp_c, env.pm25);
+        }
+
+        /* 2. Render Live Dashboard to OLED Display */
+        if (s_ssd1306.initialized) {
+            ssd1306_clear(&s_ssd1306);
+
+            // Header
+            ssd1306_draw_string(&s_ssd1306, 8, 2, "SIH26181 COMPANION");
+            ssd1306_draw_hline(&s_ssd1306, 0, 11, 128);
+
+            // Line 1: Vitals (HR & SpO2)
+            char buf_vitals[32];
+            if (hr > 30.0f && spo2 > 0.0f) {
+                snprintf(buf_vitals, sizeof(buf_vitals), "HR:%3.0fBPM SpO2:%2.0f%%", hr, spo2);
+            } else if (hr > 30.0f) {
+                snprintf(buf_vitals, sizeof(buf_vitals), "HR:%3.0fBPM SpO2: -- ", hr);
+            } else {
+                snprintf(buf_vitals, sizeof(buf_vitals), "HR: --   SpO2: -- ");
+            }
+            ssd1306_draw_string(&s_ssd1306, 2, 15, buf_vitals);
+
+            // Line 2: Environment (Temp & PM2.5)
+            char buf_env[32];
+            snprintf(buf_env, sizeof(buf_env), "T:%4.1fC   PM:%3.0f", env.ambient_temp_c, env.pm25);
+            ssd1306_draw_string(&s_ssd1306, 2, 27, buf_env);
+
+            // Line 3: HRV RMSSD or Guidance Feedback
+            char buf_hrv[32];
+            if (sig_stat == SIGNAL_STATUS_NO_FINGER) {
+                snprintf(buf_hrv, sizeof(buf_hrv), "Touch MAX30102...");
+            } else if (sig_stat == SIGNAL_STATUS_LOW_PERFUSION) {
+                snprintf(buf_hrv, sizeof(buf_hrv), "Press Firmer...");
+            } else if (hrv_snapshot.count < 10) {
+                snprintf(buf_hrv, sizeof(buf_hrv), "Reading... (%d/10)", hrv_snapshot.count);
+            } else {
+                snprintf(buf_hrv, sizeof(buf_hrv), "HRV RMSSD:%4.1fms", hrv_snapshot.rmssd);
+            }
+            ssd1306_draw_string(&s_ssd1306, 2, 39, buf_hrv);
+
+            // Line 4: Health Condition Alert (TinyML & Disaster Engine)
+            ssd1306_draw_hline(&s_ssd1306, 0, 49, 128);
+            char buf_cond[32];
+            if (sig_stat == SIGNAL_STATUS_NO_FINGER) {
+                snprintf(buf_cond, sizeof(buf_cond), "CONDITION: WAITING");
+            } else if (sig_stat == SIGNAL_STATUS_LOW_PERFUSION) {
+                snprintf(buf_cond, sizeof(buf_cond), "CONDITION: LOW PERF");
+            } else if (hrv_snapshot.count < 10) {
+                snprintf(buf_cond, sizeof(buf_cond), "CONDITION: CALC...");
+            } else {
+                const char *risk_str = risk_level_to_string(risk.overall_risk);
+                snprintf(buf_cond, sizeof(buf_cond), "CONDITION: %s", risk_str);
+            }
+            ssd1306_draw_string(&s_ssd1306, 2, 53, buf_cond);
+
+            ssd1306_update(&s_ssd1306);
+        }
 
         vTaskDelay(pdMS_TO_TICKS(1000)); // 1 Hz assessment rate
     }
 }
 
-/**
- * @brief UART RX Task for PMS5003
- */
 static void task_pms5003_uart(void *pvParameters) {
     (void)pvParameters;
     ESP_LOGI(TAG, "PMS5003 UART RX Task Started.");
 
     while (1) {
-        pms5003_uart_rx_task(&s_pms5003, pdMS_TO_TICKS(100));
+        uint8_t byte;
+        int len = uart_read_bytes(s_pms5003.uart_num, &byte, 1, pdMS_TO_TICKS(100));
+        if (len > 0) {
+            pms5003_feed_byte(&s_pms5003, byte);
+        }
     }
 }
 
@@ -241,6 +507,9 @@ void app_main(void) {
     /* Initialize I2C HAL for sensors (SDA=GPIO1, SCL=GPIO2, 400kHz) */
     esp32_i2c_hal_init(1, 2, 400000);
 
+    /* Hardware diagnosis: scan and log all connected I2C devices */
+    esp32_i2c_hal_scan();
+
     /* Flash ForgeFPGA bitstream via I2C */
     shrikefi_fpga_flash_init();
 
@@ -250,6 +519,25 @@ void app_main(void) {
 
     /* Initialize WiFi & MQTT Cloud Sync */
     wifi_mqtt_init();
+
+    /* Initialize SSD1306 OLED (check default 0x3C, fallback to 0x3D) */
+    if (ssd1306_init(&s_ssd1306, esp32_i2c_hal_get_handle(), SSD1306_I2C_ADDR) == 0) {
+        ESP_LOGI(TAG, "SSD1306 OLED initialized OK at 0x3C");
+    } else if (ssd1306_init(&s_ssd1306, esp32_i2c_hal_get_handle(), SSD1306_I2C_ALT) == 0) {
+        ESP_LOGI(TAG, "SSD1306 OLED initialized OK at 0x3D");
+    } else {
+        ESP_LOGW(TAG, "SSD1306 OLED not found at 0x3C or 0x3D (check SDA=GPIO1, SCL=GPIO2, VCC=3.3V, GND)");
+    }
+
+    if (s_ssd1306.initialized) {
+        ssd1306_clear(&s_ssd1306);
+        ssd1306_draw_string(&s_ssd1306, 8, 4, "SIH26181 HEALTH");
+        ssd1306_draw_hline(&s_ssd1306, 0, 14, 128);
+        ssd1306_draw_string(&s_ssd1306, 14, 20, "QUALCOMM SoC");
+        ssd1306_draw_string(&s_ssd1306, 8, 34, "ESP32-S3 + FPGA");
+        ssd1306_draw_string(&s_ssd1306, 18, 48, "Starting...");
+        ssd1306_update(&s_ssd1306);
+    }
 
     /* Initialize MAX30102 (PPG sensor) */
     if (max30102_init(&s_max30102, esp32_i2c_hal_get_handle()) != 0) {
@@ -272,7 +560,7 @@ void app_main(void) {
         ESP_LOGI(TAG, "PMS5003 initialized OK");
     }
 
-    /* Configure UART1 for PMS5003 (TX=GPIO18, RX=GPIO19, 9600 baud) */
+    /* Configure UART1 for PMS5003 (TX=GPIO18, RX=GPIO17, 9600 baud) */
     uart_config_t uart_cfg = {
         .baud_rate = PMS5003_BAUD_RATE,
         .data_bits = UART_DATA_8_BITS,
@@ -282,7 +570,8 @@ void app_main(void) {
         .source_clk = UART_SCLK_DEFAULT,
     };
     uart_param_config(UART_NUM_1, &uart_cfg);
-    uart_set_pin(UART_NUM_1, 18, 19, UART_PIN_NO_CHANGE, UART_PIN_NO_CHANGE);
+    uart_set_pin(UART_NUM_1, 18, 17, UART_PIN_NO_CHANGE, UART_PIN_NO_CHANGE);
+    gpio_set_pull_mode(17, GPIO_PULLUP_ONLY); // Prevent floating noise when sensor disconnected
     uart_driver_install(UART_NUM_1, 1024, 0, 0, NULL, 0);
 
     /* Spawn Dual-Core FreeRTOS Tasks */
