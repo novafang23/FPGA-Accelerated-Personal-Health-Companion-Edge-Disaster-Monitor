@@ -5,7 +5,7 @@ The primary goal of the ShrikeFi migration is cost accessibility beyond the hack
 
 The **ShrikeFi** platform combines an **ESP32-S3** microcontroller with a low-cost **Renesas ForgeFPGA** (1120 5-input LUTs) and on-chip WiFi/BLE connectivity at a fraction of the cost, making edge health monitoring practically deployable.
 
-For interface-level physical and framing details of the FPGA↔MCU link, see [`docs/SHRIKEFI_LINK_PROTOCOL.md`](SHRIKEFI_LINK_PROTOCOL.md).
+For interface-level physical and framing details of the FPGA↔MCU link, see [`docs/SHRIKEFI_LINK_PROTOCOL.md`](SHRIKEFI_LINK_PROTOCOL.md). For real-world sensor pinouts and breadboard wiring guides, see [`docs/SHRIKEFI_HARDWARE_CONNECTIONS.md`](SHRIKEFI_HARDWARE_CONNECTIONS.md).
 
 ---
 

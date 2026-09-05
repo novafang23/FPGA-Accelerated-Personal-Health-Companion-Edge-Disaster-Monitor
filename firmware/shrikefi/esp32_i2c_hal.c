@@ -10,7 +10,7 @@
 #include "driver/i2c.h"
 #include "esp_log.h"
 
-static const char *TAG = "I2C_HAL";
+static const char *TAG __attribute__((unused)) = "I2C_HAL";
 static i2c_port_t s_i2c_num = I2C_NUM_0;
 static esp32_i2c_handle_t s_i2c_handle = { .port = I2C_NUM_0, .initialized = 0 };
 
@@ -51,12 +51,50 @@ int esp32_i2c_hal_write(uint8_t dev_addr, uint8_t reg_addr, const uint8_t *data,
     return (err == ESP_OK) ? I2C_HAL_SUCCESS : I2C_HAL_ERROR;
 }
 
+int esp32_i2c_hal_write_raw(uint8_t dev_addr, const uint8_t *data, uint16_t len) {
+    esp_err_t err = i2c_master_write_to_device(s_i2c_num, dev_addr, data, len, 1000 / portTICK_PERIOD_MS);
+    return (err == ESP_OK) ? I2C_HAL_SUCCESS : I2C_HAL_ERROR;
+}
+
 int esp32_i2c_hal_write_byte(uint8_t dev_addr, uint8_t reg_addr, uint8_t val) {
     return esp32_i2c_hal_write(dev_addr, reg_addr, &val, 1);
 }
 
 int esp32_i2c_hal_read_byte(uint8_t dev_addr, uint8_t reg_addr, uint8_t *val) {
     return esp32_i2c_hal_read(dev_addr, reg_addr, val, 1);
+}
+
+int esp32_i2c_hal_probe(uint8_t dev_addr) {
+    /* ESP-IDF v5.x rejects NULL data in i2c_master_write_to_device().
+     * Use the cmd-link API to send just an address byte for probing. */
+    i2c_cmd_handle_t cmd = i2c_cmd_link_create();
+    i2c_master_start(cmd);
+    i2c_master_write_byte(cmd, (dev_addr << 1) | I2C_MASTER_WRITE, true);
+    i2c_master_stop(cmd);
+    esp_err_t err = i2c_master_cmd_begin(s_i2c_num, cmd, 50 / portTICK_PERIOD_MS);
+    i2c_cmd_link_delete(cmd);
+    return (err == ESP_OK) ? I2C_HAL_SUCCESS : I2C_HAL_ERROR;
+}
+
+void esp32_i2c_hal_scan(void) {
+    ESP_LOGI("I2C_SCAN", "Scanning I2C bus (SDA=GPIO1, SCL=GPIO2)...");
+    int count = 0;
+    for (uint8_t addr = 1; addr < 127; addr++) {
+        if (esp32_i2c_hal_probe(addr) == I2C_HAL_SUCCESS) {
+            const char *desc = "Unknown";
+            if (addr == 0x3C || addr == 0x3D) desc = "SSD1306 OLED";
+            else if (addr == 0x57) desc = "MAX30100/MAX30102 PPG";
+            else if (addr == 0x76 || addr == 0x77) desc = "BME280 Env";
+            else if (addr == 0x08) desc = "ForgeFPGA";
+            ESP_LOGI("I2C_SCAN", " -> Found device at 0x%02X (%s)", addr, desc);
+            count++;
+        }
+    }
+    if (count == 0) {
+        ESP_LOGW("I2C_SCAN", "No I2C devices responded! Check wiring/pullups.");
+    } else {
+        ESP_LOGI("I2C_SCAN", "Scan complete: %d device(s) found.", count);
+    }
 }
 
 #else
@@ -83,6 +121,11 @@ int esp32_i2c_hal_write(uint8_t dev_addr, uint8_t reg_addr, const uint8_t *data,
     return I2C_HAL_SUCCESS;
 }
 
+int esp32_i2c_hal_write_raw(uint8_t dev_addr, const uint8_t *data, uint16_t len) {
+    (void)dev_addr; (void)data; (void)len;
+    return I2C_HAL_SUCCESS;
+}
+
 int esp32_i2c_hal_write_byte(uint8_t dev_addr, uint8_t reg_addr, uint8_t val) {
     (void)dev_addr; (void)reg_addr; (void)val;
     return I2C_HAL_SUCCESS;
@@ -92,5 +135,14 @@ int esp32_i2c_hal_read_byte(uint8_t dev_addr, uint8_t reg_addr, uint8_t *val) {
     (void)dev_addr; (void)reg_addr;
     *val = 0;
     return I2C_HAL_SUCCESS;
+}
+
+int esp32_i2c_hal_probe(uint8_t dev_addr) {
+    (void)dev_addr;
+    return I2C_HAL_SUCCESS;
+}
+
+void esp32_i2c_hal_scan(void) {
+    // stub
 }
 #endif

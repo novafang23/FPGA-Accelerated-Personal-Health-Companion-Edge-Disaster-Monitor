@@ -130,7 +130,9 @@ static risk_level_t assess_pollution_risk(
     else if (pm25 > POLLUTION_PM25_CAUTION)   prsi += 10.0f;
 
     /* Oxygen desaturation component (0-40 points) */
-    if (spo2 < POLLUTION_SPO2_CRITICAL)        prsi += 40.0f;
+    if (spo2 <= 0.0f) {
+        /* SpO2 not yet valid or sensor unavailable — do not falsely penalize with hypoxia points */
+    } else if (spo2 < POLLUTION_SPO2_CRITICAL)        prsi += 40.0f;
     else if (spo2 < POLLUTION_SPO2_HIGH)   prsi += 30.0f;
     else if (spo2 < POLLUTION_SPO2_MODERATE)   prsi += 20.0f;
     else if (spo2 < POLLUTION_SPO2_CAUTION)   prsi += 10.0f;

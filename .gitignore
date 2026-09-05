@@ -65,3 +65,13 @@ sim_ppg
 
 # ── Agent instructions (internal) ────────────────────────────
 AGENTS.md
+
+# Additions to ignore project build artifacts
+hardware/zynq/vivado_project/.Xil/
+hardware/zynq/vivado_project/*.cache/
+hardware/zynq/vivado_project/*.hw/
+hardware/zynq/vivado_project/*.ip_user_files/
+hardware/zynq/vivado_project/*.runs/
+hardware/zynq/vivado_project/*.sim/
+hardware/shrikefi/forgefpga_project/ffpga/build/
+

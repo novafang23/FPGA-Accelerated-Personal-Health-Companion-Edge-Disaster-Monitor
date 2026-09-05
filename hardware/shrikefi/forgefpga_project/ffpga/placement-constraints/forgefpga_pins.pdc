@@ -1,0 +1,24 @@
+# ==============================================================================
+# Renesas ForgeFPGA (SLG47910) PDC Pin Constraints for ShrikeFi Board
+# SIH26181 Health Companion & Edge Disaster Monitor
+# ==============================================================================
+
+# Clock & Reset
+set_location -site PIN_12 [get_ports clk]
+set_location -site PIN_13 [get_ports rst_n]
+
+# 4-Bit Parallel Link Interface (to ESP32-S3)
+set_location -site PIN_14 [get_ports link_strobe]
+set_location -site PIN_15 [get_ports link_dir]
+set_location -site PIN_16 [get_ports {link_din[0]}]
+set_location -site PIN_17 [get_ports {link_din[1]}]
+set_location -site PIN_18 [get_ports {link_din[2]}]
+set_location -site PIN_19 [get_ports {link_din[3]}]
+
+set_location -site PIN_20 [get_ports {link_dout[0]}]
+set_location -site PIN_21 [get_ports {link_dout[1]}]
+set_location -site PIN_22 [get_ports {link_dout[2]}]
+set_location -site PIN_23 [get_ports {link_dout[3]}]
+
+# Hardware Interrupt (Output to ESP32-S3)
+set_location -site PIN_24 [get_ports irq_beat]

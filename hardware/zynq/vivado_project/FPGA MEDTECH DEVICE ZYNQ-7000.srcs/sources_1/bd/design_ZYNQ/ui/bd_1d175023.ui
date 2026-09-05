@@ -1,0 +1,37 @@
+{
+   "ActiveEmotionalView":"Default View",
+   "Color Coded_ScaleFactor":"1.25",
+   "Color Coded_TopLeft":"-88,-82",
+   "Default View_Layers":"/processing_system7_0_FCLK_RESET0_N:true|/processing_system7_0_FCLK_CLK0:true|/rst_ps7_0_50M_peripheral_aresetn:true|",
+   "Default View_ScaleFactor":"1.45632",
+   "Default View_TopLeft":"-12,-67",
+   "Display-PortTypeClock":"true",
+   "Display-PortTypeOthers":"true",
+   "Display-PortTypeReset":"true",
+   "ExpandedHierarchyInLayout":"",
+   "Interfaces View_Layers":"/processing_system7_0_FCLK_RESET0_N:false|/processing_system7_0_FCLK_CLK0:false|/rst_ps7_0_50M_peripheral_aresetn:false|",
+   "Interfaces View_ScaleFactor":"1.25",
+   "Interfaces View_TopLeft":"-188,-189",
+   "Reduced Jogs_ScaleFactor":"1.25",
+   "Reduced Jogs_TopLeft":"-88,-49",
+   "guistr":"# # String gsaved with Nlview 7.8.0 2024-04-26 e1825d835c VDI=44 GEI=38 GUI=JA:24.0
+#  -string -flagsOSRD
+preplace port DDR -pg 1 -lvl 4 -x 960 -y 60 -defaultsOSRD
+preplace port FIXED_IO -pg 1 -lvl 4 -x 960 -y 90 -defaultsOSRD
+preplace inst axi_ppg_accelerator_0 -pg 1 -lvl 3 -x 820 -y 200 -defaultsOSRD
+preplace inst processing_system7_0 -pg 1 -lvl 1 -x 220 -y 110 -defaultsOSRD
+preplace inst axi_smc -pg 1 -lvl 2 -x 570 -y 180 -defaultsOSRD
+preplace inst rst_ps7_0_50M -pg 1 -lvl 1 -x 220 -y 320 -defaultsOSRD
+preplace netloc processing_system7_0_FCLK_CLK0 1 0 3 20 210 430 100 700
+preplace netloc processing_system7_0_FCLK_RESET0_N 1 0 2 30 220 410
+preplace netloc rst_ps7_0_50M_peripheral_aresetn 1 1 2 440 260 700
+preplace netloc axi_ppg_accelerator_0_irq_beat 1 0 4 30 10 NJ 10 NJ 10 940
+preplace netloc processing_system7_0_DDR 1 1 3 430J 60 NJ 60 NJ
+preplace netloc processing_system7_0_FIXED_IO 1 1 3 NJ 90 NJ 90 NJ
+preplace netloc processing_system7_0_M_AXI_GP0 1 1 1 420 110n
+preplace netloc axi_smc_M00_AXI 1 2 1 N 180
+levelinfo -pg 1 0 220 570 820 960
+pagesize -pg 1 -db -bbox -sgen 0 0 1070 420
+"
+}
+

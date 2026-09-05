@@ -43,6 +43,7 @@ extern "C" {
 #define MAX30102_REG_REV_ID         0xFE
 #define MAX30102_REG_PART_ID        0xFF
 #define MAX30102_EXPECTED_PART_ID   0x15
+#define MAX30100_EXPECTED_PART_ID   0x11
 
 /* Mode Configuration */
 #define MAX30102_MODE_HEART_RATE    0x02
@@ -58,6 +59,8 @@ extern "C" {
 #define MAX30102_SPO2_PW_411            0x03
 
 /* FIFO Configuration */
+#define MAX30102_FIFO_SMP_AVE_1     (0x00 << 5)
+#define MAX30102_FIFO_SMP_AVE_2     (0x01 << 5)
 #define MAX30102_FIFO_SMP_AVE_4     (0x02 << 5)
 #define MAX30102_FIFO_ROLLOVER_EN   (1 << 4)
 #define MAX30102_FIFO_A_FULL_17     0x0F
@@ -72,6 +75,7 @@ typedef struct {
 typedef struct {
     esp32_i2c_handle_t *i2c;
     int initialized;
+    int is_max30100;
 } max30102_t;
 
 /*

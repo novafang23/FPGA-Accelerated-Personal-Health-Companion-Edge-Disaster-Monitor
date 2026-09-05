@@ -1,0 +1,46 @@
+`timescale 1ns / 1ps
+
+module moving_average_8tap #(
+    parameter DATA_WIDTH = 8
+)(
+    input  wire                   clk,
+    input  wire                   rst_n,
+    input  wire                   data_valid,
+    input  wire [DATA_WIDTH-1:0]  data_in,
+    output reg  [DATA_WIDTH-1:0]  data_out,
+    output reg                    out_valid
+);
+
+    reg [DATA_WIDTH-1:0] shift_reg [0:7];
+    reg [DATA_WIDTH+2:0] running_sum; // +3 bits prevents overflow for 8 samples
+    integer i;
+
+    wire [DATA_WIDTH+2:0] next_sum = running_sum + {3'b000, data_in} - {3'b000, shift_reg[7]};
+
+    always @(posedge clk) begin
+        if (!rst_n) begin
+            running_sum <= {(DATA_WIDTH+3){1'b0}};
+            data_out    <= {DATA_WIDTH{1'b0}};
+            out_valid   <= 1'b0;
+            for (i = 0; i < 8; i = i + 1) begin
+                shift_reg[i] <= {DATA_WIDTH{1'b0}};
+            end
+        end else if (data_valid) begin
+            // Shift pipeline
+            shift_reg[0] <= data_in;
+            for (i = 1; i < 8; i = i + 1) begin
+                shift_reg[i] <= shift_reg[i-1];
+            end
+
+            // Update sum: (Old Sum + New Sample - Oldest Sample)
+            running_sum <= next_sum;
+            
+            // Division by 8 via 3-bit right shift
+            data_out    <= next_sum[DATA_WIDTH+2:3];
+            out_valid   <= 1'b1;
+        end else begin
+            out_valid   <= 1'b0;
+        end
+    end
+
+endmodule

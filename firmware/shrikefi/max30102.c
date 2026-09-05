@@ -58,13 +58,14 @@ static void max30102_delay_ms(int ms) {
 int max30102_reset(max30102_t *dev) {
     if (!dev || !dev->i2c) return -1;
 
-    if (max30102_i2c_write_reg(dev, MAX30102_REG_MODE_CONFIG, MAX30102_MODE_RESET) != 0) {
+    uint8_t mode_reg = dev->is_max30100 ? 0x06 : MAX30102_REG_MODE_CONFIG;
+    if (max30102_i2c_write_reg(dev, mode_reg, MAX30102_MODE_RESET) != 0) {
         return -1;
     }
 
     int timeout = 100;
     while (timeout-- > 0) {
-        int val = max30102_i2c_read_reg(dev, MAX30102_REG_MODE_CONFIG);
+        int val = max30102_i2c_read_reg(dev, mode_reg);
         if (val < 0) return -1;
         if (!(val & MAX30102_MODE_RESET)) break;
         max30102_delay_ms(1);
@@ -77,45 +78,62 @@ int max30102_init(max30102_t *dev, esp32_i2c_handle_t *i2c) {
 
     dev->i2c = i2c;
     dev->initialized = 0;
+    dev->is_max30100 = 0;
 
-    /* Verify part ID */
+    /* Verify part ID (0x15 for MAX30102, 0x11 for MAX30100) */
     int part_id = max30102_i2c_read_reg(dev, MAX30102_REG_PART_ID);
-    if (part_id < 0 || (uint8_t)part_id != MAX30102_EXPECTED_PART_ID) {
-        ESP_LOGE(TAG, "Part ID mismatch: expected 0x%02X, got 0x%02X", MAX30102_EXPECTED_PART_ID, part_id);
+    if (part_id == MAX30100_EXPECTED_PART_ID) {
+        dev->is_max30100 = 1;
+        ESP_LOGI(TAG, "Detected MAX30100-compatible sensor (Part ID: 0x11)");
+    } else if (part_id == MAX30102_EXPECTED_PART_ID) {
+        dev->is_max30100 = 0;
+        ESP_LOGI(TAG, "Detected MAX30102 sensor (Part ID: 0x15)");
+    } else {
+        ESP_LOGE(TAG, "Part ID mismatch: expected 0x15 or 0x11, got 0x%02X", part_id);
         return -1;
     }
 
     if (max30102_reset(dev) != 0) return -1;
 
-    /* FIFO Configuration: 4-sample averaging, rollover enabled, A_FULL at 17 */
-    if (max30102_i2c_write_reg(dev, MAX30102_REG_FIFO_CONFIG,
-                    MAX30102_FIFO_SMP_AVE_4 | MAX30102_FIFO_ROLLOVER_EN | MAX30102_FIFO_A_FULL_17) != 0) {
-        return -1;
+    if (dev->is_max30100) {
+        /* MAX30100 Configuration */
+        max30102_i2c_write_reg(dev, 0x06, 0x03); // Mode: SpO2
+        max30102_i2c_write_reg(dev, 0x07, 0x07); // SpO2: 100Hz, 16-bit
+        max30102_i2c_write_reg(dev, 0x09, 0x88); // LED currents (~24mA each)
+        max30102_i2c_write_reg(dev, 0x02, 0x00); // FIFO WR PTR
+        max30102_i2c_write_reg(dev, 0x03, 0x00); // OVF COUNTER
+        max30102_i2c_write_reg(dev, 0x04, 0x00); // FIFO RD PTR
+    } else {
+        /* FIFO Configuration: 4-sample averaging, rollover enabled, A_FULL at 17 */
+        if (max30102_i2c_write_reg(dev, MAX30102_REG_FIFO_CONFIG,
+                        MAX30102_FIFO_SMP_AVE_4 | MAX30102_FIFO_ROLLOVER_EN | MAX30102_FIFO_A_FULL_17) != 0) {
+            return -1;
+        }
+
+        /* SpO2 Configuration: 4096nA range, 100 Hz, 411µs pulse width (18-bit) */
+        if (max30102_i2c_write_reg(dev, MAX30102_REG_SPO2_CONFIG,
+                        MAX30102_SPO2_ADC_RANGE_4096 | MAX30102_SPO2_SR_100 | MAX30102_SPO2_PW_411) != 0) {
+            return -1;
+        }
+
+        /* LED Pulse Amplitude: ~15.8mA each for clear capillary penetration */
+        if (max30102_i2c_write_reg(dev, MAX30102_REG_LED1_PA, 0x4F) != 0) return -1;
+        if (max30102_i2c_write_reg(dev, MAX30102_REG_LED2_PA, 0x4F) != 0) return -1;
+
+        /* Clear FIFO pointers */
+        max30102_i2c_write_reg(dev, MAX30102_REG_FIFO_WR_PTR, 0x00);
+        max30102_i2c_write_reg(dev, MAX30102_REG_OVF_COUNTER, 0x00);
+        max30102_i2c_write_reg(dev, MAX30102_REG_FIFO_RD_PTR, 0x00);
+
+        /* Enable SpO2 mode (Red + IR) */
+        if (max30102_i2c_write_reg(dev, MAX30102_REG_MODE_CONFIG, MAX30102_MODE_SPO2) != 0) return -1;
+
+        /* Enable FIFO almost-full interrupt */
+        if (max30102_i2c_write_reg(dev, MAX30102_REG_INT_ENABLE_1, 0x40) != 0) return -1;
     }
-
-    /* SpO2 Configuration: 4096nA range, 100 Hz, 411µs pulse width (18-bit) */
-    if (max30102_i2c_write_reg(dev, MAX30102_REG_SPO2_CONFIG,
-                    MAX30102_SPO2_ADC_RANGE_4096 | MAX30102_SPO2_SR_100 | MAX30102_SPO2_PW_411) != 0) {
-        return -1;
-    }
-
-    /* LED Pulse Amplitude: ~7.2mA each */
-    if (max30102_i2c_write_reg(dev, MAX30102_REG_LED1_PA, 0x24) != 0) return -1;
-    if (max30102_i2c_write_reg(dev, MAX30102_REG_LED2_PA, 0x24) != 0) return -1;
-
-    /* Clear FIFO pointers */
-    max30102_i2c_write_reg(dev, MAX30102_REG_FIFO_WR_PTR, 0x00);
-    max30102_i2c_write_reg(dev, MAX30102_REG_OVF_COUNTER, 0x00);
-    max30102_i2c_write_reg(dev, MAX30102_REG_FIFO_RD_PTR, 0x00);
-
-    /* Enable SpO2 mode (Red + IR) */
-    if (max30102_i2c_write_reg(dev, MAX30102_REG_MODE_CONFIG, MAX30102_MODE_SPO2) != 0) return -1;
-
-    /* Enable FIFO almost-full interrupt */
-    if (max30102_i2c_write_reg(dev, MAX30102_REG_INT_ENABLE_1, 0x40) != 0) return -1;
 
     dev->initialized = 1;
-    ESP_LOGI(TAG, "MAX30102 initialized successfully");
+    ESP_LOGI(TAG, "MAX3010x initialized successfully");
     return 0;
 }
 
@@ -123,28 +141,44 @@ int max30102_init(max30102_t *dev, esp32_i2c_handle_t *i2c) {
 int max30102_fifo_available(max30102_t *dev) {
     if (!dev || !dev->initialized) return -1;
 
-    int wr = max30102_i2c_read_reg(dev, MAX30102_REG_FIFO_WR_PTR);
-    int rd = max30102_i2c_read_reg(dev, MAX30102_REG_FIFO_RD_PTR);
+    uint8_t wr_reg = dev->is_max30100 ? 0x02 : MAX30102_REG_FIFO_WR_PTR;
+    uint8_t rd_reg = dev->is_max30100 ? 0x04 : MAX30102_REG_FIFO_RD_PTR;
+    int wr = max30102_i2c_read_reg(dev, wr_reg);
+    int rd = max30102_i2c_read_reg(dev, rd_reg);
     if (wr < 0 || rd < 0) return -1;
 
     int count = wr - rd;
-    if (count < 0) count += 32;
+    int max_depth = dev->is_max30100 ? 16 : 32;
+    if (count < 0) count += max_depth;
     return count;
 }
 
 int max30102_read_sample(max30102_t *dev, max30102_sample_t *sample) {
     if (!dev || !dev->initialized || !sample) return -1;
 
-    uint8_t fifo_data[6];
-    if (max30102_i2c_write_read(dev, MAX30102_REG_FIFO_DATA, fifo_data, 6) != 0) {
-        return -1;
+    if (dev->is_max30100) {
+        uint8_t fifo_data[4];
+        if (max30102_i2c_write_read(dev, 0x05, fifo_data, 4) != 0) {
+            return -1;
+        }
+        // MAX30100 returns 16-bit IR first, then 16-bit Red
+        sample->ir  = ((uint32_t)fifo_data[0] << 8) | fifo_data[1];
+        sample->red = ((uint32_t)fifo_data[2] << 8) | fifo_data[3];
+        // Scale to 18-bit range so downstream filters stay aligned
+        sample->ir  <<= 2;
+        sample->red <<= 2;
+    } else {
+        uint8_t fifo_data[6];
+        if (max30102_i2c_write_read(dev, MAX30102_REG_FIFO_DATA, fifo_data, 6) != 0) {
+            return -1;
+        }
+
+        sample->red = ((uint32_t)(fifo_data[0] & 0x03) << 16) |
+                      ((uint32_t)fifo_data[1] << 8) | ((uint32_t)fifo_data[2]);
+
+        sample->ir = ((uint32_t)(fifo_data[3] & 0x03) << 16) |
+                     ((uint32_t)fifo_data[4] << 8) | ((uint32_t)fifo_data[5]);
     }
-
-    sample->red = ((uint32_t)(fifo_data[0] & 0x03) << 16) |
-                  ((uint32_t)fifo_data[1] << 8) | ((uint32_t)fifo_data[2]);
-
-    sample->ir = ((uint32_t)(fifo_data[3] & 0x03) << 16) |
-                 ((uint32_t)fifo_data[4] << 8) | ((uint32_t)fifo_data[5]);
 
     return 0;
 }

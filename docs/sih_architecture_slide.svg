@@ -1,0 +1,277 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1920 1080" width="1920" height="1080">
+  <defs>
+    <!-- Background -->
+    <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#0B0F19"/>
+      <stop offset="100%" stop-color="#0F172A"/>
+    </linearGradient>
+
+    <!-- Column Soft Backgrounds -->
+    <linearGradient id="bg-col1" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#0284C7" stop-opacity="0.10"/>
+      <stop offset="100%" stop-color="#0369A1" stop-opacity="0.02"/>
+    </linearGradient>
+    <linearGradient id="bg-col2" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#9333EA" stop-opacity="0.10"/>
+      <stop offset="100%" stop-color="#6B21A8" stop-opacity="0.02"/>
+    </linearGradient>
+    <linearGradient id="bg-col3" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#10B981" stop-opacity="0.10"/>
+      <stop offset="100%" stop-color="#047857" stop-opacity="0.02"/>
+    </linearGradient>
+    <linearGradient id="bg-col4" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#F59E0B" stop-opacity="0.10"/>
+      <stop offset="100%" stop-color="#B45309" stop-opacity="0.02"/>
+    </linearGradient>
+
+    <!-- Card Shadow -->
+    <filter id="shadow" x="-5%" y="-5%" width="110%" height="115%">
+      <feDropShadow dx="0" dy="8" stdDeviation="12" flood-color="#000000" flood-opacity="0.6"/>
+    </filter>
+
+    <style>
+      .font { font-family: 'Segoe UI', Inter, -apple-system, Roboto, sans-serif; }
+      .header-title { font-weight: 800; font-size: 38px; fill: #FFFFFF; letter-spacing: -0.5px; }
+      .header-sub { font-weight: 400; font-size: 18px; fill: #94A3B8; }
+      .col-tag { font-weight: 800; font-size: 13px; text-transform: uppercase; letter-spacing: 1.5px; }
+      .col-heading { font-weight: 800; font-size: 22px; }
+      .card-name { font-weight: 700; font-size: 19px; fill: #F8FAFC; }
+      .card-desc { font-weight: 500; font-size: 14px; fill: #94A3B8; }
+      .arrow-lbl { font-weight: 700; font-size: 12px; fill: #64748B; text-transform: uppercase; letter-spacing: 1px; }
+    </style>
+  </defs>
+
+  <!-- Canvas -->
+  <rect width="1920" height="1080" fill="url(#bg)"/>
+
+  <!-- ==================== HEADER ==================== -->
+  <g class="font" transform="translate(100, 60)">
+    <rect x="0" y="0" width="130" height="28" rx="6" fill="#38BDF8" fill-opacity="0.15" stroke="#38BDF8" stroke-width="1.2"/>
+    <text x="65" y="19" text-anchor="middle" font-size="12" font-weight="700" fill="#38BDF8" letter-spacing="1">SIH26181</text>
+    
+    <text x="0" y="74" class="header-title">System Architecture Overview</text>
+    <text x="0" y="106" class="header-sub">How raw physiological &amp; environmental signals turn into real-time disaster warnings</text>
+  </g>
+
+  <!-- ==================== 4 MAIN STAGES ==================== -->
+
+  <!-- STAGE 1: SENSORS -->
+  <g class="font" transform="translate(100, 195)">
+    <!-- Column Outer Box -->
+    <rect x="0" y="0" width="380" height="690" rx="20" fill="url(#bg-col1)" stroke="#0284C7" stroke-width="1.5" filter="url(#shadow)"/>
+    
+    <!-- Stage Header -->
+    <g transform="translate(30, 30)">
+      <text x="0" y="0" class="col-tag" fill="#38BDF8">Stage 01</text>
+      <text x="0" y="28" class="col-heading" fill="#FFFFFF">Sensing Layer</text>
+      <text x="0" y="52" font-size="13" fill="#64748B">Physical data acquisition</text>
+    </g>
+
+    <!-- Card 1: MAX30102 -->
+    <g transform="translate(25, 110)">
+      <rect x="0" y="0" width="330" height="155" rx="14" fill="#0F172A" stroke="#1E293B" stroke-width="1.5"/>
+      <circle cx="35" cy="40" r="16" fill="#0284C7" fill-opacity="0.2"/>
+      <path d="M29 40h12M35 34v12" stroke="#38BDF8" stroke-width="2.5" stroke-linecap="round"/>
+      <text x="62" y="46" class="card-name">MAX30102</text>
+      <text x="24" y="85" class="card-desc">Pulse Oximeter &amp; Heart Rate</text>
+      <text x="24" y="112" font-size="13" font-weight="600" fill="#38BDF8">Dual Red &amp; Infrared PPG</text>
+    </g>
+
+    <!-- Card 2: BME280 -->
+    <g transform="translate(25, 295)">
+      <rect x="0" y="0" width="330" height="155" rx="14" fill="#0F172A" stroke="#1E293B" stroke-width="1.5"/>
+      <circle cx="35" cy="40" r="16" fill="#0284C7" fill-opacity="0.2"/>
+      <path d="M28 42a7 7 0 1114 0c0 4-3 6-7 10-4-4-7-6-7-10z" fill="none" stroke="#38BDF8" stroke-width="2"/>
+      <text x="62" y="46" class="card-name">BME280</text>
+      <text x="24" y="85" class="card-desc">Environmental Climate</text>
+      <text x="24" y="112" font-size="13" font-weight="600" fill="#38BDF8">Temperature &amp; Humidity</text>
+    </g>
+
+    <!-- Card 3: PMS5003 -->
+    <g transform="translate(25, 480)">
+      <rect x="0" y="0" width="330" height="155" rx="14" fill="#0F172A" stroke="#1E293B" stroke-width="1.5"/>
+      <circle cx="35" cy="40" r="16" fill="#0284C7" fill-opacity="0.2"/>
+      <path d="M28 36h14M26 40h18M30 44h10" stroke="#38BDF8" stroke-width="2" stroke-linecap="round"/>
+      <text x="62" y="46" class="card-name">PMS5003</text>
+      <text x="24" y="85" class="card-desc">Laser Particle Sensor</text>
+      <text x="24" y="112" font-size="13" font-weight="600" fill="#38BDF8">PM2.5 / PM10 Smog &amp; Dust</text>
+    </g>
+  </g>
+
+  <!-- Flow Connector 1 -> 2 -->
+  <g class="font" transform="translate(480, 540)">
+    <line x1="10" y1="0" x2="45" y2="0" stroke="#38BDF8" stroke-width="2.5"/>
+    <polygon points="52,0 42,-5 42,5" fill="#38BDF8"/>
+    <text x="30" y="-12" text-anchor="middle" class="arrow-lbl">Raw Data</text>
+  </g>
+
+  <!-- STAGE 2: FPGA ACCELERATOR -->
+  <g class="font" transform="translate(540, 195)">
+    <!-- Column Outer Box -->
+    <rect x="0" y="0" width="380" height="690" rx="20" fill="url(#bg-col2)" stroke="#9333EA" stroke-width="1.5" filter="url(#shadow)"/>
+    
+    <!-- Stage Header -->
+    <g transform="translate(30, 30)">
+      <text x="0" y="0" class="col-tag" fill="#C084FC">Stage 02</text>
+      <text x="0" y="28" class="col-heading" fill="#FFFFFF">FPGA RTL Core</text>
+      <text x="0" y="52" font-size="13" fill="#64748B">Hardware acceleration (50 MHz)</text>
+    </g>
+
+    <!-- Card 1: FIR Filter -->
+    <g transform="translate(25, 110)">
+      <rect x="0" y="0" width="330" height="155" rx="14" fill="#0F172A" stroke="#2E1065" stroke-width="1.5"/>
+      <circle cx="35" cy="40" r="16" fill="#9333EA" fill-opacity="0.25"/>
+      <path d="M28 40h4l3-6 4 12 3-6h4" fill="none" stroke="#C084FC" stroke-width="2" stroke-linecap="round"/>
+      <text x="62" y="46" class="card-name">Dual 8-Tap FIR</text>
+      <text x="24" y="85" class="card-desc">Noise &amp; Artifact Filter</text>
+      <text x="24" y="112" font-size="13" font-weight="600" fill="#C084FC">Zero DSP • Instant Shift (&gt;&gt; 3)</text>
+    </g>
+
+    <!-- Card 2: Peak Detector -->
+    <g transform="translate(25, 295)">
+      <rect x="0" y="0" width="330" height="155" rx="14" fill="#0F172A" stroke="#2E1065" stroke-width="1.5"/>
+      <circle cx="35" cy="40" r="16" fill="#9333EA" fill-opacity="0.25"/>
+      <path d="M28 45l7-12 7 12" fill="none" stroke="#C084FC" stroke-width="2" stroke-linecap="round"/>
+      <text x="62" y="46" class="card-name">Systolic Peak FSM</text>
+      <text x="24" y="85" class="card-desc">Accurate Pulse Detection</text>
+      <text x="24" y="112" font-size="13" font-weight="600" fill="#C084FC">250ms Refractory Window</text>
+    </g>
+
+    <!-- Card 3: 20ns Timer -->
+    <g transform="translate(25, 480)">
+      <rect x="0" y="0" width="330" height="155" rx="14" fill="#0F172A" stroke="#2E1065" stroke-width="1.5"/>
+      <circle cx="35" cy="40" r="16" fill="#9333EA" fill-opacity="0.25"/>
+      <circle cx="35" cy="40" r="8" fill="none" stroke="#C084FC" stroke-width="2"/>
+      <path d="M35 36v4l3 2" stroke="#C084FC" stroke-width="1.8"/>
+      <text x="62" y="46" class="card-name">20ns Cycle Timer</text>
+      <text x="24" y="85" class="card-desc">Heartbeat Interval (IBI)</text>
+      <text x="24" y="112" font-size="13" font-weight="600" fill="#C084FC">Zero OS Scheduling Jitter</text>
+    </g>
+  </g>
+
+  <!-- Flow Connector 2 -> 3 -->
+  <g class="font" transform="translate(920, 540)">
+    <line x1="10" y1="0" x2="45" y2="0" stroke="#C084FC" stroke-width="2.5"/>
+    <polygon points="52,0 42,-5 42,5" fill="#C084FC"/>
+    <text x="30" y="-12" text-anchor="middle" class="arrow-lbl">IBI Cycles</text>
+  </g>
+
+  <!-- STAGE 3: PROCESSING & AI -->
+  <g class="font" transform="translate(980, 195)">
+    <!-- Column Outer Box -->
+    <rect x="0" y="0" width="380" height="690" rx="20" fill="url(#bg-col3)" stroke="#10B981" stroke-width="1.5" filter="url(#shadow)"/>
+    
+    <!-- Stage Header -->
+    <g transform="translate(30, 30)">
+      <text x="0" y="0" class="col-tag" fill="#34D399">Stage 03</text>
+      <text x="0" y="28" class="col-heading" fill="#FFFFFF">Edge AI &amp; MCU</text>
+      <text x="0" y="52" font-size="13" fill="#64748B">ARM Cortex-A9 / ESP32-S3</text>
+    </g>
+
+    <!-- Card 1: Vitals Engine -->
+    <g transform="translate(25, 110)">
+      <rect x="0" y="0" width="330" height="155" rx="14" fill="#0F172A" stroke="#064E3B" stroke-width="1.5"/>
+      <circle cx="35" cy="40" r="16" fill="#10B981" fill-opacity="0.2"/>
+      <path d="M28 40h3l3-4 3 8 3-4h3" fill="none" stroke="#34D399" stroke-width="2" stroke-linecap="round"/>
+      <text x="62" y="46" class="card-name">Vitals Analytics</text>
+      <text x="24" y="85" class="card-desc">Biometric Feature Extractor</text>
+      <text x="24" y="112" font-size="13" font-weight="600" fill="#34D399">HR • HRV (RMSSD) • SpO₂</text>
+    </g>
+
+    <!-- Card 2: TinyML -->
+    <g transform="translate(25, 295)">
+      <rect x="0" y="0" width="330" height="155" rx="14" fill="#0F172A" stroke="#064E3B" stroke-width="1.5"/>
+      <circle cx="35" cy="40" r="16" fill="#10B981" fill-opacity="0.2"/>
+      <circle cx="30" cy="36" r="3" fill="#34D399"/>
+      <circle cx="30" cy="44" r="3" fill="#34D399"/>
+      <circle cx="40" cy="40" r="3" fill="#34D399"/>
+      <path d="M30 36l10 4M30 44l10-4" stroke="#34D399" stroke-width="1.5"/>
+      <text x="62" y="46" class="card-name">TinyML Model</text>
+      <text x="24" y="85" class="card-desc">6 → 12 → 3 Neural Network</text>
+      <text x="24" y="112" font-size="13" font-weight="600" fill="#34D399">INT8 Quantized • &lt; 1 µs Run</text>
+    </g>
+
+    <!-- Card 3: Disaster Engine -->
+    <g transform="translate(25, 480)">
+      <rect x="0" y="0" width="330" height="155" rx="14" fill="#0F172A" stroke="#064E3B" stroke-width="1.5"/>
+      <circle cx="35" cy="40" r="16" fill="#10B981" fill-opacity="0.2"/>
+      <path d="M35 32l9 16H26z" fill="none" stroke="#34D399" stroke-width="2"/>
+      <path d="M35 38v3M35 44v1" stroke="#34D399" stroke-width="2" stroke-linecap="round"/>
+      <text x="62" y="46" class="card-name">Disaster Risk Engine</text>
+      <text x="24" y="85" class="card-desc">Multi-Hazard Heat &amp; Smog</text>
+      <text x="24" y="112" font-size="13" font-weight="600" fill="#34D399">Cardiovascular Drift Alert</text>
+    </g>
+  </g>
+
+  <!-- Flow Connector 3 -> 4 -->
+  <g class="font" transform="translate(1360, 540)">
+    <line x1="10" y1="0" x2="45" y2="0" stroke="#34D399" stroke-width="2.5"/>
+    <polygon points="52,0 42,-5 42,5" fill="#34D399"/>
+    <text x="30" y="-12" text-anchor="middle" class="arrow-lbl">Risk State</text>
+  </g>
+
+  <!-- STAGE 4: ACTION & OUTPUT -->
+  <g class="font" transform="translate(1420, 195)">
+    <!-- Column Outer Box -->
+    <rect x="0" y="0" width="380" height="690" rx="20" fill="url(#bg-col4)" stroke="#F59E0B" stroke-width="1.5" filter="url(#shadow)"/>
+    
+    <!-- Stage Header -->
+    <g transform="translate(30, 30)">
+      <text x="0" y="0" class="col-tag" fill="#FBBF24">Stage 04</text>
+      <text x="0" y="28" class="col-heading" fill="#FFFFFF">Output &amp; Action</text>
+      <text x="0" y="52" font-size="13" fill="#64748B">Edge triage &amp; remote link</text>
+    </g>
+
+    <!-- Card 1: OLED Display -->
+    <g transform="translate(25, 110)">
+      <rect x="0" y="0" width="330" height="155" rx="14" fill="#0F172A" stroke="#451A03" stroke-width="1.5"/>
+      <circle cx="35" cy="40" r="16" fill="#F59E0B" fill-opacity="0.2"/>
+      <rect x="27" y="33" width="16" height="12" rx="2" fill="none" stroke="#FBBF24" stroke-width="1.8"/>
+      <text x="62" y="46" class="card-name">SSD1306 OLED</text>
+      <text x="24" y="85" class="card-desc">Local Offline Triage</text>
+      <text x="24" y="112" font-size="13" font-weight="600" fill="#FBBF24">Live Vitals &amp; Threat Level</text>
+    </g>
+
+    <!-- Card 2: Buzzer Alarm -->
+    <g transform="translate(25, 295)">
+      <rect x="0" y="0" width="330" height="155" rx="14" fill="#0F172A" stroke="#451A03" stroke-width="1.5"/>
+      <circle cx="35" cy="40" r="16" fill="#F59E0B" fill-opacity="0.2"/>
+      <path d="M35 32a6 6 0 00-6 6c0 5-2 6-2 6h16s-2-1-2-6a6 6 0 00-6-6zM33 47a2 2 0 004 0" fill="none" stroke="#FBBF24" stroke-width="1.8"/>
+      <text x="62" y="46" class="card-name">Haptic &amp; Buzzer</text>
+      <text x="24" y="85" class="card-desc">Critical Hazard Alarm</text>
+      <text x="24" y="112" font-size="13" font-weight="600" fill="#FBBF24">Heat Stroke Early Warning</text>
+    </g>
+
+    <!-- Card 3: WiFi / MQTT -->
+    <g transform="translate(25, 480)">
+      <rect x="0" y="0" width="330" height="155" rx="14" fill="#0F172A" stroke="#451A03" stroke-width="1.5"/>
+      <circle cx="35" cy="40" r="16" fill="#F59E0B" fill-opacity="0.2"/>
+      <path d="M26 34a13 13 0 0118 0M29 38a8 8 0 0112 0M32 42a4 4 0 016 0M35 46h.01" fill="none" stroke="#FBBF24" stroke-width="2" stroke-linecap="round"/>
+      <text x="62" y="46" class="card-name">WiFi &amp; MQTT</text>
+      <text x="24" y="85" class="card-desc">Emergency Gateway</text>
+      <text x="24" y="112" font-size="13" font-weight="600" fill="#FBBF24">Rescue Team Telemetry</text>
+    </g>
+  </g>
+
+  <!-- ==================== BOTTOM 3 PILL HIGHLIGHTS ==================== -->
+  <g class="font" transform="translate(100, 925)">
+    <!-- Pill 1 -->
+    <rect x="0" y="0" width="530" height="60" rx="12" fill="#0F172A" stroke="#1E293B" stroke-width="1.5"/>
+    <circle cx="35" cy="30" r="8" fill="#38BDF8"/>
+    <text x="58" y="27" font-size="15" font-weight="700" fill="#FFFFFF">Zero OS Scheduling Jitter</text>
+    <text x="58" y="47" font-size="13" fill="#64748B">Dedicated 50MHz FPGA timer gives 20ns timing for medical HRV</text>
+
+    <!-- Pill 2 -->
+    <rect x="580" y="0" width="540" height="60" rx="12" fill="#0F172A" stroke="#1E293B" stroke-width="1.5"/>
+    <circle cx="615" cy="30" r="8" fill="#34D399"/>
+    <text x="638" y="27" font-size="15" font-weight="700" fill="#FFFFFF">100% Offline Edge Intelligence</text>
+    <text x="638" y="47" font-size="13" fill="#64748B">TinyML INT8 model runs in &lt;1µs with zero cloud connection required</text>
+
+    <!-- Pill 3 -->
+    <rect x="1170" y="0" width="530" height="60" rx="12" fill="#0F172A" stroke="#1E293B" stroke-width="1.5"/>
+    <circle cx="1205" cy="30" r="8" fill="#FBBF24"/>
+    <text x="1228" y="27" font-size="15" font-weight="700" fill="#FFFFFF">15–30 Min Advance Warning</text>
+    <text x="1228" y="47" font-size="13" fill="#64748B">Fuses vitals with heat/smog to detect collapse before it happens</text>
+  </g>
+
+</svg>

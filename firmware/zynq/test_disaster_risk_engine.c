@@ -3,6 +3,7 @@
 #include <string.h>
 #include <math.h>
 #include "disaster_risk_engine.h"
+#include "spo2_engine.h"
 #include "nn_risk_model.h"
 #include "nn_risk_model_int8.h"
 
@@ -215,6 +216,47 @@ static void test_int8_matches_float_nn() {
     printf("test_int8_matches_float_nn: PASS\n");
 }
 
+static void test_spo2_clinical_rejection() {
+    spo2_state_t spo2;
+    spo2_init(&spo2);
+
+    /* Scenario 1: No finger / Ambient air (IR = 500, Red = 400, no AC) */
+    for (int i = 0; i < SPO2_WINDOW_SIZE * 2; i++) {
+        spo2_add_samples(&spo2, 400, 500);
+    }
+    assert(spo2_is_valid(&spo2) == 0);
+    printf("  SpO2 Test 1 (ambient air rejected): valid=%d\n", spo2_is_valid(&spo2));
+
+    /* Scenario 2: Touching too gently / hover (IR = 2500, Red = 2000, AC = 10 counts noise) */
+    spo2_init(&spo2);
+    for (int i = 0; i < SPO2_WINDOW_SIZE * 3; i++) {
+        uint32_t noise = (i % 5);
+        spo2_add_samples(&spo2, 2000 + noise, 2500 + noise);
+    }
+    assert(spo2_is_valid(&spo2) == 0);
+    printf("  SpO2 Test 2 (too gentle / low perfusion rejected): valid=%d\n", spo2_is_valid(&spo2));
+
+    /* Scenario 3: Genuine physiological arterial pulsation */
+    /* DC_ir = 30000, AC_ir = 300 (1.0% PI), DC_red = 25000, AC_red = 125 (0.5% PI), R = 0.50 -> SpO2 = ~97.5% */
+    spo2_init(&spo2);
+    for (int win = 0; win < 4; win++) {
+        for (int i = 0; i < SPO2_WINDOW_SIZE; i++) {
+            float phase = (float)i / (float)SPO2_WINDOW_SIZE * 6.283185f;
+            float pulse = sinf(phase);
+            uint32_t red = (uint32_t)(25000.0f + 62.5f * pulse);
+            uint32_t ir  = (uint32_t)(30000.0f + 150.0f * pulse);
+            spo2_add_samples(&spo2, red, ir);
+        }
+    }
+    assert(spo2_is_valid(&spo2) == 1);
+    float val = spo2_get_value(&spo2);
+    printf("  SpO2 Test 3 (proper arterial pulse verified): valid=%d, SpO2=%.1f%%, PI=%.2f%%\n",
+           spo2_is_valid(&spo2), val, spo2_get_perfusion_index(&spo2));
+    assert(val >= 95.0f && val <= 100.0f);
+
+    printf("test_spo2_clinical_rejection: PASS\n");
+}
+
 int main() {
     printf("Running unit tests for disaster_risk_engine...\n");
     test_heat_risk();
@@ -224,6 +266,7 @@ int main() {
     test_null_env();
     test_flood_unknown_skin_temp();
     test_int8_matches_float_nn();
+    test_spo2_clinical_rejection();
     printf("ALL TESTS PASSED.\n");
     return 0;
 }

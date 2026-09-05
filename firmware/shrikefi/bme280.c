@@ -53,10 +53,12 @@ static void bme280_delay_ms(int ms) {
 
 /* Calibration Data Loading */
 static int bme280_load_calibration(bme280_t *dev) {
-    uint8_t buf[26];
+    uint8_t buf[24];
     bme280_calib_t *c = &dev->calib;
 
-    if (bme280_i2c_write_read(dev, BME280_REG_CALIB00, buf, 26) != 0) return -1;
+    /* Read 24 bytes for Temperature and Pressure (T1..T3, P1..P9)
+     * Both BMP280 and BME280 share these exact registers 0x88..0x9F */
+    if (bme280_i2c_write_read(dev, BME280_REG_CALIB00, buf, 24) != 0) return -1;
 
     c->dig_T1 = (uint16_t)(buf[1] << 8) | buf[0];
     c->dig_T2 = (int16_t)((buf[3] << 8) | buf[2]);
@@ -72,16 +74,30 @@ static int bme280_load_calibration(bme280_t *dev) {
     c->dig_P8 = (int16_t)((buf[21] << 8) | buf[20]);
     c->dig_P9 = (int16_t)((buf[23] << 8) | buf[22]);
 
-    c->dig_H1 = buf[25];
+    if (!dev->is_bmp280) {
+        /* Read H1 from register 0xA1 (1 byte) */
+        uint8_t h1_val = 0;
+        int h1_ret = esp32_i2c_hal_read_byte(dev->addr, 0xA1, &h1_val);
+        if (h1_ret != I2C_HAL_SUCCESS) return -1;
+        c->dig_H1 = h1_val;
 
-    uint8_t hbuf[7];
-    if (bme280_i2c_write_read(dev, BME280_REG_CALIB26, hbuf, 7) != 0) return -1;
+        /* Read H2..H6 from register 0xE1 (7 bytes) */
+        uint8_t hbuf[7];
+        if (bme280_i2c_write_read(dev, BME280_REG_CALIB26, hbuf, 7) != 0) return -1;
 
-    c->dig_H2 = (int16_t)((hbuf[1] << 8) | hbuf[0]);
-    c->dig_H3 = hbuf[2];
-    c->dig_H4 = (int16_t)((hbuf[3] << 4) | (hbuf[4] & 0x0F));
-    c->dig_H5 = (int16_t)((hbuf[5] << 4) | (hbuf[4] >> 4));
-    c->dig_H6 = (int8_t)hbuf[6];
+        c->dig_H2 = (int16_t)((hbuf[1] << 8) | hbuf[0]);
+        c->dig_H3 = hbuf[2];
+        c->dig_H4 = (int16_t)((hbuf[3] << 4) | (hbuf[4] & 0x0F));
+        c->dig_H5 = (int16_t)((hbuf[5] << 4) | (hbuf[4] >> 4));
+        c->dig_H6 = (int8_t)hbuf[6];
+    } else {
+        c->dig_H1 = 0;
+        c->dig_H2 = 0;
+        c->dig_H3 = 0;
+        c->dig_H4 = 0;
+        c->dig_H5 = 0;
+        c->dig_H6 = 0;
+    }
 
     return 0;
 }
@@ -146,27 +162,67 @@ int bme280_init(bme280_t *dev, esp32_i2c_handle_t *i2c, uint8_t addr) {
     if (!dev || !i2c) return -1;
 
     dev->i2c = i2c;
-    dev->addr = addr;
     dev->initialized = 0;
     dev->t_fine = 0;
+    dev->is_bmp280 = 0;
 
-    int chip_id = bme280_i2c_read_reg(dev, BME280_REG_CHIP_ID);
-    if (chip_id < 0 || (uint8_t)chip_id != BME280_CHIP_ID) return -1;
+    /* Probe addresses: try requested address first, then fallback to alternate */
+    uint8_t addrs_to_try[2];
+    if (addr == BME280_I2C_ADDR_HIGH) {
+        addrs_to_try[0] = BME280_I2C_ADDR_HIGH; // 0x77
+        addrs_to_try[1] = BME280_I2C_ADDR_LOW;  // 0x76
+    } else {
+        addrs_to_try[0] = BME280_I2C_ADDR_LOW;  // 0x76
+        addrs_to_try[1] = BME280_I2C_ADDR_HIGH; // 0x77
+    }
+
+    int chip_id = -1;
+    uint8_t found_addr = 0;
+
+    for (int i = 0; i < 2; i++) {
+        dev->addr = addrs_to_try[i];
+        int id = bme280_i2c_read_reg(dev, BME280_REG_CHIP_ID);
+        if (id == BME280_CHIP_ID || id == BMP280_CHIP_ID ||
+            id == BMP280_CHIP_ID_SAMPLE || id == BMP280_CHIP_ID_ALT) {
+            chip_id = id;
+            found_addr = addrs_to_try[i];
+            break;
+        }
+    }
+
+    if (chip_id < 0) {
+        ESP_LOGE(TAG, "Neither BME280 nor BMP280 found on 0x76 or 0x77!");
+        return -1;
+    }
+
+    dev->addr = found_addr;
+    if (chip_id == BME280_CHIP_ID) {
+        dev->is_bmp280 = 0;
+        ESP_LOGI(TAG, "Detected BME280 at I2C 0x%02X (Chip ID: 0x%02X)", dev->addr, chip_id);
+    } else {
+        dev->is_bmp280 = 1;
+        ESP_LOGI(TAG, "Detected BMP280 at I2C 0x%02X (Chip ID: 0x%02X)", dev->addr, chip_id);
+    }
 
     if (bme280_reset(dev) != 0) return -1;
     bme280_delay_ms(10);
 
-    if (bme280_load_calibration(dev) != 0) return -1;
+    if (bme280_load_calibration(dev) != 0) {
+        ESP_LOGE(TAG, "Failed to load calibration parameters");
+        return -1;
+    }
 
     /* Configure for weather monitoring */
-    if (bme280_i2c_write_reg(dev, BME280_REG_CTRL_HUM, BME280_OS_1X) != 0) return -1;
+    if (!dev->is_bmp280) {
+        if (bme280_i2c_write_reg(dev, BME280_REG_CTRL_HUM, BME280_OS_1X) != 0) return -1;
+    }
     if (bme280_i2c_write_reg(dev, BME280_REG_CONFIG,
                     (BME280_STANDBY_1000MS << 5) | (BME280_FILTER_4 << 2)) != 0) return -1;
     if (bme280_i2c_write_reg(dev, BME280_REG_CTRL_MEAS,
                     (BME280_OS_2X << 5) | (BME280_OS_1X << 2) | BME280_MODE_FORCED) != 0) return -1;
 
     dev->initialized = 1;
-    ESP_LOGI(TAG, "BME280 initialized successfully");
+    ESP_LOGI(TAG, "%s initialized successfully", dev->is_bmp280 ? "BMP280" : "BME280");
     return 0;
 }
 
@@ -186,15 +242,21 @@ int bme280_read(bme280_t *dev, bme280_data_t *data) {
     if (timeout <= 0) return -1;
 
     uint8_t buf[8];
-    if (bme280_i2c_write_read(dev, BME280_REG_PRESS_MSB, buf, 8) != 0) return -1;
+    size_t read_len = dev->is_bmp280 ? 6 : 8;
+    if (bme280_i2c_write_read(dev, BME280_REG_PRESS_MSB, buf, read_len) != 0) return -1;
 
     int32_t adc_P = ((int32_t)buf[0] << 12) | ((int32_t)buf[1] << 4) | (buf[2] >> 4);
     int32_t adc_T = ((int32_t)buf[3] << 12) | ((int32_t)buf[4] << 4) | (buf[5] >> 4);
-    int32_t adc_H = ((int32_t)buf[6] << 8) | (int32_t)buf[7];
 
     data->temperature_c = bme280_compensate_temperature(dev, adc_T);
-    data->humidity_pct  = bme280_compensate_humidity(dev, adc_H);
     data->pressure_hpa  = bme280_compensate_pressure(dev, adc_P);
+
+    if (dev->is_bmp280) {
+        data->humidity_pct = 50.0f; /* Nominal humidity fallback for BMP280 */
+    } else {
+        int32_t adc_H = ((int32_t)buf[6] << 8) | (int32_t)buf[7];
+        data->humidity_pct  = bme280_compensate_humidity(dev, adc_H);
+    }
 
     return 0;
 }
@@ -211,19 +273,46 @@ int bme280_init_normal_mode(bme280_t *dev, esp32_i2c_handle_t *i2c, uint8_t addr
     if (!dev || !i2c) return -1;
 
     dev->i2c = i2c;
-    dev->addr = addr;
     dev->initialized = 0;
     dev->t_fine = 0;
+    dev->is_bmp280 = 0;
 
-    int chip_id = bme280_i2c_read_reg(dev, BME280_REG_CHIP_ID);
-    if (chip_id < 0 || (uint8_t)chip_id != BME280_CHIP_ID) return -1;
+    uint8_t addrs_to_try[2];
+    if (addr == BME280_I2C_ADDR_HIGH) {
+        addrs_to_try[0] = BME280_I2C_ADDR_HIGH;
+        addrs_to_try[1] = BME280_I2C_ADDR_LOW;
+    } else {
+        addrs_to_try[0] = BME280_I2C_ADDR_LOW;
+        addrs_to_try[1] = BME280_I2C_ADDR_HIGH;
+    }
+
+    int chip_id = -1;
+    uint8_t found_addr = 0;
+
+    for (int i = 0; i < 2; i++) {
+        dev->addr = addrs_to_try[i];
+        int id = bme280_i2c_read_reg(dev, BME280_REG_CHIP_ID);
+        if (id == BME280_CHIP_ID || id == BMP280_CHIP_ID ||
+            id == BMP280_CHIP_ID_SAMPLE || id == BMP280_CHIP_ID_ALT) {
+            chip_id = id;
+            found_addr = addrs_to_try[i];
+            break;
+        }
+    }
+
+    if (chip_id < 0) return -1;
+
+    dev->addr = found_addr;
+    dev->is_bmp280 = (chip_id != BME280_CHIP_ID);
 
     if (bme280_reset(dev) != 0) return -1;
     bme280_delay_ms(10);
 
     if (bme280_load_calibration(dev) != 0) return -1;
 
-    if (bme280_i2c_write_reg(dev, BME280_REG_CTRL_HUM, BME280_OS_1X) != 0) return -1;
+    if (!dev->is_bmp280) {
+        if (bme280_i2c_write_reg(dev, BME280_REG_CTRL_HUM, BME280_OS_1X) != 0) return -1;
+    }
     if (bme280_i2c_write_reg(dev, BME280_REG_CONFIG,
                     ((standby & 0x07) << 5) | ((filter & 0x07) << 2)) != 0) return -1;
     if (bme280_i2c_write_reg(dev, BME280_REG_CTRL_MEAS,
@@ -241,15 +330,21 @@ int bme280_read_normal(bme280_t *dev, bme280_data_t *data) {
     if (status & 0x08) return -1;
 
     uint8_t buf[8];
-    if (bme280_i2c_write_read(dev, BME280_REG_PRESS_MSB, buf, 8) != 0) return -1;
+    size_t read_len = dev->is_bmp280 ? 6 : 8;
+    if (bme280_i2c_write_read(dev, BME280_REG_PRESS_MSB, buf, read_len) != 0) return -1;
 
     int32_t adc_P = ((int32_t)buf[0] << 12) | ((int32_t)buf[1] << 4) | (buf[2] >> 4);
     int32_t adc_T = ((int32_t)buf[3] << 12) | ((int32_t)buf[4] << 4) | (buf[5] >> 4);
-    int32_t adc_H = ((int32_t)buf[6] << 8) | (int32_t)buf[7];
 
     data->temperature_c = bme280_compensate_temperature(dev, adc_T);
-    data->humidity_pct  = bme280_compensate_humidity(dev, adc_H);
     data->pressure_hpa  = bme280_compensate_pressure(dev, adc_P);
+
+    if (dev->is_bmp280) {
+        data->humidity_pct = 50.0f;
+    } else {
+        int32_t adc_H = ((int32_t)buf[6] << 8) | (int32_t)buf[7];
+        data->humidity_pct  = bme280_compensate_humidity(dev, adc_H);
+    }
 
     return 0;
 }

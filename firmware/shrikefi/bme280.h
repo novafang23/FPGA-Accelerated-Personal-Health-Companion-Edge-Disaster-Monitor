@@ -21,6 +21,9 @@ extern "C" {
 
 /* Chip ID */
 #define BME280_CHIP_ID        0x60
+#define BMP280_CHIP_ID        0x58
+#define BMP280_CHIP_ID_SAMPLE 0x56
+#define BMP280_CHIP_ID_ALT    0x57
 
 /* Register Map */
 #define BME280_REG_CHIP_ID    0xD0
@@ -93,6 +96,7 @@ typedef struct {
     bme280_calib_t calib;
     int32_t t_fine;
     int initialized;
+    int is_bmp280;
 } bme280_t;
 
 /*

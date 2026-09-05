@@ -13,7 +13,7 @@ extern "C" {
 #endif
 
 #define HRV_BUFFER_SIZE 300  /* Rolling window of last 300 IBI intervals (~5 min at 60 BPM) */
-#define HRV_MIN_SAMPLES 30   /* Minimum samples for reliable RMSSD/SDNN */
+#define HRV_MIN_SAMPLES 10   /* Minimum samples for reliable RMSSD/SDNN (responsive warm-up) */
 
 typedef struct {
     float ibi_ms[HRV_BUFFER_SIZE];

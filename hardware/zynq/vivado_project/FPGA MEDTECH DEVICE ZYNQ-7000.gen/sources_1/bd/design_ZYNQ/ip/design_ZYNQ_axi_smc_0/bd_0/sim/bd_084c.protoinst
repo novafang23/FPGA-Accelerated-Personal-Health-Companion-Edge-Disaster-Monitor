@@ -1,0 +1,78 @@
+{
+	"version": "1.0",
+	"modules": {
+		"bd_084c": {
+			"proto_instances": {
+				"/sc_ul/M00_AXI": {
+					"interface": "xilinx.com:interface:aximm:1.0",
+					"ports": {
+						"ACLK": { "actual": "aclk"},
+						"ARADDR": { "actual": "m00_axi_araddr[4:0]"},
+						"ARPROT": { "actual": "m00_axi_arprot[2:0]"},
+						"ARREADY": { "actual": "m00_axi_arready"},
+						"ARVALID": { "actual": "m00_axi_arvalid"},
+						"AWADDR": { "actual": "m00_axi_awaddr[4:0]"},
+						"AWPROT": { "actual": "m00_axi_awprot[2:0]"},
+						"AWREADY": { "actual": "m00_axi_awready"},
+						"AWVALID": { "actual": "m00_axi_awvalid"},
+						"BREADY": { "actual": "m00_axi_bready"},
+						"BRESP": { "actual": "m00_axi_bresp[1:0]"},
+						"BVALID": { "actual": "m00_axi_bvalid"},
+						"RDATA": { "actual": "m00_axi_rdata[31:0]"},
+						"RREADY": { "actual": "m00_axi_rready"},
+						"RRESP": { "actual": "m00_axi_rresp[1:0]"},
+						"RVALID": { "actual": "m00_axi_rvalid"},
+						"WDATA": { "actual": "m00_axi_wdata[31:0]"},
+						"WREADY": { "actual": "m00_axi_wready"},
+						"WSTRB": { "actual": "m00_axi_wstrb[3:0]"},
+						"WVALID": { "actual": "m00_axi_wvalid"}
+					}
+				},
+				"/sc_ul/S00_AXI": {
+					"interface": "xilinx.com:interface:aximm:1.0",
+					"ports": {
+						"ACLK": { "actual": "aclk"},
+						"ARADDR": { "actual": "s00_axi_araddr[31:0]"},
+						"ARBURST": { "actual": "s00_axi_arburst[1:0]"},
+						"ARCACHE": { "actual": "s00_axi_arcache[3:0]"},
+						"ARID": { "actual": "s00_axi_arid[11:0]"},
+						"ARLEN": { "actual": "s00_axi_arlen[3:0]"},
+						"ARLOCK": { "actual": "s00_axi_arlock[1:0]"},
+						"ARPROT": { "actual": "s00_axi_arprot[2:0]"},
+						"ARQOS": { "actual": "s00_axi_arqos[3:0]"},
+						"ARREADY": { "actual": "s00_axi_arready"},
+						"ARSIZE": { "actual": "s00_axi_arsize[2:0]"},
+						"ARVALID": { "actual": "s00_axi_arvalid"},
+						"AWADDR": { "actual": "s00_axi_awaddr[31:0]"},
+						"AWBURST": { "actual": "s00_axi_awburst[1:0]"},
+						"AWCACHE": { "actual": "s00_axi_awcache[3:0]"},
+						"AWID": { "actual": "s00_axi_awid[11:0]"},
+						"AWLEN": { "actual": "s00_axi_awlen[3:0]"},
+						"AWLOCK": { "actual": "s00_axi_awlock[1:0]"},
+						"AWPROT": { "actual": "s00_axi_awprot[2:0]"},
+						"AWQOS": { "actual": "s00_axi_awqos[3:0]"},
+						"AWREADY": { "actual": "s00_axi_awready"},
+						"AWSIZE": { "actual": "s00_axi_awsize[2:0]"},
+						"AWVALID": { "actual": "s00_axi_awvalid"},
+						"BID": { "actual": "s00_axi_bid[11:0]"},
+						"BREADY": { "actual": "s00_axi_bready"},
+						"BRESP": { "actual": "s00_axi_bresp[1:0]"},
+						"BVALID": { "actual": "s00_axi_bvalid"},
+						"RDATA": { "actual": "s00_axi_rdata[31:0]"},
+						"RID": { "actual": "s00_axi_rid[11:0]"},
+						"RLAST": { "actual": "s00_axi_rlast"},
+						"RREADY": { "actual": "s00_axi_rready"},
+						"RRESP": { "actual": "s00_axi_rresp[1:0]"},
+						"RVALID": { "actual": "s00_axi_rvalid"},
+						"WDATA": { "actual": "s00_axi_wdata[31:0]"},
+						"WID": { "actual": "s00_axi_wid[11:0]"},
+						"WLAST": { "actual": "s00_axi_wlast"},
+						"WREADY": { "actual": "s00_axi_wready"},
+						"WSTRB": { "actual": "s00_axi_wstrb[3:0]"},
+						"WVALID": { "actual": "s00_axi_wvalid"}
+					}
+				}
+			}
+		}
+	}
+}

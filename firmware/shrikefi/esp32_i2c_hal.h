@@ -55,6 +55,11 @@ int esp32_i2c_hal_read(uint8_t dev_addr, uint8_t reg_addr, uint8_t *data, uint16
 int esp32_i2c_hal_write(uint8_t dev_addr, uint8_t reg_addr, const uint8_t *data, uint16_t len);
 
 /**
+ * @brief Write raw bytes directly to an I2C device without a register prefix
+ */
+int esp32_i2c_hal_write_raw(uint8_t dev_addr, const uint8_t *data, uint16_t len);
+
+/**
  * @brief Write a single byte to an I2C device register
  */
 int esp32_i2c_hal_write_byte(uint8_t dev_addr, uint8_t reg_addr, uint8_t val);
@@ -63,6 +68,16 @@ int esp32_i2c_hal_write_byte(uint8_t dev_addr, uint8_t reg_addr, uint8_t val);
  * @brief Read a single byte from an I2C device register
  */
 int esp32_i2c_hal_read_byte(uint8_t dev_addr, uint8_t reg_addr, uint8_t *val);
+
+/**
+ * @brief Check if an I2C device exists at given address (returns 0 if ACKed, negative if NACK)
+ */
+int esp32_i2c_hal_probe(uint8_t dev_addr);
+
+/**
+ * @brief Scan all I2C addresses (0x01 to 0x7E) and log active devices
+ */
+void esp32_i2c_hal_scan(void);
 
 #ifdef __cplusplus
 }
