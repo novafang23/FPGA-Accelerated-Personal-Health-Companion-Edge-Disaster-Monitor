@@ -365,19 +365,28 @@ static void task_disaster_monitor(void *pvParameters) {
         signal_status_t sig_stat = SIGNAL_STATUS_NO_FINGER;
         bool vitals_ready = false;
 
+        /* Persistent environmental sensor state (prevents collapse to 0.0C on momentary packet drops) */
+        static float s_last_temp = 25.0f;
+        static float s_last_hum  = 50.0f;
+        static float s_last_pm25 = 15.0f;
+
         /* Read BME280 (temperature, humidity, pressure) */
         bme280_data_t bme_data;
         if (read_bme280_env(&bme_data) == 0) {
-            env.ambient_temp_c = bme_data.temperature_c;
-            env.humidity_pct = bme_data.humidity_pct;
-            /* Pressure available but not used in current risk model */
+            if (bme_data.temperature_c >= -20.0f && bme_data.temperature_c <= 65.0f) {
+                s_last_temp = bme_data.temperature_c;
+                s_last_hum  = bme_data.humidity_pct;
+            }
         }
+        env.ambient_temp_c = s_last_temp;
+        env.humidity_pct   = s_last_hum;
 
         /* Read PMS5003 (PM2.5) */
         pms5003_data_t pms_data;
         if (read_pms5003_data(&pms_data) == 0 && pms_data.valid) {
-            env.pm25 = (float)pms_data.pm2_5_atm;
+            s_last_pm25 = (float)pms_data.pm2_5_atm;
         }
+        env.pm25 = s_last_pm25;
 
         /* Skin temperature not available from current sensors */
         env.skin_temp_c = 0.0f;
@@ -395,31 +404,71 @@ static void task_disaster_monitor(void *pvParameters) {
         }
 
         /* 1. Execute Rule-based Disaster Risk Engine & TinyML only when vitals are genuine */
-        risk_assessment_t risk;
-        memset(&risk, 0, sizeof(risk));
-        risk.overall_risk = RISK_UNKNOWN;
+        risk_assessment_t rule_risk;
+        memset(&rule_risk, 0, sizeof(rule_risk));
+        rule_risk.overall_risk = RISK_UNKNOWN;
+
+        risk_assessment_t nn_risk;
+        memset(&nn_risk, 0, sizeof(nn_risk));
+        nn_risk.overall_risk = RISK_UNKNOWN;
 
         nn_output_t nn_out;
         memset(&nn_out, 0, sizeof(nn_out));
 
+        risk_assessment_t final_risk;
+        memset(&final_risk, 0, sizeof(final_risk));
+        final_risk.overall_risk = RISK_UNKNOWN;
+
         if (vitals_ready) {
             /* Unify SpO2 fallback so both engines see the same data: if calibrating, use neutral 96.0f */
             float engine_spo2 = (spo2 > 0.0f) ? spo2 : 96.0f;
-            disaster_assess(&hrv_snapshot, engine_spo2, hr, &env, &risk);
 
+            /* 1. Execute Clinical Deterministic Rule Engine */
+            disaster_assess(&hrv_snapshot, engine_spo2, hr, &env, &rule_risk);
+
+            /* 2. Execute On-Device TinyML INT8 Neural Network */
+            disaster_assess_nn_int8(&hrv_snapshot, engine_spo2, hr, &env, &nn_risk);
+
+            /* Query raw activations for granular telemetry */
             nn_predict_int8(&nn_default_model_int8, &nn_quant_params,
                             hr, hrv_snapshot.rmssd, engine_spo2,
                             env.ambient_temp_c, env.humidity_pct, env.pm25,
                             &nn_out);
 
+            /* 3. Unified Triage: Fuse deterministic clinical bounds with predictive TinyML patterns */
+            final_risk = rule_risk;
+            if (nn_risk.overall_risk > final_risk.overall_risk) {
+                final_risk.overall_risk     = nn_risk.overall_risk;
+                final_risk.overall_advisory = nn_risk.overall_advisory;
+            }
+
             ESP_LOGI(TAG, "[ShrikeFi] HR: %.1f BPM | SpO2: %s | RMSSD: %.1f ms | Temp: %.1f C | PM2.5: %.0f",
                      hr, (spo2 > 0.0f ? "VALID" : "CALC"), hrv_snapshot.rmssd, env.ambient_temp_c, env.pm25);
-            ESP_LOGI(TAG, "[TinyML] Heat: %.3f | Pollution: %.3f | Flood: %.3f | Overall: %s",
-                     nn_out.heat_score, nn_out.pollution_score, nn_out.flood_score,
-                     risk_level_to_string(risk.overall_risk));
+            ESP_LOGI(TAG, "[RuleEngine] Heat: %s | Poll: %s | Flood: %s => Overall: %s",
+                     risk_level_to_string(rule_risk.heat_risk),
+                     risk_level_to_string(rule_risk.pollution_risk),
+                     risk_level_to_string(rule_risk.flood_risk),
+                     risk_level_to_string(rule_risk.overall_risk));
+            ESP_LOGI(TAG, "[TinyML INT8] Heat: %.3f (%s) | Poll: %.3f (%s) | Flood: %.3f (%s) => AI Overall: %s",
+                     nn_out.heat_score, risk_level_to_string(nn_risk.heat_risk),
+                     nn_out.pollution_score, risk_level_to_string(nn_risk.pollution_risk),
+                     nn_out.flood_score, risk_level_to_string(nn_risk.flood_risk),
+                     risk_level_to_string(nn_risk.overall_risk));
+            ESP_LOGI(TAG, "[Unified Triage] Final Condition: %s | %s",
+                     risk_level_to_string(final_risk.overall_risk), final_risk.overall_advisory);
+
+            /* Thread-safe state update for telemetry & system monitoring */
+            if (xSemaphoreTake(s_data_mutex, pdMS_TO_TICKS(20)) == pdTRUE) {
+                g_state.ambient_temp_c   = env.ambient_temp_c;
+                g_state.humidity_percent = env.humidity_pct;
+                g_state.pm25_ugm3        = env.pm25;
+                g_state.risk_result      = final_risk;
+                g_state.nn_scores        = nn_out;
+                xSemaphoreGive(s_data_mutex);
+            }
 
             /* Publish to Cloud Dashboard */
-            cloud_publish_health_data(hr, hrv_snapshot.rmssd, engine_spo2, env.ambient_temp_c, env.pm25, risk_level_to_string(risk.overall_risk));
+            cloud_publish_health_data(hr, hrv_snapshot.rmssd, engine_spo2, env.ambient_temp_c, env.pm25, risk_level_to_string(final_risk.overall_risk));
         } else {
             ESP_LOGI(TAG, "[ShrikeFi] Vitals: HR=%s SpO2=%s | Status: %s (%d/10 beats) | Temp: %.1f C | PM2.5: %.0f",
                      (hr > 30.0f ? "LOCKED" : "--"),
@@ -477,7 +526,7 @@ static void task_disaster_monitor(void *pvParameters) {
             } else if (hrv_snapshot.count < 10) {
                 snprintf(buf_cond, sizeof(buf_cond), "CONDITION: CALC...");
             } else {
-                const char *risk_str = risk_level_to_string(risk.overall_risk);
+                const char *risk_str = risk_level_to_string(final_risk.overall_risk);
                 snprintf(buf_cond, sizeof(buf_cond), "CONDITION: %s", risk_str);
             }
             ssd1306_draw_string(&s_ssd1306, 2, 53, buf_cond);
@@ -622,16 +671,27 @@ int main(void) {
                     env.ambient_temp_c, env.humidity_pct, env.pm25,
                     &out);
 
-    printf("Host Test - Heat Wave Profile:\n");
-    printf("  TinyML Heat Score:      %.3f\n", out.heat_score);
-    printf("  TinyML Pollution Score: %.3f\n", out.pollution_score);
-    printf("  TinyML Flood Score:     %.3f\n", out.flood_score);
+    risk_assessment_t rule_risk;
+    disaster_assess(&hrv, spo2, hr, &env, &rule_risk);
 
-    risk_assessment_t risk;
-    disaster_assess(&hrv, spo2, hr, &env, &risk);
-    printf("  Rule Engine Heat Risk:  %s\n", risk_level_to_string(risk.heat_risk));
-    printf("  Overall Risk Assessment: %s\n", risk_level_to_string(risk.overall_risk));
-    printf("  Action Advisory:        %s\n", risk.overall_advisory);
+    risk_assessment_t nn_risk;
+    disaster_assess_nn_int8(&hrv, spo2, hr, &env, &nn_risk);
+
+    risk_assessment_t final_risk = rule_risk;
+    if (nn_risk.overall_risk > final_risk.overall_risk) {
+        final_risk.overall_risk     = nn_risk.overall_risk;
+        final_risk.overall_advisory = nn_risk.overall_advisory;
+    }
+
+    printf("Host Test - Heat Wave Profile:\n");
+    printf("  [TinyML INT8] Heat Score: %.3f (%s)\n", out.heat_score, risk_level_to_string(nn_risk.heat_risk));
+    printf("  [TinyML INT8] Poll Score: %.3f (%s)\n", out.pollution_score, risk_level_to_string(nn_risk.pollution_risk));
+    printf("  [TinyML INT8] Flood Score:%.3f (%s)\n", out.flood_score, risk_level_to_string(nn_risk.flood_risk));
+    printf("  [TinyML INT8] AI Overall: %s\n", risk_level_to_string(nn_risk.overall_risk));
+    printf("  [Rule Engine] Heat Risk:  %s\n", risk_level_to_string(rule_risk.heat_risk));
+    printf("  [Rule Engine] Rule Risk:  %s\n", risk_level_to_string(rule_risk.overall_risk));
+    printf("  [Unified Triage] Final Condition: %s\n", risk_level_to_string(final_risk.overall_risk));
+    printf("  [Unified Triage] Action Advisory: %s\n", final_risk.overall_advisory);
     printf("\n>>> ShrikeFi Host Test Completed Successfully <<<\n");
     return 0;
 }

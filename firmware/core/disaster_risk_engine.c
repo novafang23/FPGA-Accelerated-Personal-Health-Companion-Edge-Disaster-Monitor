@@ -316,9 +316,13 @@ void disaster_assess_nn(
 
     rmssd = hrv->rmssd;
 
+    /* If SpO2 is not yet locked/calibrated (<= 0.0f), use neutral 96.0% baseline
+     * so the neural network does not falsely interpret 0.0f as severe asphyxia/hypoxemia */
+    float nn_spo2 = (spo2 > 0.0f) ? spo2 : 96.0f;
+
     /* Run neural network forward pass */
     model = nn_get_default_model();
-    nn_predict(model, bpm, rmssd, spo2,
+    nn_predict(model, bpm, rmssd, nn_spo2,
                env->ambient_temp_c, env->humidity_pct, env->pm25,
                &nn_out);
 
@@ -396,9 +400,13 @@ void disaster_assess_nn_int8(
 
     rmssd = hrv->rmssd;
 
+    /* If SpO2 is not yet locked/calibrated (<= 0.0f), use neutral 96.0% baseline
+     * so the neural network does not falsely interpret 0.0f as severe asphyxia/hypoxemia */
+    float nn_spo2 = (spo2 > 0.0f) ? spo2 : 96.0f;
+
     /* Run INT8 neural network forward pass */
     nn_predict_int8(&nn_default_model_int8, &nn_quant_params,
-                    bpm, rmssd, spo2,
+                    bpm, rmssd, nn_spo2,
                     env->ambient_temp_c, env->humidity_pct, env->pm25,
                     &nn_out);
 
