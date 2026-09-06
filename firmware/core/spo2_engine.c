@@ -108,13 +108,21 @@ void spo2_add_samples(spo2_state_t *state, uint32_t red_filtered,
 
         if (!window_valid) {
             /* Poor signal, touching too gently, or finger lifted */
-            state->consecutive_valid = 0;
-            state->valid = 0;
             if (ir_dc < 800.0f || ir_ac < 4.0f) {
-                /* Finger off or severe loss of contact -> flush history */
+                /* Finger off or severe loss of contact -> flush history instantly */
+                state->consecutive_valid = 0;
+                state->valid = 0;
                 state->spo2_hist_count = 0;
                 state->spo2_hist_idx = 0;
                 state->spo2 = 0.0f;
+            } else {
+                /* Momentary noise/tremor: degrade confidence slowly for a grace period */
+                if (state->consecutive_valid > 0) {
+                    state->consecutive_valid--;
+                }
+                if (state->consecutive_valid == 0) {
+                    state->valid = 0;
+                }
             }
         }
 
