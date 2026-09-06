@@ -145,7 +145,16 @@ int max30102_fifo_available(max30102_t *dev) {
     uint8_t rd_reg = dev->is_max30100 ? 0x04 : MAX30102_REG_FIFO_RD_PTR;
     int wr = max30102_i2c_read_reg(dev, wr_reg);
     int rd = max30102_i2c_read_reg(dev, rd_reg);
-    if (wr < 0 || rd < 0) return -1;
+    int ovf = dev->is_max30100 ? 0 : max30102_i2c_read_reg(dev, MAX30102_REG_OVF_COUNTER);
+    if (wr < 0 || rd < 0 || ovf < 0) return -1;
+
+    if (ovf > 0) {
+        ESP_LOGW(TAG, "FIFO Overflow (%d samples lost). Resetting FIFO.", ovf);
+        max30102_i2c_write_reg(dev, MAX30102_REG_FIFO_WR_PTR, 0x00);
+        max30102_i2c_write_reg(dev, MAX30102_REG_OVF_COUNTER, 0x00);
+        max30102_i2c_write_reg(dev, MAX30102_REG_FIFO_RD_PTR, 0x00);
+        return 0; /* Return 0 available after reset */
+    }
 
     int count = wr - rd;
     int max_depth = dev->is_max30100 ? 16 : 32;

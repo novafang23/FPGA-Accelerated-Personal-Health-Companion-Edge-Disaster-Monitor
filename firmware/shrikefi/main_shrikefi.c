@@ -72,7 +72,10 @@ static ssd1306_t s_ssd1306;
 
 /* Sensor read helpers */
 static int read_max30102_samples(max30102_sample_t *sample) {
-    return max30102_read_sample(&s_max30102, sample);
+    if (max30102_fifo_available(&s_max30102) > 0) {
+        return max30102_read_sample(&s_max30102, sample);
+    }
+    return -1;
 }
 
 static int read_bme280_env(bme280_data_t *data) {
@@ -136,6 +139,9 @@ static void task_ppg_accelerator(void *pvParameters) {
                 ir_win_min = UINT32_MAX;
                 ir_win_max = 0;
                 ir_win_count = 0;
+
+                /* Adjust LED current every 1 second to compensate for weak/saturated signals */
+                max30102_adjust_led_current(&s_max30102, ppg_sample.red, ppg_sample.ir);
             }
 
             /* Optical contact check: ambient air is IR<600, Red<900; tissue contact elevates levels */
@@ -397,12 +403,12 @@ static void task_disaster_monitor(void *pvParameters) {
         memset(&nn_out, 0, sizeof(nn_out));
 
         if (vitals_ready) {
-            disaster_assess(&hrv_snapshot, spo2, hr, &env, &risk);
+            /* Unify SpO2 fallback so both engines see the same data: if calibrating, use neutral 96.0f */
+            float engine_spo2 = (spo2 > 0.0f) ? spo2 : 96.0f;
+            disaster_assess(&hrv_snapshot, engine_spo2, hr, &env, &risk);
 
-            /* For TinyML model, if SpO2 is still calibrating, use neutral 96.0f */
-            float tinyml_spo2 = (spo2 > 0.0f) ? spo2 : 96.0f;
             nn_predict_int8(&nn_default_model_int8, &nn_quant_params,
-                            hr, hrv_snapshot.rmssd, tinyml_spo2,
+                            hr, hrv_snapshot.rmssd, engine_spo2,
                             env.ambient_temp_c, env.humidity_pct, env.pm25,
                             &nn_out);
 
@@ -413,7 +419,7 @@ static void task_disaster_monitor(void *pvParameters) {
                      risk_level_to_string(risk.overall_risk));
 
             /* Publish to Cloud Dashboard */
-            cloud_publish_health_data(hr, hrv_snapshot.rmssd, tinyml_spo2, env.ambient_temp_c, env.pm25, risk_level_to_string(risk.overall_risk));
+            cloud_publish_health_data(hr, hrv_snapshot.rmssd, engine_spo2, env.ambient_temp_c, env.pm25, risk_level_to_string(risk.overall_risk));
         } else {
             ESP_LOGI(TAG, "[ShrikeFi] Vitals: HR=%s SpO2=%s | Status: %s (%d/10 beats) | Temp: %.1f C | PM2.5: %.0f",
                      (hr > 30.0f ? "LOCKED" : "--"),
