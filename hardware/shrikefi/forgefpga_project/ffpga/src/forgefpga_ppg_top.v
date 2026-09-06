@@ -83,6 +83,7 @@ module forgefpga_ppg_top #(
     reg  [31:0] reg_ibi_latched;
     reg         red_valid_pulse;
     reg         ir_valid_pulse;
+    reg         red_filtered_ready; // Latched flag for STATUS register
     reg  [3:0]  nibble_temp;
 
     // Wires from submodules
@@ -171,9 +172,10 @@ module forgefpga_ppg_top #(
             reg_ir_raw      <= 8'd0;
             reg_threshold   <= 8'd120; // Default threshold: 120
             reg_ibi_latched <= 32'd0;
-            irq_beat        <= 1'b0;
-            red_valid_pulse <= 1'b0;
-            ir_valid_pulse  <= 1'b0;
+            irq_beat           <= 1'b0;
+            red_valid_pulse    <= 1'b0;
+            ir_valid_pulse     <= 1'b0;
+            red_filtered_ready <= 1'b0;
             nibble_temp     <= 4'd0;
             link_dout       <= 4'd0;
             link_dout_oe    <= 1'b0;
@@ -185,10 +187,9 @@ module forgefpga_ppg_top #(
             // Output Enable control based on direction
             link_dout_oe    <= link_dir_sync;
 
-            // Hardware Beat Latches
-            if (peak_beat_detected) begin
-                reg_ibi_latched <= peak_ibi_cycles;
-                irq_beat        <= 1'b1;
+            // Latch red_filtered_valid so it isn't missed by slow CMD_READ_STATUS polling
+            if (red_filtered_valid) begin
+                red_filtered_ready <= 1'b1;
             end
 
             if (strobe_rise) begin
@@ -204,8 +205,9 @@ module forgefpga_ppg_top #(
                                 CMD_WRITE_IR:     state <= ST_W_IR_H;
                                 CMD_WRITE_THRESH: state <= ST_W_TH_H;
                                 CMD_READ_RED: begin
-                                    link_dout <= red_filtered[7:4];
-                                    state     <= ST_R_RED_L;
+                                    link_dout          <= red_filtered[7:4];
+                                    red_filtered_ready <= 1'b0; // Clear latched flag on read
+                                    state              <= ST_R_RED_L;
                                 end
                                 CMD_READ_IR: begin
                                     link_dout <= ir_filtered[7:4];
@@ -216,7 +218,7 @@ module forgefpga_ppg_top #(
                                     state     <= ST_R_IBI_1;
                                 end
                                 CMD_READ_STATUS: begin
-                                    link_dout <= {2'b00, red_filtered_valid, irq_beat};
+                                    link_dout <= {2'b00, red_filtered_ready, irq_beat};
                                     state     <= ST_IDLE;
                                 end
                                 CMD_CLEAR_IRQ: begin
@@ -316,6 +318,13 @@ module forgefpga_ppg_top #(
 
                     default: state <= ST_IDLE;
                 endcase
+            end
+
+            // Hardware Beat Latches (placed AFTER strobe_rise so a new beat occurring 
+            // on the exact same cycle as CMD_CLEAR_IRQ will override the clear)
+            if (peak_beat_detected) begin
+                reg_ibi_latched <= peak_ibi_cycles;
+                irq_beat        <= 1'b1;
             end
         end
     end
