@@ -97,12 +97,32 @@ int max30102_init(max30102_t *dev, esp32_i2c_handle_t *i2c) {
 
     if (dev->is_max30100) {
         /* MAX30100 Configuration */
-        max30102_i2c_write_reg(dev, 0x06, 0x03); // Mode: SpO2
-        max30102_i2c_write_reg(dev, 0x07, 0x07); // SpO2: 100Hz, 16-bit
-        max30102_i2c_write_reg(dev, 0x09, 0x88); // LED currents (~24mA each)
+        /* Clear pointers first */
         max30102_i2c_write_reg(dev, 0x02, 0x00); // FIFO WR PTR
         max30102_i2c_write_reg(dev, 0x03, 0x00); // OVF COUNTER
         max30102_i2c_write_reg(dev, 0x04, 0x00); // FIFO RD PTR
+
+        /* Mode: SpO2 (0x03: both Red and IR LEDs enabled) */
+        max30102_i2c_write_reg(dev, 0x06, 0x03);
+
+        /* SpO2 config: 100Hz + Hi-Res enabled + 1600us pulse width (16-bit ADC)
+         * Bit 6 = 1 (Hi-Res EN = 0x40)
+         * Bits [4:2] = 001 (100 Hz = 0x04)
+         * Bits [1:0] = 11 (1600us = 0x03)
+         * -> 0x40 | 0x04 | 0x03 = 0x47 */
+        max30102_i2c_write_reg(dev, 0x07, 0x47);
+
+        /* LED currents: Red = 0x08 (27.1mA), IR = 0x08 (27.1mA) */
+        max30102_i2c_write_reg(dev, 0x09, 0x88);
+
+        int r_mode = max30102_i2c_read_reg(dev, 0x06);
+        int r_spo2 = max30102_i2c_read_reg(dev, 0x07);
+        int r_led  = max30102_i2c_read_reg(dev, 0x09);
+        int r_wr   = max30102_i2c_read_reg(dev, 0x02);
+        int r_rd   = max30102_i2c_read_reg(dev, 0x04);
+        ESP_LOGI(TAG, "MAX30100 Configured: Mode=0x%02X SpO2=0x%02X LED=0x%02X (WR=%d, RD=%d)",
+                 r_mode, r_spo2, r_led, r_wr, r_rd);
+        (void)r_mode; (void)r_spo2; (void)r_led; (void)r_wr; (void)r_rd;
     } else {
         /* FIFO Configuration: 4-sample averaging, rollover enabled, A_FULL at 17 */
         if (max30102_i2c_write_reg(dev, MAX30102_REG_FIFO_CONFIG,
@@ -141,24 +161,21 @@ int max30102_init(max30102_t *dev, esp32_i2c_handle_t *i2c) {
 int max30102_fifo_available(max30102_t *dev) {
     if (!dev || !dev->initialized) return -1;
 
-    uint8_t wr_reg = dev->is_max30100 ? 0x02 : MAX30102_REG_FIFO_WR_PTR;
-    uint8_t rd_reg = dev->is_max30100 ? 0x04 : MAX30102_REG_FIFO_RD_PTR;
-    int wr = max30102_i2c_read_reg(dev, wr_reg);
-    int rd = max30102_i2c_read_reg(dev, rd_reg);
-    int ovf = dev->is_max30100 ? 0 : max30102_i2c_read_reg(dev, MAX30102_REG_OVF_COUNTER);
-    if (wr < 0 || rd < 0 || ovf < 0) return -1;
+    uint8_t wr_reg  = dev->is_max30100 ? 0x02 : MAX30102_REG_FIFO_WR_PTR;
+    uint8_t rd_reg  = dev->is_max30100 ? 0x04 : MAX30102_REG_FIFO_RD_PTR;
+    int wr  = max30102_i2c_read_reg(dev, wr_reg);
+    int rd  = max30102_i2c_read_reg(dev, rd_reg);
+    if (wr < 0 || rd < 0) return -1;
 
-    if (ovf > 0) {
-        ESP_LOGW(TAG, "FIFO Overflow (%d samples lost). Resetting FIFO.", ovf);
-        max30102_i2c_write_reg(dev, MAX30102_REG_FIFO_WR_PTR, 0x00);
-        max30102_i2c_write_reg(dev, MAX30102_REG_OVF_COUNTER, 0x00);
-        max30102_i2c_write_reg(dev, MAX30102_REG_FIFO_RD_PTR, 0x00);
-        return 0; /* Return 0 available after reset */
+    int mask = dev->is_max30100 ? 15 : 31;
+    int count = (wr - rd) & mask;
+    if (count == 0) {
+        uint8_t ovf_reg = dev->is_max30100 ? 0x03 : MAX30102_REG_OVF_COUNTER;
+        int ovf = max30102_i2c_read_reg(dev, ovf_reg);
+        if (ovf > 0) {
+            count = dev->is_max30100 ? 16 : 32;
+        }
     }
-
-    int count = wr - rd;
-    int max_depth = dev->is_max30100 ? 16 : 32;
-    if (count < 0) count += max_depth;
     return count;
 }
 
@@ -209,19 +226,25 @@ int max30102_read_fifo(max30102_t *dev, max30102_sample_t *buf, int max_samples)
 float max30102_read_temperature(max30102_t *dev) {
     if (!dev || !dev->initialized) return -999.0f;
 
-    if (max30102_i2c_write_reg(dev, MAX30102_REG_TEMP_CONFIG, 0x01) != 0) return -999.0f;
+    uint8_t temp_cfg_reg = dev->is_max30100 ? 0x06 : MAX30102_REG_TEMP_CONFIG;
+    uint8_t temp_en_bit  = dev->is_max30100 ? 0x08 : 0x01; // bit 3 for MAX30100, bit 0 for MAX30102
+
+    if (max30102_i2c_write_reg(dev, temp_cfg_reg, temp_en_bit) != 0) return -999.0f;
 
     int timeout = 100;
     while (timeout-- > 0) {
-        int val = max30102_i2c_read_reg(dev, MAX30102_REG_TEMP_CONFIG);
+        int val = max30102_i2c_read_reg(dev, temp_cfg_reg);
         if (val < 0) return -999.0f;
-        if (!(val & 0x01)) break;
+        if (!(val & temp_en_bit)) break;
         max30102_delay_ms(1);
     }
     if (timeout <= 0) return -999.0f;
 
-    int temp_int = max30102_i2c_read_reg(dev, MAX30102_REG_TEMP_INT);
-    int temp_frac = max30102_i2c_read_reg(dev, MAX30102_REG_TEMP_FRAC);
+    uint8_t temp_int_reg  = dev->is_max30100 ? 0x16 : MAX30102_REG_TEMP_INT;
+    uint8_t temp_frac_reg = dev->is_max30100 ? 0x17 : MAX30102_REG_TEMP_FRAC;
+
+    int temp_int = max30102_i2c_read_reg(dev, temp_int_reg);
+    int temp_frac = max30102_i2c_read_reg(dev, temp_frac_reg);
     if (temp_int < 0 || temp_frac < 0) return -999.0f;
 
     return (float)(int8_t)temp_int + ((float)temp_frac * 0.0625f);
@@ -230,29 +253,56 @@ float max30102_read_temperature(max30102_t *dev) {
 /* Power Management */
 int max30102_shutdown(max30102_t *dev) {
     if (!dev || !dev->initialized) return -1;
-    int mode = max30102_i2c_read_reg(dev, MAX30102_REG_MODE_CONFIG);
+    uint8_t mode_reg = dev->is_max30100 ? 0x06 : MAX30102_REG_MODE_CONFIG;
+    int mode = max30102_i2c_read_reg(dev, mode_reg);
     if (mode < 0) return -1;
-    return max30102_i2c_write_reg(dev, MAX30102_REG_MODE_CONFIG, (uint8_t)(mode | MAX30102_MODE_SHDN));
+    return max30102_i2c_write_reg(dev, mode_reg, (uint8_t)(mode | MAX30102_MODE_SHDN));
 }
 
 int max30102_wakeup(max30102_t *dev) {
     if (!dev || !dev->initialized) return -1;
-    int mode = max30102_i2c_read_reg(dev, MAX30102_REG_MODE_CONFIG);
+    uint8_t mode_reg = dev->is_max30100 ? 0x06 : MAX30102_REG_MODE_CONFIG;
+    int mode = max30102_i2c_read_reg(dev, mode_reg);
     if (mode < 0) return -1;
-    return max30102_i2c_write_reg(dev, MAX30102_REG_MODE_CONFIG, (uint8_t)(mode & ~MAX30102_MODE_SHDN));
+    return max30102_i2c_write_reg(dev, mode_reg, (uint8_t)(mode & ~MAX30102_MODE_SHDN));
 }
 
 /* Adaptive LED Current Control */
 int max30102_adjust_led_current(max30102_t *dev, uint32_t red_sample, uint32_t ir_sample) {
     if (!dev || !dev->initialized) return -1;
 
+    if (dev->is_max30100) {
+        int cfg = max30102_i2c_read_reg(dev, 0x09);
+        if (cfg < 0) return -1;
+        uint8_t red_curr = (uint8_t)((cfg >> 4) & 0x0F);
+        uint8_t ir_curr  = (uint8_t)(cfg & 0x0F);
+
+        const uint32_t TARGET_LOW  = 40000;
+        const uint32_t TARGET_HIGH = 220000;
+
+        if (red_sample < TARGET_LOW && red_curr < 0x0F) red_curr++;
+        else if (red_sample > TARGET_HIGH && red_curr > 0x01) red_curr--;
+
+        if (ir_sample < TARGET_LOW && ir_curr < 0x0F) ir_curr++;
+        else if (ir_sample > TARGET_HIGH && ir_curr > 0x01) ir_curr--;
+
+        uint8_t new_cfg = (red_curr << 4) | ir_curr;
+        if (new_cfg != (uint8_t)cfg) {
+            return max30102_i2c_write_reg(dev, 0x09, new_cfg);
+        }
+        return 0;
+    }
+
     const uint32_t TARGET_LOW  = (1u << 17);
     const uint32_t TARGET_HIGH = (1u << 18) * 3 / 4;
     const uint8_t STEP = 4;
 
-    uint8_t red_pa = max30102_i2c_read_reg(dev, MAX30102_REG_LED1_PA);
-    uint8_t ir_pa  = max30102_i2c_read_reg(dev, MAX30102_REG_LED2_PA);
-    if (red_pa == 0xFF || ir_pa == 0xFF) return -1;
+    int red_pa_i = max30102_i2c_read_reg(dev, MAX30102_REG_LED1_PA);
+    int ir_pa_i  = max30102_i2c_read_reg(dev, MAX30102_REG_LED2_PA);
+    if (red_pa_i < 0 || ir_pa_i < 0) return -1;
+
+    uint8_t red_pa = (uint8_t)red_pa_i;
+    uint8_t ir_pa  = (uint8_t)ir_pa_i;
 
     if (red_sample < TARGET_LOW && red_pa < 255 - STEP) red_pa += STEP;
     else if (red_sample > TARGET_HIGH && red_pa > STEP) red_pa -= STEP;

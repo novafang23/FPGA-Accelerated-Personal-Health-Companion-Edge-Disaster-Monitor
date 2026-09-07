@@ -74,4 +74,14 @@ hardware/zynq/vivado_project/*.ip_user_files/
 hardware/zynq/vivado_project/*.runs/
 hardware/zynq/vivado_project/*.sim/
 hardware/shrikefi/forgefpga_project/ffpga/build/
+shrike_fpga/
 
+# Generated HTML report intermediates
+SIH26181_Hardware_Integration_CAD_Design_Report.html
+
+# IDE and agent metadata
+.agents/
+
+# Environment and API keys
+.env
+.env.local

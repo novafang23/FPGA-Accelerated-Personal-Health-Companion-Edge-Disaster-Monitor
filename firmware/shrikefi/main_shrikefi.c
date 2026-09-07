@@ -70,13 +70,7 @@ static bme280_t s_bme280;
 static pms5003_t s_pms5003;
 static ssd1306_t s_ssd1306;
 
-/* Sensor read helpers */
-static int read_max30102_samples(max30102_sample_t *sample) {
-    if (max30102_fifo_available(&s_max30102) > 0) {
-        return max30102_read_sample(&s_max30102, sample);
-    }
-    return -1;
-}
+
 
 static int read_bme280_env(bme280_data_t *data) {
     return bme280_read(&s_bme280, data);
@@ -127,8 +121,17 @@ static void task_ppg_accelerator(void *pvParameters) {
     ESP_LOGI(TAG, "Core 0: PPG Accelerator Task Started (FPGA hardware + Software DSP fallback).");
 
     while (1) {
-        /* 1. Read optical samples from MAX30102 / MAX30100 */
-        if (read_max30102_samples(&ppg_sample) == 0) {
+        int avail = max30102_fifo_available(&s_max30102);
+        int samples_read = 0;
+
+        /* Drain available samples from FIFO (prevents buffer overflow & lag) */
+        while (avail > 0 && samples_read < 8) {
+            if (max30102_read_sample(&s_max30102, &ppg_sample) != 0) {
+                break;
+            }
+            samples_read++;
+            avail--;
+
             uint32_t now_ms = (uint32_t)(xTaskGetTickCount() * portTICK_PERIOD_MS);
 
             /* Track min/max over 50 samples (1 sec) to measure pulsatile AC amplitude */
@@ -140,12 +143,12 @@ static void task_ppg_accelerator(void *pvParameters) {
                 ir_win_max = 0;
                 ir_win_count = 0;
 
-                /* Adjust LED current every 1 second to compensate for weak/saturated signals */
+                /* Adjust LED current every 50 samples to compensate for weak/saturated signals */
                 max30102_adjust_led_current(&s_max30102, ppg_sample.red, ppg_sample.ir);
             }
 
-            /* Optical contact check: ambient air is IR<600, Red<900; tissue contact elevates levels */
-            bool optical_contact = (ppg_sample.ir > 800 || ppg_sample.red > 1100);
+            /* Optical contact check: ambient air is IR<1000; tissue contact elevates levels to >50,000 */
+            bool optical_contact = (ppg_sample.ir > 1500 || ppg_sample.red > 1500);
 
             uint8_t raw_red = max30102_scale_to_8bit(ppg_sample.red);
             uint8_t raw_ir  = max30102_scale_to_8bit(ppg_sample.ir);
@@ -300,7 +303,7 @@ static void task_ppg_accelerator(void *pvParameters) {
                     xSemaphoreGive(s_data_mutex);
                 }
             } else {
-                /* No optical contact (IR <= 1200) */
+                /* No optical contact (IR <= 1500) */
                 sw_finger_start_ms   = 0;
                 sw_last_peak_time_ms = 0;
                 sw_last_valid_ibi_ms = 0;
@@ -328,23 +331,24 @@ static void task_ppg_accelerator(void *pvParameters) {
                     xSemaphoreGive(s_data_mutex);
                 }
             }
-
-            /* Periodic optical debug log (every 1 second at 50Hz = 50 iterations) */
-            if (++raw_log_timer >= 50) {
-                raw_log_timer = 0;
-                const char *status_str = (g_state.signal_status == SIGNAL_STATUS_LOW_PERFUSION) ? "LOW PERFUSION (PRESS FIRMER)" :
-                                         (g_state.signal_status == SIGNAL_STATUS_ACQUIRING)     ? "ACQUIRING" :
-                                         (g_state.signal_status == SIGNAL_STATUS_TRACKING)      ? "LOCKED" : "NO FINGER";
-                ESP_LOGI("PPG_OPTICAL", "Raw: IR=%lu, Red=%lu | AC=%lu | Status: %s | HR: %.1f BPM | Beats: %d/10 | SpO2: %s",
-                         (unsigned long)ppg_sample.ir, (unsigned long)ppg_sample.red,
-                         (unsigned long)last_ac_amplitude,
-                         status_str,
-                         g_state.heart_rate, hrv_state.count,
-                         g_state.spo2_valid ? "VALID" : "CALC/--");
-            }
         }
 
-        vTaskDelay(pdMS_TO_TICKS(20)); // 50 Hz sampling rate
+        /* Periodic optical debug log (every 1 second at 50Hz = 50 iterations) */
+        if (++raw_log_timer >= 50) {
+            raw_log_timer = 0;
+            const char *status_str = (g_state.signal_status == SIGNAL_STATUS_LOW_PERFUSION) ? "LOW PERFUSION (PRESS FIRMER)" :
+                                     (g_state.signal_status == SIGNAL_STATUS_ACQUIRING)     ? "ACQUIRING" :
+                                     (g_state.signal_status == SIGNAL_STATUS_TRACKING)      ? "LOCKED" : "NO FINGER";
+            ESP_LOGI("PPG_OPTICAL", "Raw: IR=%lu, Red=%lu | AC=%lu | Status: %s | HR: %.1f BPM | Beats: %d/10 | SpO2: %s | (Samples/tick: %d)",
+                     (unsigned long)ppg_sample.ir, (unsigned long)ppg_sample.red,
+                     (unsigned long)last_ac_amplitude,
+                     status_str,
+                     g_state.heart_rate, hrv_state.count,
+                     g_state.spo2_valid ? "VALID" : "CALC/--",
+                     samples_read);
+        }
+
+        vTaskDelay(pdMS_TO_TICKS(20)); // 50 Hz sampling loop
     }
 }
 
@@ -426,14 +430,8 @@ static void task_disaster_monitor(void *pvParameters) {
             /* 1. Execute Clinical Deterministic Rule Engine */
             disaster_assess(&hrv_snapshot, engine_spo2, hr, &env, &rule_risk);
 
-            /* 2. Execute On-Device TinyML INT8 Neural Network */
-            disaster_assess_nn_int8(&hrv_snapshot, engine_spo2, hr, &env, &nn_risk);
-
-            /* Query raw activations for granular telemetry */
-            nn_predict_int8(&nn_default_model_int8, &nn_quant_params,
-                            hr, hrv_snapshot.rmssd, engine_spo2,
-                            env.ambient_temp_c, env.humidity_pct, env.pm25,
-                            &nn_out);
+            /* 2. Execute On-Device TinyML INT8 Neural Network (single-pass populates both risk and telemetry) */
+            disaster_assess_nn_int8(&hrv_snapshot, engine_spo2, hr, &env, &nn_risk, &nn_out);
 
             /* 3. Unified Triage: Fuse deterministic clinical bounds with predictive TinyML patterns */
             final_risk = rule_risk;
@@ -615,7 +613,7 @@ void app_main(void) {
         ESP_LOGI(TAG, "PMS5003 initialized OK");
     }
 
-    /* Configure UART1 for PMS5003 (TX=GPIO18, RX=GPIO17, 9600 baud) */
+    /* Configure UART1 for PMS5003 (TX=GPIO18, RX=GPIO14, 9600 baud) */
     uart_config_t uart_cfg = {
         .baud_rate = PMS5003_BAUD_RATE,
         .data_bits = UART_DATA_8_BITS,
@@ -625,8 +623,8 @@ void app_main(void) {
         .source_clk = UART_SCLK_DEFAULT,
     };
     uart_param_config(UART_NUM_1, &uart_cfg);
-    uart_set_pin(UART_NUM_1, 18, 17, UART_PIN_NO_CHANGE, UART_PIN_NO_CHANGE);
-    gpio_set_pull_mode(17, GPIO_PULLUP_ONLY); // Prevent floating noise when sensor disconnected
+    uart_set_pin(UART_NUM_1, 18, 14, UART_PIN_NO_CHANGE, UART_PIN_NO_CHANGE);
+    gpio_set_pull_mode(14, GPIO_PULLUP_ONLY); // Prevent floating noise when sensor disconnected
     uart_driver_install(UART_NUM_1, 1024, 0, 0, NULL, 0);
 
     /* Spawn Dual-Core FreeRTOS Tasks */
@@ -664,18 +662,13 @@ int main(void) {
     hrv.sdnn = 12.0f;
     hrv.count = 50;
 
-    // Test TinyML model inference on host
-    nn_output_t out;
-    nn_predict_int8(&nn_default_model_int8, &nn_quant_params,
-                    hr, rmssd, spo2,
-                    env.ambient_temp_c, env.humidity_pct, env.pm25,
-                    &out);
-
     risk_assessment_t rule_risk;
     disaster_assess(&hrv, spo2, hr, &env, &rule_risk);
 
+    // Single-pass TinyML INT8 model inference populates both risk categories and raw telemetry
+    nn_output_t out;
     risk_assessment_t nn_risk;
-    disaster_assess_nn_int8(&hrv, spo2, hr, &env, &nn_risk);
+    disaster_assess_nn_int8(&hrv, spo2, hr, &env, &nn_risk, &out);
 
     risk_assessment_t final_risk = rule_risk;
     if (nn_risk.overall_risk > final_risk.overall_risk) {

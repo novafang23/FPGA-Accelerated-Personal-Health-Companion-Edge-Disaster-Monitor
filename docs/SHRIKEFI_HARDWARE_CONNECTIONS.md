@@ -10,7 +10,7 @@
 |---|---|:---:|:---:|:---:|---|
 | **I2C Bus** | **SDA** | **GPIO 1** | — | 3.3V | Shared by OLED, MAX30102, BME280 |
 | **I2C Bus** | **SCL** | **GPIO 2** | — | 3.3V | 400 kHz Fast-Mode I2C clock |
-| **PMS5003 PM2.5** | **UART1 RX** | **GPIO 17** | — | 3.3V | Connects to PMS5003 Pin 7 (TX) |
+| **PMS5003 PM2.5** | **UART1 RX** | **GPIO 14** | — | 3.3V | Connects to PMS5003 Pin 5 (TX) |
 | **PMS5003 PM2.5** | **UART1 TX** | **GPIO 18** | — | 3.3V | Connects to PMS5003 Pin 6 (RX) *(optional)* |
 | **FPGA 4-Bit Link** | `link_strobe` | **GPIO 4** | PIN_14 | 3.3V | Internal PCB trace (Strobe Clock) |
 | **FPGA 4-Bit Link** | `link_dir` | **GPIO 5** | PIN_15 | 3.3V | Internal PCB trace (0=Write, 1=Read) |
@@ -93,13 +93,13 @@ The PMS5003 uses an 8-pin 1.25mm connector. Its fan and laser diode require **5V
 | **Pin 2** | **GND** — Negative Power | **GND** on ShrikeFi board (Breadboard Row 1) |
 | **Pin 3** | **SET** — Mode select (3.3V) | **3.3V** (Row 2) or leave floating (normal run mode) |
 | **Pin 4** | **RX** — Serial receive (3.3V) | **ESP32 GPIO 18 (TX)** *(optional)* |
-| **Pin 5** | **TX** — Serial transmit (3.3V) | **ESP32 GPIO 17 (RX)** (Breadboard Row 6) |
+| **Pin 5** | **TX** — Serial transmit (3.3V) | **ESP32 GPIO 14 (RX)** (Breadboard Row 6) |
 | **Pin 6** | **RESET** — Module reset (3.3V) | *Leave unconnected (low reset)* |
 | **Pin 7** | **NC** — Not Connected | *Leave unconnected* |
 | **Pin 8** | **NC** — Not Connected | *Leave unconnected* |
 
 * **Serial Configuration:** 9600 Baud, 8 Data Bits, No Parity, 1 Stop Bit.
-* Firmware has internal pull-up enabled on GPIO 17 to prevent floating noise when disconnected.
+* Firmware has internal pull-up enabled on GPIO 14 to prevent floating noise when disconnected.
 
 ---
 
@@ -115,7 +115,7 @@ Row 2 (3.3V Hub)    : [2A: ShrikeFi 3.3V][2B: OLED VCC] [2C: MAX30102 VIN] [2D: 
 Row 3 (5V Power Hub): [3A: ShrikeFi 5V]  [3B: PMS5003 Pin 1 (VCC)] [3C: Empty] [3D: Empty] [3E: Empty]
 Row 4 (I2C SDA Hub) : [4A: ESP32 GPIO 1] [4B: OLED SDA] [4C: MAX30102 SDA] [4D: BME280 SDA] [4E: Empty]
 Row 5 (I2C SCL Hub) : [5A: ESP32 GPIO 2] [5B: OLED SCL] [5C: MAX30102 SCL] [5D: BME280 SCL] [5E: Empty]
-Row 6 (PMS5003 TX)  : [6A: ESP32 GPIO 17][6B: PMS5003 Pin 5 (TX)] [6C: Empty] [6D: Empty] [6E: Empty]
+Row 6 (PMS5003 TX)  : [6A: ESP32 GPIO 14][6B: PMS5003 Pin 5 (TX)] [6C: Empty] [6D: Empty] [6E: Empty]
 Row 7 (PMS5003 RX)  : [7A: ESP32 GPIO 18][7B: PMS5003 Pin 4 (RX)] [7C: Empty] [7D: Empty] [7E: Empty]
 ```
 

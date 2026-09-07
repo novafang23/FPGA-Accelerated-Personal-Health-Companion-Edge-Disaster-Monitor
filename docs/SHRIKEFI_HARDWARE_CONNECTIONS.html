@@ -1,0 +1,328 @@
+
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <style>
+        body { font-family: Arial, sans-serif; line-height: 1.6; margin: 40px; color: #333; }
+        h1, h2, h3 { color: #222; border-bottom: 1px solid #ccc; padding-bottom: 5px; }
+        table { border-collapse: collapse; width: 100%; margin-bottom: 20px; }
+        th, td { border: 1px solid #ddd; padding: 8px; text-align: left; }
+        th { background-color: #f2f2f2; }
+        code { background-color: #f9f2f4; color: #c7254e; padding: 2px 4px; border-radius: 4px; }
+        pre code { background-color: #f5f5f5; color: #333; display: block; padding: 10px; overflow-x: auto; }
+        img { max-width: 100%; height: auto; display: block; margin: 20px auto; }
+    </style>
+</head>
+<body>
+<h1>ShrikeFi Hardware Wiring &amp; Pinout Guide</h1>
+<p><strong>Project:</strong> SIH26181 — FPGA-Accelerated Personal Health Companion &amp; Edge Disaster Monitor<br />
+<strong>Target Hardware:</strong> Vicharak ShrikeFi (ESP32-S3 Dual-Core + Renesas ForgeFPGA SLG47910)</p>
+<hr />
+<h2>1. Quick Reference: Complete System Pinout</h2>
+<table>
+<thead>
+<tr>
+<th>Peripheral / Interface</th>
+<th>Signal Name</th>
+<th style="text-align: center;">ESP32-S3 Pin</th>
+<th style="text-align: center;">FPGA Pin</th>
+<th style="text-align: center;">Voltage Level</th>
+<th>Notes</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>I2C Bus</strong></td>
+<td><strong>SDA</strong></td>
+<td style="text-align: center;"><strong>GPIO 1</strong></td>
+<td style="text-align: center;">—</td>
+<td style="text-align: center;">3.3V</td>
+<td>Shared by OLED, MAX30102, BME280</td>
+</tr>
+<tr>
+<td><strong>I2C Bus</strong></td>
+<td><strong>SCL</strong></td>
+<td style="text-align: center;"><strong>GPIO 2</strong></td>
+<td style="text-align: center;">—</td>
+<td style="text-align: center;">3.3V</td>
+<td>400 kHz Fast-Mode I2C clock</td>
+</tr>
+<tr>
+<td><strong>PMS5003 PM2.5</strong></td>
+<td><strong>UART1 RX</strong></td>
+<td style="text-align: center;"><strong>GPIO 14</strong></td>
+<td style="text-align: center;">—</td>
+<td style="text-align: center;">3.3V</td>
+<td>Connects to PMS5003 Pin 5 (TX)</td>
+</tr>
+<tr>
+<td><strong>PMS5003 PM2.5</strong></td>
+<td><strong>UART1 TX</strong></td>
+<td style="text-align: center;"><strong>GPIO 18</strong></td>
+<td style="text-align: center;">—</td>
+<td style="text-align: center;">3.3V</td>
+<td>Connects to PMS5003 Pin 6 (RX) <em>(optional)</em></td>
+</tr>
+<tr>
+<td><strong>FPGA 4-Bit Link</strong></td>
+<td><code>link_strobe</code></td>
+<td style="text-align: center;"><strong>GPIO 4</strong></td>
+<td style="text-align: center;">PIN_14</td>
+<td style="text-align: center;">3.3V</td>
+<td>Internal PCB trace (Strobe Clock)</td>
+</tr>
+<tr>
+<td><strong>FPGA 4-Bit Link</strong></td>
+<td><code>link_dir</code></td>
+<td style="text-align: center;"><strong>GPIO 5</strong></td>
+<td style="text-align: center;">PIN_15</td>
+<td style="text-align: center;">3.3V</td>
+<td>Internal PCB trace (0=Write, 1=Read)</td>
+</tr>
+<tr>
+<td><strong>FPGA 4-Bit Link</strong></td>
+<td><code>link_data[0]</code></td>
+<td style="text-align: center;"><strong>GPIO 6</strong></td>
+<td style="text-align: center;">PIN_16 / 20</td>
+<td style="text-align: center;">3.3V</td>
+<td>Internal PCB trace (Data Bit 0 - LSB)</td>
+</tr>
+<tr>
+<td><strong>FPGA 4-Bit Link</strong></td>
+<td><code>link_data[1]</code></td>
+<td style="text-align: center;"><strong>GPIO 7</strong></td>
+<td style="text-align: center;">PIN_17 / 21</td>
+<td style="text-align: center;">3.3V</td>
+<td>Internal PCB trace (Data Bit 1)</td>
+</tr>
+<tr>
+<td><strong>FPGA 4-Bit Link</strong></td>
+<td><code>link_data[2]</code></td>
+<td style="text-align: center;"><strong>GPIO 8</strong></td>
+<td style="text-align: center;">PIN_18 / 22</td>
+<td style="text-align: center;">3.3V</td>
+<td>Internal PCB trace (Data Bit 2)</td>
+</tr>
+<tr>
+<td><strong>FPGA 4-Bit Link</strong></td>
+<td><code>link_data[3]</code></td>
+<td style="text-align: center;"><strong>GPIO 9</strong></td>
+<td style="text-align: center;">PIN_19 / 23</td>
+<td style="text-align: center;">3.3V</td>
+<td>Internal PCB trace (Data Bit 3 - MSB)</td>
+</tr>
+<tr>
+<td><strong>FPGA Beat IRQ</strong></td>
+<td><code>irq_beat</code></td>
+<td style="text-align: center;"><strong>GPIO 10</strong></td>
+<td style="text-align: center;">PIN_24</td>
+<td style="text-align: center;">3.3V</td>
+<td>Internal PCB trace (Active-High Beat Pulse)</td>
+</tr>
+<tr>
+<td><strong>FPGA Reset</strong></td>
+<td><code>rst_n</code></td>
+<td style="text-align: center;"><strong>GPIO 3</strong></td>
+<td style="text-align: center;">PIN_13</td>
+<td style="text-align: center;">3.3V</td>
+<td>Active-Low FPGA system reset</td>
+</tr>
+<tr>
+<td><strong>Power Input</strong></td>
+<td><strong>5V (VBUS)</strong></td>
+<td style="text-align: center;"><strong>5V / VBUS</strong></td>
+<td style="text-align: center;">—</td>
+<td style="text-align: center;"><strong>5.0V</strong></td>
+<td>Powers PMS5003 fan &amp; laser</td>
+</tr>
+<tr>
+<td><strong>Power System</strong></td>
+<td><strong>3.3V</strong></td>
+<td style="text-align: center;"><strong>3.3V</strong></td>
+<td style="text-align: center;">VDD</td>
+<td style="text-align: center;"><strong>3.3V</strong></td>
+<td>Powers all sensors, MCU, and FPGA</td>
+</tr>
+<tr>
+<td><strong>Ground</strong></td>
+<td><strong>GND</strong></td>
+<td style="text-align: center;"><strong>GND</strong></td>
+<td style="text-align: center;">GND</td>
+<td style="text-align: center;">0V</td>
+<td>Common ground across all modules</td>
+</tr>
+</tbody>
+</table>
+<blockquote>
+<p>[!CAUTION]
+<strong>CRITICAL VOLTAGE RULE: 3.3V ONLY</strong><br />
+All ESP32-S3 and Renesas ForgeFPGA I/O pins are strictly <strong>3.3V LVCMOS</strong>.<br />
+<strong>NEVER</strong> apply 5V to any GPIO pin or FPGA header pin. 5V must <strong>ONLY</strong> go to the PMS5003 power pins (Pin 1 &amp; 2).</p>
+</blockquote>
+<hr />
+<h2>2. Sensor-by-Sensor Wiring Details</h2>
+<h3>A. I2C Bus Devices (Shared on GPIO 1 &amp; GPIO 2)</h3>
+<p>The SSD1306 OLED, MAX30102/MAX30100 optical pulse sensor, and BME280 environmental sensor all share the <strong>same two communication pins</strong>:</p>
+<p><code>ESP32-S3                     Shared I2C Bus                     Sensors
+┌─────────┐              ┌──────────────────────┐          ┌─────────────────┐
+│  GPIO 1 │ ─── SDA ───▶ │ Breadboard Row (SDA) │ ───────▶ │ OLED SDA        │
+│         │              │                      │ ───────▶ │ MAX30102 SDA    │
+│         │              │                      │ ───────▶ │ BME280 SDA      │
+│         │              ├──────────────────────┤          ├─────────────────┤
+│  GPIO 2 │ ─── SCL ───▶ │ Breadboard Row (SCL) │ ───────▶ │ OLED SCL        │
+│         │              │                      │ ───────▶ │ MAX30102 SCL    │
+│         │              │                      │ ───────▶ │ BME280 SCL      │
+└─────────┘              └──────────────────────┘          └─────────────────┘</code></p>
+<h4>Device Addresses &amp; Power:</h4>
+<ol>
+<li><strong>SSD1306 OLED (128x64 Display):</strong></li>
+<li><code>VCC</code> $\to$ <strong>3.3V</strong></li>
+<li><code>GND</code> $\to$ <strong>GND</strong></li>
+<li><code>SDA</code> $\to$ <strong>GPIO 1</strong></li>
+<li><code>SCL</code> $\to$ <strong>GPIO 2</strong></li>
+<li>
+<p><em>I2C Address:</em> <code>0x3C</code> (default) or <code>0x3D</code></p>
+</li>
+<li>
+<p><strong>MAX30102 / MAX30100 (PPG Pulse &amp; SpO2 Sensor):</strong></p>
+</li>
+<li><code>VIN / VCC</code> $\to$ <strong>3.3V</strong></li>
+<li><code>GND</code> $\to$ <strong>GND</strong></li>
+<li><code>SDA</code> $\to$ <strong>GPIO 1</strong></li>
+<li><code>SCL</code> $\to$ <strong>GPIO 2</strong></li>
+<li><code>INT</code> $\to$ <em>Leave unconnected (FIFO is polled at 50Hz)</em></li>
+<li>
+<p><em>I2C Address:</em> <code>0x57</code></p>
+</li>
+<li>
+<p><strong>BME280 (Temperature, Humidity, Pressure):</strong></p>
+</li>
+<li><code>VIN</code> $\to$ <strong>3.3V</strong></li>
+<li><code>GND</code> $\to$ <strong>GND</strong></li>
+<li><code>SDA</code> $\to$ <strong>GPIO 1</strong></li>
+<li><code>SCL</code> $\to$ <strong>GPIO 2</strong></li>
+<li><code>CS</code>  $\to$ <strong>3.3V</strong> (selects I2C mode)</li>
+<li><code>SDO</code> $\to$ <strong>GND</strong> (selects address <code>0x76</code>) or <strong>3.3V</strong> (selects <code>0x77</code>)</li>
+<li><em>I2C Address:</em> <code>0x76</code></li>
+</ol>
+<hr />
+<h3>B. Plantower PMS5003 (Particulate Matter PM2.5 / PM10 Sensor)</h3>
+<p>The PMS5003 uses an 8-pin 1.25mm connector. Its fan and laser diode require <strong>5V</strong>, while its logic lines are <strong>3.3V</strong>.</p>
+<p><code>PMS5003 8-Pin Connector (Official Plantower Datasheet):
+    ┌───┬───┬───┬───┬───┬───┬───┬───┐
+    │ 1 │ 2 │ 3 │ 4 │ 5 │ 6 │ 7 │ 8 │
+    └───┴───┴───┴───┴───┴───┴───┴───┘
+     VCC GND SET RX  TX  RST NC  NC</code></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: center;">PMS5003 Pin</th>
+<th>Function per Datasheet</th>
+<th>Connect To</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: center;"><strong>Pin 1</strong></td>
+<td><strong>VCC (5V)</strong> — Positive Power</td>
+<td><strong>5V / VBUS</strong> on ShrikeFi board (Breadboard Row 3)</td>
+</tr>
+<tr>
+<td style="text-align: center;"><strong>Pin 2</strong></td>
+<td><strong>GND</strong> — Negative Power</td>
+<td><strong>GND</strong> on ShrikeFi board (Breadboard Row 1)</td>
+</tr>
+<tr>
+<td style="text-align: center;"><strong>Pin 3</strong></td>
+<td><strong>SET</strong> — Mode select (3.3V)</td>
+<td><strong>3.3V</strong> (Row 2) or leave floating (normal run mode)</td>
+</tr>
+<tr>
+<td style="text-align: center;"><strong>Pin 4</strong></td>
+<td><strong>RX</strong> — Serial receive (3.3V)</td>
+<td><strong>ESP32 GPIO 18 (TX)</strong> <em>(optional)</em></td>
+</tr>
+<tr>
+<td style="text-align: center;"><strong>Pin 5</strong></td>
+<td><strong>TX</strong> — Serial transmit (3.3V)</td>
+<td><strong>ESP32 GPIO 14 (RX)</strong> (Breadboard Row 6)</td>
+</tr>
+<tr>
+<td style="text-align: center;"><strong>Pin 6</strong></td>
+<td><strong>RESET</strong> — Module reset (3.3V)</td>
+<td><em>Leave unconnected (low reset)</em></td>
+</tr>
+<tr>
+<td style="text-align: center;"><strong>Pin 7</strong></td>
+<td><strong>NC</strong> — Not Connected</td>
+<td><em>Leave unconnected</em></td>
+</tr>
+<tr>
+<td style="text-align: center;"><strong>Pin 8</strong></td>
+<td><strong>NC</strong> — Not Connected</td>
+<td><em>Leave unconnected</em></td>
+</tr>
+</tbody>
+</table>
+<ul>
+<li><strong>Serial Configuration:</strong> 9600 Baud, 8 Data Bits, No Parity, 1 Stop Bit.</li>
+<li>Firmware has internal pull-up enabled on GPIO 14 to prevent floating noise when disconnected.</li>
+</ul>
+<hr />
+<h2>3. Mini Breadboard (170-Tie Point) Wiring Map</h2>
+<p>On a 170-tie point mini breadboard, each numbered row has <strong>5 connected holes</strong> (<code>A-B-C-D-E</code> on left, <code>F-G-H-I-J</code> on right). </p>
+<p>Here is the cleanest way to allocate your rows:</p>
+<p><code>text
+Row 1 (GND Hub)     : [1A: ShrikeFi GND] [1B: OLED GND] [1C: MAX30102 GND] [1D: BME280 GND] [1E: PMS5003 Pin 2 (GND)]
+Row 2 (3.3V Hub)    : [2A: ShrikeFi 3.3V][2B: OLED VCC] [2C: MAX30102 VIN] [2D: BME280 VIN] [2E: PMS5003 Pin 3 (SET)]
+Row 3 (5V Power Hub): [3A: ShrikeFi 5V]  [3B: PMS5003 Pin 1 (VCC)] [3C: Empty] [3D: Empty] [3E: Empty]
+Row 4 (I2C SDA Hub) : [4A: ESP32 GPIO 1] [4B: OLED SDA] [4C: MAX30102 SDA] [4D: BME280 SDA] [4E: Empty]
+Row 5 (I2C SCL Hub) : [5A: ESP32 GPIO 2] [5B: OLED SCL] [5C: MAX30102 SCL] [5D: BME280 SCL] [5E: Empty]
+Row 6 (PMS5003 TX)  : [6A: ESP32 GPIO 14][6B: PMS5003 Pin 5 (TX)] [6C: Empty] [6D: Empty] [6E: Empty]
+Row 7 (PMS5003 RX)  : [7A: ESP32 GPIO 18][7B: PMS5003 Pin 4 (RX)] [7C: Empty] [7D: Empty] [7E: Empty]</code></p>
+<hr />
+<h2>4. Renesas ForgeFPGA (SLG47910) Onboard Architecture</h2>
+<h3>Where is the FPGA?</h3>
+<ul>
+<li>The ForgeFPGA is <strong>soldered directly on the ShrikeFi PCB</strong>.</li>
+<li>You <strong>do not</strong> need external jumper wires between the ESP32-S3 and the ForgeFPGA — the 4-bit bus lines (GPIO 4 through 10) are routed through high-speed internal PCB copper traces.</li>
+</ul>
+<h3>4-Bit Parallel Link Interface Details:</h3>
+<ul>
+<li><strong>Protocol:</strong> Synchronous 4-bit nibble transfers clocked by <code>link_strobe</code> (GPIO 4).</li>
+<li><strong>Speed:</strong> 500 kHz software bit-bang driver / up to 10 MHz simulation-verified throughput (40 Mbps).</li>
+<li><strong>Commands:</strong></li>
+<li><code>0x1</code>: Send raw Red sample (8-bit)</li>
+<li><code>0x2</code>: Send raw IR sample (8-bit)</li>
+<li><code>0x3</code>: Set systolic detection threshold (8-bit, default <code>120</code>)</li>
+<li><code>0x6</code>: Read 32-bit IBI cycle count ($T_{\text{clk}} = 20\text{ ns}$)</li>
+<li><code>0x7</code>: Acknowledge and clear <code>irq_beat</code> interrupt</li>
+<li><strong>Hardware Interrupt:</strong> When the systolic peak detector on the FPGA identifies a crest, it drives <code>irq_beat</code> (GPIO 10) HIGH. The ESP32 immediately services this interrupt to update Heart Rate and HRV metrics.</li>
+</ul>
+<hr />
+<h2>5. Software &amp; Hardware Diagnostics</h2>
+<h3>A. I2C Bus Auto-Scan Output</h3>
+<p>When the firmware boots, it automatically runs an I2C bus scan across all 127 addresses and prints the status to the serial console:</p>
+<p><code>text
+I (1234) I2C_HAL: Scanning I2C bus (SDA=1, SCL=2, 400kHz)...
+I (1250) I2C_HAL:   - Device found at 0x08 (ForgeFPGA Configuration Interface)
+I (1270) I2C_HAL:   - Device found at 0x3C (SSD1306 OLED Display)
+I (1290) I2C_HAL:   - Device found at 0x57 (MAX30102 / MAX30100 Pulse Oximeter)
+I (1310) I2C_HAL:   - Device found at 0x76 (BME280 Environmental Sensor)
+I (1320) I2C_HAL: I2C scan complete: 4 devices found.</code></p>
+<h3>B. SpO2 Engine Tuning</h3>
+<p>The SpO2 calculation uses an <strong>8-second rolling moving-average window</strong> (<code>SPO2_MA_FILTER_SIZE = 8</code> in <a href="../firmware/core/spo2_engine.h"><code>firmware/core/spo2_engine.h</code></a>) with <strong>slew-rate limiting ($\pm 2.5\%$ per second)</strong> to eliminate sensor flicker and finger-motion artifacts while keeping true medical response fast and accurate.</p>
+<hr />
+<h2>6. How to Flash &amp; Monitor</h2>
+<p>```powershell</p>
+<h1>1. Activate ESP-IDF environment</h1>
+<p>. C:\Espressif\frameworks\esp-idf-v5.5.5\export.ps1</p>
+<h1>2. Navigate to ShrikeFi project</h1>
+<p>cd C:\Users\abhin\OneDrive\Desktop\verilog\firmware\shrikefi</p>
+<h1>3. Flash and open serial monitor on COM5 (or your active COM port)</h1>
+<p>idf.py -p COM5 flash monitor
+```</p>
+<p>To exit the serial monitor: press <code>Ctrl + ]</code>.</p>
+</body>
+</html>

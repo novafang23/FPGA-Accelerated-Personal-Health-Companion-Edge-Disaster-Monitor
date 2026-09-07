@@ -108,6 +108,15 @@ static void test_flood_unknown_skin_temp() {
 
     disaster_assess(&hrv, 98.0f, 75.0f, &env, &result);
     assert(result.flood_risk == RISK_UNKNOWN);
+    /* Verify triage bug fix: unmonitored modality causes overall_risk to be RISK_UNKNOWN, not falsely RISK_NORMAL */
+    assert(result.overall_risk == RISK_UNKNOWN);
+
+    /* Verify that a real hazard still takes priority over RISK_UNKNOWN */
+    env.ambient_temp_c = 48.0f;
+    disaster_assess(&hrv, 98.0f, 135.0f, &env, &result);
+    assert(result.flood_risk == RISK_UNKNOWN);
+    assert(result.heat_risk >= RISK_HIGH);
+    assert(result.overall_risk >= RISK_HIGH);
 
     printf("test_flood_unknown_skin_temp: PASS\n");
 }
@@ -129,8 +138,16 @@ static void test_null_env() {
     disaster_assess_nn(&hrv, 98.0f, 75.0f, NULL, &result);
     assert(result.overall_risk == RISK_UNKNOWN);
 
-    disaster_assess_nn_int8(&hrv, 98.0f, 75.0f, NULL, &result);
+    disaster_assess_nn_int8(&hrv, 98.0f, 75.0f, NULL, &result, NULL);
     assert(result.overall_risk == RISK_UNKNOWN);
+
+    /* Test raw_out telemetry extraction in single-pass call */
+    nn_output_t raw_telemetry;
+    env_sensors_t normal_env = { .ambient_temp_c = 25.0f, .humidity_pct = 45.0f, .pm25 = 15.0f, .skin_temp_c = 36.0f };
+    disaster_assess_nn_int8(&hrv, 98.0f, 72.0f, &normal_env, &result, &raw_telemetry);
+    assert(raw_telemetry.heat_score >= 0.0f && raw_telemetry.heat_score <= 1.0f);
+    assert(raw_telemetry.pollution_score >= 0.0f && raw_telemetry.pollution_score <= 1.0f);
+    assert(raw_telemetry.flood_score >= 0.0f && raw_telemetry.flood_score <= 1.0f);
 
     printf("test_null_env: PASS\n");
 }

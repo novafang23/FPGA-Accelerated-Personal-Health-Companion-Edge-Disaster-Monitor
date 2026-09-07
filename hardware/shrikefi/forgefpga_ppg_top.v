@@ -185,12 +185,6 @@ module forgefpga_ppg_top #(
             // Output Enable control based on direction
             link_dout_oe    <= link_dir_sync;
 
-            // Hardware Beat Latches
-            if (peak_beat_detected) begin
-                reg_ibi_latched <= peak_ibi_cycles;
-                irq_beat        <= 1'b1;
-            end
-
             if (strobe_rise) begin
                 case (state)
                     // ---------------------------------------------------------
@@ -220,8 +214,11 @@ module forgefpga_ppg_top #(
                                     state     <= ST_IDLE;
                                 end
                                 CMD_CLEAR_IRQ: begin
-                                    irq_beat  <= 1'b0;
-                                    state     <= ST_IDLE;
+                                    // Software clear suppressed if hardware beat pulse is active simultaneously
+                                    if (!peak_beat_detected) begin
+                                        irq_beat <= 1'b0;
+                                    end
+                                    state <= ST_IDLE;
                                 end
                                 default:          state <= ST_IDLE;
                             endcase
@@ -316,6 +313,13 @@ module forgefpga_ppg_top #(
 
                     default: state <= ST_IDLE;
                 endcase
+            end
+
+            // Hardware Beat Latches: evaluated last in sequential block to guarantee
+            // hardware peak detection has absolute priority over any concurrent software IRQ clear
+            if (peak_beat_detected) begin
+                reg_ibi_latched <= peak_ibi_cycles;
+                irq_beat        <= 1'b1;
             end
         end
     end

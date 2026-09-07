@@ -146,11 +146,6 @@ module axi_ppg_accelerator #(
             red_sample_valid <= 1'b0;
             ir_sample_valid  <= 1'b0;
 
-            // Capture hardware beat pulse as sticky flag
-            if (hw_beat_pulse) begin
-                beat_flag <= 1'b1;
-            end
-
             // ---- Address Phase (independent) ----
             if (~aw_done && s_axi_awvalid) begin
                 s_axi_awready   <= 1'b1;
@@ -178,7 +173,8 @@ module axi_ppg_accelerator #(
                     end
                     3'b011: begin  // 0x0C — Status / Threshold
                         reg_threshold <= w_data_latched[15:8];
-                        if (w_data_latched[0]) beat_flag <= 1'b0;  // W1C
+                        // Software W1C clear: suppressed if hardware beat pulse occurs simultaneously
+                        if (w_data_latched[0] && !hw_beat_pulse) beat_flag <= 1'b0;
                     end
                     3'b100: begin  // 0x10 — IR raw sample
                         reg_ir_raw      <= w_data_latched[7:0];
@@ -186,6 +182,12 @@ module axi_ppg_accelerator #(
                     end
                     default: ; // Writes to RO registers ignored
                 endcase
+            end
+
+            // ---- Capture Hardware Beat Pulse as Sticky Flag ----
+            // Evaluated last in sequential block to guarantee hardware priority over software W1C
+            if (hw_beat_pulse) begin
+                beat_flag <= 1'b1;
             end
 
             // ---- Write Response Handshake ----

@@ -118,13 +118,15 @@ void disaster_assess_nn(
     risk_assessment_t   *result
 );
 
-/* Run AI-powered neural network disaster risk assessment (INT8 quantized). */
+/* Run AI-powered neural network disaster risk assessment (INT8 quantized).
+ * raw_out: optional pointer to receive raw model activations (pass NULL if unneeded). */
 void disaster_assess_nn_int8(
     const hrv_state_t   *hrv,
     float                spo2,
     float                bpm,
     const env_sensors_t *env,
-    risk_assessment_t   *result
+    risk_assessment_t   *result,
+    nn_output_t         *raw_out
 );
 
 #ifdef __cplusplus

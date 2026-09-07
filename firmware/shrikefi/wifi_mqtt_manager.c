@@ -135,6 +135,8 @@ void cloud_publish_health_data(float hr, float rmssd, float spo2, float temp, fl
 // Stubs for non-ESP compilation (e.g. Host testing)
 void wifi_mqtt_init(void) {}
 bool mqtt_is_connected(void) { return false; }
-void cloud_publish_health_data(float hr, float rmssd, float spo2, float temp, float pm25, const char* risk_level) {}
+void cloud_publish_health_data(float hr, float rmssd, float spo2, float temp, float pm25, const char* risk_level) {
+    (void)hr; (void)rmssd; (void)spo2; (void)temp; (void)pm25; (void)risk_level;
+}
 
 #endif // ESP_PLATFORM
