@@ -33,23 +33,25 @@ API_URL = "https://api.deepseek.com/chat/completions"
 MODELS_URL = "https://api.deepseek.com/models"
 
 def load_config():
-    """Load API key and default model from environment or .env file."""
-    api_key = os.environ.get("DEEPSEEK_API_KEY")
-    model = os.environ.get("DEEPSEEK_MODEL")
+    """Load API key and default model from .env file or environment."""
+    api_key = None
+    model = None
 
     root_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
     env_file = os.path.join(root_dir, ".env")
     if os.path.exists(env_file):
-        with open(env_file, "r", encoding="utf-8") as f:
+        with open(env_file, "r", encoding="utf-8-sig") as f:
             for line in f:
                 line = line.strip()
-                if not api_key and line.startswith("DEEPSEEK_API_KEY="):
+                if line.startswith("DEEPSEEK_API_KEY="):
                     api_key = line.split("=", 1)[1].strip().strip('"').strip("'")
-                if not model and line.startswith("DEEPSEEK_MODEL="):
+                if line.startswith("DEEPSEEK_MODEL="):
                     model = line.split("=", 1)[1].strip().strip('"').strip("'")
 
+    if not api_key:
+        api_key = os.environ.get("DEEPSEEK_API_KEY")
     if not model:
-        model = "deepseek-v4-pro"
+        model = os.environ.get("DEEPSEEK_MODEL", "deepseek-chat")
 
     return api_key, model
 
