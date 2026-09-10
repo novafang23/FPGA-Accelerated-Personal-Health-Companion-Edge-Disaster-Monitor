@@ -1,6 +1,6 @@
 [*]
 [*] GTKWave Analyzer — SIH26181 ShrikeFi (ESP32-S3 + ForgeFPGA) 4-Bit Link
-[*] Post-Synthesis: 195/1120 LUT5s (17.41%), 5/5 link tests passing
+[*] Post-Synthesis: 443/1120 LUT5s (39.55%), 353 FFs, 5/5 link tests passing
 [*]
 [dumpfile] "shrikefi_sim.vcd"
 [savefile] "presentation.gtkw"

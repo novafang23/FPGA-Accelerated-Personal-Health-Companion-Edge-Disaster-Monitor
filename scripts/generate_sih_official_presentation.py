@@ -223,7 +223,7 @@ tf_sb.word_wrap = True
 add_bullet_p(tf_sb, "Detailed Solution Explanation", "Simultaneously acquires dual-wavelength optical PPG pulses along with hyper-local ambient temperature, relative humidity, and laser PM2.5 particulate matter on the wrist.", first=True)
 add_bullet_p(tf_sb, "How It Addresses the Problem", "Fuses bodily vitals with environmental stress in real time to calculate cardiac drift and respiratory strain, alerting workers 15-20 minutes before medical collapse.", first=False)
 add_bullet_p(tf_sb, "Hardware Innovation (FPGA Silicon)", "Custom Verilog 8-tap filter runs on 50 MHz hardware with 20 ns cycle resolution, completely eliminating operating system jitter without DSP multipliers or BRAM.", first=False)
-add_bullet_p(tf_sb, "Uniqueness & Zero Cloud Dependency", "Quantized INT8 neural network fits into only 619 bytes SRAM and evaluates risks in 42 µs, providing 100% offline protection during infrastructure blackouts.", first=False)
+add_bullet_p(tf_sb, "Uniqueness & Zero Cloud Dependency", "Quantized INT8 neural network fits into only 619 bytes of INT8 weights, providing 100% offline protection during infrastructure blackouts.", first=False)
 
 # Bottom Takeaway Box
 box_tw = s2.shapes.add_shape(MSO_SHAPE.ROUNDED_RECTANGLE, Inches(0.8), Inches(6.25), Inches(11.7), Inches(0.65))
@@ -273,7 +273,7 @@ stages_s3 = [
     ("Stage 03: Clinical AI", "On-Device TinyML", C_GREEN, [
         ("mNEWS2 Engine", "Royal College of Physicians clinical early warning triage protocol."),
         ("Karlen/Elgendi SQI", "Signal Quality Index rejecting motion noise and false beats."),
-        ("6→24→16→3 Model", "INT8 deep micro-network running in 42 µs (91.00% validation accuracy).")
+        ("6→24→16→3 Model", "619-parameter INT8 micro-network (88.47% synthetic validation accuracy).")
     ]),
     ("Stage 04: Edge Action", "Alerts & Telemetry", C_ORANGE, [
         ("Local OLED Display", "128x64 display of live HR, SpO2, RR, and multi-hazard risk tiers."),
@@ -340,7 +340,7 @@ tf_fa = tx_fa.text_frame
 tf_fa.word_wrap = True
 
 add_bullet_p(tf_fa, "Vendor-Agnostic Verilog RTL", "Identical synthesizable core Verilog runs on both AMD Xilinx (6-input LUT) and Renesas ForgeFPGA (5-input LUT) architectures without redesign.", first=True)
-add_bullet_p(tf_fa, "Ultra-Low Silicon Footprint", "Synthesized on Renesas ForgeFPGA requiring only 195 / 1120 LUT5s (17.4% logic utilization) with 0 DSP multipliers and 0 Block RAM.", first=False)
+add_bullet_p(tf_fa, "Ultra-Low Silicon Footprint", "Synthesized on Renesas ForgeFPGA requiring 443 / 1120 LUT5s (39.6% logic utilization) with 0 DSP multipliers and 0 Block RAM.", first=False)
 add_bullet_p(tf_fa, "Static Timing Closure (+5.603 ns WNS)", "Proven static timing slack closure in AMD Xilinx Vivado ML (+5.603 ns setup slack, operating safely at 69.45 MHz on a 50 MHz target clock).", first=False)
 add_bullet_p(tf_fa, "Economic Viability & Bulk BOM", "• Renesas ForgeFPGA ($1.80) + ESP32-S3 ($2.20)\n• Optical PPG + Climate + Laser PM2.5 ($5.80)\n• OLED, Battery & 3D Enclosure ($4.20)\n=> Total Mass-Production BOM: Under $15 (~₹1,250)", first=False)
 
@@ -357,7 +357,7 @@ tf_ca.word_wrap = True
 add_bullet_p(tf_ca, "Challenge 1: Motion & Optical Noise", "Mitigation -> Dual 8-tap running-sum digital filter on FPGA plus Karlen/Elgendi Signal Quality Index (SQI) algorithm automatically discards corrupted beats.", first=True)
 add_bullet_p(tf_ca, "Challenge 2: Micro-FPGA Resource Limits", "Mitigation -> Pure logic O(1) bit-shift division (>> 3) requires 0 DSP48 multipliers and 0 Block RAM, running on the lowest-cost micro-FPGAs.", first=False)
 add_bullet_p(tf_ca, "Challenge 3: Grid & Cellular Tower Outages", "Mitigation -> 100% on-device offline TinyML running in 619 bytes SRAM. Operates autonomously during catastrophic floods and storms without internet.", first=False)
-add_bullet_p(tf_ca, "Challenge 4: Clinical Real-World Accuracy", "Mitigation -> Benchmarked against 16,387 gold-standard patient records from the MIT MIMIC-III ICU database (achieving 92.05% clinical concordance).", first=False)
+add_bullet_p(tf_ca, "Challenge 4: Clinical Real-World Accuracy", "Mitigation -> Benchmarked against 16,387 gold-standard patient records from the MIT MIMIC-III ICU database (94.11% triage accuracy on real HR/SpO2 inputs).", first=False)
 add_bullet_p(tf_ca, "Commercial Roadmap Target", "Direct migration path mapped to Qualcomm Snapdragon Wear W5+ Gen 1 Low-Power Island (<5 mW continuous power).", first=False)
 
 # =============================================================================
@@ -427,7 +427,7 @@ tx_da = s6.shapes.add_textbox(Inches(7.05), Inches(1.85), Inches(5.25), Inches(4
 tf_da = tx_da.text_frame
 tf_da.word_wrap = True
 
-add_bullet_p(tf_da, "MIT / PhysioNet MIMIC-III Database", "Medical Information Mart for Intensive Care v1.4: 16,387 gold-standard arterial hemodynamic records evaluated with 92.05% clinical concordance.", first=True)
+add_bullet_p(tf_da, "MIT / PhysioNet MIMIC-III Database", "Medical Information Mart for Intensive Care v1.4: 16,387 MIMIC-III ICU vital records evaluated at 94.11% triage accuracy (real HR/SpO2 inputs; HRV synthetic).", first=True)
 add_bullet_p(tf_da, "World Health Organization (WHO 2021)", "WHO Global Air Quality Guidelines: Particulate matter (PM2.5) 24-hour and annual hazard threshold standards.", first=False)
 add_bullet_p(tf_da, "ARM AMBA AXI4-Lite Specification", "ARM IHI0022E: Interconnect standard for decoupled AW/W register channels and Write-1-to-Clear (W1C) interrupt status handling.", first=False)
 add_bullet_p(tf_da, "Qualcomm Snapdragon Wear Roadmap", "Architecture designed for migration to Snapdragon Wear W5+ Gen 1, mapping Verilog DSP to Hexagon™ Vector eXtensions (HVX) on the <5 mW Low-Power Island.", first=False)

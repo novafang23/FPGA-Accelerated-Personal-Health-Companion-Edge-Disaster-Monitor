@@ -15,7 +15,7 @@
  *  - Environmental telemetry: Temp, Humidity, NOAA Steadman Heat Index, and Neural-Calibrated PM2.5
  *  - Peer-reviewed clinical indices: Moran's Physiological Strain Index (PSI) & AHA PM2.5 Autonomic Strain
  *  - Royal College of Physicians mNEWS2 Clinical Triage scoring with automated alert banner
- *  - INT8 Micro-Engine TinyML 3-Axis Risk Gauges (Heat, Pollution, Flood) running 42 us inference
+ *  - INT8 Micro-Engine TinyML 3-Axis Risk Gauges (Heat, Pollution, Flood) on the shared 6->24->16->3 engine
  *  - Interactive Scenario Switcher buttons (6 clinical/disaster profiles)
  */
 
@@ -419,13 +419,29 @@ static void UpdateTelemetryStep(void) {
     g_state.alert_flags = clin_out.alert_flags;
     strncpy(g_state.news2_advisory, clin_out.advisory, sizeof(g_state.news2_advisory) - 1);
     
-    /* 5. TinyML INT8 Neural Network Inference (6 -> 24 -> 16 -> 3 | 42 us) */
+    /* 5. TinyML INT8 Neural Network Inference (6 -> 24 -> 16 -> 3) */
     hrv_state_t hrv_snap;
     memset(&hrv_snap, 0, sizeof(hrv_snap));
     hrv_snap.rmssd = g_state.rmssd;
-    hrv_snap.sdnn = g_state.rmssd * 1.25f;
     hrv_snap.mean_hr = curr_hr;
-    hrv_snap.count = 20;
+    /* Readiness sentinel, not a sample count: disaster_assess_nn_int8() gates on
+     * hrv_is_ready(), which requires count >= HRV_MIN_SAMPLES. This process has
+     * no beat-to-beat interval history, so the flag means "assessment permitted". */
+    hrv_snap.count = HRV_MIN_SAMPLES;
+    /* hrv_snap.sdnn is deliberately left at zero (from the memset above).
+     *
+     * A real SDNN is the sample standard deviation of beat-to-beat intervals.
+     * This process never sees IBIs: RMSSD arrives pre-computed over the telemetry
+     * link, whose frame carries HR/SpO2/RMSSD/TEMP/HUM/PM25 and no SDNN. Nothing
+     * on this path reads sdnn either -- disaster_assess_nn_int8() uses hrv->rmssd
+     * only -- so there is no value to fill in.
+     *
+     * This previously read `hrv_snap.sdnn = g_state.rmssd * 1.25f;`, which was an
+     * invented constant ratio dressed up as a measurement. It happened to be inert,
+     * but it is exactly the kind of number a later reader would trust and display.
+     * If SDNN is ever needed here, add it to the telemetry frame in
+     * main_shrikefi.c (which does compute a true SDNN via hrv_compute()) and parse
+     * it -- do not synthesise it locally. */
 
     env_sensors_t env_snap = {
         .ambient_temp_c = g_state.temp_c,
@@ -900,7 +916,7 @@ static void RenderDashboard(HDC hdcMem, int width, int height) {
     
     // ROW 4: TinyML INT8 Inference
     int r4_y = 585, r4_h = 100, r4_w = 1222;
-    DrawDarkCard(hdcMem, 18, r4_y, r4_w, r4_h, "ON-DEVICE TinyML INT8 MULTI-HAZARD INFERENCE (6 -> 24 -> 16 -> 3 | 42 us INFERENCE)", COL_PURPLE);
+    DrawDarkCard(hdcMem, 18, r4_y, r4_w, r4_h, "ON-DEVICE TinyML INT8 MULTI-HAZARD INFERENCE (6 -> 24 -> 16 -> 3 | 619 PARAMS)", COL_PURPLE);
     
     int meter_w = 340, meter_h = 14;
     
@@ -932,7 +948,7 @@ static void RenderDashboard(HDC hdcMem, int width, int height) {
     
     SelectObject(hdcMem, g_font_small);
     SetTextColor(hdcMem, COL_TEXT_MUTED);
-    TextOutA(hdcMem, 36, r4_y + 78, "Trained on MIMIC-III (16,387 records) | Accuracy: 91.00% | INT8 Quantized: 619 Bytes SRAM | Zero Floating Point in Core", 119);
+    TextOutA(hdcMem, 36, r4_y + 78, "MIMIC-III triage 94.11% (16,387 recs) | Val 88.47% | INT8 weights 619 B | Dequantized-float core", 96);
     
     // ROW 5: Status Line
     int st_y = height - 26;

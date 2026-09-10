@@ -209,7 +209,7 @@ tf_sol.word_wrap = True
 
 add_bullet(tf_sol, "Biometric & Environmental Fusion", "Simultaneously acquires dual-wavelength optical PPG pulses along with hyper-local ambient temperature, humidity, and laser PM2.5 particulate matter on the wrist.", first=True)
 add_bullet(tf_sol, "Cycle-Accurate FPGA Silicon", "Custom Verilog 8-tap filter and peak-detector FSM runs on 50 MHz hardware with 20 ns resolution, completely bypassing OS scheduling jitter.", first=False)
-add_bullet(tf_sol, "Zero-Cloud On-Device TinyML", "Deep neural network fits in only 619 bytes SRAM and evaluates risks in 42 µs, providing 100% offline continuous triage during infrastructure blackouts.", first=False)
+add_bullet(tf_sol, "Zero-Cloud On-Device TinyML", "Deep neural network fits in only 619 bytes of INT8 weights, providing 100% offline continuous triage during infrastructure blackouts.", first=False)
 add_bullet(tf_sol, "Early Preventive Warnings", "Predicts heat stroke collapse, acute pollution-induced vagal suppression, and cold-water immersion shock 15-20 minutes before medical emergencies.", first=False)
 
 ribbon = s2.shapes.add_shape(MSO_SHAPE.ROUNDED_RECTANGLE, Inches(0.8), Inches(6.15), Inches(11.7), Inches(0.75))
@@ -248,7 +248,7 @@ stages = [
     ("Stage 03", "Clinical TinyML", "ARM Cortex / ESP32-S3", C_NAVY, [
         ("mNEWS2 Engine", "Royal College of Physicians early warning triage protocol score."),
         ("Karlen/Elgendi SQI", "Signal Quality Index rejecting motion noise and false beats."),
-        ("6->24->16->3 Model", "INT8 deep micro-network running in 42 µs (91.00% validation accuracy).")
+        ("6->24->16->3 Model", "619-parameter INT8 micro-network (88.47% synthetic validation accuracy).")
     ]),
     ("Stage 04", "Output & Action", "Edge Alerts & Telemetry", C_ORANGE, [
         ("OLED Display", "128x64 offline display of live HR, SpO2, RR, and hazard threat tiers."),
@@ -309,7 +309,7 @@ fp_img = os.path.join(DOCS_IMAGES, "forgefpga_chip_schematic.png")
 if os.path.exists(fp_img):
     s4.shapes.add_picture(fp_img, Inches(1.0), Inches(2.8), Inches(5.3), Inches(2.4))
 
-box1 = add_stat_box(s4, Inches(1.0), Inches(5.35), Inches(1.65), Inches(1.5), "17.4%", "LUT5 Logic Used\n(195 / 1120)", C_TEAL)
+box1 = add_stat_box(s4, Inches(1.0), Inches(5.35), Inches(1.65), Inches(1.5), "39.6%", "LUT5 Logic Used\n(443 / 1120)", C_TEAL)
 box2 = add_stat_box(s4, Inches(2.8), Inches(5.35), Inches(1.7), Inches(1.5), "0 DSP / 0 BRAM", "Pure Logic Gates\n(Lowest Cost BOM)", C_BLUE_ACC)
 box3 = add_stat_box(s4, Inches(4.65), Inches(5.35), Inches(1.65), Inches(1.5), "+5.603 ns", "WNS Timing Slack\n(STA Met at 69 MHz)", C_GREEN)
 
@@ -335,9 +335,9 @@ add_bullet(tf_wb, "Interrupt & IBI Latch", "A single-cycle irq_beat fires, latch
 s5 = prs.slides.add_slide(blank_layout)
 add_header(s5, "Clinical Intelligence — 91% TinyML & MIMIC-III ICU Validation")
 
-add_stat_box(s5, Inches(0.8), Inches(1.35), Inches(3.65), Inches(1.35), "91.00%", "Synthetic Multi-Hazard Accuracy\n(10,000 extreme edge condition test vectors)", C_BLUE_ACC)
-add_stat_box(s5, Inches(4.8), Inches(1.35), Inches(3.7), Inches(1.35), "92.05%", "Clinical Concordance on MIMIC-III\n(16,387 gold-standard patient ICU records)", C_TEAL)
-add_stat_box(s5, Inches(8.85), Inches(1.35), Inches(3.65), Inches(1.35), "619 Bytes", "Ultra-Low SRAM Memory Footprint\n(Executes in 42 µs with zero cloud)", C_GREEN)
+add_stat_box(s5, Inches(0.8), Inches(1.35), Inches(3.65), Inches(1.35), "88.47%", "Synthetic Multi-Hazard Agreement\n(6,200-sample held-out validation split)", C_BLUE_ACC)
+add_stat_box(s5, Inches(4.8), Inches(1.35), Inches(3.7), Inches(1.35), "94.11%", "MIMIC-III Triage Accuracy\n(16,387 ICU vital records, real HR/SpO2)", C_TEAL)
+add_stat_box(s5, Inches(8.85), Inches(1.35), Inches(3.65), Inches(1.35), "619 Bytes", "INT8 Weight Storage\n(Zero cloud dependency)", C_GREEN)
 
 add_card(s5, Inches(0.8), Inches(2.9), Inches(5.7), Inches(4.2), bg_color=C_WHITE, border_color=C_CARD_BORD)
 tx_nn_h = s5.shapes.add_textbox(Inches(1.0), Inches(3.05), Inches(5.3), Inches(0.4))
