@@ -45,6 +45,12 @@ CONFIG_ESP_CONSOLE_UART_BAUDRATE=115200
 # timing is done in the FPGA rather than in software.
 CONFIG_FREERTOS_HZ=100
 
+# --- ShrikeFi project options (see main/Kconfig.projbuild) --------------------
+# The 46 KB ForgeFPGA bitstream is NOT embedded by default: the FPGA is expected
+# to self-configure from OTP/NVM or the onboard QSPI flash, and the I2C delivery
+# path is unverified. Enable only after confirming a device ACKs at 0x08.
+CONFIG_SHRIKEFI_ENABLE_I2C_BITSTREAM_FLASH=n
+
 # --- Compiler -----------------------------------------------------------------
 # NOTE: intentionally reproducing the current DEBUG build (-Og). For a demo,
 # switch to release for materially faster INT8 inference and a smaller image

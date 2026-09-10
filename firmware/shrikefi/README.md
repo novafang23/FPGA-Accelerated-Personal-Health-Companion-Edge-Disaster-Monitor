@@ -138,9 +138,38 @@ onboard QSPI flash, and that this routine is a best-effort fallback.
 
 **How to settle it:** flash once and read the boot log. If the first line in the
 table appears, nothing was transmitted and the FPGA is running whatever was
-programmed into it previously — which is fine, and means the top-level README's
-"auto-flashes the bitstream on boot" phrasing should be read as best-effort.
+programmed into it previously — which is fine.
 
-Note also that `forgefpga_bitstream[]` occupies 46 KB of the 2 MB flash image. If
-the log confirms the I2C path is never used, that array can be dropped from the
-build.
+### The bitstream is not embedded by default (saves 47 KB of flash)
+
+`forgefpga_bitstream[]` (46,408 bytes) is now compiled in **only** when enabled:
+
+```
+idf.py menuconfig  ->  ShrikeFi configuration
+                   ->  Embed the ForgeFPGA bitstream and try to send it over I2C at boot
+```
+
+`CONFIG_SHRIKEFI_ENABLE_I2C_BITSTREAM_FLASH` defaults to **n**. Measured effect on
+the image (compiling `shrikefi_link_driver.c` for ESP32 both ways):
+
+| | `.rdata` | object total |
+|---|---|---|
+| disabled (default) | 240 B | 2,000 B |
+| enabled | 47,040 B | 49,216 B |
+
+**47,216 bytes saved** on the default build — meaningful on the 2 MB flash
+configuration, and it matters more because `sdkconfig` currently selects a debug
+optimization level.
+
+With the flag off, the boot log reads:
+
+```
+ForgeFPGA I2C bitstream delivery is compiled out (CONFIG_SHRIKEFI_ENABLE_I2C_BITSTREAM_FLASH=n, saves 46 KB).
+FPGA is expected to self-configure from OTP/NVM or onboard QSPI flash. The 4-bit link is unaffected.
+```
+
+Nothing else in the project includes `forgefpga_bitstream.h`, so this single
+compile-time switch is sufficient to remove the data. Enable it only if you have
+confirmed a device ACKs at `0x08` **and** you have the Renesas I2C programming
+sequence — without that sequence the write is a guess, and it cannot be correct
+for a 46 KB image regardless because of the 8-bit address field.

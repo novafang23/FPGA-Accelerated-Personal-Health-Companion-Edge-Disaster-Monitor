@@ -21,8 +21,19 @@
 #define ESP_LOGW(tag, ...) do {} while(0)
 #endif
 
-#include "forgefpga_bitstream.h"
 #include "esp32_i2c_hal.h"
+
+/* The ForgeFPGA bitstream is 46,408 bytes of .rodata. It is only pulled into the
+ * image when the I2C delivery path is explicitly enabled -- see
+ * main/Kconfig.projbuild for why that is off by default. Nothing else in the
+ * project includes this header, so this single guard is enough to keep the
+ * 46 KB out of the firmware. */
+#ifdef CONFIG_SHRIKEFI_ENABLE_I2C_BITSTREAM_FLASH
+#include "forgefpga_bitstream.h"
+#define SHRIKEFI_BITSTREAM_FLASH_ENABLED 1
+#else
+#define SHRIKEFI_BITSTREAM_FLASH_ENABLED 0
+#endif
 
 #define FORGEFPGA_I2C_ADDR 0x08
 
@@ -218,7 +229,17 @@ bool shrikefi_is_beat_detected(void) {
 }
 
 shrikefi_err_t shrikefi_fpga_flash_init(void) {
-#ifdef ESP_PLATFORM
+#if !SHRIKEFI_BITSTREAM_FLASH_ENABLED
+    /* Default build: 46 KB of bitstream data is not in this image at all.
+     * This is not a fault -- the FPGA is expected to self-configure from
+     * OTP/NVM or the onboard QSPI flash. See main/Kconfig.projbuild. */
+    ESP_LOGI(LINK_TAG, "ForgeFPGA I2C bitstream delivery is compiled out "
+                       "(CONFIG_SHRIKEFI_ENABLE_I2C_BITSTREAM_FLASH=n, saves 46 KB). "
+                       "FPGA is expected to self-configure from OTP/NVM or onboard "
+                       "QSPI flash. The 4-bit link is unaffected.");
+    return SHRIKEFI_ERR_BITSTREAM_DISABLED;
+
+#elif defined(ESP_PLATFORM)
     ESP_LOGI(LINK_TAG, "Probing ForgeFPGA configuration interface (I2C 0x%02X)...",
              FORGEFPGA_I2C_ADDR);
 
@@ -265,8 +286,10 @@ shrikefi_err_t shrikefi_fpga_flash_init(void) {
 
     ESP_LOGI(LINK_TAG, "ForgeFPGA bitstream transmitted (%lu bytes).",
              (unsigned long)forgefpga_bitstream_length);
+    return SHRIKEFI_OK;
+
 #else
     /* Host / simulation build: no FPGA to configure. */
-#endif
     return SHRIKEFI_OK;
+#endif
 }

@@ -592,13 +592,18 @@ void app_main(void) {
     esp32_i2c_hal_scan();
 
     /* Best-effort ForgeFPGA bitstream delivery over I2C.
-     * A "not detected" result is the NORMAL case on this board: the FPGA
-     * self-configures from OTP/NVM or the onboard QSPI flash at power-up. The
-     * boot must continue regardless -- the 4-bit link below is the runtime bus
-     * and does not depend on this call returning success. */
+     * On the default build this path is compiled out entirely (46 KB saved) and
+     * returns SHRIKEFI_ERR_BITSTREAM_DISABLED -- entirely normal. The FPGA is
+     * expected to self-configure from OTP/NVM or the onboard QSPI flash. The boot
+     * must continue regardless: the 4-bit link below is the runtime bus and does
+     * not depend on this call. */
     switch (shrikefi_fpga_flash_init()) {
         case SHRIKEFI_OK:
             ESP_LOGI(TAG, "ForgeFPGA bitstream delivery completed over I2C.");
+            break;
+        case SHRIKEFI_ERR_BITSTREAM_DISABLED:
+            ESP_LOGI(TAG, "ForgeFPGA I2C bitstream path compiled out (default build). "
+                          "FPGA self-configures from OTP/NVM or onboard flash.");
             break;
         case SHRIKEFI_ERR_FPGA_NOT_DETECTED:
             ESP_LOGI(TAG, "No ForgeFPGA config interface on I2C -- normal if the FPGA "

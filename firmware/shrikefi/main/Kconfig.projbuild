@@ -1,0 +1,33 @@
+menu "ShrikeFi configuration"
+
+    config SHRIKEFI_ENABLE_I2C_BITSTREAM_FLASH
+        bool "Embed the ForgeFPGA bitstream and try to send it over I2C at boot"
+        default n
+        help
+            Compiles forgefpga_bitstream.h into the firmware image and has
+            shrikefi_fpga_flash_init() attempt to deliver it to the ForgeFPGA
+            over I2C at power-up.
+
+            This costs 46,408 bytes (~45 KiB) of flash. It is OFF by default
+            because:
+
+              * The Renesas SLG47910 is an FPGA, not a GreenPAK CMIC, and is not
+                documented to expose a hard I2C configuration port.
+              * This design's pin constraints
+                (hardware/shrikefi/forgefpga_pins.pcf) declare no I2C or SPI
+                configuration interface.
+              * The board's FPGA is therefore expected to configure itself from
+                OTP/NVM or from the onboard W25Q32JV QSPI flash at power-up.
+              * The transfer itself cannot be correct for a 46 KB image anyway:
+                esp32_i2c_hal_write() takes an 8-bit register address, so the
+                offset wraps every 256 bytes.
+
+            Enable this ONLY if you have confirmed that a device ACKs at
+            FORGEFPGA_I2C_ADDR (0x08) -- the boot log tells you -- AND you have
+            the Renesas ForgeFPGA I2C programming sequence to hand. Without that
+            sequence the write is a guess.
+
+            The 4-bit parallel link is unaffected either way: it is the runtime
+            bus and never depends on this option.
+
+endmenu
