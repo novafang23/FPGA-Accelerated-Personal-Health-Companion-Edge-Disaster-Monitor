@@ -100,37 +100,47 @@ console. Two things worth changing before a demo:
   optimization level will materially speed up INT8 inference and shrink the
   image, which matters on a 2 MB flash.
 
-## FPGA delivery: bitstream is current, but the I2C flash path needs verification
+## FPGA delivery: how the bitstream reaches the FPGA
 
-**Resolved:** `forgefpga_bitstream.h` now matches the ForgeFPGA build output
-exactly. It was regenerated from `FPGA_bitstream_MCU.bin` (2026-09-07) with
+**Bitstream is current.** `forgefpga_bitstream.h` matches the ForgeFPGA build
+output exactly. It was regenerated from `FPGA_bitstream_MCU.bin` (2026-09-07) with
 `hardware/shrikefi/convert_bitstream.py` and verified byte-for-byte — 46,408
 bytes, 0 differing bytes, `forgefpga_bitstream_length = 46408`.
 
-**Open, and worth checking on the bench:** `shrikefi_fpga_flash_init()` in
-`shrikefi_link_driver.c` may not actually be able to deliver that bitstream.
+**The I2C delivery path reports honestly now, but remains unverified.**
+`shrikefi_fpga_flash_init()` previously returned `SHRIKEFI_OK` on *every* path,
+including both failure modes, so a silent no-op was indistinguishable from a
+successful program. It now returns a real code and the boot log says which branch
+ran:
 
-Two things in that routine (lines 220-254) do not obviously add up:
+| Boot log line | Meaning |
+|---|---|
+| `No I2C configuration interface at 0x%02X` → `SHRIKEFI_ERR_FPGA_NOT_DETECTED` | Nothing ACKed. **Expected** — the FPGA configures itself from OTP/NVM or the onboard W25Q32JV QSPI flash. Boot continues normally. |
+| `Device ACKed at I2C 0x%02X` then `ForgeFPGA bitstream transmitted` | Something answered and the write completed. |
+| `Bitstream write failed at offset ...` → `SHRIKEFI_ERR_I2C_WRITE` | Something ACKed but the transfer failed part-way. Worth investigating. |
 
-1. It writes 46,408 bytes in 16-byte chunks, passing `(uint8_t)(offset & 0xFF)`
-   as the I2C register/word address. That field is 8 bits wide, so it wraps every
-   256 bytes. A 46 KB image cannot be addressed through an 8-bit offset unless
-   the device auto-increments internally — in which case sending the offset as
-   the register byte is still not obviously right.
-2. It first probes the FPGA with a read at register `0x00`; on any failure it logs
-   *"assuming pre-programmed NVM / standalone mode"* and **returns success without
-   writing anything**.
+`app_main()` logs the result and **continues in every case** — the 4-bit parallel
+link is the runtime bus between the ESP32-S3 and the FPGA and does not depend on
+this call. A "not detected" result is not a fault.
 
-So the practical behaviour may be: the FPGA is configured from its own NVM/OTP
-(as the `FPGA_bitstream_OTP.bin` / `FPGA_bitstream_FLASH_MEM.bin` variants
-suggest) and this auto-flash path is a no-op fallback — which would make the
-"auto-flashes the bitstream on boot" claim in the top-level README inaccurate.
+### Why the write path is still unverified
 
-I could not settle this without the ForgeFPGA I2C programming specification and
-the board. To check: watch the boot log for `Flashing ForgeFPGA Bitstream` versus
-the `not responding on I2C` warning. If you see the warning, nothing was flashed
-and the FPGA is running whatever was programmed into it previously.
+`esp32_i2c_hal_write()` takes an **8-bit** register address, so
+`(uint8_t)(offset & 0xFF)` wraps every 256 bytes and cannot address a 46,408-byte
+image. Widening it (typically a 16-bit word address sent as two bytes) without the
+Renesas ForgeFPGA I2C programming specification would only move the guess, so the
+transfer is left as-is and labelled accordingly rather than silently "fixed".
 
-If the auto-flash is meant to work, the offset needs to be widened (typically a
-16-bit word address sent as two bytes) and the protocol confirmed against the
-Renesas programming guide.
+The SLG47910 is an FPGA, not a GreenPAK CMIC, and this design's pin constraints
+(`hardware/shrikefi/forgefpga_pins.pcf`) declare no I2C or SPI configuration
+interface — supporting the view that the part loads itself from OTP/NVM or the
+onboard QSPI flash, and that this routine is a best-effort fallback.
+
+**How to settle it:** flash once and read the boot log. If the first line in the
+table appears, nothing was transmitted and the FPGA is running whatever was
+programmed into it previously — which is fine, and means the top-level README's
+"auto-flashes the bitstream on boot" phrasing should be read as best-effort.
+
+Note also that `forgefpga_bitstream[]` occupies 46 KB of the 2 MB flash image. If
+the log confirms the I2C path is never used, that array can be dropped from the
+build.

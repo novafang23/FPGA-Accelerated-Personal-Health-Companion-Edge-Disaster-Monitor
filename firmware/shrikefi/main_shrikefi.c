@@ -591,8 +591,24 @@ void app_main(void) {
     /* Hardware diagnosis: scan and log all connected I2C devices */
     esp32_i2c_hal_scan();
 
-    /* Flash ForgeFPGA bitstream via I2C */
-    shrikefi_fpga_flash_init();
+    /* Best-effort ForgeFPGA bitstream delivery over I2C.
+     * A "not detected" result is the NORMAL case on this board: the FPGA
+     * self-configures from OTP/NVM or the onboard QSPI flash at power-up. The
+     * boot must continue regardless -- the 4-bit link below is the runtime bus
+     * and does not depend on this call returning success. */
+    switch (shrikefi_fpga_flash_init()) {
+        case SHRIKEFI_OK:
+            ESP_LOGI(TAG, "ForgeFPGA bitstream delivery completed over I2C.");
+            break;
+        case SHRIKEFI_ERR_FPGA_NOT_DETECTED:
+            ESP_LOGI(TAG, "No ForgeFPGA config interface on I2C -- normal if the FPGA "
+                          "loads from OTP/NVM or onboard flash. Continuing.");
+            break;
+        default:
+            ESP_LOGW(TAG, "ForgeFPGA bitstream delivery did not complete. Continuing "
+                          "with the 4-bit link.");
+            break;
+    }
 
     /* Initialize 4-bit link to ForgeFPGA */
     shrikefi_link_init(NULL);

@@ -143,16 +143,24 @@ Row 7 (PMS5003 RX)  : [7A: ESP32 GPIO 18][7B: PMS5003 Pin 4 (RX)] [7C: Empty] [7
 ## 5. Software & Hardware Diagnostics
 
 ### A. I2C Bus Auto-Scan Output
-When the firmware boots, it automatically runs an I2C bus scan across all 127 addresses and prints the status to the serial console:
+At boot the firmware calls `esp32_i2c_hal_scan()`, which probes addresses 0x01–0x7E and logs every responder. The exact lines the code emits (`firmware/shrikefi/esp32_i2c_hal.c`) are:
 
 ```text
-I (1234) I2C_HAL: Scanning I2C bus (SDA=1, SCL=2, 400kHz)...
-I (1250) I2C_HAL:   - Device found at 0x08 (ForgeFPGA Configuration Interface)
-I (1270) I2C_HAL:   - Device found at 0x3C (SSD1306 OLED Display)
-I (1290) I2C_HAL:   - Device found at 0x57 (MAX30102 / MAX30100 Pulse Oximeter)
-I (1310) I2C_HAL:   - Device found at 0x76 (BME280 Environmental Sensor)
-I (1320) I2C_HAL: I2C scan complete: 4 devices found.
+I (1234) I2C_SCAN: Scanning I2C bus (SDA=GPIO1, SCL=GPIO2)...
+I (1250) I2C_SCAN:  -> Found device at 0x3C (SSD1306 OLED)
+I (1256) I2C_SCAN:  -> Found device at 0x57 (MAX30100/MAX30102 PPG)
+I (1262) I2C_SCAN:  -> Found device at 0x76 (BME280 Env)
+I (1270) I2C_SCAN: Scan complete: 3 device(s) found.
 ```
+
+> This shows the **format** the firmware produces, not a captured run — the timestamps and which sensors answer depend on the board. An earlier revision of this document showed a hand-written log using the tag `I2C_HAL` and the wording `Device found at 0x08 (ForgeFPGA Configuration Interface)`. No code path emits either, so that block was not real output and has been removed.
+
+**The line worth looking for is whether `0x08` appears.** `esp32_i2c_hal_scan()` labels 0x08 as `ForgeFPGA` (`esp32_i2c_hal.c:88`), but the Renesas SLG47910 is not documented to expose a hard I2C configuration port, and this design's pin constraints (`hardware/shrikefi/forgefpga_pins.pcf`) declare no I2C or SPI configuration interface.
+
+* **No `0x08` line** → expected. The FPGA configures itself from OTP/NVM or the onboard W25Q32JV QSPI flash at power-up. Nothing is wrong.
+* **`0x08` appears** → something real is answering. `shrikefi_fpga_flash_init()` will then attempt an I2C bitstream write, which is **unverified**: the HAL's 8-bit register address cannot address a 46 KB image correctly.
+
+`shrikefi_fpga_flash_init()` logs which case it concluded at boot — look for `No I2C configuration interface at 0x08` or `Device ACKed at I2C 0x08`.
 
 ### B. SpO2 Engine Tuning
 The SpO2 calculation uses an **8-second rolling moving-average window** (`SPO2_MA_FILTER_SIZE = 8` in [`firmware/core/spo2_engine.h`](../firmware/core/spo2_engine.h)) with **slew-rate limiting ($\pm 2.5\%$ per second)** to eliminate sensor flicker and finger-motion artifacts while keeping true medical response fast and accurate.

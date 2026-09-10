@@ -219,36 +219,54 @@ bool shrikefi_is_beat_detected(void) {
 
 shrikefi_err_t shrikefi_fpga_flash_init(void) {
 #ifdef ESP_PLATFORM
-    ESP_LOGI(LINK_TAG, "Checking ForgeFPGA I2C link (0x%02X)...", FORGEFPGA_I2C_ADDR);
-    
-    /* Test if ForgeFPGA slave responds on I2C */
+    ESP_LOGI(LINK_TAG, "Probing ForgeFPGA configuration interface (I2C 0x%02X)...",
+             FORGEFPGA_I2C_ADDR);
+
+    /* Probe. A NACK here is the EXPECTED outcome on this board -- see the
+     * function docs in shrikefi_link_driver.h. It means the FPGA configures
+     * itself from OTP/NVM or onboard QSPI flash, which is the normal case. */
     uint8_t probe_byte = 0;
     if (esp32_i2c_hal_read_byte(FORGEFPGA_I2C_ADDR, 0x00, &probe_byte) != I2C_HAL_SUCCESS) {
-        ESP_LOGW(LINK_TAG, "ForgeFPGA not responding on I2C (0x08) — assuming pre-programmed NVM / standalone mode.");
-        return SHRIKEFI_OK;
+        ESP_LOGI(LINK_TAG, "No I2C configuration interface at 0x%02X. ForgeFPGA is "
+                           "expected to self-configure from OTP/NVM or onboard QSPI "
+                           "flash. Continuing -- the 4-bit link is unaffected.",
+                 FORGEFPGA_I2C_ADDR);
+        return SHRIKEFI_ERR_FPGA_NOT_DETECTED;
     }
 
-    ESP_LOGI(LINK_TAG, "Flashing ForgeFPGA Bitstream (%lu bytes)...", forgefpga_bitstream_length);
-    
-    // Write bitstream in 16-byte chunks (standard for I2C EEPROM/NVM flashing)
+    /* Something answered. This is not expected, and the transfer below cannot be
+     * correct for a 46 KB image because the HAL's register address is 8 bits and
+     * wraps every 256 bytes. We attempt it rather than silently skipping, but say
+     * so plainly. */
+    ESP_LOGW(LINK_TAG, "Device ACKed at I2C 0x%02X -- attempting bitstream write "
+                       "(%lu bytes). NOTE: this path is unverified; the 8-bit I2C "
+                       "address field cannot address a 46 KB image correctly.",
+             FORGEFPGA_I2C_ADDR, (unsigned long)forgefpga_bitstream_length);
+
     uint32_t offset = 0;
     while (offset < forgefpga_bitstream_length) {
         uint16_t chunk_size = 16;
         if (offset + chunk_size > forgefpga_bitstream_length) {
-            chunk_size = forgefpga_bitstream_length - offset;
+            chunk_size = (uint16_t)(forgefpga_bitstream_length - offset);
         }
-        
-        int err = esp32_i2c_hal_write(FORGEFPGA_I2C_ADDR, (uint8_t)(offset & 0xFF), &forgefpga_bitstream[offset], chunk_size);
+
+        int err = esp32_i2c_hal_write(FORGEFPGA_I2C_ADDR, (uint8_t)(offset & 0xFF),
+                                      &forgefpga_bitstream[offset], chunk_size);
         if (err != 0) {
-            ESP_LOGW(LINK_TAG, "ForgeFPGA write stopped at offset %lu — continuing with active config", offset);
-            return SHRIKEFI_OK;
+            ESP_LOGE(LINK_TAG, "Bitstream write failed at offset %lu (err %d). "
+                               "Configuration interface left as-is; continuing.",
+                     (unsigned long)offset, err);
+            return SHRIKEFI_ERR_I2C_WRITE;
         }
-        
+
         offset += chunk_size;
         vTaskDelay(pdMS_TO_TICKS(10));
     }
-    
-    ESP_LOGI(LINK_TAG, "ForgeFPGA flashed successfully.");
+
+    ESP_LOGI(LINK_TAG, "ForgeFPGA bitstream transmitted (%lu bytes).",
+             (unsigned long)forgefpga_bitstream_length);
+#else
+    /* Host / simulation build: no FPGA to configure. */
 #endif
     return SHRIKEFI_OK;
 }

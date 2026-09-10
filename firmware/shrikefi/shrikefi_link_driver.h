@@ -42,12 +42,38 @@ typedef struct {
 typedef enum {
     SHRIKEFI_OK = 0,
     SHRIKEFI_ERR_INVALID_ARG = -1,
-    SHRIKEFI_ERR_TIMEOUT = -2
+    SHRIKEFI_ERR_TIMEOUT = -2,
+    SHRIKEFI_ERR_FPGA_NOT_DETECTED = -3, /**< No ACK at FORGEFPGA_I2C_ADDR (expected
+                                          *   when the FPGA self-configures from
+                                          *   OTP/NVM or onboard QSPI flash)      */
+    SHRIKEFI_ERR_I2C_WRITE = -4          /**< A device ACKed but the bitstream
+                                          *   transfer failed part-way            */
 } shrikefi_err_t;
 
 /**
- * @brief Flash the bitstream to the ForgeFPGA over I2C at boot
- * @return SHRIKEFI_OK if successful, otherwise error code
+ * @brief Best-effort load of the ForgeFPGA bitstream over I2C at boot.
+ *
+ * The SLG47910 is an FPGA, not a GreenPAK CMIC: it is not documented to expose a
+ * hard I2C configuration port, and this design's pin constraints
+ * (hardware/shrikefi/forgefpga_pins.pcf) declare no I2C or SPI configuration
+ * interface. On this board the FPGA most likely self-configures from OTP/NVM or
+ * from the onboard W25Q32JV QSPI flash at power-up, which means the probe below
+ * is *expected* to find nothing.
+ *
+ * This function therefore reports honestly instead of pretending:
+ *   SHRIKEFI_OK                    - a device ACKed and the whole image was written
+ *   SHRIKEFI_ERR_FPGA_NOT_DETECTED - nothing ACKed at FORGEFPGA_I2C_ADDR.
+ *                                    NORMAL on this board. Boot must continue.
+ *   SHRIKEFI_ERR_I2C_WRITE         - a device ACKed but the write failed. Worth
+ *                                    investigating.
+ *
+ * CALLERS MUST NOT TREAT A NON-OK RESULT AS FATAL. The 4-bit parallel link is the
+ * runtime bus between the ESP32-S3 and the FPGA and does not depend on this call.
+ *
+ * Note the transfer also cannot address a 46 KB image correctly: the HAL takes an
+ * 8-bit register address, so the offset wraps every 256 bytes. Widening it without
+ * the ForgeFPGA I2C programming specification would only move the guess, so the
+ * path is kept as-is and labelled unverified.
  */
 shrikefi_err_t shrikefi_fpga_flash_init(void);
 
