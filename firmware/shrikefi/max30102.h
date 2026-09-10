@@ -45,6 +45,17 @@ extern "C" {
 #define MAX30102_EXPECTED_PART_ID   0x15
 #define MAX30100_EXPECTED_PART_ID   0x11
 
+/* MAX30100 Specific Registers (Maxim Integrated MAX30100 Datasheet Table 3) */
+#define MAX30100_REG_INT_STATUS     0x00
+#define MAX30100_REG_INT_ENABLE     0x01
+#define MAX30100_REG_FIFO_WR_PTR    0x02
+#define MAX30100_REG_OVF_COUNTER    0x03
+#define MAX30100_REG_FIFO_RD_PTR    0x04
+#define MAX30100_REG_FIFO_DATA      0x05
+#define MAX30100_REG_MODE_CONFIG    0x06
+#define MAX30100_REG_SPO2_CONFIG    0x07
+#define MAX30100_REG_LED_CONFIG     0x09
+
 /* Mode Configuration */
 #define MAX30102_MODE_HEART_RATE    0x02
 #define MAX30102_MODE_SPO2          0x03

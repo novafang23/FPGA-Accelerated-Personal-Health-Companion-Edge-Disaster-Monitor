@@ -58,7 +58,7 @@ static void max30102_delay_ms(int ms) {
 int max30102_reset(max30102_t *dev) {
     if (!dev || !dev->i2c) return -1;
 
-    uint8_t mode_reg = dev->is_max30100 ? 0x06 : MAX30102_REG_MODE_CONFIG;
+    uint8_t mode_reg = dev->is_max30100 ? MAX30100_REG_MODE_CONFIG : MAX30102_REG_MODE_CONFIG;
     if (max30102_i2c_write_reg(dev, mode_reg, MAX30102_MODE_RESET) != 0) {
         return -1;
     }
@@ -96,30 +96,30 @@ int max30102_init(max30102_t *dev, esp32_i2c_handle_t *i2c) {
     if (max30102_reset(dev) != 0) return -1;
 
     if (dev->is_max30100) {
-        /* MAX30100 Configuration */
+        /* MAX30100 Configuration (Datasheet Table 3) */
         /* Clear pointers first */
-        max30102_i2c_write_reg(dev, 0x02, 0x00); // FIFO WR PTR
-        max30102_i2c_write_reg(dev, 0x03, 0x00); // OVF COUNTER
-        max30102_i2c_write_reg(dev, 0x04, 0x00); // FIFO RD PTR
+        max30102_i2c_write_reg(dev, MAX30100_REG_FIFO_WR_PTR, 0x00);
+        max30102_i2c_write_reg(dev, MAX30100_REG_OVF_COUNTER, 0x00);
+        max30102_i2c_write_reg(dev, MAX30100_REG_FIFO_RD_PTR, 0x00);
 
         /* Mode: SpO2 (0x03: both Red and IR LEDs enabled) */
-        max30102_i2c_write_reg(dev, 0x06, 0x03);
+        max30102_i2c_write_reg(dev, MAX30100_REG_MODE_CONFIG, 0x03);
 
         /* SpO2 config: 100Hz + Hi-Res enabled + 1600us pulse width (16-bit ADC)
          * Bit 6 = 1 (Hi-Res EN = 0x40)
          * Bits [4:2] = 001 (100 Hz = 0x04)
          * Bits [1:0] = 11 (1600us = 0x03)
          * -> 0x40 | 0x04 | 0x03 = 0x47 */
-        max30102_i2c_write_reg(dev, 0x07, 0x47);
+        max30102_i2c_write_reg(dev, MAX30100_REG_SPO2_CONFIG, 0x47);
 
         /* LED currents: Red = 0x08 (27.1mA), IR = 0x08 (27.1mA) */
-        max30102_i2c_write_reg(dev, 0x09, 0x88);
+        max30102_i2c_write_reg(dev, MAX30100_REG_LED_CONFIG, 0x88);
 
-        int r_mode = max30102_i2c_read_reg(dev, 0x06);
-        int r_spo2 = max30102_i2c_read_reg(dev, 0x07);
-        int r_led  = max30102_i2c_read_reg(dev, 0x09);
-        int r_wr   = max30102_i2c_read_reg(dev, 0x02);
-        int r_rd   = max30102_i2c_read_reg(dev, 0x04);
+        int r_mode = max30102_i2c_read_reg(dev, MAX30100_REG_MODE_CONFIG);
+        int r_spo2 = max30102_i2c_read_reg(dev, MAX30100_REG_SPO2_CONFIG);
+        int r_led  = max30102_i2c_read_reg(dev, MAX30100_REG_LED_CONFIG);
+        int r_wr   = max30102_i2c_read_reg(dev, MAX30100_REG_FIFO_WR_PTR);
+        int r_rd   = max30102_i2c_read_reg(dev, MAX30100_REG_FIFO_RD_PTR);
         ESP_LOGI(TAG, "MAX30100 Configured: Mode=0x%02X SpO2=0x%02X LED=0x%02X (WR=%d, RD=%d)",
                  r_mode, r_spo2, r_led, r_wr, r_rd);
         (void)r_mode; (void)r_spo2; (void)r_led; (void)r_wr; (void)r_rd;
@@ -161,8 +161,8 @@ int max30102_init(max30102_t *dev, esp32_i2c_handle_t *i2c) {
 int max30102_fifo_available(max30102_t *dev) {
     if (!dev || !dev->initialized) return -1;
 
-    uint8_t wr_reg  = dev->is_max30100 ? 0x02 : MAX30102_REG_FIFO_WR_PTR;
-    uint8_t rd_reg  = dev->is_max30100 ? 0x04 : MAX30102_REG_FIFO_RD_PTR;
+    uint8_t wr_reg  = dev->is_max30100 ? MAX30100_REG_FIFO_WR_PTR : MAX30102_REG_FIFO_WR_PTR;
+    uint8_t rd_reg  = dev->is_max30100 ? MAX30100_REG_FIFO_RD_PTR : MAX30102_REG_FIFO_RD_PTR;
     int wr  = max30102_i2c_read_reg(dev, wr_reg);
     int rd  = max30102_i2c_read_reg(dev, rd_reg);
     if (wr < 0 || rd < 0) return -1;
@@ -170,7 +170,7 @@ int max30102_fifo_available(max30102_t *dev) {
     int mask = dev->is_max30100 ? 15 : 31;
     int count = (wr - rd) & mask;
     if (count == 0) {
-        uint8_t ovf_reg = dev->is_max30100 ? 0x03 : MAX30102_REG_OVF_COUNTER;
+        uint8_t ovf_reg = dev->is_max30100 ? MAX30100_REG_OVF_COUNTER : MAX30102_REG_OVF_COUNTER;
         int ovf = max30102_i2c_read_reg(dev, ovf_reg);
         if (ovf > 0) {
             count = dev->is_max30100 ? 16 : 32;
@@ -184,7 +184,7 @@ int max30102_read_sample(max30102_t *dev, max30102_sample_t *sample) {
 
     if (dev->is_max30100) {
         uint8_t fifo_data[4];
-        if (max30102_i2c_write_read(dev, 0x05, fifo_data, 4) != 0) {
+        if (max30102_i2c_write_read(dev, MAX30100_REG_FIFO_DATA, fifo_data, 4) != 0) {
             return -1;
         }
         // MAX30100 returns 16-bit IR first, then 16-bit Red

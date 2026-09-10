@@ -66,7 +66,8 @@ echo.
 echo ================================================================
 echo   Select an action to launch:
 echo ================================================================
-echo   [1] Launch Live Health ^& Disaster Simulation Dashboard (All Scenarios)
+echo   [0] Launch Standalone Graphical Windows Dashboard (GUI .exe with Live PPG Oscilloscope)
+echo   [1] Launch Live Health ^& Disaster Simulation Dashboard (Console)
 echo   [2] Launch GTKWave Waveform Viewer (PPG ^& AXI Bus signals)
 echo   [3] Re-run Hardware RTL Testbench
 echo   [4] Run Flood / Hypothermia Scenario Directly
@@ -74,7 +75,13 @@ echo   [5] Run Compare Harness (Rule Engine vs NN side-by-side)
 echo   [6] Run Unit Tests
 echo   [7] Exit
 echo ================================================================
-set /p choice="Enter option (1-7): "
+set /p choice="Enter option (0-7): "
+
+if "%choice%"=="0" (
+    echo Launching Graphical Dashboard window...
+    start "" "%~dp0..\..\shrikefi_dashboard.exe"
+    goto menu
+)
 
 if "%choice%"=="1" (
     cls

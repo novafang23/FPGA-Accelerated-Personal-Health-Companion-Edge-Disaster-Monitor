@@ -14,7 +14,8 @@ extern "C" {
 
 /* Model Dimensions */
 #define NN_INPUT_SIZE    6    /* HR, RMSSD, SpO2, Temp, Humidity, PM2.5 */
-#define NN_HIDDEN_SIZE   12   /* Hidden layer neurons                   */
+#define NN_HIDDEN1_SIZE  24   /* Hidden layer 1 neurons                 */
+#define NN_HIDDEN2_SIZE  16   /* Hidden layer 2 neurons                 */
 #define NN_OUTPUT_SIZE   3    /* Heat, Pollution, Flood risk scores     */
 
 /* Feature Normalization Ranges */
@@ -33,13 +34,17 @@ extern "C" {
 
 /* Float32 Neural Network Model Structure */
 typedef struct {
-    /* Layer 1: Input(6) -> Hidden(12) */
-    float W1[NN_HIDDEN_SIZE][NN_INPUT_SIZE];   /* Weight matrix  (12x6)  */
-    float b1[NN_HIDDEN_SIZE];                   /* Bias vector    (12)    */
+    /* Layer 1: Input(6) -> Hidden1(24) */
+    float W1[NN_HIDDEN1_SIZE][NN_INPUT_SIZE];   /* Weight matrix  (24x6)  */
+    float b1[NN_HIDDEN1_SIZE];                  /* Bias vector    (24)    */
 
-    /* Layer 2: Hidden(12) -> Output(3) */
-    float W2[NN_OUTPUT_SIZE][NN_HIDDEN_SIZE];  /* Weight matrix  (3x12)  */
-    float b2[NN_OUTPUT_SIZE];                   /* Bias vector    (3)     */
+    /* Layer 2: Hidden1(24) -> Hidden2(16) */
+    float W2[NN_HIDDEN2_SIZE][NN_HIDDEN1_SIZE]; /* Weight matrix  (16x24) */
+    float b2[NN_HIDDEN2_SIZE];                  /* Bias vector    (16)    */
+
+    /* Layer 3: Hidden2(16) -> Output(3) */
+    float W3[NN_OUTPUT_SIZE][NN_HIDDEN2_SIZE];  /* Weight matrix  (3x16)  */
+    float b3[NN_OUTPUT_SIZE];                   /* Bias vector    (3)     */
 } nn_model_t;
 
 /* Inference Result */

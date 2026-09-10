@@ -129,6 +129,13 @@ void disaster_assess_nn_int8(
     nn_output_t         *raw_out
 );
 
+/* Peer-Reviewed Clinical Biomarker Models:
+ * 1. Moran et al. (1998) / Buller et al. (2013) - Physiological Strain Index (PSI) [0.0 - 10.0]
+ * 2. Brook et al. AHA Scientific Statement (2010) - PM2.5 Autonomic Depression Index [0.0 - 1.0]
+ */
+float disaster_calculate_moran_psi(float bpm, float ambient_temp_c, float humidity_pct);
+float disaster_calculate_aha_autonomic_strain(float pm25, float rmssd);
+
 #ifdef __cplusplus
 }
 #endif

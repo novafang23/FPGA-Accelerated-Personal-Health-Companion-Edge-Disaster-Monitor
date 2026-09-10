@@ -49,7 +49,8 @@ void nn_predict(
 ) {
     int i, j;
     float input[NN_INPUT_SIZE];
-    float hidden[NN_HIDDEN_SIZE];
+    float h1[NN_HIDDEN1_SIZE];
+    float h2[NN_HIDDEN2_SIZE];
     float output[NN_OUTPUT_SIZE];
 
     /* Feature Normalization */
@@ -60,20 +61,29 @@ void nn_predict(
     input[4] = normalize(hum,   NN_HUM_MIN,   NN_HUM_MAX);
     input[5] = normalize(pm25,  NN_PM25_MIN,  NN_PM25_MAX);
 
-    /* Hidden Layer */
-    for (i = 0; i < NN_HIDDEN_SIZE; i++) {
+    /* Layer 1: Input -> Hidden1 (ReLU) */
+    for (i = 0; i < NN_HIDDEN1_SIZE; i++) {
         float sum = model->b1[i];
         for (j = 0; j < NN_INPUT_SIZE; j++) {
             sum += model->W1[i][j] * input[j];
         }
-        hidden[i] = relu(sum);
+        h1[i] = relu(sum);
     }
 
-    /* Output Layer */
-    for (i = 0; i < NN_OUTPUT_SIZE; i++) {
+    /* Layer 2: Hidden1 -> Hidden2 (ReLU) */
+    for (i = 0; i < NN_HIDDEN2_SIZE; i++) {
         float sum = model->b2[i];
-        for (j = 0; j < NN_HIDDEN_SIZE; j++) {
-            sum += model->W2[i][j] * hidden[j];
+        for (j = 0; j < NN_HIDDEN1_SIZE; j++) {
+            sum += model->W2[i][j] * h1[j];
+        }
+        h2[i] = relu(sum);
+    }
+
+    /* Layer 3: Hidden2 -> Output (Sigmoid) */
+    for (i = 0; i < NN_OUTPUT_SIZE; i++) {
+        float sum = model->b3[i];
+        for (j = 0; j < NN_HIDDEN2_SIZE; j++) {
+            sum += model->W3[i][j] * h2[j];
         }
         output[i] = sigmoid(sum);
     }

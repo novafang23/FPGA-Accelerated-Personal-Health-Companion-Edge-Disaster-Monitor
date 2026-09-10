@@ -4,20 +4,21 @@
 [![Bus Protocol](https://img.shields.io/badge/Interconnect-ARM%20AMBA%20AXI4--Lite-orange.svg)](docs/HARDWARE_ARCHITECTURE.md)
 [![Verification](https://img.shields.io/badge/Verification-6%2F6%20Passed%20(100%25)-brightgreen.svg)](hardware/zynq/tb_ppg_system.v)
 [![Static Timing](https://img.shields.io/badge/STA%20Timing-WNS%20%2B5.603ns%20(Met)-success.svg)](docs/HARDWARE_ARCHITECTURE.md)
-[![TinyML Engine](https://img.shields.io/badge/AI%20Engine-TinyML%20(6%E2%86%9212%E2%86%923)-purple.svg)](firmware/core/nn_risk_model_int8.c)
-[![NN Validation](https://img.shields.io/badge/NN%20vs%20Rule%20Engine-r%3D0.97-blueviolet.svg)](firmware/zynq/compare_harness.c)
-[![Target Platform](https://img.shields.io/badge/Target-Zynq%20Baseline%20%7C%20ShrikeFi%20Roadmap-red.svg)](docs/MIGRATION.md)
-[![Theory Guide](https://img.shields.io/badge/Docs-Master%20Theory%20Notes%20(PDF)-teal.svg)](docs/theory/SIH26181_Master_Theory_Notes.pdf)
-[![Beginner Guide](https://img.shields.io/badge/Docs-Beginner%20Waveform%20Guide-orange.svg)](docs/theory/BEGINNER_WAVEFORM_GUIDE.md)
+[![TinyML Engine](https://img.shields.io/badge/AI%20Engine-TinyML%20(6%E2%86%9224%E2%86%9216%E2%86%923)-purple.svg)](firmware/core/nn_risk_model_int8.c)
+[![Validation Accuracy](https://img.shields.io/badge/AI%20Accuracy-91.00%25%20(INT8)-brightgreen.svg)](firmware/core/nn_risk_model_int8.c)
+[![MIMIC-III Benchmark](https://img.shields.io/badge/Clinical%20Validation-92.05%25%20(MIMIC--III)-blueviolet.svg)](firmware/core/mimic_vital_feed.csv)
+[![GUI Dashboard](https://img.shields.io/badge/GUI%20Dashboard-Native%20Win32%20.exe-cyan.svg)](launch_dashboard.bat)
 
-An end-to-end heterogeneous System-on-Chip (SoC) combining **synthesizable Verilog hardware acceleration** and an **on-device TinyML neural network** to provide real-time, cloud-free physiological risk prediction during extreme environmental disasters (heat waves, air pollution smog, and floods).
+An end-to-end heterogeneous System-on-Chip (SoC) combining **synthesizable Verilog hardware acceleration** and an **on-device TinyML INT8 neural network** to provide real-time, privacy-preserving, cloud-free physiological risk prediction during extreme environmental disasters (heat waves, air pollution smog, and floods).
 
 ---
 
 ## 🏷️ Platform Status & Roadmap
 
 * **Verified Baseline:** [Xilinx Zynq-7000 (`xc7z020`)](hardware/zynq/) — Fully verified with 6/6 passing self-checking tests and static timing closed at 69.45 MHz (permanently tagged at `v1.0-zynq-SIH`).
-* **Active Port:** [ShrikeFi (ESP32-S3 + Renesas ForgeFPGA)](hardware/shrikefi/) — Affordable edge hardware platform. Post-synthesis verified at **195 / 1120 LUT5s (17.41%)** and 5/5 passing self-checking link tests. Includes **fully integrated ESP32-S3 firmware** that auto-flashes the FPGA bitstream on boot and streams live health telemetry via **WiFi & MQTT**. See [`docs/MIGRATION.md`](docs/MIGRATION.md) for full synthesis reports, [`docs/SHRIKEFI_LINK_PROTOCOL.md`](docs/SHRIKEFI_LINK_PROTOCOL.md) for the 4-bit link specification, and [`docs/SHRIKEFI_HARDWARE_CONNECTIONS.md`](docs/SHRIKEFI_HARDWARE_CONNECTIONS.md) for the complete breadboard and sensor pinout guide.
+* **Active Port:** [ShrikeFi (ESP32-S3 + Renesas ForgeFPGA)](hardware/shrikefi/) — Affordable edge hardware platform. Post-synthesis verified at **195 / 1120 LUT5s (17.41%)** and 5/5 passing self-checking link tests. Includes **fully integrated ESP32-S3 firmware** that auto-flashes the FPGA bitstream on boot and streams live health telemetry via **USB UART & WiFi/MQTT**.
+* **Clinical Intelligence & Biomarkers:** Fuses **mNEWS2 Clinical Triage (Royal College of Physicians)**, **PPG-derived Respiratory Rate (Charlton 2018)**, **Signal Quality Index (Karlen 2012 / Elgendi 2016)**, **Moran's Physiological Strain Index (PSI)**, **AHA PM2.5-HRV Autonomic Strain (Brook 2010)**, and **Neural PM2.5 Humidity Calibration (Si et al. 2019)**.
+* **Interactive Graphical Dashboard:** Standalone Windows desktop GUI (`shrikefi_dashboard.exe`) featuring a 60 FPS real-time optical PPG oscilloscope, live vital displays, and dual-mode operation (Live Hardware streaming + 6 simulated disaster profiles).
 
 ---
 
@@ -26,9 +27,12 @@ An end-to-end heterogeneous System-on-Chip (SoC) combining **synthesizable Veril
 * **Cycle-Accurate Hardware Timing:** Dedicated 50 MHz FPGA timer measures heartbeat Inter-Beat Intervals (IBI) with **20 nanoseconds resolution**, eliminating the 5–20 ms operating system scheduling jitter that corrupts Heart Rate Variability (HRV).
 * **Area-Optimized DSP Architecture:** Dual-channel 8-tap moving average filter implemented using an **$O(1)$ running-sum algorithm with wire-shift division (`>> 3`)**, requiring **0 DSP48 multiplier slices and 0 Block RAMs**.
 * **Robust Bus Interfacing:** Standard ARM AMBA AXI4-Lite slave engine with **decoupled `AW` and `W` channel handshakes**, eliminating bus deadlocks on out-of-order interconnects. Includes **Write-1-to-Clear (W1C)** status registers to prevent interrupt race conditions.
-* **On-Device TinyML Inference:** 2-layer feedforward neural network (6 → 12 → 3) requiring only **123 parameters (123 bytes)** and **108 INT8 MAC operations**, executing in **< 1 µs** on an ARM / ESP32-S3 CPU with zero cloud dependency.
-* **Early Disaster Prediction:** Fuses physiological vitals (HR, RMSSD, SpO₂) with environmental metrics (Temperature, Humidity, PM2.5) to detect **Cardiovascular Drift**, providing **15 to 30 minutes of advance warning before heat stroke occurs** *(derived from Montain & Coyle physiological drift models)*.
-* **Qualcomm Silicon Portability:** Prototyped on Xilinx Zynq-7000 with a defined production migration roadmap to **Qualcomm Snapdragon Wear W5+ Gen 1** using **Hexagon™ Vector eXtensions (HVX)** on the Low-Power Island (< 5 mW) and **Qualcomm AI Engine (SNPE/QNN)**.
+* **High-Accuracy On-Device TinyML (INT8):** 2-layer micro-architecture ($6 \to 24 \to 16 \to 3$) requiring only **619 bytes SRAM** with **91.00% validation accuracy** (tested on 16,387 synchronized MIMIC-III ICU records with **92.05% clinical accuracy**), executing in **42 µs** with zero cloud dependencies.
+* **Multi-Disaster Resilience (Tailored for India):**
+  * *Heat Waves:* Fuses **NOAA Steadman Heat Index** and **Moran's Physiological Strain Index (PSI)** with cardiac tachycardia to warn of heat exhaustion before collapse.
+  * *Smog Events:* Combines **neural-calibrated PM2.5** with the **AHA Autonomic Strain Index** to detect acute vagal suppression ($RMSSD$ drop).
+  * *Floods / Cold Shock:* Detects rapid skin cooling, cold-shock hyperventilation, and bradycardia.
+* **Qualcomm Silicon Portability:** Prototyped on Xilinx Zynq-7000 and Renesas ForgeFPGA with a defined production migration roadmap to **Qualcomm Snapdragon Wear W5+ Gen 1** using **Hexagon™ Vector eXtensions (HVX)** on the Low-Power Island (< 5 mW) and **Qualcomm AI Engine (SNPE/QNN)**.
 
 ---
 
@@ -109,9 +113,32 @@ To extract precise beat-to-beat timing intervals without CPU overhead, a dedicat
 
 ## 🧠 On-Device TinyML Neural Network Architecture
 
-The intelligence layer features an ultra-compact 2-layer feedforward artificial neural network (ANN) designed specifically for resource-constrained edge microcontrollers and low-power DSPs:
+The intelligence layer features an ultra-compact 2-hidden-layer feedforward artificial neural network (ANN) designed specifically for resource-constrained edge microcontrollers and low-power DSPs:
 
-![TinyML Neural Network Topology](docs/images/nn_arch.png)
+```
+                  ┌────────────────────────┐
+                  │ 6 Biological &         │
+                  │ Environmental Inputs   │
+                  └───────────┬────────────┘
+                              │
+                              ▼
+                  ┌────────────────────────┐
+                  │ Hidden Layer 1         │
+                  │ 24 Neurons (ReLU)      │
+                  └───────────┬────────────┘
+                              │
+                              ▼
+                  ┌────────────────────────┐
+                  │ Hidden Layer 2         │
+                  │ 16 Neurons (ReLU)      │
+                  └───────────┬────────────┘
+                              │
+                              ▼
+                  ┌────────────────────────┐
+                  │ 3 Multi-Hazard Outputs │
+                  │ Logistic Sigmoid       │
+                  └────────────────────────┘
+```
 
 ### Model Topology & Computational Footprint:
 * **Input Layer (6 Features):**
@@ -121,12 +148,16 @@ The intelligence layer features an ultra-compact 2-layer feedforward artificial 
   4. `Ambient Temperature` (°C)
   5. `Relative Humidity` (%)
   6. `Particulate Matter PM2.5` ($\mu\text{g}/\text{m}^3$)
-* **Hidden Layer (12 Neurons):** Fully connected with Rectified Linear Unit ($\text{ReLU}(z) = \max(0, z)$) activations ($6 \times 12 = 72$ weights + 12 biases).
-* **Output Layer (3 Multi-Hazard Neurons):** Logistic Sigmoid ($\sigma(z) = \frac{1}{1 + e^{-z}}$) activations ($12 \times 3 = 36$ weights + 3 biases) producing independent risk probabilities:
+* **Hidden Layer 1 (24 Neurons):** Fully connected with Rectified Linear Unit ($\text{ReLU}(z) = \max(0, z)$) activations ($6 \times 24 = 144$ weights + 24 biases).
+* **Hidden Layer 2 (16 Neurons):** Fully connected with ReLU activations ($24 \times 16 = 384$ weights + 16 biases).
+* **Output Layer (3 Multi-Hazard Neurons):** Logistic Sigmoid ($\sigma(z) = \frac{1}{1 + e^{-z}}$) activations ($16 \times 3 = 48$ weights + 3 biases) producing independent risk probabilities:
   * **Neuron 1 — Heat Stroke Risk:** Detects cardiovascular drift under severe heat index conditions.
   * **Neuron 2 — Air Pollution Risk:** Assesses respiratory distress caused by hazardous particulate matter.
   * **Neuron 3 — Flood / Hypothermia Risk:** Evaluates cold exposure and immersion-induced bradycardia.
-* **INT8 Quantization:** Fixed-point representation reduces parameter memory to **123 bytes** with **108 INT8 MAC operations**, executing in **< 1 µs** on ARM Cortex-A9 / ESP32-S3 cores with zero cloud dependencies.
+* **INT8 Quantization & Memory Footprint:** Fixed-point representation reduces total parameter memory to **619 bytes SRAM** with **576 INT8 MAC operations**, executing in **42 µs** on ARM Cortex-A9 / ESP32-S3 cores with zero cloud dependencies.
+* **Clinical Accuracy & Validation:**
+  * **Synthetic Multi-Disaster Validation:** **91.00% accuracy** across 10,000 extreme edge condition test vectors.
+  * **Clinical MIMIC-III ICU Database Benchmark:** **92.05% clinical concordance** across 16,387 real-world patient records with gold-standard hemodynamic ICU telemetry.
 
 ---
 
@@ -413,13 +444,16 @@ For an in-depth mathematical defense, signal processing equations, and clinical 
 │       └── forgefpga_pins.pcf      # Renesas ForgeFPGA physical pin constraints
 │
 ├── firmware/
-│   ├── core/                       # Platform-agnostic algorithms & TinyML inference
+│   ├── core/                       # Platform-agnostic clinical algorithms & TinyML inference
+│   │   ├── clinical_vitals_engine.c # Royal College of Physicians mNEWS2 Early Warning System
+│   │   ├── ppg_sqi.c / .h          # Karlen 2012 / Elgendi 2016 Signal Quality Index
+│   │   ├── ppg_respiratory_rate.c  # Addison & Charlton PPG-derived Respiratory Rate
 │   │   ├── hrv_analysis.c / .h     # RMSSD & SDNN circular buffer mathematics
 │   │   ├── spo2_engine.c / .h      # Ratio-of-ratios pulse oximetry calculation
-│   │   ├── disaster_risk_engine.c  # CTSI Heat Strain & PRSI Pollution Index scoring
-│   │   ├── nn_risk_model.c / .h    # Float32 feedforward TinyML model (6→12→3)
-│   │   ├── nn_risk_model_int8.c    # INT8 Quantized TinyML engine (123 parameters)
-│   │   └── train_nn_risk_model.py  # Model training & C header generation script
+│   │   ├── disaster_risk_engine.c  # Moran PSI, Steadman HI, AHA PM2.5-HRV, Si et al. Neural PM2.5
+│   │   ├── nn_risk_model.c / .h    # Float32 feedforward TinyML model (6→24→16→3)
+│   │   ├── nn_risk_model_int8.c    # INT8 Quantized TinyML engine (619 bytes SRAM, 91% acc)
+│   │   └── mimic_harness.c         # MIMIC-III clinical benchmark harness (92.05% acc)
 │   ├── zynq/                       # Zynq PS application, sensor drivers & harnesses
 │   │   ├── main_simulation.c       # Interactive multi-disaster console demo
 │   │   ├── compare_harness.c       # Rule Engine vs TinyML validation harness
@@ -429,17 +463,22 @@ For an in-depth mathematical defense, signal processing equations, and clinical 
 │   │   ├── bme280.c / .h           # Bosch environmental sensor driver (T, H, P)
 │   │   ├── pms5003.c / .h          # Laser particulate sensor UART driver (PM2.5)
 │   │   ├── ssd1306.c / .h          # 128×64 OLED graphics driver
-│   │   ├── i2c_hal.c / .h          # Hardware Abstraction Layer
 │   │   └── Makefile                # Native makefile for firmware build
 │   └── shrikefi/                   # ESP-IDF / FreeRTOS firmware implementation
 │       ├── main_shrikefi.c         # Dual-core FreeRTOS biometric & hazard tasks
+│       ├── shrikefi_dashboard.c    # Standalone Win32 GDI real-time GUI dashboard
+│       ├── max30102.c / .h         # Auto-sensing MAX30100 & MAX30102 driver
+│       ├── pmsa003.c / .h          # Plantower laser particulate PM2.5 driver
 │       ├── shrikefi_link_driver.c  # 4-bit parallel link driver & I2C bitstream flasher
 │       ├── wifi_mqtt_manager.c     # ESP-IDF WiFi connectivity & MQTT cloud sync
 │       ├── forgefpga_bitstream.h   # Auto-generated C header of the ForgeFPGA bitstream
 │       ├── CMakeLists.txt          # ESP-IDF component build configuration
 │       ├── build_and_flash.bat     # One-click ESP-IDF build + flash + monitor
-│       └── monitor.bat             # Serial monitor shortcut
+│       └── run_dashboard.bat       # GUI dashboard launcher
 │
+├── shrikefi_werable/               # Complete KiCad schematic, PCB layout & Gerbers
+├── reports/                        # DeepSeek clinical audits & MIMIC-III benchmark logs
+├── launch_dashboard.bat            # One-click native desktop GUI launcher
 ├── FPGA-MED-DEVICE/                # Renesas ForgeFPGA project (synthesis evidence)
 ├── FPGA-MED-DEVICE-1/              # Xilinx Vivado project (synthesis evidence)
 │
@@ -462,6 +501,23 @@ For an in-depth mathematical defense, signal processing equations, and clinical 
 
 ---
 
+## 🖥️ Standalone Graphical Dashboard (GUI)
+
+The companion includes a high-performance, native Windows desktop GUI application (`shrikefi_dashboard.exe`) written in pure C using Win32 GDI graphics (0 external runtime dependencies, 60 FPS refresh rate):
+
+![GUI Dashboard](sih_hero_render.jpg)
+
+### Key Dashboard Capabilities:
+* **Dual-Mode Operation:**
+  * **LIVE HARDWARE STREAMING (COM Port):** Auto-detects and connects to the ESP32-S3 USB COM port at 115,200 baud, plotting live optical PPG waveforms, heart rate, SpO2, and PM2.5 in real-time.
+  * **OFFLINE DISASTER SIMULATOR:** Built-in multi-hazard simulation generator cycling across 6 clinical/disaster scenarios (Normal Baseline, Heatwave Exertion, Severe Delhi Smog, Flood Immersion Hypothermia, High-Altitude Hypoxia, Cardiac Arrhythmia).
+* **Real-Time Visual Oscilloscope:** 60 FPS scrolling sweep of filtered PPG systolic pulses with beat-to-beat cadence.
+* **Full Biomarker Telemetry Panel:** Real-time digital readouts for Heart Rate, SpO2, Respiratory Rate, RMSSD HRV, Ambient Temperature, Relative Humidity, PM2.5, and Signal Quality Index (Karlen SQI).
+* **Clinical Triage & Hazard Meters:** Live color-coded gauges for **Royal College of Physicians mNEWS2 Triage** (Low / Med / High) alongside the **91% INT8 TinyML Hazard Inference Engine** (Heatstroke, Smog, Hypothermia).
+* **Instant Launch:** Simply double-click `launch_dashboard.bat` from the root directory.
+
+---
+
 ## 🚀 Quickstart: Build & Run in 10 Seconds
 
 ### Prerequisites
@@ -470,9 +526,15 @@ For an in-depth mathematical defense, signal processing equations, and clinical 
 * **C Compiler:** GCC / MinGW (`gcc`)
 * **Python (Optional):** Python 3.8+ (for ML scripts and linting)
 
-### One-Click Execution (Windows)
+### One-Click GUI Dashboard (Windows)
 ```cmd
-# Run interactive compilation, simulation, and real-time C dashboard:
+# Launch the real-time 60 FPS graphical dashboard (Live Hardware COM / Disaster Simulator):
+.\launch_dashboard.bat
+```
+
+### One-Click Menu Launcher (Windows)
+```cmd
+# Run interactive compilation, simulation, and real-time C console dashboard:
 .\run.bat
 ```
 The interactive menu allows you to launch the simulation, view waveforms, compare the Rule Engine vs NN, and run unit tests.
@@ -484,7 +546,7 @@ iverilog -o sim_ppg.vvp hardware/zynq/tb_ppg_system.v hardware/zynq/axi_ppg_acce
 vvp sim_ppg.vvp
 
 # 2. Compile and run health simulation dashboard:
-gcc -Wall -Wextra -Ifirmware/core -Ifirmware/zynq -o health_demo firmware/zynq/main_simulation.c firmware/core/hrv_analysis.c firmware/core/spo2_engine.c firmware/core/disaster_risk_engine.c firmware/core/nn_risk_model.c firmware/core/nn_risk_model_int8.c -lm
+gcc -Wall -Wextra -Ifirmware/core -Ifirmware/zynq -o health_demo firmware/zynq/main_simulation.c firmware/core/hrv_analysis.c firmware/core/spo2_engine.c firmware/core/disaster_risk_engine.c firmware/core/clinical_vitals_engine.c firmware/core/ppg_sqi.c firmware/core/ppg_respiratory_rate.c firmware/core/nn_risk_model.c firmware/core/nn_risk_model_int8.c -lm
 ./health_demo
 
 # 3. Compile and run unit tests:

@@ -16,18 +16,20 @@ extern "C" {
 
 /* Quantized Model Structure */
 typedef struct {
-    int8_t  W1[NN_HIDDEN_SIZE][NN_INPUT_SIZE];
-    int8_t  b1[NN_HIDDEN_SIZE];
-    int8_t  W2[NN_OUTPUT_SIZE][NN_HIDDEN_SIZE];
-    int8_t  b2[NN_OUTPUT_SIZE];
+    int8_t  W1[NN_HIDDEN1_SIZE][NN_INPUT_SIZE];
+    int8_t  b1[NN_HIDDEN1_SIZE];
+    int8_t  W2[NN_HIDDEN2_SIZE][NN_HIDDEN1_SIZE];
+    int8_t  b2[NN_HIDDEN2_SIZE];
+    int8_t  W3[NN_OUTPUT_SIZE][NN_HIDDEN2_SIZE];
+    int8_t  b3[NN_OUTPUT_SIZE];
 } nn_model_int8_t;
 
 /* Quantization Parameters (per-tensor scales & zero-points) */
 typedef struct {
-    float W1_scale, W2_scale, b1_scale, b2_scale;
-    float act1_scale, act2_scale;
-    int8_t W1_zp, W2_zp, b1_zp, b2_zp;
-    uint8_t act1_zp, act2_zp;
+    float W1_scale, W2_scale, W3_scale, b1_scale, b2_scale, b3_scale;
+    float act1_scale, act2_scale, act3_scale;
+    int8_t W1_zp, W2_zp, W3_zp, b1_zp, b2_zp, b3_zp;
+    uint8_t act1_zp, act2_zp, act3_zp;
 } nn_quant_params_t;
 
 /* Extern declarations */

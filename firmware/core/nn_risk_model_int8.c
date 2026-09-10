@@ -29,10 +29,9 @@
  * activation quantization (quantize_asymmetric() in train_nn_risk_model.py
  * always produces uint8 codes, since ReLU and sigmoid outputs are >= 0). */
 static uint8_t clamp_uint8(float x) {
-    int32_t xi = (int32_t)roundf(x);
-    if (xi > 255) return 255;
-    if (xi < 0)   return 0;
-    return (uint8_t)xi;
+    if (!isfinite(x) || x <= 0.0f) return 0;
+    if (x >= 255.0f) return 255;
+    return (uint8_t)roundf(x);
 }
 
 void nn_predict_int8(
@@ -42,9 +41,12 @@ void nn_predict_int8(
     float temp, float hum, float pm25,
     nn_output_t *out
 ) {
+    if (!model || !qparams || !out) return;
+
     int i, j;
     float input[NN_INPUT_SIZE];
-    float hidden[NN_HIDDEN_SIZE];
+    float h1[NN_HIDDEN1_SIZE];
+    float h2[NN_HIDDEN2_SIZE];
     float out_logit[NN_OUTPUT_SIZE];
 
     /* Normalize inputs to [0,1] float (matching fake-quant) */
@@ -61,52 +63,61 @@ void nn_predict_int8(
         if (input[i] > 1.0f) input[i] = 1.0f;
     }
 
-    /* Layer 1: Input(6) -> Hidden(12)
-     * Use dequantized weights and bias (matching fake-quant) */
-    for (i = 0; i < NN_HIDDEN_SIZE; i++) {
-        float sum = qparams->b1_scale * (float)model->b1[i];
+    /* Layer 1: Input(6) -> Hidden1(24)
+     * Use dequantized weights and bias with explicit zero-point offset */
+    for (i = 0; i < NN_HIDDEN1_SIZE; i++) {
+        float sum = qparams->b1_scale * (float)((int32_t)model->b1[i] - (int32_t)qparams->b1_zp);
         for (j = 0; j < NN_INPUT_SIZE; j++) {
-            sum += qparams->W1_scale * (float)model->W1[i][j] * input[j];
+            sum += qparams->W1_scale * (float)((int32_t)model->W1[i][j] - (int32_t)qparams->W1_zp) * input[j];
         }
         /* Apply ReLU */
         if (sum < 0.0f) sum = 0.0f;
-        /* Quantize to act1 space for next layer */
-        hidden[i] = sum;
+        h1[i] = sum;
     }
 
-    /* Quantize hidden (post-ReLU) activations to act1 space.
-     * act1_zp is a uint8_t zero-point in [0,255] (asymmetric quant, since
-     * ReLU output is >= 0) -- the quantized code must be stored as uint8_t,
-     * not int8_t, or any code above 127 silently wraps/clips wrong. */
-    uint8_t hidden_q[NN_HIDDEN_SIZE];
-    for (i = 0; i < NN_HIDDEN_SIZE; i++) {
-        float val = hidden[i] / qparams->act1_scale + (float)qparams->act1_zp;
-        hidden_q[i] = clamp_uint8(val);
+    /* Quantize Hidden1 activations to act1 space */
+    uint8_t h1_q[NN_HIDDEN1_SIZE];
+    for (i = 0; i < NN_HIDDEN1_SIZE; i++) {
+        float val = h1[i] / qparams->act1_scale + (float)qparams->act1_zp;
+        h1_q[i] = clamp_uint8(val);
     }
 
-    /* Layer 2: Hidden(12) -> Output(3)
-     * Dequantize hidden_q back to float for the MAC (signed subtraction --
-     * hidden_q and act1_zp are both uint8_t, so promote to float/int first
-     * or an underflow wraps to a huge unsigned value). */
+    /* Layer 2: Hidden1(24) -> Hidden2(16) */
+    for (i = 0; i < NN_HIDDEN2_SIZE; i++) {
+        float sum = qparams->b2_scale * (float)((int32_t)model->b2[i] - (int32_t)qparams->b2_zp);
+        for (j = 0; j < NN_HIDDEN1_SIZE; j++) {
+            float h1_val = ((float)h1_q[j] - (float)qparams->act1_zp) * qparams->act1_scale;
+            sum += qparams->W2_scale * (float)((int32_t)model->W2[i][j] - (int32_t)qparams->W2_zp) * h1_val;
+        }
+        /* Apply ReLU */
+        if (sum < 0.0f) sum = 0.0f;
+        h2[i] = sum;
+    }
+
+    /* Quantize Hidden2 activations to act2 space */
+    uint8_t h2_q[NN_HIDDEN2_SIZE];
+    for (i = 0; i < NN_HIDDEN2_SIZE; i++) {
+        float val = h2[i] / qparams->act2_scale + (float)qparams->act2_zp;
+        h2_q[i] = clamp_uint8(val);
+    }
+
+    /* Layer 3: Hidden2(16) -> Output(3) */
     for (i = 0; i < NN_OUTPUT_SIZE; i++) {
-        float sum = qparams->b2_scale * (float)model->b2[i];
-        for (j = 0; j < NN_HIDDEN_SIZE; j++) {
-            float hidden_val = ((float)hidden_q[j] - (float)qparams->act1_zp) * qparams->act1_scale;
-            sum += qparams->W2_scale * (float)model->W2[i][j] * hidden_val;
+        float sum = qparams->b3_scale * (float)((int32_t)model->b3[i] - (int32_t)qparams->b3_zp);
+        for (j = 0; j < NN_HIDDEN2_SIZE; j++) {
+            float h2_val = ((float)h2_q[j] - (float)qparams->act2_zp) * qparams->act2_scale;
+            sum += qparams->W3_scale * (float)((int32_t)model->W3[i][j] - (int32_t)qparams->W3_zp) * h2_val;
         }
         out_logit[i] = sum;
     }
 
     /* Apply sigmoid to the real-valued logit, THEN fake-quantize the
-     * post-sigmoid activation with act2_scale/act2_zp -- those parameters
-     * were calibrated in Python on a2 = sigmoid(z2), i.e. on the probability
-     * output, not on the pre-sigmoid logit. Quantizing before sigmoid (the
-     * old code) applied the wrong scale to the wrong tensor. */
+     * post-sigmoid activation with act3_scale/act3_zp */
     for (i = 0; i < NN_OUTPUT_SIZE; i++) {
         float sigmoid_out = 1.0f / (1.0f + expf(-out_logit[i]));
-        float q_val = sigmoid_out / qparams->act2_scale + (float)qparams->act2_zp;
+        float q_val = sigmoid_out / qparams->act3_scale + (float)qparams->act3_zp;
         uint8_t out_q = clamp_uint8(q_val);
-        out_logit[i] = ((float)out_q - (float)qparams->act2_zp) * qparams->act2_scale;
+        out_logit[i] = ((float)out_q - (float)qparams->act3_zp) * qparams->act3_scale;
     }
 
     out->heat_score      = out_logit[0];

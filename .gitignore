@@ -85,3 +85,9 @@ SIH26181_Hardware_Integration_CAD_Design_Report.html
 # Environment and API keys
 .env
 .env.local
+
+# Internal tools and extracted database archives
+.serena/
+mimic-iii-clinical-database-demo-1.4/
+.history/
+

@@ -26,6 +26,9 @@
 #include "disaster_risk_engine.h"
 #include "nn_risk_model_int8.h"
 #include "pm25_calibration_int8.h"
+#include "clinical_vitals_engine.h"
+#include "ppg_sqi.h"
+#include "ppg_respiratory_rate.h"
 #include "wifi_mqtt_manager.h"
 
 #ifdef ESP_PLATFORM
@@ -288,6 +291,8 @@ static void task_ppg_accelerator(void *pvParameters) {
                     }
                 }
                 sw_prev_sample = ppg_sample.ir;
+                /* Stream raw PPG sample for PC Dashboard oscilloscope */
+                printf("[PPG] %lu\n", (unsigned long)ppg_sample.ir);
 
                 /* Evaluate real-time signal quality */
                 signal_status_t current_status;
@@ -444,15 +449,24 @@ static void task_disaster_monitor(void *pvParameters) {
             /* 2. Execute On-Device TinyML INT8 Neural Network (single-pass populates both risk and telemetry) */
             disaster_assess_nn_int8(&hrv_snapshot, engine_spo2, hr, &env, &nn_risk, &nn_out);
 
-            /* 3. Unified Triage: Fuse deterministic clinical bounds with predictive TinyML patterns */
-            final_risk = rule_risk;
-            if (nn_risk.overall_risk > final_risk.overall_risk) {
-                final_risk.overall_risk     = nn_risk.overall_risk;
-                final_risk.overall_advisory = nn_risk.overall_advisory;
+            /* 3. Execute NEWS2 Clinical Physiological Triage Engine */
+            clinical_assessment_t clin_assess;
+            clinical_vitals_assess(hr, engine_spo2, hrv_snapshot.rmssd, &clin_assess);
+
+            /* 4. Unified Triage: Fuse deterministic bounds, TinyML patterns, and clinical vitals */
+            risk_assessment_t env_fused = rule_risk;
+            if (nn_risk.overall_risk > env_fused.overall_risk) {
+                env_fused.overall_risk     = nn_risk.overall_risk;
+                env_fused.overall_advisory = nn_risk.overall_advisory;
             }
+            clinical_fuse_triage(&clin_assess, &env_fused, &final_risk);
 
             ESP_LOGI(TAG, "[ShrikeFi] HR: %.1f BPM | SpO2: %s | RMSSD: %.1f ms | Temp: %.1f C | PM2.5: %.0f",
                      hr, (spo2 > 0.0f ? "VALID" : "CALC"), hrv_snapshot.rmssd, env.ambient_temp_c, env.pm25);
+            /* Clean telemetry broadcast line for PC Dashboard */
+            printf("[TELEMETRY] HR=%.1f,SPO2=%.1f,RMSSD=%.1f,TEMP=%.1f,HUM=%.1f,PM25=%.1f\n",
+                   hr, engine_spo2, hrv_snapshot.rmssd, env.ambient_temp_c, env.humidity_pct, env.pm25);
+            fflush(stdout);
             ESP_LOGI(TAG, "[RuleEngine] Heat: %s | Poll: %s | Flood: %s => Overall: %s",
                      risk_level_to_string(rule_risk.heat_risk),
                      risk_level_to_string(rule_risk.pollution_risk),
@@ -486,6 +500,9 @@ static void task_disaster_monitor(void *pvParameters) {
                      (sig_stat == SIGNAL_STATUS_ACQUIRING)     ? "ACQUIRING" :
                      (sig_stat == SIGNAL_STATUS_TRACKING)      ? "READY" : "WAITING",
                      hrv_snapshot.count, env.ambient_temp_c, env.pm25);
+            printf("[TELEMETRY] NO_FINGER,TEMP=%.1f,HUM=%.1f,PM25=%.1f\n",
+                   env.ambient_temp_c, env.humidity_pct, env.pm25);
+            fflush(stdout);
         }
 
         /* 2. Render Live Dashboard to OLED Display */
@@ -717,8 +734,104 @@ int main(void) {
     };
     risk_assessment_t fog_risk;
     disaster_assess(&hrv, 98.0f, 75.0f, &fog_env, &fog_risk);
-    printf("  [Disaster Engine with Calibrated PM] Pollution Risk: %s (Raw would have triggered FALSE ALARM!)\n",
-           risk_level_to_string(fog_risk.pollution_risk));
+    /* Profile 3: Clinical ICU Emergency (MIMIC-III Sepsis & Severe Hypoxia in Normal Room) */
+    printf("\nHost Test - Clinical ICU Emergency Profile (MIMIC-III Benchmark):\n");
+    float icu_hr    = 142.0f; /* Tachycardia */
+    float icu_spo2  = 82.0f;  /* Severe Hypoxia */
+    float icu_rmssd = 9.0f;   /* Autonomic Shock Collapse */
+    env_sensors_t normal_room = {
+        .ambient_temp_c = 22.0f,
+        .humidity_pct   = 45.0f,
+        .pm25           = 12.0f,
+        .skin_temp_c    = 36.5f
+    };
+    risk_assessment_t env_baseline;
+    disaster_assess(&hrv, icu_spo2, icu_hr, &normal_room, &env_baseline);
+
+    clinical_assessment_t clin_icu;
+    clinical_vitals_assess(icu_hr, icu_spo2, icu_rmssd, &clin_icu);
+
+    risk_assessment_t fused_icu;
+    clinical_fuse_triage(&clin_icu, &env_baseline, &fused_icu);
+
+    printf("  [Sensor Input] HR: %.0f BPM | SpO2: %.0f%% | RMSSD: %.1f ms | Room Temp: %.1f C\n",
+           icu_hr, icu_spo2, icu_rmssd, normal_room.ambient_temp_c);
+    printf("  [Disaster Engine Alone] Risk: %s (Misses clinical crisis because room air is clean!)\n",
+           risk_level_to_string(env_baseline.overall_risk));
+    printf("  [NEWS2 Clinical Engine] Risk: %s (Flags: 0x%02X | NEWS2 Score: %u)\n",
+           risk_level_to_string((risk_level_t)clin_icu.level), clin_icu.alert_flags, clin_icu.news2_score);
+    printf("  [Unified Clinical Triage] Final Condition: %s\n", risk_level_to_string(fused_icu.overall_risk));
+    printf("  [Unified Action Advisory] %s\n", fused_icu.overall_advisory);
+
+    /* Profile 4: Motion Artifact & Noise Rejection (Elgendi 2016 SQI Benchmark) */
+    printf("\nHost Test - Motion Artifact Rejection Profile (Elgendi 2016 SQI Benchmark):\n");
+    // Clean resting pulse simulation: 32 samples with strong pulsatile waveform
+    uint32_t clean_ppg[32];
+    for (int i = 0; i < 32; i++) {
+        clean_ppg[i] = 120000 + (uint32_t)(2500.0f * sinf((float)i * 0.4f) + 1200.0f * sinf((float)i * 0.8f));
+    }
+    float clean_ibis[8] = { 800.0f, 810.0f, 795.0f, 805.0f, 800.0f, 815.0f, 790.0f, 805.0f };
+    ppg_sqi_result_t clean_sqi;
+    ppg_calculate_sqi(clean_ppg, 32, clean_ibis, 8, &clean_sqi);
+    printf("  [Clean Pulse]  SQI: %.2f | Perfusion: %.2f%% | Regularity: %.2f | Motion Noise: %s\n",
+           clean_sqi.overall_sqi, clean_sqi.perfusion_index, clean_sqi.interval_regularity,
+           clean_sqi.is_motion_artifact ? "YES" : "NO (Hospital Grade)");
+
+    // Motion artifact simulation: sensor displaced during running/evacuation
+    uint32_t noisy_ppg[32];
+    for (int i = 0; i < 32; i++) {
+        noisy_ppg[i] = 110000 + (uint32_t)((rand() % 15000));
+    }
+    float noisy_ibis[8] = { 450.0f, 980.0f, 320.0f, 1100.0f, 410.0f, 890.0f, 350.0f, 1020.0f };
+    ppg_sqi_result_t noisy_sqi;
+    ppg_calculate_sqi(noisy_ppg, 32, noisy_ibis, 8, &noisy_sqi);
+    printf("  [Motion Noise] SQI: %.2f | Perfusion: %.2f%% | Regularity: %.2f | Motion Noise: %s\n",
+           noisy_sqi.overall_sqi, noisy_sqi.perfusion_index, noisy_sqi.interval_regularity,
+           noisy_sqi.is_motion_artifact ? "YES (Artifact Detected)" : "NO");
+
+    // Test SQI Gating in clinical triage
+    // Case A: Non-crisis vitals with noise (HR=95, SpO2=96) -> correctly held / suppressed
+    clinical_assessment_t gated_clin;
+    clinical_vitals_assess_full(95.0f, 96.0f, 25.0f, 16.0f, noisy_sqi.overall_sqi, &gated_clin);
+    printf("  [SQI Gating]   Non-Crisis Noise Suppressed: %s | Status: %s\n",
+           (gated_clin.alert_flags & ALERT_SIGNAL_NOISE) ? "YES" : "NO", gated_clin.advisory);
+
+    // Case B: Genuine life-threatening emergency with motion (HR=165, SpO2=82) -> Crisis override fires!
+    clinical_assessment_t crisis_clin;
+    clinical_vitals_assess_full(165.0f, 82.0f, 8.0f, 32.0f, noisy_sqi.overall_sqi, &crisis_clin);
+    printf("  [Crisis Override] Alarm Active Despite Noise: %s | Level: %s\n",
+           (crisis_clin.level == CLINICAL_CRITICAL) ? "YES (EMERGENCY ALARM FIRED)" : "NO",
+           risk_level_to_string((risk_level_t)crisis_clin.level));
+    printf("  [Emergency Text]  %s\n", crisis_clin.advisory);
+
+    /* Profile 5: Cardiopulmonary Respiratory Distress (Charlton 2018 PPG-RR & mNEWS2) */
+    printf("\nHost Test - Cardiopulmonary Distress Profile (Charlton 2018 PPG-RR & mNEWS2):\n");
+    // Tachypneic IBI sequence (breathing 28 breaths/min at HR=120 bpm -> 1 breath cycle every ~4.3 beats)
+    float tachy_ibis[24];
+    for (int i = 0; i < 24; i++) {
+        tachy_ibis[i] = 500.0f + 40.0f * sinf((float)i * (2.0f * 3.14159f / 4.3f));
+    }
+    ppg_respiratory_result_t rr_result;
+    ppg_estimate_respiratory_rate(tachy_ibis, NULL, 24, &rr_result);
+    printf("  [PPG Extraction] Derived Breathing Rate: %.1f Breaths/min (Confidence: %.2f | RSA Depth: %.1f ms)\n",
+           rr_result.respiratory_rate_bpm, rr_result.confidence, rr_result.rsa_depth_ms);
+
+    clinical_assessment_t pneumonia_triage;
+    clinical_vitals_assess_full(120.0f, 88.0f, 15.0f, rr_result.respiratory_rate_bpm, 0.92f, &pneumonia_triage);
+    printf("  [mNEWS2 Engine]  Score: %u (HR=120: +2, SpO2=88%%: +3, RR=%.0f: +3) | Risk: %s\n",
+           pneumonia_triage.news2_score, rr_result.respiratory_rate_bpm,
+           risk_level_to_string((risk_level_t)pneumonia_triage.level));
+    printf("  [Action Alert]   %s\n", pneumonia_triage.advisory);
+
+    /* Profile 6: Peer-Reviewed Clinical Biomarkers (Moran 1998 PSI & AHA 2010 PM2.5-HRV) */
+    printf("\nHost Test - Peer-Reviewed Clinical Biomarkers (Moran 1998 PSI & AHA 2010):\n");
+    float moran_psi = disaster_calculate_moran_psi(145.0f, 44.0f, 60.0f);
+    printf("  [Moran PSI] Heat Strain Index: %.2f / 10.0 (T_ambient: 44C, HR: 145 bpm) -> %s\n",
+           moran_psi, (moran_psi >= 7.0f) ? "HIGH HEAT EXHAUSTION STRAIN (Compulsory Cooling)" : "MODERATE");
+
+    float aha_strain = disaster_calculate_aha_autonomic_strain(125.0f, 14.0f);
+    printf("  [AHA Statement] PM2.5-HRV Autonomic Strain: %.2f / 1.0 (PM2.5: 125 ug/m3, RMSSD: 14 ms) -> %s\n",
+           aha_strain, (aha_strain >= 0.70f) ? "SEVERE AUTONOMIC DEPRESSION ALERT" : "NORMAL");
 
     printf("\n>>> ShrikeFi Host Test Completed Successfully <<<\n");
     return 0;
