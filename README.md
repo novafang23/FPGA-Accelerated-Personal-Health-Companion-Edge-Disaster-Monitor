@@ -6,7 +6,7 @@
 [![Static Timing](https://img.shields.io/badge/STA%20Timing-WNS%20%2B5.603ns%20(Met)-success.svg)](docs/HARDWARE_ARCHITECTURE.md)
 [![TinyML Engine](https://img.shields.io/badge/AI%20Engine-TinyML%20(6%E2%86%9224%E2%86%9216%E2%86%923)-purple.svg)](firmware/core/nn_risk_model_int8.c)
 [![Validation Accuracy](https://img.shields.io/badge/AI%20Accuracy-91.00%25%20(INT8)-brightgreen.svg)](firmware/core/nn_risk_model_int8.c)
-[![MIMIC-III Benchmark](https://img.shields.io/badge/Clinical%20Validation-92.05%25%20(MIMIC--III)-blueviolet.svg)](firmware/core/mimic_vital_feed.csv)
+[![MIMIC-III Benchmark](https://img.shields.io/badge/Clinical%20Validation-92.05%25%20(MIMIC--III)-blueviolet.svg)](data/mimic/mimic_vital_feed.csv)
 [![GUI Dashboard](https://img.shields.io/badge/GUI%20Dashboard-Native%20Win32%20.exe-cyan.svg)](launch_dashboard.bat)
 
 An end-to-end heterogeneous System-on-Chip (SoC) combining **synthesizable Verilog hardware acceleration** and an **on-device TinyML INT8 neural network** to provide real-time, privacy-preserving, cloud-free physiological risk prediction during extreme environmental disasters (heat waves, air pollution smog, and floods).
@@ -438,10 +438,19 @@ For an in-depth mathematical defense, signal processing equations, and clinical 
 │   │   ├── run_vivado_synth.tcl    # Automated Vivado batch synthesis script
 │   │   ├── signals.gtkw            # Color-coded GTKWave waveform layout
 │   │   └── build_and_run.bat       # Interactive one-click launcher for Zynq flow
-│   └── shrikefi/                   # Active port target (ESP32-S3 + Renesas ForgeFPGA)
-│       ├── forgefpga_ppg_top.v     # 4-bit nibble link transceiver & DSP wrapper
-│       ├── tb_forgefpga_system.v   # Self-checking 4-bit link testbench (5/5 passing)
-│       └── forgefpga_pins.pcf      # Renesas ForgeFPGA physical pin constraints
+│   ├── shrikefi/                   # Active port target (ESP32-S3 + Renesas ForgeFPGA)
+│   │   ├── pcb/                    # Complete KiCad schematic, PCB layout & BOM
+│   │   │   ├── shrikefi_werable.kicad_pcb
+│   │   │   ├── shrikefi_werable.kicad_sch
+│   │   │   └── SIH26181_ShrikeFi_Wearable_BOM.csv
+│   │   ├── forgefpga_ppg_top.v     # 4-bit nibble link transceiver & DSP wrapper
+│   │   ├── tb_forgefpga_system.v   # Self-checking 4-bit link testbench (5/5 passing)
+│   │   └── forgefpga_pins.pcf      # Renesas ForgeFPGA physical pin constraints
+│   └── cad/                        # 3D Enclosure CAD drawings, renders & reports
+│       ├── SIH26181_Hardware_Integration_CAD_Design_Report.pdf
+│       ├── exploded_cad_assembly.jpg
+│       ├── cad_orthographic_drawing.jpg
+│       └── fusion360_wearable_cad.jpg
 │
 ├── firmware/
 │   ├── core/                       # Platform-agnostic clinical algorithms & TinyML inference
@@ -476,14 +485,24 @@ For an in-depth mathematical defense, signal processing equations, and clinical 
 │       ├── build_and_flash.bat     # One-click ESP-IDF build + flash + monitor
 │       └── run_dashboard.bat       # GUI dashboard launcher
 │
-├── shrikefi_werable/               # Complete KiCad schematic, PCB layout & Gerbers
+├── data/
+│   └── mimic/                      # MIMIC-III benchmark validation dataset
+│       ├── mimic_vital_feed.csv    # 16,387 clinical vital records
+│       └── mimic_eval_feed.csv     # Multi-hazard ground truth labels
+│
 ├── reports/                        # DeepSeek clinical audits & MIMIC-III benchmark logs
-├── launch_dashboard.bat            # One-click native desktop GUI launcher
-├── FPGA-MED-DEVICE/                # Renesas ForgeFPGA project (synthesis evidence)
-├── FPGA-MED-DEVICE-1/              # Xilinx Vivado project (synthesis evidence)
+│   ├── CLINICAL_AI_ACCURACY_REPORT.md
+│   ├── DEEPSEEK_AUDIT_VERIFICATION_PASSED.md
+│   ├── DEEPSEEK_CLINICAL_PAPERS_OPINION.md
+│   └── FINAL_A_TO_Z_SYSTEM_AUDIT_REPORT.md
+│
+├── scripts/                        # Automation & copilot utilities
+│   ├── deepseek_copilot.py         # AI clinical co-pilot reasoning script
+│   └── deepseek.bat                # Copilot CLI shortcut
 │
 ├── docs/
-│   ├── images/                     # 16 High-res waveforms, schematics, and reports
+│   ├── images/                     # Waveforms, schematics, floorplans & CAD renders
+│   ├── media/                      # 360° Wearable enclosure rotation video
 │   ├── theory/                     # Master theory notes & printable PDF book
 │   ├── HARDWARE_ARCHITECTURE.md    # In-depth microarchitecture specification
 │   ├── QUALCOMM_PLATFORM_STRATEGY.md # Qualcomm Snapdragon Wear W5+ migration spec
@@ -491,6 +510,7 @@ For an in-depth mathematical defense, signal processing equations, and clinical 
 │   └── SHRIKEFI_LINK_PROTOCOL.md   # 4-bit FPGA↔MCU link protocol specification
 │
 ├── .github/workflows/              # CI: compilation, testing, secret scanning
+├── launch_dashboard.bat            # One-click native desktop GUI launcher
 ├── run.bat                         # Top-level interactive Windows launcher
 ├── CONTRIBUTING.md                 # Contribution guidelines
 ├── ROADMAP.md                      # Project roadmap & milestones
@@ -505,7 +525,7 @@ For an in-depth mathematical defense, signal processing equations, and clinical 
 
 The companion includes a high-performance, native Windows desktop GUI application (`shrikefi_dashboard.exe`) written in pure C using Win32 GDI graphics (0 external runtime dependencies, 60 FPS refresh rate):
 
-![GUI Dashboard](sih_hero_render.jpg)
+![GUI Dashboard](docs/images/sih_hero_render.jpg)
 
 ### Key Dashboard Capabilities:
 * **Dual-Mode Operation:**
