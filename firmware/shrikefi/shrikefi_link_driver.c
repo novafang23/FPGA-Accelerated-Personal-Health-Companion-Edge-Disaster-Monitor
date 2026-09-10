@@ -37,7 +37,7 @@
 
 #define FORGEFPGA_I2C_ADDR 0x08
 
-static const char* LINK_TAG = "SHRIKEFI_LINK";
+static const char* LINK_TAG __attribute__((unused)) = "SHRIKEFI_LINK";
 
 /* Default ShrikeFi Pin Mapping */
 static shrikefi_pins_t s_pins = {

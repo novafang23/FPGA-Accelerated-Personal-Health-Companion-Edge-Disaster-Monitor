@@ -171,7 +171,7 @@ void clinical_vitals_assess_full(float hr, float spo2, float rmssd, float rr, fl
         out->level = CLINICAL_NORMAL;
     }
 
-    char conditions[192] = {0};
+    char conditions[128] = {0};
     size_t cond_len = 0;
 
     if (flags & ALERT_HYPOXIA) {
