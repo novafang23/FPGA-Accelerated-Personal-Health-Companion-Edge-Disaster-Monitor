@@ -66,7 +66,7 @@
 |  2. RENESAS ForgeFPGA + ESP32-S3 (ShrikeFi Target)                                |
 |     - Role: Mass-Deployable, Ultra-Low-Cost (&lt;$20 at-scale BOM) Pocket Wearable   |
 |     - Target Part: SLG47910C (1120 5-input LUTs) + Dual-Core ESP32-S3             |
-|     - Utilization: Only 195 / 1120 LUTs (17.41%), 110 FFs, 0 DSP, 0 BRAM          |
+|     - Utilization: Only 443 / 1120 LUTs (39.55%), 353 FFs, 0 DSP, 0 BRAM          |
 |     - Interconnect: Custom 4-Bit Parallel Link (5.0 MB/s max @ 10MHz; 500kHz bring-up)|
 |     - Purpose: Proved commercial feasibility for millions of workers              |
 |                                                                                   |
@@ -187,7 +187,7 @@
 <li><strong>32-Bit IBI Serializer (TX Stage):</strong> Latches the 32-bit <code>peak_ibi_cycles</code> timestamp on a heartbeat and streams it across the 4-bit bus as 8 sequential nibbles (<code>[31:28]</code> down to <code>[3:0]</code>) upon receiving <code>CMD_READ_IBI</code>.</li>
 </ul>
 </li>
-<li><em>Resource Footprint:</em> Uses only <strong>195 out of 1120 LUT5s (17.41%)</strong>, <strong>110 Flip-Flops</strong>, and <strong>35 CLBs</strong>, leaving &gt;82% of the chip available.</li>
+<li><em>Resource Footprint:</em> Uses only <strong>443 out of 1120 LUT5s (39.55%)</strong>, <strong>353 Flip-Flops</strong>, and <strong>85 CLBs</strong>, leaving ~60% of the LUT fabric free (CLB occupancy is 60.7%).</li>
 </ol>
 <p><img alt="Renesas ForgeFPGA Workshop GUI Resources Report" src="../images/forgefpga_resources_report.png" /></p>
 <p><img alt="Renesas SLG47910C Chip Top-Level Schematic" src="../images/forgefpga_chip_schematic.png" /></p>
@@ -476,7 +476,7 @@
 <li><strong>Knowledge Distillation Training:</strong></li>
 <li>The deterministic Rule Engine served as the <strong>"Teacher"</strong>.</li>
 <li>We synthesized 62,000 extreme multi-variable disaster scenarios and trained the <strong>"Student"</strong> (Neural Network) to mimic the clinical score gradient.</li>
-<li>Achieved <strong>85.71% classification accuracy</strong> on a 6,200-scenario unseen validation test set while running 10× faster than full floating-point evaluation.</li>
+<li>Achieved <strong>88.47% classification accuracy</strong> on a 6,200-scenario unseen validation test set while running 10× faster than full floating-point evaluation.</li>
 </ul>
 <hr />
 <h1>8. KILLER ANALOGIES CHEAT-SHEET (For Judges &amp; Team Defense)</h1>

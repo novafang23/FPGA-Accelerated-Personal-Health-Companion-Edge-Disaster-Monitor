@@ -1,3 +1,17 @@
+// -----------------------------------------------------------------------------
+// forgefpga_ppg_top.v - ShrikeFi ForgeFPGA top level (4-bit MCU link + PPG core)
+//
+// This is the simulator/lint copy of the ForgeFPGA top level. It instantiates
+// moving_average_8tap and ppg_peak_detector from hardware/common/ so there is a
+// single source of truth for the vendor-agnostic DSP core; it deliberately does
+// NOT inline copies of those modules (doing so caused a duplicate-module error
+// when building with ../common/*.v).
+//
+// The Renesas ForgeFPGA Workshop project under forgefpga_project/ keeps its own
+// flattened copies, because that tool consumes a single flat source set.
+// Keep this file's forgefpga_ppg_top body in sync with
+// forgefpga_project/ffpga/src/forgefpga_ppg_top.v when the link FSM changes.
+// -----------------------------------------------------------------------------
 // =============================================================================
 // File: forgefpga_ppg_top.v
 // Module: forgefpga_ppg_top
@@ -83,6 +97,7 @@ module forgefpga_ppg_top #(
     reg  [31:0] reg_ibi_latched;
     reg         red_valid_pulse;
     reg         ir_valid_pulse;
+    reg         red_filtered_ready; // Latched flag for STATUS register
     reg  [3:0]  nibble_temp;
 
     // Wires from submodules
@@ -171,9 +186,10 @@ module forgefpga_ppg_top #(
             reg_ir_raw      <= 8'd0;
             reg_threshold   <= 8'd120; // Default threshold: 120
             reg_ibi_latched <= 32'd0;
-            irq_beat        <= 1'b0;
-            red_valid_pulse <= 1'b0;
-            ir_valid_pulse  <= 1'b0;
+            irq_beat           <= 1'b0;
+            red_valid_pulse    <= 1'b0;
+            ir_valid_pulse     <= 1'b0;
+            red_filtered_ready <= 1'b0;
             nibble_temp     <= 4'd0;
             link_dout       <= 4'd0;
             link_dout_oe    <= 1'b0;
@@ -184,6 +200,11 @@ module forgefpga_ppg_top #(
 
             // Output Enable control based on direction
             link_dout_oe    <= link_dir_sync;
+
+            // Latch red_filtered_valid so it isn't missed by slow CMD_READ_STATUS polling
+            if (red_filtered_valid) begin
+                red_filtered_ready <= 1'b1;
+            end
 
             if (strobe_rise) begin
                 case (state)
@@ -198,8 +219,9 @@ module forgefpga_ppg_top #(
                                 CMD_WRITE_IR:     state <= ST_W_IR_H;
                                 CMD_WRITE_THRESH: state <= ST_W_TH_H;
                                 CMD_READ_RED: begin
-                                    link_dout <= red_filtered[7:4];
-                                    state     <= ST_R_RED_L;
+                                    link_dout          <= red_filtered[7:4];
+                                    red_filtered_ready <= 1'b0; // Clear latched flag on read
+                                    state              <= ST_R_RED_L;
                                 end
                                 CMD_READ_IR: begin
                                     link_dout <= ir_filtered[7:4];
@@ -210,15 +232,12 @@ module forgefpga_ppg_top #(
                                     state     <= ST_R_IBI_1;
                                 end
                                 CMD_READ_STATUS: begin
-                                    link_dout <= {2'b00, red_filtered_valid, irq_beat};
+                                    link_dout <= {2'b00, red_filtered_ready, irq_beat};
                                     state     <= ST_IDLE;
                                 end
                                 CMD_CLEAR_IRQ: begin
-                                    // Software clear suppressed if hardware beat pulse is active simultaneously
-                                    if (!peak_beat_detected) begin
-                                        irq_beat <= 1'b0;
-                                    end
-                                    state <= ST_IDLE;
+                                    irq_beat  <= 1'b0;
+                                    state     <= ST_IDLE;
                                 end
                                 default:          state <= ST_IDLE;
                             endcase
@@ -315,206 +334,13 @@ module forgefpga_ppg_top #(
                 endcase
             end
 
-            // Hardware Beat Latches: evaluated last in sequential block to guarantee
-            // hardware peak detection has absolute priority over any concurrent software IRQ clear
+            // Hardware Beat Latches (placed AFTER strobe_rise so a new beat occurring 
+            // on the exact same cycle as CMD_CLEAR_IRQ will override the clear)
             if (peak_beat_detected) begin
                 reg_ibi_latched <= peak_ibi_cycles;
                 irq_beat        <= 1'b1;
             end
         end
-    end
-
-endmodule
-
-// ============================================================================
-// Submodule 1: 8-Tap Moving Average Filter
-// ============================================================================
-
-`timescale 1ns / 1ps
-
-module moving_average_8tap #(
-    parameter DATA_WIDTH = 8
-)(
-    input  wire                   clk,
-    input  wire                   rst_n,
-    input  wire                   data_valid,
-    input  wire [DATA_WIDTH-1:0]  data_in,
-    output reg  [DATA_WIDTH-1:0]  data_out,
-    output reg                    out_valid
-);
-
-    reg [DATA_WIDTH-1:0] shift_reg [0:7];
-    reg [DATA_WIDTH+2:0] running_sum; // +3 bits prevents overflow for 8 samples
-    integer i;
-
-    wire [DATA_WIDTH+2:0] next_sum = running_sum + {3'b000, data_in} - {3'b000, shift_reg[7]};
-
-    always @(posedge clk) begin
-        if (!rst_n) begin
-            running_sum <= {(DATA_WIDTH+3){1'b0}};
-            data_out    <= {DATA_WIDTH{1'b0}};
-            out_valid   <= 1'b0;
-            for (i = 0; i < 8; i = i + 1) begin
-                shift_reg[i] <= {DATA_WIDTH{1'b0}};
-            end
-        end else if (data_valid) begin
-            // Shift pipeline
-            shift_reg[0] <= data_in;
-            for (i = 1; i < 8; i = i + 1) begin
-                shift_reg[i] <= shift_reg[i-1];
-            end
-
-            // Update sum: (Old Sum + New Sample - Oldest Sample)
-            running_sum <= next_sum;
-            
-            // Division by 8 via 3-bit right shift
-            data_out    <= next_sum[DATA_WIDTH+2:3];
-            out_valid   <= 1'b1;
-        end else begin
-            out_valid   <= 1'b0;
-        end
-    end
-
-endmodule
-
-// ============================================================================
-// Submodule 2: Systolic Peak Detector
-// ============================================================================
-
-`timescale 1ns / 1ps
-
-module ppg_peak_detector #(
-    parameter DATA_WIDTH      = 8,
-    parameter REFRACTORY_CYC  = 12_500_000, // 250ms at 50MHz clock
-    parameter DEFAULT_THRESH  = 8'd120
-)(
-    input  wire                   clk,
-    input  wire                   rst_n,
-    input  wire                   sample_valid,
-    input  wire [DATA_WIDTH-1:0]  sample_in,
-    input  wire [DATA_WIDTH-1:0]  dyn_threshold, // Dynamically programmable from AXI
-    output reg                    beat_detected,
-    output reg  [31:0]            ibi_cycles
-);
-
-    localparam STATE_ARMED      = 2'b00;
-    localparam STATE_RISING     = 2'b01;
-    localparam STATE_PEAK_FOUND = 2'b10;
-    localparam STATE_REFRACTORY = 2'b11;
-
-    reg [1:0]  current_state, next_state;
-    reg [DATA_WIDTH-1:0] prev_sample;
-    reg [31:0] refractory_cnt;
-    reg [31:0] interval_cnt;
-    reg        first_beat_seen;  // Guard: IBI only valid from 2nd beat
-    reg [1:0]  fall_count;       // Consecutive decreasing samples seen while
-                                 // in STATE_RISING; requiring 2 before
-                                 // committing to a peak means a single-
-                                 // sample dip (filter/quantization noise)
-                                 // on the rising edge can't prematurely
-                                 // truncate the real systolic peak.
-
-    // Sequential state & timer management
-    always @(posedge clk) begin
-        if (!rst_n) begin
-            current_state   <= STATE_ARMED;
-            prev_sample     <= {DATA_WIDTH{1'b0}};
-            refractory_cnt  <= 32'd0;
-            interval_cnt    <= 32'd0;
-            ibi_cycles      <= 32'd0;
-            beat_detected   <= 1'b0;
-            first_beat_seen <= 1'b0;
-            fall_count      <= 2'd0;
-        end else begin
-            current_state <= next_state;
-
-            // Timer with saturation clamp at 32'hFFFF_FFFF
-            if (interval_cnt != 32'hFFFF_FFFF) begin
-                interval_cnt <= interval_cnt + 32'd1;
-            end
-
-            if (sample_valid) begin
-                prev_sample <= sample_in;
-            end
-
-            case (current_state)
-                STATE_ARMED: begin
-                    beat_detected <= 1'b0;
-                    fall_count    <= 2'd0;  // clear any stale count before the next rise
-                end
-
-                STATE_RISING: begin
-                    beat_detected <= 1'b0;
-                    if (sample_valid) begin
-                        if (sample_in < prev_sample) begin
-                            fall_count <= fall_count + 2'd1;
-                        end else begin
-                            fall_count <= 2'd0;  // any non-decrease resets the run
-                        end
-                    end
-                end
-
-                STATE_PEAK_FOUND: begin
-                    if (first_beat_seen) begin
-                        beat_detected  <= 1'b1;
-                        ibi_cycles     <= interval_cnt;
-                    end else begin
-                        beat_detected   <= 1'b0;
-                        first_beat_seen <= 1'b1;
-                    end
-                    interval_cnt   <= 32'd0;
-                    refractory_cnt <= REFRACTORY_CYC[31:0];
-                end
-
-                STATE_REFRACTORY: begin
-                    beat_detected <= 1'b0;
-                    if (refractory_cnt > 32'd0) begin
-                        refractory_cnt <= refractory_cnt - 32'd1;
-                    end
-                end
-            endcase
-        end
-    end
-
-    // Combinational next-state transitions
-    always @(*) begin
-        next_state = current_state;
-        case (current_state)
-            STATE_ARMED: begin
-                if (sample_valid && (sample_in >= dyn_threshold)) begin
-                    next_state = STATE_RISING;
-                end
-            end
-
-            STATE_RISING: begin
-                // True peak crest detected when slope flips negative for
-                // 2 consecutive samples (fall_count already >=1 from a
-                // prior decrease this rise, and this sample is also a
-                // decrease) -- not on the very first downward tick, which
-                // may just be a single-sample dip rather than the real peak.
-                if (sample_valid && (sample_in < prev_sample) && (fall_count >= 2'd1)) begin
-                    next_state = STATE_PEAK_FOUND;
-                end
-            end
-
-            STATE_PEAK_FOUND: begin
-                next_state = STATE_REFRACTORY;
-            end
-
-            STATE_REFRACTORY: begin
-                // Don't re-arm just because the timer expired -- also
-                // require the signal to have actually returned below
-                // threshold first. Otherwise, if refractory clears while
-                // the pulse is still decaying above threshold, STATE_ARMED
-                // immediately re-triggers STATE_RISING on the tail of the
-                // very same pulse instead of waiting for the next real beat.
-                if (refractory_cnt == 32'd0 && sample_valid && (sample_in < dyn_threshold)) begin
-                    next_state = STATE_ARMED;
-                end
-            end
-
-            default: next_state = STATE_ARMED;
-        endcase
     end
 
 endmodule

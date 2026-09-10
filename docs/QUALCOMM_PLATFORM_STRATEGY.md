@@ -15,4 +15,4 @@ This document outlines the architectural migration path from the Xilinx Zynq-700
 
 ## Power Budget & Energy Scaling
 * **Low-Power Island (< 5 mW):** The Qualcomm Sensor Core & Hexagon DSP run the continuous 50 Hz PPG acquisition, moving average filtering, and systolic peak timestamping without waking the main application processor (Cortex-A53).
-* **AI Wakeup on Exertion / Drift:** The 6→12→3 TinyML model executes periodically (e.g. every 10 seconds or when cardiac drift is detected) on the NPU, consuming negligible battery power.
+* **AI Wakeup on Exertion / Drift:** The 6→24→16→3 TinyML model executes periodically (e.g. every 10 seconds or when cardiac drift is detected) on the NPU, consuming negligible battery power.

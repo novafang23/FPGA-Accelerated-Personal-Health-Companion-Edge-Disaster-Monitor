@@ -7,6 +7,23 @@
 #include "nn_risk_model.h"
 #include "nn_risk_model_int8.h"
 
+/* ---------------------------------------------------------------------------
+ * Compile-time contract: the INT8 model struct must exactly match the
+ * 6 -> 24 -> 16 -> 3 architecture that train_nn_risk_model.py emits, and its
+ * weight/bias storage must be 619 bytes. These asserts fire at build time, so
+ * an architecture or quantization mismatch fails the build immediately instead
+ * of showing up later as a silent accuracy regression.
+ *
+ * 619 = (6*24 + 24) + (24*16 + 16) + (16*3 + 3)
+ * ------------------------------------------------------------------------- */
+_Static_assert(NN_INPUT_SIZE   == 6,  "INT8 model expects 6 input features");
+_Static_assert(NN_HIDDEN1_SIZE == 24, "INT8 model expects 24 neurons in hidden layer 1");
+_Static_assert(NN_HIDDEN2_SIZE == 16, "INT8 model expects 16 neurons in hidden layer 2");
+_Static_assert(NN_OUTPUT_SIZE  == 3,  "INT8 model expects 3 hazard outputs");
+_Static_assert(sizeof(nn_model_int8_t) == 619,
+               "INT8 weight+bias storage must be 619 bytes; regenerate with "
+               "firmware/core/train_nn_risk_model.py");
+
 /* Helper: Initialize HRV with synthetic data to make it "ready" */
 static void init_hrv_ready(hrv_state_t *hrv, float bpm) {
     hrv_init(hrv);

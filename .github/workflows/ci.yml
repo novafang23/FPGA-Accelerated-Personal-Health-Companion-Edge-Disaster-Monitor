@@ -16,37 +16,75 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y verilator
-      - name: Lint RTL
+      - name: Lint Zynq accelerator
         run: |
           verilator --lint-only -Wall -Wno-UNUSED -Wno-UNOPTFLAT \
             --top-module axi_ppg_accelerator \
             -Ihardware/common \
             hardware/zynq/axi_ppg_accelerator.v hardware/common/ppg_peak_detector.v hardware/common/moving_average_8tap.v
+      - name: Lint ShrikeFi ForgeFPGA top
+        run: |
+          verilator --lint-only -Wall -Wno-UNUSED -Wno-UNOPTFLAT \
+            --top-module forgefpga_ppg_top \
+            -Ihardware/common \
+            hardware/shrikefi/forgefpga_ppg_top.v hardware/common/ppg_peak_detector.v hardware/common/moving_average_8tap.v
 
   simulate:
     name: Simulate RTL & Firmware
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Install Icarus Verilog & GCC
+      - name: Install Icarus Verilog, GCC & Python
         run: |
           sudo apt-get update
-          sudo apt-get install -y iverilog build-essential
-      - name: Run Hardware RTL Testbench
+          sudo apt-get install -y iverilog build-essential python3
+
+      - name: Run Zynq RTL testbench (expects 6/6)
         run: |
           iverilog -o sim_ppg.vvp hardware/zynq/tb_ppg_system.v hardware/zynq/axi_ppg_accelerator.v hardware/common/moving_average_8tap.v hardware/common/ppg_peak_detector.v
           vvp sim_ppg.vvp
-      - name: Build & Run Firmware Unit Tests
+
+      # NOTE: hardware/shrikefi/forgefpga_ppg_top.v instantiates the DSP core from
+      # hardware/common/ and does NOT contain inline copies of those modules.
+      # Listing them twice here is a duplicate-module error, not harmless.
+      - name: Run ShrikeFi RTL testbench (expects 5/5)
         run: |
-          gcc -Wall -Wextra -Ifirmware/core -Ifirmware/zynq -o test_engine firmware/zynq/test_disaster_risk_engine.c firmware/core/hrv_analysis.c firmware/core/spo2_engine.c firmware/core/disaster_risk_engine.c firmware/core/nn_risk_model.c firmware/core/nn_risk_model_int8.c -lm
+          iverilog -o sim_shrikefi.vvp \
+            hardware/shrikefi/tb_forgefpga_system.v \
+            hardware/shrikefi/forgefpga_ppg_top.v \
+            hardware/common/moving_average_8tap.v \
+            hardware/common/ppg_peak_detector.v
+          vvp sim_shrikefi.vvp
+
+      - name: Build & run firmware unit tests (incl. FP32 vs INT8 parity)
+        run: |
+          gcc -Wall -Wextra -Ifirmware/core -Ifirmware/zynq -o test_engine \
+            firmware/zynq/test_disaster_risk_engine.c firmware/core/hrv_analysis.c \
+            firmware/core/spo2_engine.c firmware/core/disaster_risk_engine.c \
+            firmware/core/nn_risk_model.c firmware/core/nn_risk_model_int8.c -lm
           ./test_engine
-          gcc -Wall -Wextra -Ifirmware/core -Ifirmware/zynq -o compare_harness firmware/zynq/compare_harness.c firmware/core/hrv_analysis.c firmware/core/spo2_engine.c firmware/core/disaster_risk_engine.c firmware/core/nn_risk_model.c firmware/core/nn_risk_model_int8.c -lm
+          gcc -Wall -Wextra -Ifirmware/core -Ifirmware/zynq -o compare_harness \
+            firmware/zynq/compare_harness.c firmware/core/hrv_analysis.c \
+            firmware/core/spo2_engine.c firmware/core/disaster_risk_engine.c \
+            firmware/core/nn_risk_model.c firmware/core/nn_risk_model_int8.c -lm
           ./compare_harness
+
+      - name: Clinical triage accuracy gate (MIMIC-III)
+        run: |
+          gcc -O2 -Ifirmware/core -o acc_eval \
+            firmware/core/accuracy_evaluator.c firmware/core/clinical_vitals_engine.c \
+            firmware/core/hrv_analysis.c firmware/core/spo2_engine.c \
+            firmware/core/disaster_risk_engine.c firmware/core/nn_risk_model.c \
+            firmware/core/nn_risk_model_int8.c -lm
+          ./acc_eval data/mimic/mimic_eval_feed.csv | tee acc.log
+          # Floors sit a little below the current measured values (94.11% accuracy,
+          # 100% tier agreement) so CI catches real regressions, not float noise.
+          python3 -c "import json; m=json.loads(next(l for l in open('acc.log') if l.startswith('METRICS_JSON:')).split('METRICS_JSON:',1)[1]); print(m); assert m['total']==16387, m['total']; assert m['accuracy']>=93.0, m['accuracy']; assert m['agreement_pct']>=99.0, m['agreement_pct']; print('OK accuracy=%s%% int8_agreement=%s%%' % (m['accuracy'], m['agreement_pct']))"
 
   synthesize:
     name: Synthesize (Zynq-7000)
     runs-on: self-hosted
-    if: false  # Enable on self-hosted runners with Vivado 2022.2/2023.2 installed
+    if: false  # Enable on self-hosted runners with Vivado installed
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
@@ -54,8 +92,6 @@ jobs:
         run: |
           cd hardware/zynq
           vivado -mode batch -source run_vivado_synth.tcl -tclargs synth
-        env:
-          XILINX_VIVADO: /opt/Xilinx/Vivado/2023.2
       - name: Upload Utilization Report
         uses: actions/upload-artifact@v4
         with:
@@ -63,7 +99,7 @@ jobs:
           path: docs/images/utilization_percentage.png
 
   nn-train:
-    name: Train & Verify NN
+    name: Train, Verify & Assert Model Footprint
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -73,11 +109,31 @@ jobs:
           python-version: '3.11'
       - name: Install deps
         run: pip install numpy
-      - name: Train float32 model
+      - name: Train model
+        # The script itself enforces the floors: validation accuracy, INT8 max
+        # error vs the 0.18 budget used by test_int8_matches_float_nn(), and
+        # agreement with the rule-engine teacher on the documented archetypes.
+        # It exits non-zero if any of them fail, so this step is a real gate.
         run: |
+          set -o pipefail
           cd firmware/core
-          python3 train_nn_risk_model.py
-      - name: Verify accuracy threshold
+          python3 train_nn_risk_model.py --min-accuracy 86.0 2>&1 | tee /tmp/nn.log
+      - name: Assert reported architecture and parameter count
+        # The C side of this contract (sizeof(nn_model_int8_t) == 619 and the
+        # 6/24/16/3 layer sizes) is enforced by _Static_assert in
+        # firmware/zynq/test_disaster_risk_engine.c, which the simulate job
+        # compiles. Here we only check what the script reported.
         run: |
-          cd firmware/core
-          python3 -c "import numpy as np; print('NN training verification passed')"
+          grep -q '"arch":"6-24-16-3"' /tmp/nn.log || { echo "Architecture drifted from 6-24-16-3"; exit 1; }
+          grep -q '"params":619'       /tmp/nn.log || { echo "Parameter count drifted from 619"; exit 1; }
+
+      - name: Report whether committed weights still reproduce
+        # Informational only: bit-exact reproduction depends on the numpy version,
+        # so this warns instead of failing the build.
+        run: |
+          if git diff --quiet -- firmware/core/nn_risk_model_int8.c.inc firmware/core/nn_risk_model_trained.c.inc; then
+            echo "Committed weights reproduce bit-for-bit on this runner."
+          else
+            echo "::warning::Committed model weights differ from a fresh training run on this runner (numpy/platform drift). Review before assuming the shipped model matches the script."
+            git diff --stat -- firmware/core/nn_risk_model_int8.c.inc firmware/core/nn_risk_model_trained.c.inc
+          fi

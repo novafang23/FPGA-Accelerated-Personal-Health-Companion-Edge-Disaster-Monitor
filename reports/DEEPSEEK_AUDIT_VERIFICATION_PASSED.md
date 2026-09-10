@@ -1,3 +1,16 @@
+> [!WARNING]
+> **PARTIALLY SUPERSEDED — this is a pre-fix review snapshot.**
+>
+> Its headline blocker (CB-2, the low-SQI crisis-suppression ordering) has since
+> been resolved. `clinical_vitals_engine.c` now (1) validates inputs and rejects
+> NaN/out-of-range, (2) derives canonical integer vitals, (3) evaluates
+> `is_absolute_crisis` from those same integers, and *only then* (4) applies the
+> low-SQI suppression branch — which is precisely the fix this report asks for.
+> The "not fully closed" verdict describes the code at review time.
+>
+> Its pin-map and INT8 observations remain accurate. Kept for audit-trail purposes.
+
+---
 # Project SIH26181: DeepSeek Audit Verification & Sign-Off
 
 ## Audit Review — SIH26181 EdgeGuard Post-Fix

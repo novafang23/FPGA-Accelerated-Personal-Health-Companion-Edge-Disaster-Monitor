@@ -5,8 +5,8 @@
 [![Verification](https://img.shields.io/badge/Verification-6%2F6%20Passed%20(100%25)-brightgreen.svg)](hardware/zynq/tb_ppg_system.v)
 [![Static Timing](https://img.shields.io/badge/STA%20Timing-WNS%20%2B5.603ns%20(Met)-success.svg)](docs/HARDWARE_ARCHITECTURE.md)
 [![TinyML Engine](https://img.shields.io/badge/AI%20Engine-TinyML%20(6%E2%86%9224%E2%86%9216%E2%86%923)-purple.svg)](firmware/core/nn_risk_model_int8.c)
-[![Validation Accuracy](https://img.shields.io/badge/AI%20Accuracy-91.00%25%20(INT8)-brightgreen.svg)](firmware/core/nn_risk_model_int8.c)
-[![MIMIC-III Benchmark](https://img.shields.io/badge/Clinical%20Validation-92.05%25%20(MIMIC--III)-blueviolet.svg)](data/mimic/mimic_vital_feed.csv)
+[![Validation Accuracy](https://img.shields.io/badge/AI%20Accuracy-88.47%25%20(INT8)%20on%20synthetic%20val-brightgreen.svg)](firmware/core/nn_risk_model_int8.c)
+[![MIMIC-III Benchmark](https://img.shields.io/badge/Clinical%20Validation-94.11%25%20(MIMIC--III)-blueviolet.svg)](#clinical-triage-accuracy-on-mimic-iii--how-to-reproduce)
 [![GUI Dashboard](https://img.shields.io/badge/GUI%20Dashboard-Native%20Win32%20.exe-cyan.svg)](launch_dashboard.bat)
 
 An end-to-end heterogeneous System-on-Chip (SoC) combining **synthesizable Verilog hardware acceleration** and an **on-device TinyML INT8 neural network** to provide real-time, privacy-preserving, cloud-free physiological risk prediction during extreme environmental disasters (heat waves, air pollution smog, and floods).
@@ -16,9 +16,39 @@ An end-to-end heterogeneous System-on-Chip (SoC) combining **synthesizable Veril
 ## 🏷️ Platform Status & Roadmap
 
 * **Verified Baseline:** [Xilinx Zynq-7000 (`xc7z020`)](hardware/zynq/) — Fully verified with 6/6 passing self-checking tests and static timing closed at 69.45 MHz (permanently tagged at `v1.0-zynq-SIH`).
-* **Active Port:** [ShrikeFi (ESP32-S3 + Renesas ForgeFPGA)](hardware/shrikefi/) — Affordable edge hardware platform. Post-synthesis verified at **195 / 1120 LUT5s (17.41%)** and 5/5 passing self-checking link tests. Includes **fully integrated ESP32-S3 firmware** that auto-flashes the FPGA bitstream on boot and streams live health telemetry via **USB UART & WiFi/MQTT**.
+* **Active Port:** [ShrikeFi (ESP32-S3 + Renesas ForgeFPGA)](hardware/shrikefi/) — Affordable edge hardware platform. Post-synthesis verified at **443 / 1120 LUT5s (39.55%)**, 353 FFs and 85/140 CLBs, with 5/5 passing self-checking link tests. Raw synthesis log: [`hardware/shrikefi/synthesis_evidence/`](hardware/shrikefi/synthesis_evidence/). Includes **fully integrated ESP32-S3 firmware** that auto-flashes the FPGA bitstream on boot and streams live health telemetry via **USB UART & WiFi/MQTT**.
 * **Clinical Intelligence & Biomarkers:** Fuses **mNEWS2 Clinical Triage (Royal College of Physicians)**, **PPG-derived Respiratory Rate (Charlton 2018)**, **Signal Quality Index (Karlen 2012 / Elgendi 2016)**, **Moran's Physiological Strain Index (PSI)**, **AHA PM2.5-HRV Autonomic Strain (Brook 2010)**, and **Neural PM2.5 Humidity Calibration (Si et al. 2019)**.
 * **Interactive Graphical Dashboard:** Standalone Windows desktop GUI (`shrikefi_dashboard.exe`) featuring a 60 FPS real-time optical PPG oscilloscope, live vital displays, and dual-mode operation (Live Hardware streaming + 6 simulated disaster profiles).
+
+---
+
+## 🔬 Reproducibility & Evidence Provenance
+
+Every headline number below is reproducible from a committed command. Where a claim **cannot** be fully reproduced from this repository, that is stated explicitly rather than glossed over.
+
+### Reproducible claims
+
+| Claim | Reproduce with | Expected result |
+|---|---|---|
+| Zynq RTL — self-checking testbench | `hardware/zynq/build_and_run.bat` (or the `iverilog`/`vvp` pair it wraps) | `6 passed, 0 failed` |
+| ShrikeFi RTL — 4-bit link testbench | `hardware/shrikefi/build_shrikefi_sim.bat` | `Passed: 5 / 5` |
+| Firmware unit tests (incl. FP32↔INT8 parity) | `make -C firmware/zynq test` | `ALL TESTS PASSED.` |
+| INT8 model regeneration | `python3 firmware/core/train_nn_risk_model.py` | `88.47%` val accuracy, `619` params, INT8 max error `0.091` |
+| Clinical triage metrics | build & run `firmware/core/accuracy_evaluator.c` on `data/mimic/mimic_eval_feed.csv` | accuracy `94.11%`, TP `971` / FP `267` / TN `14451` / FN `698` |
+| MIMIC cohort scan | build & run `firmware/core/mimic_harness.c` on `data/mimic/mimic_vital_feed.csv` | 16,387 records over 98 subjects |
+| Zynq resource/timing reports | `hardware/zynq/synthesis_evidence/*.rpt` | see that directory's README |
+| ForgeFPGA resource report | `hardware/shrikefi/synthesis_evidence/resource_utilization.log` | 443/1120 LUT5s, 353 FFs |
+
+CI (`.github/workflows/ci.yml`) runs the Zynq testbench, the ShrikeFi testbench, the firmware unit tests, and the accuracy evaluator, and fails the build if the model drops below its accuracy floor.
+
+### Provenance caveats — read before quoting these numbers
+
+1. **The RMSSD column in the MIMIC feeds is synthetic.** The HR and SpO₂ columns are genuine MIMIC-III `CHARTEVENTS` values (verified against the raw tables — e.g. subject 10013: SpO₂ min 60, HR max 113, 82 rows, matching the feed exactly). But **MIMIC-III v1.4 contains no waveform, ECG or numerics tables**, so beat-to-beat intervals — and therefore RMSSD — cannot be derived from it. The feed's RMSSD is generated: it has 16,384 distinct values across 16,387 rows over only 1,433 distinct (HR, SpO₂) pairs, i.e. essentially a unique float per row. Treat any metric that depends on RMSSD as *conditional on that synthetic input*.
+2. **The dataset is the MIMIC-III demo subset** (98 subjects), not the full MIMIC-III cohort. It is a benchmark fixture, not an epidemiological result.
+3. **`ground_truth_crisis` is derived in-tree.** No upstream generator script for those labels is committed, and the labels vary within a patient over time, consistent with a vitals-derived rule. The triage metrics are therefore best read as *agreement with that labeling rule*, not as independent clinical validation.
+4. **The "88.47% accuracy" figure is agreement with a rule-based teacher**, not with clinical outcomes. `train_nn_risk_model.py` distils `disaster_risk_engine.c` into a 619-parameter network; both the training labels and the validation labels come from that same teacher.
+5. **The 185 LUT / +5.603 ns Zynq figures are the tagged `v1.0-zynq-SIH` baseline.** Their only surviving in-repo evidence is the PNG screenshots; the raw report was overwritten when `.runs/` was regenerated under Vivado 2026.1. See [`hardware/zynq/synthesis_evidence/README.md`](hardware/zynq/synthesis_evidence/README.md) for which numbers belong to which run.
+6. **ESP32-S3 inference latency is not measured.** The `0.44 µs` figure is an x86-64 host measurement. Do not quote it as a target-device number.
 
 ---
 
@@ -27,7 +57,7 @@ An end-to-end heterogeneous System-on-Chip (SoC) combining **synthesizable Veril
 * **Cycle-Accurate Hardware Timing:** Dedicated 50 MHz FPGA timer measures heartbeat Inter-Beat Intervals (IBI) with **20 nanoseconds resolution**, eliminating the 5–20 ms operating system scheduling jitter that corrupts Heart Rate Variability (HRV).
 * **Area-Optimized DSP Architecture:** Dual-channel 8-tap moving average filter implemented using an **$O(1)$ running-sum algorithm with wire-shift division (`>> 3`)**, requiring **0 DSP48 multiplier slices and 0 Block RAMs**.
 * **Robust Bus Interfacing:** Standard ARM AMBA AXI4-Lite slave engine with **decoupled `AW` and `W` channel handshakes**, eliminating bus deadlocks on out-of-order interconnects. Includes **Write-1-to-Clear (W1C)** status registers to prevent interrupt race conditions.
-* **High-Accuracy On-Device TinyML (INT8):** 2-layer micro-architecture ($6 \to 24 \to 16 \to 3$) requiring only **619 bytes SRAM** with **91.00% validation accuracy** (tested on 16,387 synchronized MIMIC-III ICU records with **92.05% clinical accuracy**), executing in **42 µs** with zero cloud dependencies.
+* **High-Accuracy On-Device TinyML (INT8):** 2-hidden-layer micro-architecture ($6 \to 24 \to 16 \to 3$) requiring only **619 bytes** of parameter storage, reaching **88.47% validation accuracy** on a held-out synthetic validation set (see [Reproducibility](#-reproducibility--evidence-provenance)) with **97.32% FP32↔INT8 tier agreement**, and executing in **0.44 µs per inference** (measured, `-O2`, x86-64 host; ESP32-S3 target timing not yet measured) with zero cloud dependencies.
 * **Multi-Disaster Resilience (Tailored for India):**
   * *Heat Waves:* Fuses **NOAA Steadman Heat Index** and **Moran's Physiological Strain Index (PSI)** with cardiac tachycardia to warn of heat exhaustion before collapse.
   * *Smog Events:* Combines **neural-calibrated PM2.5** with the **AHA Autonomic Strain Index** to detect acute vagal suppression ($RMSSD$ drop).
@@ -74,7 +104,7 @@ The system operates across four coordinated processing tiers, moving from raw ph
 │   • driver_ppg.c          : Register-level hardware abstraction & IBI extraction                     │
 │   • hrv_analysis.c        : 20-sample circular buffer computing RMSSD (vagal tone) and SDNN          │
 │   • spo2_engine.c         : Beer-Lambert Ratio-of-Ratios SpO₂ calibration (R = (AC/DC)R / (AC/DC)IR) │
-│   • nn_risk_model_int8.c  : 6→12→3 TinyML Neural Network quantized to INT8 executing in < 1 µs       │
+│   • nn_risk_model_int8.c  : 6→24→16→3 TinyML Neural Network, INT8, 0.44 µs/inference     │
 │   • disaster_risk_engine.c: Multi-disaster scoring engine (CTSI Heat Strain & PRSI Pollution Index)  │
 │   • ssd1306.c             : 128×64 OLED graphics driver & real-time offline advisory display         │
 └──────────────────────────────────────────────────────────────────────────────────────────────────────┘
@@ -154,10 +184,10 @@ The intelligence layer features an ultra-compact 2-hidden-layer feedforward arti
   * **Neuron 1 — Heat Stroke Risk:** Detects cardiovascular drift under severe heat index conditions.
   * **Neuron 2 — Air Pollution Risk:** Assesses respiratory distress caused by hazardous particulate matter.
   * **Neuron 3 — Flood / Hypothermia Risk:** Evaluates cold exposure and immersion-induced bradycardia.
-* **INT8 Quantization & Memory Footprint:** Fixed-point representation reduces total parameter memory to **619 bytes SRAM** with **576 INT8 MAC operations**, executing in **42 µs** on ARM Cortex-A9 / ESP32-S3 cores with zero cloud dependencies.
-* **Clinical Accuracy & Validation:**
-  * **Synthetic Multi-Disaster Validation:** **91.00% accuracy** across 10,000 extreme edge condition test vectors.
-  * **Clinical MIMIC-III ICU Database Benchmark:** **92.05% clinical concordance** across 16,387 real-world patient records with gold-standard hemodynamic ICU telemetry.
+* **INT8 Quantization & Memory Footprint:** Fixed-point representation reduces total parameter storage to **619 bytes** (**576 INT8 MAC operations**), executing in **0.44 µs** per inference on an x86-64 host at `-O2` with zero cloud dependencies. Target-side (ESP32-S3) latency has **not** been measured.
+* **Accuracy & Validation:**
+  * **Synthetic Multi-Disaster Validation:** **88.47%** exact tier agreement on a 6,200-sample held-out split of the synthetic scenario set (validation MSE `0.002979`, FP32↔INT8 tier agreement 97.32%). Reproduce with `python3 firmware/core/train_nn_risk_model.py`; CI enforces a floor via `--min-accuracy`.
+  * **Clinical MIMIC-III ICU Database Benchmark:** **94.11%** triage accuracy over 16,387 MIMIC-III ICU time steps, with 58.18% sensitivity / 98.19% specificity. **The HR and SpO₂ inputs are real MIMIC-III chart events; the RMSSD column is synthetic**, because MIMIC-III v1.4 ships no waveform data from which beat-to-beat intervals could be derived. See [Reproducibility](#-reproducibility--evidence-provenance).
 
 ---
 
@@ -186,7 +216,9 @@ Full functional verification of `tb_ppg_system.v` in AMD Xilinx Vivado ML (6/6 s
 
 ## 🔬 Vivado Post-Synthesis Static Timing & Utilization Evidence (Zynq Baseline)
 
-Synthesized Out-of-Context (OOC) with **AMD Xilinx Vivado ML v2022.2**, target part `xc7z020clg400-1` (Speed Grade -1, Slow Process Corner 85°C):
+### Baseline run — tagged `v1.0-zynq-SIH`
+
+Synthesized Out-of-Context (OOC) with **AMD Xilinx Vivado ML v2022.2**, target part `xc7z020clg400-1` (Speed Grade -1, Slow Process Corner 85°C). This is the frozen hackathon-baseline result, permanently preserved at tag `v1.0-zynq-SIH`:
 
 | Metric / Resource | Value | Chip Available (`xc7z020`) | Status / Utilization |
 |:---|:---:|:---:|:---:|
@@ -199,12 +231,32 @@ Synthesized Out-of-Context (OOC) with **AMD Xilinx Vivado ML v2022.2**, target p
 | **DSP48 Multiplier Slices** | **0** | 220 | **0.00% (Pure Logic)** |
 | **Block RAM (BRAM)** | **0** | 140 | **0.00%** |
 
+> **Evidence note:** the only in-repo evidence for this specific run is the
+> screenshots below (`docs/images/timing_summary.png`,
+> `utilization_percentage.png`). The raw `.rpt` for the tagged run was not
+> preserved before `.runs/` was regenerated — see
+> [`hardware/zynq/synthesis_evidence/README.md`](hardware/zynq/synthesis_evidence/README.md).
+
+### Re-synthesis in this tree — Vivado v2026.1, Sep 2026
+
+A later re-synthesis is what the `.runs/` tree in this repository actually contains, and its raw reports **are** committed as text evidence under [`hardware/zynq/synthesis_evidence/`](hardware/zynq/synthesis_evidence/):
+
+| Measurement | Value | Tool / Scope |
+|:---|:---:|:---|
+| Accelerator OOC slice LUTs | **198** (182 logic + 16 LUTRAM) | Vivado v2026.1, `axi_ppg_accelerator` OOC |
+| Accelerator OOC slice registers | **267** | Vivado v2026.1, `axi_ppg_accelerator` OOC |
+| DSPs / BRAMs | **0 / 0** | both runs agree |
+| Integrated post-route WNS / WHS | **+12.836 ns / +0.106 ns** (1,806 endpoints) | full `design_ZYNQ_wrapper` (PS7 + SmartConnect + accelerator), timing met |
+| Integrated placed LUTs / FFs | 562 / 667 | full `design_ZYNQ_wrapper` |
+
+These two runs measure different things and are **not** a regression of one another: the +5.603 ns figure is the standalone accelerator OOC, while +12.836 ns is the whole block design post-route. Do not quote them interchangeably.
+
 ### Detailed Vivado Synthesis Reports & Schematics:
 
-#### Timing Summary Report (+5.603 ns WNS Closure):
+#### Timing Summary Report (baseline run, +5.603 ns WNS Closure):
 ![Vivado Timing Summary](docs/images/timing_summary.png)
 
-#### FPGA Fabric Utilization Breakdown (185 LUTs / 0 DSPs):
+#### FPGA Fabric Utilization Breakdown (baseline run, 185 LUTs / 0 DSPs):
 ![Vivado Utilization Percentage](docs/images/utilization_percentage.png)
 
 #### On-Chip Power Dissipation Summary:
@@ -260,9 +312,9 @@ Post-synthesis compilation results from **Renesas ForgeFPGA Workshop v6.55** tar
 
 ![Renesas ForgeFPGA Resource Footprint](docs/images/forgefpga_utilization.png)
 
-* **Logic LUT5 Usage:** **195 / 1120 CLB LUT5s (17.41%)** — **82.59% of logic fabric remains free** for expanded DSP and filtering.
-* **Registers / Flip-Flops:** **110 Flip-Flops** (77 CLB FFs + 33 IOB FFs).
-* **CLB Macrocells:** **35 / 140 Blocks (25.00%)**.
+* **Logic LUT5 Usage:** **443 / 1120 CLB LUT5s (39.55%)** — **60.45% of logic fabric remains free** for expanded DSP and filtering.
+* **Registers / Flip-Flops:** **353 Flip-Flops** (345 CLB FFs @ 30.80% + 8 IOB FFs @ 1.09%).
+* **CLB Macrocells:** **85 / 140 Blocks (60.71%)** — LUT headroom is comfortable, but CLB occupancy is the tighter constraint, and the part's **only PLL is consumed (1/1)**. Any significant DSP expansion should re-check the CLB budget, not just the LUT count.
 * **DSP Multipliers & BRAM:** **0 DSP Multipliers, 0 Block RAMs** (synthesized purely from logic).
 
 #### ForgeFPGA Workshop GUI Synthesis Evidence:
@@ -301,50 +353,43 @@ To ensure transparent, reproducible engineering rigor, all performance metrics a
 
 ## 💻 Live Console Demonstration Output (`main_simulation.c`)
 
-Running `./health_demo.exe` executes real-time multi-sensor fusion and TinyML risk classification across simulated disaster profiles:
+Running `./health_demo.exe` executes real-time multi-sensor fusion and TinyML risk classification across simulated disaster profiles. The block below is **verbatim output** from the current binary (ANSI colour codes stripped, trimmed after the AI score panel); the console then cycles through the remaining disaster profiles:
 
 ```text
 +================================================================+
-|    SIH26181 - AI-Powered Personal Health Companion             |
-|    Edge Health Monitor & Disaster Resilience System            |
-|    Qualcomm Hardware Challenge - Smart India Hackathon 2026    |
+|    SIH26181 Health Companion Simulator                         |
 +================================================================+
-|  [TinyML] On-Device Neural Network Inference (6->12->3)        |
-+================================================================+
-
- Scenario: HEAT WAVE (Outdoor, Delhi Summer 47°C)  |  Time: 12s
+ Scenario: Normal Resting (Indoor, 25C)  |  Time: 0s
 
  +---------------- VITALS -----------------+
- |  Heart Rate:    138.0   BPM              |
- |  SpO2:          96.5    %                |
- |  HRV RMSSD:     9.2     ms  (CRITICAL)   |
- |  HRV SDNN:      12.4    ms               |
+ |  Heart Rate:    72.0    BPM              |
+ |  SpO2:          98.0    %                |
+ |  HRV RMSSD:     44.6    ms               |
+ |  HRV SDNN:      30.7    ms               |
  +-----------------------------------------+
 
  +------------- ENVIRONMENT ---------------+
- |  Temperature:   46.5    °C               |
- |  Humidity:      68.0    %                |
- |  PM2.5:         35      ug/m3            |
+ |  Ambient Temp:  25.0    C                |
+ |  Skin Temp:     36.5    C                |
+ |  Humidity:      45.0    %                |
+ |  PM2.5:         15      ug/m3            |
  +-----------------------------------------+
 
  +----------- RISK ASSESSMENT -------------+
- |  Heat Risk:       CRITICAL (CTSI: 78/100)|
+ |  Heat Risk:       NORMAL                 |
  |  Pollution Risk:  NORMAL                 |
+ |  Flood/Cold Risk: NORMAL                 |
  |                                         |
- |  >> OVERALL:      CRITICAL RISK          |
+ |  >> OVERALL:      NORMAL                 |
  +-----------------------------------------+
 
  +--------- AI CONFIDENCE SCORES ----------+
- |  Heat Neuron:     0.884                    |
- |  Pollution Neuron:0.031                    |
- |  Flood Neuron:    0.042                    |
+ |  Heat Neuron:     0.000                  |
+ |  Pollution Neuron:0.000                  |
  +-----------------------------------------+
-
- >> DANGER: AI detects heat stroke imminent! Cardiovascular drift.
- >> Action: Stop exertion, seek shade & active cooling immediately.
-
- [TinyML on-device inference | Zero cloud | Qualcomm AI Engine ready]
 ```
+
+> RMSSD/SDNN values above vary between runs with the simulated sensor noise; the scenario, vitals layout and risk lines are stable.
 
 ### Compare Harness: Rule Engine vs Neural Network Validation (`compare_harness.c`)
 
@@ -462,7 +507,8 @@ For an in-depth mathematical defense, signal processing equations, and clinical 
 │   │   ├── disaster_risk_engine.c  # Moran PSI, Steadman HI, AHA PM2.5-HRV, Si et al. Neural PM2.5
 │   │   ├── nn_risk_model.c / .h    # Float32 feedforward TinyML model (6→24→16→3)
 │   │   ├── nn_risk_model_int8.c    # INT8 Quantized TinyML engine (619 bytes SRAM, 91% acc)
-│   │   └── mimic_harness.c         # MIMIC-III clinical benchmark harness (92.05% acc)
+│   │   ├── accuracy_evaluator.c    # MIMIC-III triage metrics (94.11% acc, confusion matrix)
+│   │   └── mimic_harness.c         # MIMIC-III cohort scan (triage level counts + latency only)
 │   ├── zynq/                       # Zynq PS application, sensor drivers & harnesses
 │   │   ├── main_simulation.c       # Interactive multi-disaster console demo
 │   │   ├── compare_harness.c       # Rule Engine vs TinyML validation harness
@@ -487,7 +533,7 @@ For an in-depth mathematical defense, signal processing equations, and clinical 
 │
 ├── data/
 │   └── mimic/                      # MIMIC-III benchmark validation dataset
-│       ├── mimic_vital_feed.csv    # 16,387 clinical vital records
+│       ├── mimic_vital_feed.csv    # 16,387 MIMIC-III ICU rows (real HR/SpO2, synthetic RMSSD)
 │       └── mimic_eval_feed.csv     # Multi-hazard ground truth labels
 │
 ├── reports/                        # DeepSeek clinical audits & MIMIC-III benchmark logs
@@ -605,7 +651,7 @@ gtkwave hardware/shrikefi/shrikefi_sim.vcd hardware/shrikefi/presentation.gtkw
 - **Zynq**: AXI4-Lite register transactions, dual 8-tap moving average filters (0 DSP/0 BRAM), 4-state peak detector FSM, beat interrupt + IBI cycles (20 ns resolution)
 - **ShrikeFi**: 4-bit parallel FPGA↔MCU link protocol, same filter/peak detector RTL, link framing + strobe synchronization, beat interrupt to ESP32-S3
 
-See [`docs/WAVEFORM_PRESENTATION_GUIDE.md`](docs/WAVEFORM_PRESENTATION_GUIDE.md) for signal tables and presentation tips.
+For the commands that reproduce each waveform and test result, see [Reproducibility & Evidence Provenance](#-reproducibility--evidence-provenance)..
 
 ---
 

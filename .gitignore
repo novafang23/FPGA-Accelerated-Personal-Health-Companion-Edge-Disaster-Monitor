@@ -24,12 +24,20 @@
 *.wcfg
 
 # ── Renesas ForgeFPGA synthesis intermediates ────────────────
-# Keep: bitstream/, post_synth_report.txt, post_synth_results.v,
-#       simulation-models/, simulation/
-FPGA-MED-DEVICE/ffpga/build/minplacer/
-FPGA-MED-DEVICE/ffpga/build/ta_message/
-FPGA-MED-DEVICE/ffpga/build/netlist.edif
-FPGA-MED-DEVICE/ffpga/build/synth_script.ys
+# Paths below are the current locations; the old FPGA-MED-DEVICE/... entries
+# referenced a pre-restructuring layout that no longer exists.
+# The whole ForgeFPGA build dir is ignored separately (see below); the
+# curated evidence copies live in hardware/shrikefi/synthesis_evidence/.
+hardware/shrikefi/forgefpga_project/ffpga/build/minplacer/
+hardware/shrikefi/forgefpga_project/ffpga/build/ta_message/
+
+# ── Curated, tracked synthesis evidence ──────────────────────
+# These override the broad *.log / *.runs/ rules above: they are the small,
+# hand-picked reports that back the numbers quoted in README.md.
+!hardware/shrikefi/synthesis_evidence/
+!hardware/shrikefi/synthesis_evidence/**
+!hardware/zynq/synthesis_evidence/
+!hardware/zynq/synthesis_evidence/**
 
 # ── ESP-IDF build artifacts (firmware/shrikefi) ──────────────
 firmware/shrikefi/build/

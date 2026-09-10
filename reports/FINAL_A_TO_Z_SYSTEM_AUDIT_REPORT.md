@@ -1,3 +1,17 @@
+> [!WARNING]
+> **SUPERSEDED — this report predates the fixes it audits (dated 09-MAY-2026).**
+>
+> Several findings below have since been resolved in the code. Notably it flags a
+> **GPIO3 strapping conflict on the FPGA reset line**; the current pin map uses
+> **GPIO11** (`PIN_FPGA_RST_N` in `firmware/shrikefi/shrikefi_pinmap.h`), which is
+> not an ESP32-S3 strapping pin.
+>
+> Its "not jury-ready" and "critical hardware/software mismatch" verdicts describe
+> the tree as of that date, not the current one. Kept for audit-trail purposes.
+> For current, verified status see `reports/CLINICAL_AI_ACCURACY_REPORT.md` and the
+> README's "Reproducibility & Evidence Provenance" section.
+
+---
 # Project SIH26181: Final A-to-Z DeepSeek System Audit & Certification
 
 # EdgeGuard / ShrikeFi — Independent System Architecture Audit Report
