@@ -498,11 +498,15 @@ For an in-depth mathematical defense, signal processing equations, and clinical 
 │
 ├── scripts/                        # Automation & copilot utilities
 │   ├── deepseek_copilot.py         # AI clinical co-pilot reasoning script
-│   └── deepseek.bat                # Copilot CLI shortcut
+│   ├── deepseek.bat                # Copilot CLI shortcut
+│   └── generate_sih_presentation.py # Widescreen 16:9 presentation generator
 │
 ├── docs/
 │   ├── images/                     # Waveforms, schematics, floorplans & CAD renders
 │   ├── media/                      # 360° Wearable enclosure rotation video
+│   ├── presentation/               # SIH26181 Official Presentation (.pptx & .pdf)
+│   │   ├── SIH26181_EdgeGuard_Presentation.pptx
+│   │   └── SIH26181_EdgeGuard_Presentation.pdf
 │   ├── theory/                     # Master theory notes & printable PDF book
 │   ├── HARDWARE_ARCHITECTURE.md    # In-depth microarchitecture specification
 │   ├── QUALCOMM_PLATFORM_STRATEGY.md # Qualcomm Snapdragon Wear W5+ migration spec
