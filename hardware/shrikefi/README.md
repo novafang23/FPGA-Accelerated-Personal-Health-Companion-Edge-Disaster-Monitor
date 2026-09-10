@@ -66,9 +66,11 @@ and the `localparam` decode in `forgefpga_ppg_top.v` (`0x1`..`0x8`).
 
 `convert_bitstream.py` reads
 `forgefpga_project/ffpga/build/bitstream/FPGA_bitstream_MCU.bin` and writes
-`firmware/shrikefi/forgefpga_bitstream.h`, which the ESP32 firmware flashes to
-the FPGA over I2C at boot.
+`firmware/shrikefi/forgefpga_bitstream.h`, which the ESP32 firmware attempts to
+flash to the FPGA over I2C at boot.
 
-See the known-issue note in [`firmware/shrikefi/README.md`](../../firmware/shrikefi/README.md):
-the committed header is currently **older** than the build output on disk, so the
-header must be regenerated and the result verified on hardware before flashing.
+The header is currently **in sync** with that build output (46,408 bytes,
+verified byte-for-byte). Note however that the firmware's I2C delivery routine
+may not actually program the part — see the FPGA-delivery note in
+[`firmware/shrikefi/README.md`](../../firmware/shrikefi/README.md) before relying
+on the auto-flash path.

@@ -65,9 +65,10 @@ I2C from the bitstream embedded in `forgefpga_bitstream.h`. On the real ShrikeFi
 board the 4-bit link runs over internal PCB traces, so no jumper wires are needed
 for it.
 
-1. **Regenerate the bitstream first.** The committed `forgefpga_bitstream.h` is
-   stale relative to the current ForgeFPGA build output — see the known issue
-   below. Decide which bitstream is authoritative *before* flashing.
+1. **The bitstream is up to date.** `forgefpga_bitstream.h` was regenerated from
+   `FPGA_bitstream_MCU.bin` (the 2026-09-07 build output) and verified
+   byte-for-byte: 46,408 bytes, zero differing bytes. See the firmware/FPGA note
+   at the end of this file for a caveat about how it is delivered.
 2. **Find your COM port.** Device Manager → Ports (COM & LPT). The scripts default
    to `COM5`; override with an argument, e.g. `build_and_flash.bat COM7`. If no
    port appears, the USB-serial driver is missing.
@@ -99,27 +100,37 @@ console. Two things worth changing before a demo:
   optimization level will materially speed up INT8 inference and shrink the
   image, which matters on a 2 MB flash.
 
-## Known issue: the embedded bitstream may be stale
+## FPGA delivery: bitstream is current, but the I2C flash path needs verification
 
-`forgefpga_bitstream.h` was last regenerated in commit `06129b2` (2026-08-31),
-while the ForgeFPGA build output on disk
-(`forgefpga_project/ffpga/build/bitstream/FPGA_bitstream_MCU.bin`) was written
-**2026-09-07** and differs from the embedded copy in roughly **10% of its bytes**
-(31,089 of 301,890 file bytes).
+**Resolved:** `forgefpga_bitstream.h` now matches the ForgeFPGA build output
+exactly. It was regenerated from `FPGA_bitstream_MCU.bin` (2026-09-07) with
+`hardware/shrikefi/convert_bitstream.py` and verified byte-for-byte — 46,408
+bytes, 0 differing bytes, `forgefpga_bitstream_length = 46408`.
 
-That means the RTL currently committed under
-`hardware/shrikefi/forgefpga_project/ffpga/src/` is **not proven** to be the
-configuration this firmware flashes.
+**Open, and worth checking on the bench:** `shrikefi_fpga_flash_init()` in
+`shrikefi_link_driver.c` may not actually be able to deliver that bitstream.
 
-Before flashing hardware, regenerate and re-verify:
+Two things in that routine (lines 220-254) do not obviously add up:
 
-```bat
-cd hardware\shrikefi
-python convert_bitstream.py
-:: writes firmware\shrikefi\forgefpga_bitstream.h from the current build output
-```
+1. It writes 46,408 bytes in 16-byte chunks, passing `(uint8_t)(offset & 0xFF)`
+   as the I2C register/word address. That field is 8 bits wide, so it wraps every
+   256 bytes. A 46 KB image cannot be addressed through an 8-bit offset unless
+   the device auto-increments internally — in which case sending the offset as
+   the register byte is still not obviously right.
+2. It first probes the FPGA with a read at register `0x00`; on any failure it logs
+   *"assuming pre-programmed NVM / standalone mode"* and **returns success without
+   writing anything**.
 
-Then rebuild the firmware and confirm the FPGA enumerates and the link test
-passes on real hardware. This was deliberately **not** changed automatically,
-because swapping ~10% of a bitstream is a hardware-visible change that cannot be
-validated without the board.
+So the practical behaviour may be: the FPGA is configured from its own NVM/OTP
+(as the `FPGA_bitstream_OTP.bin` / `FPGA_bitstream_FLASH_MEM.bin` variants
+suggest) and this auto-flash path is a no-op fallback — which would make the
+"auto-flashes the bitstream on boot" claim in the top-level README inaccurate.
+
+I could not settle this without the ForgeFPGA I2C programming specification and
+the board. To check: watch the boot log for `Flashing ForgeFPGA Bitstream` versus
+the `not responding on I2C` warning. If you see the warning, nothing was flashed
+and the FPGA is running whatever was programmed into it previously.
+
+If the auto-flash is meant to work, the offset needs to be widened (typically a
+16-bit word address sent as two bytes) and the protocol confirmed against the
+Renesas programming guide.
