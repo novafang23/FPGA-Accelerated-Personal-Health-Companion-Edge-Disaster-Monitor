@@ -499,14 +499,17 @@ For an in-depth mathematical defense, signal processing equations, and clinical 
 ├── scripts/                        # Automation & copilot utilities
 │   ├── deepseek_copilot.py         # AI clinical co-pilot reasoning script
 │   ├── deepseek.bat                # Copilot CLI shortcut
-│   └── generate_sih_presentation.py # Widescreen 16:9 presentation generator
+│   ├── generate_sih_presentation.py # Widescreen pitch presentation generator
+│   └── generate_sih_official_presentation.py # Official SIH template generator (6 slides)
 │
 ├── docs/
 │   ├── images/                     # Waveforms, schematics, floorplans & CAD renders
 │   ├── media/                      # 360° Wearable enclosure rotation video
-│   ├── presentation/               # SIH26181 Official Presentation (.pptx & .pdf)
-│   │   ├── SIH26181_EdgeGuard_Presentation.pptx
-│   │   └── SIH26181_EdgeGuard_Presentation.pdf
+│   ├── presentation/               # SIH26181 Official Presentation Decks
+│   │   ├── SIH26181_Official_Template_Presentation.pdf  # Strict 6-slide SIH portal submission
+│   │   ├── SIH26181_Official_Template_Presentation.pptx # Editable official SIH template deck
+│   │   ├── SIH26181_EdgeGuard_Presentation.pdf         # Widescreen 16:9 pitch deck (PDF)
+│   │   └── SIH26181_EdgeGuard_Presentation.pptx        # Widescreen 16:9 pitch deck (PowerPoint)
 │   ├── theory/                     # Master theory notes & printable PDF book
 │   ├── HARDWARE_ARCHITECTURE.md    # In-depth microarchitecture specification
 │   ├── QUALCOMM_PLATFORM_STRATEGY.md # Qualcomm Snapdragon Wear W5+ migration spec
