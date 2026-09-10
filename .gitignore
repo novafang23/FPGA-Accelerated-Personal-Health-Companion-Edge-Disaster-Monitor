@@ -43,7 +43,10 @@ hardware/shrikefi/forgefpga_project/ffpga/build/ta_message/
 firmware/shrikefi/build/
 firmware/shrikefi/sdkconfig
 firmware/shrikefi/sdkconfig.old
-firmware/shrikefi/main/
+# NOTE: firmware/shrikefi/main/ must NOT be ignored. It holds the mandatory
+# ESP-IDF `main` component definition (main/CMakeLists.txt) that registers every
+# source in the project. Ignoring it made the firmware unbuildable from a fresh
+# clone, because idf.py requires a main component to exist.
 
 # ── Python ───────────────────────────────────────────────────
 __pycache__/

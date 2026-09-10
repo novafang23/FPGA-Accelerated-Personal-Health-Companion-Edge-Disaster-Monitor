@@ -1,0 +1,56 @@
+# ShrikeFi ESP32-S3 build identity
+# ==============================================================================
+# Reproduces the configuration the committed firmware was built with. ESP-IDF
+# uses this file only when sdkconfig does not exist yet, so it does not change
+# an existing local build.
+#
+#   idf.py set-target esp32s3 && idf.py build
+#
+# Values below were read out of the generated sdkconfig (which is gitignored
+# because it is 2400+ lines of derived state).
+# ==============================================================================
+
+# --- Target -------------------------------------------------------------------
+CONFIG_IDF_TARGET="esp32s3"
+
+# --- Flash --------------------------------------------------------------------
+CONFIG_ESPTOOLPY_FLASHMODE_DIO=y
+CONFIG_ESPTOOLPY_FLASHMODE="dio"
+CONFIG_ESPTOOLPY_FLASHFREQ_80M=y
+CONFIG_ESPTOOLPY_FLASHFREQ="80m"
+CONFIG_ESPTOOLPY_FLASHSIZE_2MB=y
+CONFIG_ESPTOOLPY_FLASHSIZE="2MB"
+
+# --- Partition table ----------------------------------------------------------
+CONFIG_PARTITION_TABLE_SINGLE_APP=y
+CONFIG_PARTITION_TABLE_OFFSET=0x8000
+CONFIG_PARTITION_TABLE_MD5=y
+
+# --- CPU ----------------------------------------------------------------------
+# NOTE: this is 160 MHz. README.md and docs/theory/THEORY_NOTES.md describe the
+# part as "ESP32-S3 @ 240 MHz", which is the silicon's maximum, not what this
+# firmware is configured to run at. Either raise this to 240 or soften that
+# wording -- see the bring-up notes in firmware/shrikefi/README.md.
+CONFIG_ESP_DEFAULT_CPU_FREQ_MHZ_160=y
+CONFIG_ESP_DEFAULT_CPU_FREQ_MHZ=160
+
+# --- Console ------------------------------------------------------------------
+CONFIG_ESP_CONSOLE_UART_DEFAULT=y
+CONFIG_ESP_CONSOLE_USB_SERIAL_JTAG_ENABLED=y
+CONFIG_ESP_CONSOLE_UART_NUM=0
+CONFIG_ESP_CONSOLE_UART_BAUDRATE=115200
+
+# --- FreeRTOS -----------------------------------------------------------------
+# 100 Hz tick = 10 ms scheduling granularity. This is exactly why beat-to-beat
+# timing is done in the FPGA rather than in software.
+CONFIG_FREERTOS_HZ=100
+
+# --- Compiler -----------------------------------------------------------------
+# NOTE: intentionally reproducing the current DEBUG build (-Og). For a demo,
+# switch to release for materially faster INT8 inference and a smaller image
+# (relevant on a 2 MB flash):
+#   idf.py menuconfig -> Compiler options -> Optimization Level -> Release (-Os)
+#   (or set CONFIG_COMPILER_OPTIMIZATION_PERF=y / _SIZE=y here)
+CONFIG_COMPILER_OPTIMIZATION_DEBUG=y
+CONFIG_COMPILER_OPTIMIZATION_LEVEL_DEBUG=y
+CONFIG_COMPILER_OPTIMIZATION_ASSERTIONS_ENABLE=y

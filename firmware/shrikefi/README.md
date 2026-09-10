@@ -56,6 +56,49 @@ run_dashboard.bat            :: build and launch the Windows GUI dashboard
 > The dashboard `.exe` and the other `*.exe` / `*.vvp` / `*.vcd` artifacts are
 > gitignored build products, not tracked files — a fresh clone must build them.
 
+## Bring-up procedure (first flash on real hardware)
+
+ShrikeFi has **two USB Type-C ports** (power and programming). You only flash the
+**ESP32-S3** — the FPGA is *not* programmed separately. At boot, `app_main()`
+calls `shrikefi_fpga_flash_init()`, which configures the Renesas ForgeFPGA over
+I2C from the bitstream embedded in `forgefpga_bitstream.h`. On the real ShrikeFi
+board the 4-bit link runs over internal PCB traces, so no jumper wires are needed
+for it.
+
+1. **Regenerate the bitstream first.** The committed `forgefpga_bitstream.h` is
+   stale relative to the current ForgeFPGA build output — see the known issue
+   below. Decide which bitstream is authoritative *before* flashing.
+2. **Find your COM port.** Device Manager → Ports (COM & LPT). The scripts default
+   to `COM5`; override with an argument, e.g. `build_and_flash.bat COM7`. If no
+   port appears, the USB-serial driver is missing.
+3. **Build and flash through the supplied script.** ESP-IDF v5.5.5 is expected at
+   `C:\Espressif\frameworks\esp-idf-v5.5.5`; the `.bat` files `call export.bat`
+   themselves, so `idf.py` does not need to be on PATH:
+   ```bat
+   build_and_flash.bat COM5      :: runs: idf.py -p COM5 flash monitor
+   ```
+   A build is required — do **not** copy a prebuilt binary out of `build/`, which
+   is gitignored and may predate the current sources.
+4. **Read the boot log.** Expect the sensor init lines, then `[TELEMETRY] HR=...`
+   frames once a finger is on the MAX30102. `NO_FINGER` means the PPG sensor has
+   no skin contact.
+5. **Optional live GUI.** With the firmware running, launch
+   `launch_dashboard.bat` (or `run_dashboard.bat`) on the PC against the same COM
+   port.
+
+### Build configuration notes
+
+`sdkconfig` is gitignored (2400+ lines of derived state); `sdkconfig.defaults`
+captures the build identity — target, flash, partition table, CPU frequency and
+console. Two things worth changing before a demo:
+
+* **CPU is configured at 160 MHz**, while `README.md` and `docs/theory/THEORY_NOTES.md`
+  describe the part as "ESP32-S3 @ 240 MHz". Either raise
+  `CONFIG_ESP_DEFAULT_CPU_FREQ_MHZ` to 240 or soften that wording.
+* **The current build is a debug build** (`-Og`). Moving to a release
+  optimization level will materially speed up INT8 inference and shrink the
+  image, which matters on a 2 MB flash.
+
 ## Known issue: the embedded bitstream may be stale
 
 `forgefpga_bitstream.h` was last regenerated in commit `06129b2` (2026-08-31),
