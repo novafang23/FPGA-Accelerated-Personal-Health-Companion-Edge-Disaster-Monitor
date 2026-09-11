@@ -669,22 +669,11 @@ void app_main(void) {
      * expected to self-configure from OTP/NVM or the onboard QSPI flash. The boot
      * must continue regardless: the 4-bit link below is the runtime bus and does
      * not depend on this call. */
-    switch (shrikefi_fpga_flash_init()) {
-        case SHRIKEFI_OK:
-            ESP_LOGI(TAG, "ForgeFPGA bitstream delivery completed over I2C.");
-            break;
-        case SHRIKEFI_ERR_BITSTREAM_DISABLED:
-            ESP_LOGI(TAG, "ForgeFPGA I2C bitstream path compiled out (default build). "
-                          "FPGA self-configures from OTP/NVM or onboard flash.");
-            break;
-        case SHRIKEFI_ERR_FPGA_NOT_DETECTED:
-            ESP_LOGI(TAG, "No ForgeFPGA config interface on I2C -- normal if the FPGA "
-                          "loads from OTP/NVM or onboard flash. Continuing.");
-            break;
-        default:
-            ESP_LOGW(TAG, "ForgeFPGA bitstream delivery did not complete. Continuing "
-                          "with the 4-bit link.");
-            break;
+    /* Deliver ForgeFPGA bitstream over SPI2 (official Vicharak sequence) */
+    if (shrikefi_fpga_flash_init() == SHRIKEFI_OK) {
+        ESP_LOGI(TAG, "ForgeFPGA SLG47910 bitstream programmed successfully over SPI!");
+    } else {
+        ESP_LOGW(TAG, "ForgeFPGA SPI programming did not complete. Falling back to dual-core MCU DSP.");
     }
 
     /* Initialize 4-bit link to ForgeFPGA */

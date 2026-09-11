@@ -5,9 +5,12 @@
  */
 
 #include "shrikefi_link_driver.h"
+#include "shrikefi_pinmap.h"
+#include "forgefpga_bitstream.h"
 
 #ifdef ESP_PLATFORM
 #include "driver/gpio.h"
+#include "driver/spi_master.h"
 #include "esp_rom_sys.h"
 #include "esp_log.h"
 #include "freertos/FreeRTOS.h"
@@ -23,28 +26,14 @@
 
 #include "esp32_i2c_hal.h"
 
-/* The ForgeFPGA bitstream is 46,408 bytes of .rodata. It is only pulled into the
- * image when the I2C delivery path is explicitly enabled -- see
- * main/Kconfig.projbuild for why that is off by default. Nothing else in the
- * project includes this header, so this single guard is enough to keep the
- * 46 KB out of the firmware. */
-#ifdef CONFIG_SHRIKEFI_ENABLE_I2C_BITSTREAM_FLASH
-#include "forgefpga_bitstream.h"
-#define SHRIKEFI_BITSTREAM_FLASH_ENABLED 1
-#else
-#define SHRIKEFI_BITSTREAM_FLASH_ENABLED 0
-#endif
-
-#define FORGEFPGA_I2C_ADDR 0x08
-
 static const char* LINK_TAG __attribute__((unused)) = "SHRIKEFI_LINK";
 
-/* Default ShrikeFi Pin Mapping */
+/* Default ShrikeFi Pin Mapping — Official Vicharak Shrike-Fi Internal Bus */
 static shrikefi_pins_t s_pins = {
-    .pin_strobe = 4,   /* GPIO 4: Link Strobe */
-    .pin_dir    = 5,   /* GPIO 5: Direction (0=Write, 1=Read) */
-    .pin_data   = {6, 7, 8, 9}, /* GPIO 6-9: Data Bus D0-D3 */
-    .pin_irq    = 10   /* GPIO 10: IRQ Beat */
+    .pin_strobe = PIN_FPGA_SCK,   /* GPIO 12: Link Clock */
+    .pin_dir    = PIN_FPGA_SS,    /* GPIO 10: Direction / Data Bit 0 */
+    .pin_data   = {PIN_FPGA_SS, PIN_FPGA_MOSI, PIN_FPGA_SCK, PIN_FPGA_MISO}, /* GPIO 10-13 */
+    .pin_irq    = PIN_FPGA_MISO   /* GPIO 13: Beat Interrupt / Status */
 };
 
 static bool s_initialized = false;
@@ -99,6 +88,18 @@ shrikefi_err_t shrikefi_link_init(const shrikefi_pins_t *pins) {
     }
 
 #ifdef ESP_PLATFORM
+    /* Keep FPGA powered up and hardware enabled */
+    gpio_config_t pwr_en_conf = {
+        .intr_type = GPIO_INTR_DISABLE,
+        .mode = GPIO_MODE_OUTPUT,
+        .pin_bit_mask = (1ULL << PIN_FPGA_PWR) | (1ULL << PIN_FPGA_EN),
+        .pull_down_en = 0,
+        .pull_up_en = 0
+    };
+    gpio_config(&pwr_en_conf);
+    gpio_set_level((gpio_num_t)PIN_FPGA_PWR, 1);
+    gpio_set_level((gpio_num_t)PIN_FPGA_EN, 1);
+
     gpio_config_t out_conf = {
         .intr_type = GPIO_INTR_DISABLE,
         .mode = GPIO_MODE_OUTPUT,
@@ -109,7 +110,7 @@ shrikefi_err_t shrikefi_link_init(const shrikefi_pins_t *pins) {
     gpio_config(&out_conf);
 
     gpio_config_t irq_conf = {
-        .intr_type = GPIO_INTR_POSEDGE,
+        .intr_type = GPIO_INTR_DISABLE,
         .mode = GPIO_MODE_INPUT,
         .pin_bit_mask = (1ULL << s_pins.pin_irq),
         .pull_down_en = 1,
@@ -229,65 +230,114 @@ bool shrikefi_is_beat_detected(void) {
 }
 
 shrikefi_err_t shrikefi_fpga_flash_init(void) {
-#if !SHRIKEFI_BITSTREAM_FLASH_ENABLED
-    /* Default build: 46 KB of bitstream data is not in this image at all.
-     * This is not a fault -- the FPGA is expected to self-configure from
-     * OTP/NVM or the onboard QSPI flash. See main/Kconfig.projbuild. */
-    ESP_LOGI(LINK_TAG, "ForgeFPGA I2C bitstream delivery is compiled out "
-                       "(CONFIG_SHRIKEFI_ENABLE_I2C_BITSTREAM_FLASH=n, saves 46 KB). "
-                       "FPGA is expected to self-configure from OTP/NVM or onboard "
-                       "QSPI flash. The 4-bit link is unaffected.");
-    return SHRIKEFI_ERR_BITSTREAM_DISABLED;
+#ifdef ESP_PLATFORM
+    ESP_LOGI(LINK_TAG, "=========================================================");
+    ESP_LOGI(LINK_TAG, "  Programming Renesas ForgeFPGA SLG47910 via SPI2        ");
+    ESP_LOGI(LINK_TAG, "  Bitstream: FPGA_bitstream_MCU.bin (%lu bytes)          ",
+             (unsigned long)forgefpga_bitstream_length);
+    ESP_LOGI(LINK_TAG, "  Internal Shrike-Fi Pins: PWR=%d EN=%d SS=%d MOSI=%d SCK=%d MISO=%d",
+             PIN_FPGA_PWR, PIN_FPGA_EN, PIN_FPGA_SS, PIN_FPGA_MOSI, PIN_FPGA_SCK, PIN_FPGA_MISO);
+    ESP_LOGI(LINK_TAG, "=========================================================");
 
-#elif defined(ESP_PLATFORM)
-    ESP_LOGI(LINK_TAG, "Probing ForgeFPGA configuration interface (I2C 0x%02X)...",
-             FORGEFPGA_I2C_ADDR);
+    /* 1. Configure PWR, EN, SS as outputs */
+    gpio_config_t out_conf = {
+        .intr_type = GPIO_INTR_DISABLE,
+        .mode = GPIO_MODE_OUTPUT,
+        .pin_bit_mask = (1ULL << PIN_FPGA_PWR) | (1ULL << PIN_FPGA_EN) | (1ULL << PIN_FPGA_SS),
+        .pull_down_en = 0,
+        .pull_up_en = 0
+    };
+    gpio_config(&out_conf);
 
-    /* Probe. A NACK here is the EXPECTED outcome on this board -- see the
-     * function docs in shrikefi_link_driver.h. It means the FPGA configures
-     * itself from OTP/NVM or onboard QSPI flash, which is the normal case. */
-    uint8_t probe_byte = 0;
-    if (esp32_i2c_hal_read_byte(FORGEFPGA_I2C_ADDR, 0x00, &probe_byte) != I2C_HAL_SUCCESS) {
-        ESP_LOGI(LINK_TAG, "No I2C configuration interface at 0x%02X. ForgeFPGA is "
-                           "expected to self-configure from OTP/NVM or onboard QSPI "
-                           "flash. Continuing -- the 4-bit link is unaffected.",
-                 FORGEFPGA_I2C_ADDR);
-        return SHRIKEFI_ERR_FPGA_NOT_DETECTED;
+    /* 2. Initialize SPI bus on SPI2_HOST */
+    spi_bus_config_t buscfg = {
+        .miso_io_num = PIN_FPGA_MISO,
+        .mosi_io_num = PIN_FPGA_MOSI,
+        .sclk_io_num = PIN_FPGA_SCK,
+        .quadwp_io_num = -1,
+        .quadhd_io_num = -1,
+        .max_transfer_sz = 4096,
+    };
+
+    spi_device_interface_config_t devcfg = {
+        .clock_speed_hz = 16000000, /* 16 MHz */
+        .mode = 0,                  /* SPI Mode 0 */
+        .spics_io_num = -1,         /* Manual CS control */
+        .queue_size = 1,
+    };
+
+    spi_device_handle_t spi;
+    esp_err_t ret = spi_bus_initialize(SPI2_HOST, &buscfg, SPI_DMA_CH_AUTO);
+    if (ret != ESP_OK && ret != ESP_ERR_INVALID_STATE) {
+        ESP_LOGE(LINK_TAG, "SPI bus initialize failed (err %d)", ret);
+        return SHRIKEFI_ERR_TIMEOUT;
     }
 
-    /* Something answered. This is not expected, and the transfer below cannot be
-     * correct for a 46 KB image because the HAL's register address is 8 bits and
-     * wraps every 256 bytes. We attempt it rather than silently skipping, but say
-     * so plainly. */
-    ESP_LOGW(LINK_TAG, "Device ACKed at I2C 0x%02X -- attempting bitstream write "
-                       "(%lu bytes). NOTE: this path is unverified; the 8-bit I2C "
-                       "address field cannot address a 46 KB image correctly.",
-             FORGEFPGA_I2C_ADDR, (unsigned long)forgefpga_bitstream_length);
+    ret = spi_bus_add_device(SPI2_HOST, &devcfg, &spi);
+    if (ret != ESP_OK) {
+        ESP_LOGE(LINK_TAG, "SPI bus add device failed (err %d)", ret);
+        return SHRIKEFI_ERR_TIMEOUT;
+    }
 
+    /* 3. Power-up & Reset Sequence (per Vicharak shrike-rs universal flasher specification) */
+    /* Step A: Reset: low PWR, high EN */
+    gpio_set_level((gpio_num_t)PIN_FPGA_PWR, 0);
+    gpio_set_level((gpio_num_t)PIN_FPGA_EN, 1);
+    vTaskDelay(pdMS_TO_TICKS(50));
+
+    /* Step B: Power down everything */
+    gpio_set_level((gpio_num_t)PIN_FPGA_SS, 0);
+    gpio_set_level((gpio_num_t)PIN_FPGA_EN, 0);
+    gpio_set_level((gpio_num_t)PIN_FPGA_PWR, 0);
+    vTaskDelay(pdMS_TO_TICKS(50));
+
+    /* Step C: Enable and Power Up */
+    gpio_set_level((gpio_num_t)PIN_FPGA_EN, 1);
+    gpio_set_level((gpio_num_t)PIN_FPGA_PWR, 1);
+    vTaskDelay(pdMS_TO_TICKS(50));
+
+    /* Step D: Assert SS (Active Low) for SPI transfer */
+    gpio_set_level((gpio_num_t)PIN_FPGA_SS, 1);
+    esp_rom_delay_us(2000);
+    gpio_set_level((gpio_num_t)PIN_FPGA_SS, 0);
+
+    /* 4. Transfer bitstream in 4096-byte DMA chunks */
     uint32_t offset = 0;
     while (offset < forgefpga_bitstream_length) {
-        uint16_t chunk_size = 16;
-        if (offset + chunk_size > forgefpga_bitstream_length) {
-            chunk_size = (uint16_t)(forgefpga_bitstream_length - offset);
-        }
+        uint32_t chunk_len = forgefpga_bitstream_length - offset;
+        if (chunk_len > 4096) chunk_len = 4096;
 
-        int err = esp32_i2c_hal_write(FORGEFPGA_I2C_ADDR, (uint8_t)(offset & 0xFF),
-                                      &forgefpga_bitstream[offset], chunk_size);
-        if (err != 0) {
-            ESP_LOGE(LINK_TAG, "Bitstream write failed at offset %lu (err %d). "
-                               "Configuration interface left as-is; continuing.",
-                     (unsigned long)offset, err);
+        spi_transaction_t t;
+        memset(&t, 0, sizeof(t));
+        t.length = chunk_len * 8; /* in bits */
+        t.tx_buffer = &forgefpga_bitstream[offset];
+        t.rx_buffer = NULL;
+
+        ret = spi_device_transmit(spi, &t);
+        if (ret != ESP_OK) {
+            ESP_LOGE(LINK_TAG, "Bitstream transmission failed at offset %lu (err %d)",
+                     (unsigned long)offset, ret);
+            gpio_set_level((gpio_num_t)PIN_FPGA_SS, 1);
+            spi_bus_remove_device(spi);
+            spi_bus_free(SPI2_HOST);
             return SHRIKEFI_ERR_I2C_WRITE;
         }
 
-        offset += chunk_size;
-        vTaskDelay(pdMS_TO_TICKS(10));
+        offset += chunk_len;
     }
 
-    ESP_LOGI(LINK_TAG, "ForgeFPGA bitstream transmitted (%lu bytes).",
-             (unsigned long)forgefpga_bitstream_length);
-    return SHRIKEFI_OK;
+    /* 5. De-assert SS to finalize FPGA boot */
+    gpio_set_level((gpio_num_t)PIN_FPGA_SS, 1);
+    vTaskDelay(pdMS_TO_TICKS(50));
 
+    ESP_LOGI(LINK_TAG, "ForgeFPGA SLG47910 configuration COMPLETE! (%lu bytes loaded)",
+             (unsigned long)forgefpga_bitstream_length);
+
+    /* Release SPI master driver so pins can transition to runtime 4-bit bus mode */
+    spi_bus_remove_device(spi);
+    spi_bus_free(SPI2_HOST);
+
+    return SHRIKEFI_OK;
 #else
     /* Host / simulation build: no FPGA to configure. */
     return SHRIKEFI_OK;

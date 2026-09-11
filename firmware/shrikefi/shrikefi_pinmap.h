@@ -52,19 +52,34 @@
 #define PMSA003_BAUD         9600
 
 /* =========================================================================
- * FPGA 4-Bit Parallel Link — Internal PCB Traces (No External Wiring)
+ * Renesas ForgeFPGA (SLG47910) Interconnect — Official Vicharak Shrike-Fi Traces
  * =========================================================================
- * These GPIOs are routed via dedicated PCB traces on the ShrikeFi board
- * to the Renesas ForgeFPGA. DO NOT add external jumper wires to these.
+ * These 6 pins are internal PCB copper traces on the Vicharak Shrike-Fi board:
+ *   - GPIO 8:  FPGA Power Control (PWR)
+ *   - GPIO 9:  FPGA Hardware Enable (EN)
+ *   - GPIO 10: SPI Chip Select (SS) / Dual-purpose Link Data 0
+ *   - GPIO 11: SPI MOSI (SI) / Dual-purpose Link Data 1
+ *   - GPIO 12: SPI Clock (SCK) / Dual-purpose Link Data 2
+ *   - GPIO 13: SPI MISO (SO/CONFIG) / Dual-purpose Link Data 3 / Beat IRQ
+ *
+ * NOTE: These are completely internal to the Shrike-Fi PCB. No Zero PCB wiring needed!
  * ====================================================================== */
-#define PIN_FPGA_STROBE      4    /* GPIO4  — Link strobe clock (active-high pulse) */
-#define PIN_FPGA_DIR         5    /* GPIO5  — Transfer direction (0=Write, 1=Read)  */
-#define PIN_FPGA_DATA0       6    /* GPIO6  — Data bit 0 (LSB)                      */
-#define PIN_FPGA_DATA1       7    /* GPIO7  — Data bit 1                            */
-#define PIN_FPGA_DATA2       8    /* GPIO8  — Data bit 2                            */
-#define PIN_FPGA_DATA3       9    /* GPIO9  — Data bit 3 (MSB)                      */
-#define PIN_FPGA_BEAT_IRQ    10   /* GPIO10 — Beat detected interrupt (active-high) */
-#define PIN_FPGA_RST_N       11   /* GPIO11 — FPGA system reset (active-low, non-strapping pin) */
+#define PIN_FPGA_PWR         8    /* GPIO8  — FPGA Power Control */
+#define PIN_FPGA_EN          9    /* GPIO9  — FPGA Hardware Reset/Enable */
+#define PIN_FPGA_SS          10   /* GPIO10 — SPI CS / Dual-Purpose Link D0 */
+#define PIN_FPGA_MOSI        11   /* GPIO11 — SPI MOSI / Dual-Purpose Link D1 */
+#define PIN_FPGA_SCK         12   /* GPIO12 — SPI SCK / Dual-Purpose Link D2 */
+#define PIN_FPGA_MISO        13   /* GPIO13 — SPI MISO / Dual-Purpose Link D3 / Beat IRQ */
+
+/* Dual-purpose link aliases */
+#define PIN_FPGA_DATA0       PIN_FPGA_SS
+#define PIN_FPGA_DATA1       PIN_FPGA_MOSI
+#define PIN_FPGA_DATA2       PIN_FPGA_SCK
+#define PIN_FPGA_DATA3       PIN_FPGA_MISO
+#define PIN_FPGA_BEAT_IRQ    PIN_FPGA_MISO
+#define PIN_FPGA_STROBE      PIN_FPGA_SCK
+#define PIN_FPGA_DIR         PIN_FPGA_SS
+#define PIN_FPGA_RST_N       PIN_FPGA_EN
 
 /* =========================================================================
  * MAX30102 Interrupt (Optional — firmware uses polling at 50Hz instead)

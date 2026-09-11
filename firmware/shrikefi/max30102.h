@@ -129,10 +129,28 @@ float max30102_read_temperature(max30102_t *dev);
 
 /*
  * Scale an 18-bit raw ADC reading to 8-bit for the FPGA pipeline.
- * The FPGA accelerator expects uint8_t inputs.
+ * Real human pulsatile PPG has a large DC baseline (~80k-140k) and an AC swing of
+ * ~500-2000 counts. A naive (raw >> 10) shift squashes the pulsatile wave to < 1 LSB.
+ * We apply dynamic baseline-tracking AC scaling centered around the FPGA's
+ * systolic threshold (120) so the ForgeFPGA peak detector triggers reliably.
  */
 static inline uint8_t max30102_scale_to_8bit(uint32_t raw_18bit) {
-    return (uint8_t)(raw_18bit >> 10);
+    static uint32_t s_baseline = 0;
+    if (raw_18bit < 1000) {
+        s_baseline = 0;
+        return 0;
+    }
+    if (s_baseline == 0) {
+        s_baseline = raw_18bit;
+    } else {
+        // Exponential moving average baseline filter (tau ~ 1.5s at 50Hz)
+        s_baseline = (s_baseline * 63 + raw_18bit) / 64;
+    }
+    int32_t ac = (int32_t)raw_18bit - (int32_t)s_baseline;
+    int32_t scaled = 120 + (ac / 16);
+    if (scaled < 0) scaled = 0;
+    if (scaled > 255) scaled = 255;
+    return (uint8_t)scaled;
 }
 
 /* Power Management */
