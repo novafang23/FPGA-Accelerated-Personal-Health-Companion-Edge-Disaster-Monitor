@@ -187,6 +187,35 @@ This is conceptually correct.
 
 ## 3.2 Critical Finding — MAX30100 Register Map Is Wrong
 
+> **⚠️ CORRECTION (hardware-verified) — THIS FINDING IS INVALID. DO NOT ACT ON IT.**
+>
+> The table below is the **MAX30102** register map, mislabelled as the MAX30100
+> map. The two parts are not interchangeable and this section swapped them.
+>
+> The genuine MAX30100 map (Maxim datasheet) is:
+> `FIFO_WR_PTR 0x02`, `OVF_COUNTER 0x03`, `FIFO_RD_PTR 0x04`, `FIFO_DATA 0x05`,
+> `MODE_CONFIG 0x06`, `SPO2_CONFIG 0x07`, `LED_CONFIG 0x09`,
+> `TEMP_INTEGER 0x16`, `TEMP_FRACTION 0x17`, `PART_ID 0xFF` → `0x11`.
+>
+> That is exactly what `firmware/shrikefi/max30102.h` defines, and exactly what
+> `max30102.c` programs. The code is correct as written.
+>
+> Verified empirically on the physical ShrikeFi board (boot log, 2026-09-11):
+> `PART_ID` read back `0x11`, the driver selected the MAX30100 branch, and the
+> sensor then produced a continuous 42-second capture with
+> IR ≈ 106,000–127,000 counts, pulsatile AC ≈ 2,500–5,100 counts
+> (perfusion index ≈ 2.3–4.6 %, physiologically correct), a stable
+> HR of 93–102 BPM and `SpO2 VALID` throughout.
+>
+> Applying the "fix" proposed below — repointing the defines to
+> `0x04/0x05/0x06/0x08/0x09/0x0A` — would break a driver that is demonstrably
+> working on hardware. `0x08` is not a MAX30100 register at all; on that part it
+> is unimplemented, and `FIFO_DATA` would be read from `0x07` (SPO2_CONFIG),
+> which returns a fixed configuration byte rather than samples.
+>
+> The remaining sections of this report are retained for provenance. Treat this
+> section as withdrawn.
+
 The supplied MAX30100 path uses incorrect register addresses.
 
 ### Actual MAX30100 register map
