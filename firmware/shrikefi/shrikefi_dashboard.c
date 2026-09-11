@@ -12,7 +12,7 @@
  *      2. INTERACTIVE CLINICAL SIMULATION: Evaluates 6 extreme disaster & medical profiles.
  *  - Real-time animated medical Photoplethysmogram (PPG) oscilloscope with cardiac grid
  *  - Live digital displays for HR, SpO2, HRV (RMSSD), derived RR (Charlton 2018), and SQI (Karlen 2012)
- *  - Environmental telemetry: Temp, Humidity, NOAA Steadman Heat Index, and Neural-Calibrated PM2.5
+ *  - Environmental telemetry: Temp, Humidity, and Neural-Calibrated PM2.5
  *  - Peer-reviewed clinical indices: Moran's Physiological Strain Index (PSI) & AHA PM2.5 Autonomic Strain
  *  - Royal College of Physicians mNEWS2 Clinical Triage scoring with automated alert banner
  *  - INT8 Micro-Engine TinyML 3-Axis Risk Gauges (Heat, Pollution, Flood) on the shared 6->24->16->3 engine
@@ -137,7 +137,6 @@ typedef struct {
     float humidity_pct;
     float pm25_raw;
     float pm25_calibrated;
-    float heat_index_c;
     float moran_psi;
     float aha_autonomic_strain;
     
@@ -188,24 +187,14 @@ static HFONT g_font_med_val = NULL;
 static HFONT g_font_label = NULL;
 static HFONT g_font_small = NULL;
 
-/* NOAA Steadman Heat Index Calculation */
-static float calculate_nws_heat_index(float temp_c, float hum_pct) {
-    if (temp_c < 27.0f) return temp_c;
-    float tf = temp_c * 1.8f + 32.0f;
-    float rh = hum_pct;
-    if (rh < 0.0f) rh = 0.0f;
-    if (rh > 100.0f) rh = 100.0f;
-    float hi_f = -42.379f + 2.04901523f * tf + 10.14333127f * rh
-               - 0.22475541f * tf * rh - 0.00683783f * tf * tf
-               - 0.05481717f * rh * rh + 0.00122874f * tf * tf * rh
-               + 0.00085282f * tf * rh * rh - 0.00000199f * tf * tf * rh * rh;
-    float hi_c = (hi_f - 32.0f) / 1.8f;
-    /* Same clamp as disaster_risk_engine.c. This copy is what the GUI prints
-     * ("NOAA Steadman Heat Index: %.1f C"), so without it the display showed
-     * 106 C on the built-in heat-wave profile. */
-    if (hi_c > HEAT_INDEX_MAX_C) hi_c = HEAT_INDEX_MAX_C;
-    return (hi_c > temp_c) ? hi_c : temp_c;
-}
+/* NOTE: the NOAA Steadman heat index used to be computed here purely to be
+ * displayed. It was removed because the Rothfusz regression is only valid inside
+ * its fitted domain: on the simulated heat-wave profile (46.5 C / 68 % RH) it
+ * returned 106 C, and clamping it to the top of the published table (58 C) just
+ * replaced a wrong number with a pinned one that invited the question "why
+ * exactly 58?". The rule engine still uses the real heat index for CTSI in
+ * disaster_risk_engine.c, where it is compared against thresholds and cannot be
+ * displayed out of context. */
 
 /* -------------------------------------------------------------------------- */
 /* High-Speed Robust Line-Buffered Serial Reader Thread                       */
@@ -408,14 +397,11 @@ static void UpdateTelemetryStep(void) {
     /* 1. Neural PM2.5 Humidity Compensation (Slashing optical scattering bias) */
     g_state.pm25_calibrated = pm25_calibrate_nn_int8(g_state.pm25_raw, g_state.temp_c, g_state.humidity_pct);
     
-    /* 2. NOAA Steadman Heat Index */
-    g_state.heat_index_c = calculate_nws_heat_index(g_state.temp_c, g_state.humidity_pct);
-    
-    /* 3. Peer-Reviewed Biomarkers */
+    /* 2. Peer-Reviewed Biomarkers */
     g_state.moran_psi = disaster_calculate_moran_psi(curr_hr, g_state.temp_c, g_state.humidity_pct);
     g_state.aha_autonomic_strain = disaster_calculate_aha_autonomic_strain(g_state.pm25_calibrated, g_state.rmssd);
     
-    /* 4. Royal College of Physicians mNEWS2 Clinical Triage */
+    /* 3. Royal College of Physicians mNEWS2 Clinical Triage */
     clinical_assessment_t clin_out;
     clinical_vitals_assess_full(curr_hr, g_state.spo2, g_state.rmssd, g_state.derived_rr, g_state.sqi, &clin_out);
     g_state.news2_score = clin_out.news2_score;
@@ -423,7 +409,7 @@ static void UpdateTelemetryStep(void) {
     g_state.alert_flags = clin_out.alert_flags;
     strncpy(g_state.news2_advisory, clin_out.advisory, sizeof(g_state.news2_advisory) - 1);
     
-    /* 5. TinyML INT8 Neural Network Inference (6 -> 24 -> 16 -> 3) */
+    /* 4. TinyML INT8 Neural Network Inference (6 -> 24 -> 16 -> 3) */
     hrv_state_t hrv_snap;
     memset(&hrv_snap, 0, sizeof(hrv_snap));
     hrv_snap.rmssd = g_state.rmssd;
@@ -462,7 +448,7 @@ static void UpdateTelemetryStep(void) {
     g_state.flood_risk_pct = nn_out.flood_score * 100.0f;
     g_state.overall_ai_risk = nn_risk.overall_risk;
     
-    /* 6. Oscilloscope Waveform Animation */
+    /* 5. Oscilloscope Waveform Animation */
     // If not streaming raw optical samples from hardware, synthesize the realistic pulse wave:
     if (!g_state.has_live_ppg_stream) {
         float phase_step = (curr_hr > 20.0f ? curr_hr : 60.0f) / 60.0f * 0.0333f;
@@ -838,24 +824,12 @@ static void RenderDashboard(HDC hdcMem, int width, int height) {
     int e1_x = 18, e1_w = 300;
     COLORREF tempCol = (g_state.temp_c > 40.0f || g_state.temp_c < 12.0f) ? COL_RED :
                        (g_state.temp_c > 35.0f || g_state.temp_c < 18.0f) ? COL_AMBER : COL_GREEN_BRT;
-    DrawDarkCard(hdcMem, e1_x, r3_y, e1_w, r3_h, "AMBIENT TEMPERATURE & HEAT INDEX", tempCol);
+    DrawDarkCard(hdcMem, e1_x, r3_y, e1_w, r3_h, "AMBIENT TEMPERATURE", tempCol);
     
     snprintf(szVal, sizeof(szVal), "%.1f C", g_state.temp_c);
     SelectObject(hdcMem, g_font_med_val);
     SetTextColor(hdcMem, tempCol);
     TextOutA(hdcMem, e1_x + 18, r3_y + 34, szVal, strlen(szVal));
-    
-    SelectObject(hdcMem, g_font_small);
-    SetTextColor(hdcMem, COL_TEXT_MUTED);
-    char szHI[64];
-    snprintf(szHI, sizeof(szHI), "NOAA Steadman Heat Index: %.1f C", g_state.heat_index_c);
-    TextOutA(hdcMem, e1_x + 18, r3_y + 76, szHI, strlen(szHI));
-    
-    const char *szHIAlert = (g_state.heat_index_c >= 54.0f) ? "HI Status: EXTREME DANGER" :
-                            (g_state.heat_index_c >= 41.0f) ? "HI Status: DANGER (Heat Stroke)" :
-                            (g_state.heat_index_c >= 32.0f) ? "HI Status: EXTREME CAUTION" : "HI Status: NORMAL / SAFE";
-    SetTextColor(hdcMem, (g_state.heat_index_c >= 41.0f) ? COL_RED : (g_state.heat_index_c >= 32.0f) ? COL_AMBER : COL_GREEN_BRT);
-    TextOutA(hdcMem, e1_x + 18, r3_y + 98, szHIAlert, strlen(szHIAlert));
     
     int e2_x = 328, e2_w = 260;
     DrawDarkCard(hdcMem, e2_x, r3_y, e2_w, r3_h, "RELATIVE HUMIDITY (SHT31/BME280)", COL_CYAN);
