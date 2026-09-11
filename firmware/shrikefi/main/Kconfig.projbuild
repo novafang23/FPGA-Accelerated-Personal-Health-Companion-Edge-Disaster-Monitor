@@ -30,4 +30,27 @@ menu "ShrikeFi configuration"
             The 4-bit parallel link is unaffected either way: it is the runtime
             bus and never depends on this option.
 
+    config SHRIKEFI_WIFI_SSID
+        string "WiFi SSID (2.4 GHz only; leave empty for offline edge mode)"
+        default ""
+        help
+            Network name for the MQTT cloud sync path. The ESP32-S3 radio is
+            2.4 GHz ONLY - a 5 GHz-only SSID will never associate.
+
+            Leave this empty to run the firmware fully offline. That is the
+            recommended configuration for demos and for judging, because it
+            removes an entire class of failure from the critical path.
+
+            These values land in sdkconfig, which is gitignored. You may also
+            put them in firmware/shrikefi/wifi_credentials.h instead (also
+            gitignored), which takes precedence over this option.
+
+    config SHRIKEFI_WIFI_PASS
+        string "WiFi password"
+        default ""
+        depends on SHRIKEFI_WIFI_SSID != ""
+        help
+            WPA2 passphrase for the SSID above. Stored in sdkconfig (gitignored).
+            Never commit this value to the repository.
+
 endmenu

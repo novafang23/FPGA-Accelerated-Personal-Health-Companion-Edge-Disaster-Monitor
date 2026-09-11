@@ -97,6 +97,15 @@ SIH26181_Hardware_Integration_CAD_Design_Report.html
 .env
 .env.local
 
+# ── WiFi credentials ─────────────────────────────────────────
+# Real network credentials must never be committed. Copy the tracked template:
+#   firmware/shrikefi/wifi_credentials.h.example -> wifi_credentials.h
+# (An earlier revision hardcoded the SSID and password directly in
+#  wifi_mqtt_manager.c, which exposed them on the public remote.)
+firmware/shrikefi/wifi_credentials.h
+**/wifi_credentials.h
+!**/wifi_credentials.h.example
+
 # Internal tools and extracted database archives
 .serena/
 mimic-iii-clinical-database-demo-1.4/
