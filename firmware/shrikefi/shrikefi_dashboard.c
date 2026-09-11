@@ -831,6 +831,21 @@ static void RenderDashboard(HDC hdcMem, int width, int height) {
     SetTextColor(hdcMem, tempCol);
     TextOutA(hdcMem, e1_x + 18, r3_y + 34, szVal, strlen(szVal));
     
+    /* Bar spans 0-50 C so the reading has a visual position, matching the
+     * progress bars on the humidity and PM2.5 cards in this row. */
+    float temp_pct = (g_state.temp_c / 50.0f) * 100.0f;
+    if (temp_pct < 0.0f) temp_pct = 0.0f;
+    if (temp_pct > 100.0f) temp_pct = 100.0f;
+    DrawProgressBar(hdcMem, e1_x + 18, r3_y + 76, e1_w - 36, 12, temp_pct, tempCol);
+    
+    SelectObject(hdcMem, g_font_small);
+    SetTextColor(hdcMem, tempCol);
+    const char *szTempBand = (g_state.temp_c > 40.0f) ? "EXTREME HEAT - DANGER" :
+                             (g_state.temp_c > 35.0f) ? "HIGH HEAT" :
+                             (g_state.temp_c < 12.0f) ? "COLD EXPOSURE RISK" :
+                             (g_state.temp_c < 18.0f) ? "COOL" : "NOMINAL RANGE";
+    TextOutA(hdcMem, e1_x + 18, r3_y + 98, szTempBand, strlen(szTempBand));
+    
     int e2_x = 328, e2_w = 260;
     DrawDarkCard(hdcMem, e2_x, r3_y, e2_w, r3_h, "RELATIVE HUMIDITY (SHT31/BME280)", COL_CYAN);
     
