@@ -7,9 +7,8 @@
 ## 1. Quick Reference: Complete System Pinout
 
 | Peripheral / Interface | Signal Name | ESP32-S3 Pin | FPGA Pin | Voltage Level | Notes |
-|---|---|:---:|:---:|:---:|---|
-| **I2C Bus** | **SDA** | **GPIO 2** | — | 3.3V | Shared by OLED, MAX30102, BME280 |
-| **I2C Bus** | **SCL** | **GPIO 1** | — | 3.3V | 400 kHz Fast-Mode I2C clock |
+| **I2C Bus** | **SDA** | **GPIO 1** | — | 3.3V | Shared by OLED, MAX30102, BME280 |
+| **I2C Bus** | **SCL** | **GPIO 2** | — | 3.3V | 400 kHz Fast-Mode I2C clock |
 | **PMS5003 PM2.5** | **UART1 RX** | **GPIO 14** | — | 3.3V | Connects to PMS5003 Pin 5 (TX) |
 | **PMS5003 PM2.5** | **UART1 TX** | **GPIO 18** | — | 3.3V | Connects to PMS5003 Pin 6 (RX) *(optional)* |
 | **FPGA 4-Bit Link** | `link_strobe` | **GPIO 4** | PIN_14 | 3.3V | Internal PCB trace (Strobe Clock) |
@@ -39,11 +38,11 @@ The SSD1306 OLED, MAX30102/MAX30100 optical pulse sensor, and BME280 environment
 ```
  ESP32-S3                     Shared I2C Bus                     Sensors
 ┌─────────┐              ┌──────────────────────┐          ┌─────────────────┐
-│  GPIO 2 │ ─── SDA ───▶ │ Breadboard Row (SDA) │ ───────▶ │ OLED SDA        │
+│  GPIO 1 │ ─── SDA ───▶ │ Breadboard Row (SDA) │ ───────▶ │ OLED SDA        │
 │         │              │                      │ ───────▶ │ MAX30102 SDA    │
 │         │              │                      │ ───────▶ │ BME280 SDA      │
 │         │              ├──────────────────────┤          ├─────────────────┤
-│  GPIO 1 │ ─── SCL ───▶ │ Breadboard Row (SCL) │ ───────▶ │ OLED SCL        │
+│  GPIO 2 │ ─── SCL ───▶ │ Breadboard Row (SCL) │ ───────▶ │ OLED SCL        │
 │         │              │                      │ ───────▶ │ MAX30102 SCL    │
 │         │              │                      │ ───────▶ │ BME280 SCL      │
 └─────────┘              └──────────────────────┘          └─────────────────┘
@@ -53,23 +52,23 @@ The SSD1306 OLED, MAX30102/MAX30100 optical pulse sensor, and BME280 environment
 1. **SSD1306 OLED (128x64 Display):**
    * `VCC` $\to$ **3.3V**
    * `GND` $\to$ **GND**
-   * `SDA` $\to$ **GPIO 2**
-   * `SCL` $\to$ **GPIO 1**
+   * `SDA` $\to$ **GPIO 1**
+   * `SCL` $\to$ **GPIO 2**
    * *I2C Address:* `0x3C` (default) or `0x3D`
 
 2. **MAX30102 / MAX30100 (PPG Pulse & SpO2 Sensor):**
    * `VIN / VCC` $\to$ **3.3V**
    * `GND` $\to$ **GND**
-   * `SDA` $\to$ **GPIO 2**
-   * `SCL` $\to$ **GPIO 1**
+   * `SDA` $\to$ **GPIO 1**
+   * `SCL` $\to$ **GPIO 2**
    * `INT` $\to$ *Leave unconnected (FIFO is polled at 50Hz)*
    * *I2C Address:* `0x57`
 
 3. **BME280 (Temperature, Humidity, Pressure):**
    * `VIN` $\to$ **3.3V**
    * `GND` $\to$ **GND**
-   * `SDA` $\to$ **GPIO 2**
-   * `SCL` $\to$ **GPIO 1**
+   * `SDA` $\to$ **GPIO 1**
+   * `SCL` $\to$ **GPIO 2**
    * `CS`  $\to$ **3.3V** (selects I2C mode)
    * `SDO` $\to$ **GND** (selects address `0x76`) or **3.3V** (selects `0x77`)
    * *I2C Address:* `0x76`
@@ -113,8 +112,8 @@ Here is the cleanest way to allocate your rows:
 Row 1 (GND Hub)     : [1A: ShrikeFi GND] [1B: OLED GND] [1C: MAX30102 GND] [1D: BME280 GND] [1E: PMS5003 Pin 2 (GND)]
 Row 2 (3.3V Hub)    : [2A: ShrikeFi 3.3V][2B: OLED VCC] [2C: MAX30102 VIN] [2D: BME280 VIN] [2E: PMS5003 Pin 3 (SET)]
 Row 3 (5V Power Hub): [3A: ShrikeFi 5V]  [3B: PMS5003 Pin 1 (VCC)] [3C: Empty] [3D: Empty] [3E: Empty]
-Row 4 (I2C SDA Hub) : [4A: ESP32 GPIO 2] [4B: OLED SDA] [4C: MAX30102 SDA] [4D: BME280 SDA] [4E: Empty]
-Row 5 (I2C SCL Hub) : [5A: ESP32 GPIO 1] [5B: OLED SCL] [5C: MAX30102 SCL] [5D: BME280 SCL] [5E: Empty]
+Row 4 (I2C SDA Hub) : [4A: ESP32 GPIO 1] [4B: OLED SDA] [4C: MAX30102 SDA] [4D: BME280 SDA] [4E: Empty]
+Row 5 (I2C SCL Hub) : [5A: ESP32 GPIO 2] [5B: OLED SCL] [5C: MAX30102 SCL] [5D: BME280 SCL] [5E: Empty]
 Row 6 (PMS5003 TX)  : [6A: ESP32 GPIO 14][6B: PMS5003 Pin 5 (TX)] [6C: Empty] [6D: Empty] [6E: Empty]
 Row 7 (PMS5003 RX)  : [7A: ESP32 GPIO 18][7B: PMS5003 Pin 4 (RX)] [7C: Empty] [7D: Empty] [7E: Empty]
 ```

@@ -13,8 +13,8 @@
 static const char *TAG __attribute__((unused)) = "I2C_HAL";
 static i2c_port_t s_i2c_num = I2C_NUM_0;
 static esp32_i2c_handle_t s_i2c_handle = { .port = I2C_NUM_0, .initialized = 0 };
-static int s_sda_pin = 2;
-static int s_scl_pin = 1;
+static int s_sda_pin = 1;
+static int s_scl_pin = 2;
 
 int esp32_i2c_hal_init(int sda_pin, int scl_pin, uint32_t clk_speed_hz) {
     s_sda_pin = sda_pin;

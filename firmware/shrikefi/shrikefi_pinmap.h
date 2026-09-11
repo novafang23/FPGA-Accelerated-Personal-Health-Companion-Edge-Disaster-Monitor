@@ -26,8 +26,8 @@
  * Physical wiring: SDA and SCL each need one 2.2kΩ pull-up to 3.3V.
  * On a custom PCB, place these pull-ups within 1cm of the connector.
  * ====================================================================== */
-#define PIN_I2C_SDA          2    /* GPIO2  — SDA (all I2C devices share this) */
-#define PIN_I2C_SCL          1    /* GPIO1  — SCL (all I2C devices share this) */
+#define PIN_I2C_SDA          1    /* GPIO1  — SDA (all I2C devices share this) */
+#define PIN_I2C_SCL          2    /* GPIO2  — SCL (all I2C devices share this) */
 #define I2C_BUS_SPEED_HZ     400000  /* 400 kHz Fast-Mode */
 
 /* I2C Device Addresses */

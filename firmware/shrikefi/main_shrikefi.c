@@ -586,7 +586,7 @@ void app_main(void) {
 
     s_data_mutex = xSemaphoreCreateMutex();
 
-    /* Initialize I2C HAL for sensors (SDA=GPIO2, SCL=GPIO1, 400kHz) */
+    /* Initialize I2C HAL for sensors (SDA=GPIO1, SCL=GPIO2, 400kHz) */
     esp32_i2c_hal_init(PIN_I2C_SDA, PIN_I2C_SCL, I2C_BUS_SPEED_HZ);
 
     /* Hardware diagnosis: scan and log all connected I2C devices */
