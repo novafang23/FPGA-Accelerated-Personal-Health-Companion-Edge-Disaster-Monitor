@@ -143,7 +143,18 @@ static void task_ppg_accelerator(void *pvParameters) {
             if (ppg_sample.ir < ir_win_min) ir_win_min = ppg_sample.ir;
             if (ppg_sample.ir > ir_win_max) ir_win_max = ppg_sample.ir;
             if (++ir_win_count >= 50) {
-                last_ac_amplitude = (ir_win_max > ir_win_min) ? (ir_win_max - ir_win_min) : 0;
+                uint32_t ac = (ir_win_max > ir_win_min) ? (ir_win_max - ir_win_min) : 0;
+                /* Plausibility gate. The pulsatile (AC) component of a real PPG is
+                 * the perfusion index - roughly 0.2-10% of the DC level. Lifting or
+                 * re-seating the finger mid-window makes max-min span the entire DC
+                 * step, giving AC >= DC, which is physiologically impossible.
+                 * Ungated, that single frame sets threshold_offset = AC/4 (line 225)
+                 * to tens of thousands of counts and blinds the peak detector for
+                 * the whole of the next second. */
+                if (ir_win_max > 0 && ac > (ir_win_max / 2)) {
+                    ac = 0;   /* transient, not perfusion - discard */
+                }
+                last_ac_amplitude = ac;
                 ir_win_min = UINT32_MAX;
                 ir_win_max = 0;
                 ir_win_count = 0;
@@ -346,7 +357,7 @@ static void task_ppg_accelerator(void *pvParameters) {
             const char *status_str = (g_state.signal_status == SIGNAL_STATUS_LOW_PERFUSION) ? "LOW PERFUSION (PRESS FIRMER)" :
                                      (g_state.signal_status == SIGNAL_STATUS_ACQUIRING)     ? "ACQUIRING" :
                                      (g_state.signal_status == SIGNAL_STATUS_TRACKING)      ? "LOCKED" : "NO FINGER";
-            ESP_LOGI("PPG_OPTICAL", "Raw: IR=%lu, Red=%lu | AC=%lu | Status: %s | HR: %.1f BPM | Beats: %d/10 | SpO2: %s | (Samples/tick: %d)",
+            ESP_LOGI("PPG_OPTICAL", "Raw: IR=%lu, Red=%lu | AC=%lu | Status: %s | HR: %.1f BPM | IBI: %d (need 10 to arm risk engines) | SpO2: %s | (Samples/tick: %d)",
                      (unsigned long)ppg_sample.ir, (unsigned long)ppg_sample.red,
                      (unsigned long)last_ac_amplitude,
                      status_str,
@@ -380,6 +391,7 @@ static void task_disaster_monitor(void *pvParameters) {
         static float s_last_temp = 25.0f;
         static float s_last_hum  = 50.0f;
         static float s_last_pm25 = 15.0f;
+        static uint32_t s_pm25_warn_last_ms = 0;
 
         /* Read BME280 (temperature, humidity, pressure) */
         bme280_data_t bme_data;
@@ -405,8 +417,17 @@ static void task_disaster_monitor(void *pvParameters) {
         env.pm25 = calibrated_pm25;
 
         if (pm25_is_humidity_distorted(s_last_pm25, env.humidity_pct)) {
-            ESP_LOGW(TAG, "[PM2.5 Calibration] Humidity spike (RH: %.1f%%)! Raw: %.1f -> Calibrated: %.1f ug/m3",
-                     env.humidity_pct, s_last_pm25, calibrated_pm25);
+            /* Rate-limited. High ambient RH is persistent in this environment, so
+             * logging unconditionally produced ~69 identical lines per minute and
+             * buried the vitals output the operator actually needs. */
+            uint32_t now_ms = (uint32_t)(xTaskGetTickCount() * portTICK_PERIOD_MS);
+            if (now_ms - s_pm25_warn_last_ms >= 60000u) {
+                s_pm25_warn_last_ms = now_ms;
+                ESP_LOGW(TAG, "[PM2.5 Calibration] Humidity spike (RH: %.1f%%) - correction applied. Raw: %.1f -> Calibrated: %.1f ug/m3",
+                         env.humidity_pct, s_last_pm25, calibrated_pm25);
+            }
+        } else {
+            s_pm25_warn_last_ms = 0;   /* re-arm once conditions recover */
         }
 
         /* Skin temperature not available from current sensors */
@@ -447,6 +468,25 @@ static void task_disaster_monitor(void *pvParameters) {
             /* 1. Execute Clinical Deterministic Rule Engine */
             disaster_assess(&hrv_snapshot, engine_spo2, hr, &env, &rule_risk);
 
+            /* This build has no skin-temperature sensor: the BME280 measures
+             * ambient air, so env.skin_temp_c above is 0 and assess_flood_risk()
+             * returns RISK_UNKNOWN. finalize_overall_risk() deliberately
+             * propagates a single UNKNOWN, which buried a perfectly normal
+             * heat/pollution picture behind "Overall: UNKNOWN" in every frame.
+             * Report the blind spot honestly rather than letting an
+             * un-instrumented modality mask the two that did run. */
+            if (rule_risk.flood_risk == RISK_UNKNOWN && rule_risk.heat_risk != RISK_UNKNOWN) {
+                if (rule_risk.pollution_risk > rule_risk.heat_risk) {
+                    rule_risk.overall_risk     = rule_risk.pollution_risk;
+                    rule_risk.overall_advisory = rule_risk.pollution_advisory;
+                } else {
+                    rule_risk.overall_risk     = rule_risk.heat_risk;
+                    rule_risk.overall_advisory = rule_risk.heat_advisory;
+                }
+                rule_risk.flood_advisory =
+                    "Not instrumented: no skin-temperature sensor on this build";
+            }
+
             /* 2. Execute On-Device TinyML INT8 Neural Network (single-pass populates both risk and telemetry) */
             disaster_assess_nn_int8(&hrv_snapshot, engine_spo2, hr, &env, &nn_risk, &nn_out);
 
@@ -471,7 +511,8 @@ static void task_disaster_monitor(void *pvParameters) {
             ESP_LOGI(TAG, "[RuleEngine] Heat: %s | Poll: %s | Flood: %s => Overall: %s",
                      risk_level_to_string(rule_risk.heat_risk),
                      risk_level_to_string(rule_risk.pollution_risk),
-                     risk_level_to_string(rule_risk.flood_risk),
+                     (env.skin_temp_c > 0.0f) ? risk_level_to_string(rule_risk.flood_risk)
+                                              : "N/A (no skin-temp sensor)",
                      risk_level_to_string(rule_risk.overall_risk));
             ESP_LOGI(TAG, "[TinyML INT8] Heat: %.3f (%s) | Poll: %.3f (%s) | Flood: %.3f (%s) => AI Overall: %s",
                      nn_out.heat_score, risk_level_to_string(nn_risk.heat_risk),
@@ -494,13 +535,24 @@ static void task_disaster_monitor(void *pvParameters) {
             /* Publish to Cloud Dashboard */
             cloud_publish_health_data(hr, hrv_snapshot.rmssd, engine_spo2, env.ambient_temp_c, env.pm25, risk_level_to_string(final_risk.overall_risk));
         } else {
-            ESP_LOGI(TAG, "[ShrikeFi] Vitals: HR=%s SpO2=%s | Status: %s (%d/10 beats) | Temp: %.1f C | PM2.5: %.0f",
-                     (hr > 30.0f ? "LOCKED" : "--"),
+            /* Print the numeric HR while acquiring. This branch previously
+             * printed the literal string "LOCKED" into the HR field whenever
+             * hr > 30, producing lines such as "HR=LOCKED SpO2=VALID" that read
+             * like a value and sent hardware bring-up down the wrong path. The
+             * HRV window simply is not full yet; the HR itself is already known. */
+            char hr_str[12];
+            if (hr > 30.0f) {
+                snprintf(hr_str, sizeof(hr_str), "%.1f", hr);
+            } else {
+                snprintf(hr_str, sizeof(hr_str), "--");
+            }
+            ESP_LOGI(TAG, "[ShrikeFi] Vitals: HR=%s BPM SpO2=%s | Status: %s | IBI samples: %d (need %d for risk engines) | Temp: %.1f C | PM2.5: %.0f",
+                     hr_str,
                      (spo2 > 0.0f ? "VALID" : "--"),
                      (sig_stat == SIGNAL_STATUS_LOW_PERFUSION) ? "LOW PERFUSION (PRESS FIRMER)" :
                      (sig_stat == SIGNAL_STATUS_ACQUIRING)     ? "ACQUIRING" :
                      (sig_stat == SIGNAL_STATUS_TRACKING)      ? "READY" : "WAITING",
-                     hrv_snapshot.count, env.ambient_temp_c, env.pm25);
+                     hrv_snapshot.count, 10, env.ambient_temp_c, env.pm25);
             printf("[TELEMETRY] NO_FINGER,TEMP=%.1f,HUM=%.1f,PM25=%.1f\n",
                    env.ambient_temp_c, env.humidity_pct, env.pm25);
             fflush(stdout);
