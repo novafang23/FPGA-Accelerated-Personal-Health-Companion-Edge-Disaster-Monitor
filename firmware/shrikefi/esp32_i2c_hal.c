@@ -8,6 +8,7 @@
 
 #ifdef ESP_PLATFORM
 #include "driver/i2c.h"
+#include "esp_err.h"
 #include "esp_log.h"
 
 static const char *TAG __attribute__((unused)) = "I2C_HAL";
@@ -19,6 +20,12 @@ static int s_scl_pin = 2;
 int esp32_i2c_hal_init(int sda_pin, int scl_pin, uint32_t clk_speed_hz) {
     s_sda_pin = sda_pin;
     s_scl_pin = scl_pin;
+#ifdef ESP_PLATFORM
+    /* Log the pins and speed up front: when a bus is dead, the first question is
+     * always "which pins did it actually try?". */
+    ESP_LOGI(TAG, "I2C init: port=%d SDA=GPIO%d SCL=GPIO%d speed=%lu Hz",
+             (int)s_i2c_num, sda_pin, scl_pin, (unsigned long)clk_speed_hz);
+#endif
     i2c_config_t conf = {
         .mode = I2C_MODE_MASTER,
         .sda_io_num = sda_pin,
@@ -28,12 +35,26 @@ int esp32_i2c_hal_init(int sda_pin, int scl_pin, uint32_t clk_speed_hz) {
         .master.clk_speed = clk_speed_hz,
     };
     esp_err_t err = i2c_param_config(s_i2c_num, &conf);
-    if (err != ESP_OK) return I2C_HAL_ERROR;
+    if (err != ESP_OK) {
+#ifdef ESP_PLATFORM
+        /* This used to return silently. A failed init here makes every sensor
+         * read fail with an all-ones/garbage value, which looks exactly like a
+         * wiring fault -- so say it loudly and name the pins. */
+        ESP_LOGE(TAG, "i2c_param_config FAILED (%s) for SDA=GPIO%d SCL=GPIO%d -- "
+                      "all sensor reads will now fail",
+                 esp_err_to_name(err), sda_pin, scl_pin);
+#endif
+        return I2C_HAL_ERROR;
+    }
     err = i2c_driver_install(s_i2c_num, conf.mode, 0, 0, 0);
     if (err == ESP_OK) {
         s_i2c_handle.initialized = 1;
         return I2C_HAL_SUCCESS;
     }
+#ifdef ESP_PLATFORM
+    ESP_LOGE(TAG, "i2c_driver_install FAILED (%s) on port %d -- all sensor reads "
+                  "will now fail", esp_err_to_name(err), (int)s_i2c_num);
+#endif
     return I2C_HAL_ERROR;
 }
 

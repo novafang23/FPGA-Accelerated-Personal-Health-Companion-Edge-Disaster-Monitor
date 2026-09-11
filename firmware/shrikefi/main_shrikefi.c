@@ -586,8 +586,20 @@ void app_main(void) {
 
     s_data_mutex = xSemaphoreCreateMutex();
 
-    /* Initialize I2C HAL for sensors (SDA=GPIO1, SCL=GPIO2, 400kHz) */
-    esp32_i2c_hal_init(PIN_I2C_SDA, PIN_I2C_SCL, I2C_BUS_SPEED_HZ);
+    /* Initialize I2C HAL for sensors. The return value used to be discarded, so a
+     * failed peripheral init produced no diagnostic at all: every sensor then read
+     * back garbage, which looks identical to a wiring fault. Report it here. */
+    if (esp32_i2c_hal_init(PIN_I2C_SDA, PIN_I2C_SCL, I2C_BUS_SPEED_HZ) != I2C_HAL_SUCCESS) {
+        ESP_LOGE(TAG, "I2C HAL init FAILED for SDA=GPIO%d SCL=GPIO%d. No sensor will "
+                      "respond; the readings below will be all-ones/garbage. This is a "
+                      "software/peripheral fault, NOT wiring.",
+                 PIN_I2C_SDA, PIN_I2C_SCL);
+    } else {
+        ESP_LOGI(TAG, "I2C HAL ready: SDA=GPIO%d SCL=GPIO%d at %d Hz. If the scan below "
+                      "finds nothing, suspect SDA/SCL swapped, missing 4.7k pull-ups, or "
+                      "unpowered sensors.",
+                 PIN_I2C_SDA, PIN_I2C_SCL, I2C_BUS_SPEED_HZ);
+    }
 
     /* Hardware diagnosis: scan and log all connected I2C devices */
     esp32_i2c_hal_scan();
