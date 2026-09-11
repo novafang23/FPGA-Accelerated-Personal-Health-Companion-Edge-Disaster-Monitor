@@ -13,8 +13,12 @@
 static const char *TAG __attribute__((unused)) = "I2C_HAL";
 static i2c_port_t s_i2c_num = I2C_NUM_0;
 static esp32_i2c_handle_t s_i2c_handle = { .port = I2C_NUM_0, .initialized = 0 };
+static int s_sda_pin = 2;
+static int s_scl_pin = 1;
 
 int esp32_i2c_hal_init(int sda_pin, int scl_pin, uint32_t clk_speed_hz) {
+    s_sda_pin = sda_pin;
+    s_scl_pin = scl_pin;
     i2c_config_t conf = {
         .mode = I2C_MODE_MASTER,
         .sda_io_num = sda_pin,
@@ -77,7 +81,7 @@ int esp32_i2c_hal_probe(uint8_t dev_addr) {
 }
 
 void esp32_i2c_hal_scan(void) {
-    ESP_LOGI("I2C_SCAN", "Scanning I2C bus (SDA=GPIO1, SCL=GPIO2)...");
+    ESP_LOGI("I2C_SCAN", "Scanning I2C bus (SDA=GPIO%d, SCL=GPIO%d)...", s_sda_pin, s_scl_pin);
     int count = 0;
     for (uint8_t addr = 1; addr < 127; addr++) {
         if (esp32_i2c_hal_probe(addr) == I2C_HAL_SUCCESS) {

@@ -13,6 +13,7 @@
 #include <string.h>
 #include <math.h>
 
+#include "shrikefi_pinmap.h"
 #include "shrikefi_link_driver.h"
 #include "esp32_i2c_hal.h"
 #include "max30102.h"
@@ -585,8 +586,8 @@ void app_main(void) {
 
     s_data_mutex = xSemaphoreCreateMutex();
 
-    /* Initialize I2C HAL for sensors (SDA=GPIO1, SCL=GPIO2, 400kHz) */
-    esp32_i2c_hal_init(1, 2, 400000);
+    /* Initialize I2C HAL for sensors (SDA=GPIO2, SCL=GPIO1, 400kHz) */
+    esp32_i2c_hal_init(PIN_I2C_SDA, PIN_I2C_SCL, I2C_BUS_SPEED_HZ);
 
     /* Hardware diagnosis: scan and log all connected I2C devices */
     esp32_i2c_hal_scan();
@@ -628,7 +629,7 @@ void app_main(void) {
     } else if (ssd1306_init(&s_ssd1306, esp32_i2c_hal_get_handle(), SSD1306_I2C_ALT) == 0) {
         ESP_LOGI(TAG, "SSD1306 OLED initialized OK at 0x3D");
     } else {
-        ESP_LOGW(TAG, "SSD1306 OLED not found at 0x3C or 0x3D (check SDA=GPIO1, SCL=GPIO2, VCC=3.3V, GND)");
+        ESP_LOGW(TAG, "SSD1306 OLED not found at 0x3C or 0x3D (check SDA=GPIO%d, SCL=GPIO%d, VCC=3.3V, GND)", PIN_I2C_SDA, PIN_I2C_SCL);
     }
 
     if (s_ssd1306.initialized) {
