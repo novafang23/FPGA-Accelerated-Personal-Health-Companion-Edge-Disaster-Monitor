@@ -1,0 +1,24 @@
+# ShrikeFi ESP32-S3 partition table — 8 MB flash
+#
+# The module is an ESP32-S3-WROOM-1-N8R2 (8 MB flash). ESP-IDF's stock
+# "single app" table reserves a 1 MB app partition regardless of the real flash
+# size, which left only 10% headroom on a ~949 KB image and would fail the build
+# the moment anything was added.
+#
+# Confirmed on hardware, boot log:
+#   Features: WiFi, BLE, Embedded Flash 8MB (XMC)
+#   W spi_flash: Detected size(8192k) larger than the size in the binary image
+#                header(2048k)
+#
+# Offsets are the standard ones, so existing NVS contents (WiFi credentials)
+# survive re-flashing:
+#   bootloader      0x000000 - 0x008000
+#   partition table 0x008000 - 0x009000
+#   nvs             0x009000 - 0x00F000
+#   phy_init        0x00F000 - 0x010000
+#   app             0x010000 - 0x710000   (7 MB)
+
+# Name,   Type, SubType, Offset,   Size,     Flags
+nvs,      data, nvs,     0x9000,   0x6000,
+phy_init, data, phy,     0xf000,   0x1000,
+factory,  app,  factory, 0x10000,  0x700000,
