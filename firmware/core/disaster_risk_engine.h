@@ -18,6 +18,12 @@
 #define HEAT_INDEX_HIGH         45.0f
 #define HEAT_INDEX_MODERATE     40.0f
 #define HEAT_INDEX_CAUTION      35.0f
+/* The NOAA/NWS Rothfusz regression is fitted over a limited domain and diverges
+ * badly outside it -- unclamped it returns 106 C for 46.5 C / 68 % RH and 180 C
+ * for 50 C / 90 % RH. The published NWS heat-index table tops out around
+ * 57.8 C (136 F), so clamp to that. This cannot change triage: every heat
+ * branch only tests heat_index > 54/45/40/35, all of which stay true. */
+#define HEAT_INDEX_MAX_C        58.0f
 #define HEAT_BPM_CRITICAL       130.0f
 #define HEAT_BPM_HIGH           110.0f
 #define HEAT_BPM_MODERATE       95.0f

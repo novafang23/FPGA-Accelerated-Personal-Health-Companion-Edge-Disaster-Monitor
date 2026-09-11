@@ -72,6 +72,10 @@ static float calculate_nws_heat_index(float temp_c, float hum_pct) {
                + 0.00085282f * tf * rh * rh - 0.00000199f * tf * tf * rh * rh;
 
     float hi_c = (hi_f - 32.0f) / 1.8f;
+    /* Clamp to the published table range before anything displays this value.
+     * The regression diverges outside its fitted domain (it returns 106 C at
+     * 46.5 C / 68 % RH). Triage is unaffected -- see HEAT_INDEX_MAX_C. */
+    if (hi_c > HEAT_INDEX_MAX_C) hi_c = HEAT_INDEX_MAX_C;
     return (hi_c > temp_c) ? hi_c : temp_c;
 }
 

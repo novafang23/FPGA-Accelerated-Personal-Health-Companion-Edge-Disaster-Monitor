@@ -200,6 +200,10 @@ static float calculate_nws_heat_index(float temp_c, float hum_pct) {
                - 0.05481717f * rh * rh + 0.00122874f * tf * tf * rh
                + 0.00085282f * tf * rh * rh - 0.00000199f * tf * tf * rh * rh;
     float hi_c = (hi_f - 32.0f) / 1.8f;
+    /* Same clamp as disaster_risk_engine.c. This copy is what the GUI prints
+     * ("NOAA Steadman Heat Index: %.1f C"), so without it the display showed
+     * 106 C on the built-in heat-wave profile. */
+    if (hi_c > HEAT_INDEX_MAX_C) hi_c = HEAT_INDEX_MAX_C;
     return (hi_c > temp_c) ? hi_c : temp_c;
 }
 

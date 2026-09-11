@@ -60,7 +60,25 @@ def normalize(v, lo, hi):
 
 # 2. Teacher models (port of disaster_risk_engine.c)
 def ctsi_score(bpm, rmssd, temp, hum):
-    """Cardio-Thermal Strain Index, 0-100. Direct port of assess_heat_risk().
+    """Cardio-Thermal Strain Index, 0-100, used to GENERATE TRAINING LABELS.
+
+    FIDELITY NOTE -- this is NOT a direct port of assess_heat_risk() in
+    disaster_risk_engine.c. That function derives its temperature component from
+    the full NOAA/NWS Rothfusz heat index (calculate_nws_heat_index()); this
+    teacher uses a simplified linear proxy, temp + 0.05*(RH-40), which is the
+    same expression Moran-PSI uses to estimate core temperature. The two diverge
+    in humid heat: at 47 C / 60 % RH Rothfusz gives 96.3 C against 48.0 C here,
+    i.e. 40 vs 30 CTSI temperature points.
+
+    Consequence: the distilled INT8 model is calibrated to this proxy, not to the
+    rule engine's heat index. On the device the two are reconciled by taking the
+    worse of the two risk levels, so the rule engine is a floor the network cannot
+    undercut -- but the heat neuron must not be described as reproducing
+    assess_heat_risk().
+
+    The proxy is kept deliberately. With the real Rothfusz curve the temperature
+    component saturates at 40 points for almost any hot-humid input, which
+    destroys the label gradation the network needs to learn from.
 
     Guard: heat-related illness is impossible when temp < 27 C (HEAT_TEMP_BASE_C).
     Without this, HRV collapse from hypothermia falsely inflates the score."""
