@@ -5,7 +5,7 @@ Item,Designator,MPN,Manufacturer,Description,Package,Quantity
 4,U4,BME280,Bosch Sensortec,Combined Humidity Pressure and Temperature Sensor,8-LGA 2.5x2.5mm,1
 5,U5,MCP73831T-2ACI/OT,Microchip Technology,Single-Cell Li-Ion Battery Charge Controller,SOT-23-5,1
 6,U6,TLV70233DBVR,Texas Instruments,Low-Dropout Linear Voltage Regulator 3.3V 300mA,SOT-23-5,1
-7,DS1,SSD1306-0.91-OLED,Generic,0.91 inch 128x32 I2C White Graphic OLED Display,14-Pin FPC,1
+7,DS1,SSD1306-0.96-OLED,Generic,0.96 inch 128x64 I2C White Graphic OLED Display,14-Pin FPC,1
 8,J1,USB4110-GF-A,GCT,USB Type-C Receptacle 16-Pin SMD Horizontal,SMD,1
 9,BT1,S2B-PH-K-S,JST,2.0mm Pitch 2-Pin Battery Header for 3.7V LiPo,SMD,1
 10,"R1, R2, R3, R4",RC0402JR-074K7L,Yageo,Resistor 4.7k Ohm 5% 1/16W (I2C Pull-ups),0402,4

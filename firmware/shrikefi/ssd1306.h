@@ -1,9 +1,14 @@
 /*
- * ssd1306.h — SSD1306 0.96" / 0.91" OLED Display Driver (ESP-IDF Port)
+ * ssd1306.h — SSD1306 0.96" OLED Display Driver (ESP-IDF Port)
  * SIH26181: AI-Powered Personal Health Companion & Edge Disaster Monitor
  *
  * Displays real-time vitals (HR, SpO2, temperature, PM2.5) and AI hazard alerts.
  * Uses a 128×64 pixel framebuffer with 5×7 font rendering.
+ *
+ * Panel: 0.96" 128×64 (confirmed against the physical board). The init sequence
+ * sets SET_MUX_RATIO to 0x3F, which is the 64-row value -- a 0.91" 128×32 panel
+ * would need 0x1F, so this driver is for the 128×64 part only. The BOM previously
+ * described the wrong panel; see hardware/shrikefi/pcb/SIH26181_ShrikeFi_Wearable_BOM.csv.
  */
 
 #ifndef SHRIKEFI_SSD1306_H
