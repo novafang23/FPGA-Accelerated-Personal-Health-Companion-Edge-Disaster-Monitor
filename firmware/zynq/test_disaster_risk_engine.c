@@ -116,26 +116,71 @@ static void test_hrv_not_ready() {
     printf("test_hrv_not_ready: PASS\n");
 }
 
-/* Test RISK_UNKNOWN when skin_temp missing */
-static void test_flood_unknown_skin_temp() {
+/* Cold-stress handling when no skin-temperature sensor is present.
+ *
+ * This replaces the previous test_flood_unknown_skin_temp, which asserted that a
+ * missing skin sensor must always yield RISK_UNKNOWN. That contract was
+ * deliberately changed: the engine now falls back to an ambient air + humidity
+ * cold-stress proxy instead of reporting nothing forever.
+ *
+ * The tests below pin the two properties that matter:
+ *   1. ambient air must NOT be fed into the skin-temperature thresholds
+ *      (28 C of air is a warm day; 28 C of skin is severe hypothermia), and
+ *   2. the proxy must never reach RISK_CRITICAL, because without a measured
+ *      skin/core temperature a critical hypothermia call is not supportable.
+ */
+static void test_flood_ambient_proxy() {
     hrv_state_t hrv;
     init_hrv_ready(&hrv, 75.0f);
     env_sensors_t env = { .ambient_temp_c = 15.0f, .humidity_pct = 80.0f, .pm25 = 10.0f, .skin_temp_c = 0.0f };
     risk_assessment_t result;
 
-    disaster_assess(&hrv, 98.0f, 75.0f, &env, &result);
-    assert(result.flood_risk == RISK_UNKNOWN);
-    /* Verify triage bug fix: unmonitored modality causes overall_risk to be RISK_UNKNOWN, not falsely RISK_NORMAL */
-    assert(result.overall_risk == RISK_UNKNOWN);
+    /* RMSSD is set explicitly in every case below. init_hrv_ready()'s synthetic
+     * jitter happens to yield RMSSD ~10 ms, which is itself an autonomic-strain
+     * value and would otherwise score cold-stress points in what are meant to be
+     * "normal vitals" scenarios. */
+    hrv.rmssd = 40.0f;   /* Healthy resting HRV */
 
-    /* Verify that a real hazard still takes priority over RISK_UNKNOWN */
+    /* Mild ambient + normal vitals: no cold-stress alarm, and overall is NORMAL
+     * rather than the old blanket RISK_UNKNOWN. */
+    disaster_assess(&hrv, 98.0f, 75.0f, &env, &result);
+    assert(result.flood_risk == RISK_NORMAL);
+    assert(result.overall_risk == RISK_NORMAL);
+
+    /* Cold and wet, normal vitals: caution, not alarm. */
+    env.ambient_temp_c = 8.0f;
+    env.humidity_pct   = 90.0f;
+    disaster_assess(&hrv, 98.0f, 75.0f, &env, &result);
+    assert(result.flood_risk == RISK_MODERATE);
+
+    /* Cold + wet + bradycardia + collapsed HRV: HIGH, capped short of CRITICAL. */
+    init_hrv_ready(&hrv, 45.0f);
+    hrv.rmssd = 5.0f;    /* Autonomic collapse */
+    env.ambient_temp_c = 3.0f;
+    disaster_assess(&hrv, 98.0f, 45.0f, &env, &result);
+    assert(result.flood_risk == RISK_HIGH);
+    assert(result.flood_risk != RISK_CRITICAL);
+
+    /* A hot humid day must NOT score as cold stress (the humidity term is gated
+     * on the cold temperature band), and a real heat hazard still outranks it. */
     env.ambient_temp_c = 48.0f;
+    env.humidity_pct   = 80.0f;
+    init_hrv_ready(&hrv, 135.0f);
+    hrv.rmssd = 25.0f;
     disaster_assess(&hrv, 98.0f, 135.0f, &env, &result);
-    assert(result.flood_risk == RISK_UNKNOWN);
+    assert(result.flood_risk == RISK_NORMAL);
     assert(result.heat_risk >= RISK_HIGH);
     assert(result.overall_risk >= RISK_HIGH);
 
-    printf("test_flood_unknown_skin_temp: PASS\n");
+    /* Genuinely unusable ambient (outside the plausible band) still reports the
+     * blind spot rather than inventing a reading. */
+    env.ambient_temp_c = -40.0f;
+    init_hrv_ready(&hrv, 75.0f);
+    hrv.rmssd = 40.0f;
+    disaster_assess(&hrv, 98.0f, 75.0f, &env, &result);
+    assert(result.flood_risk == RISK_UNKNOWN);
+
+    printf("test_flood_ambient_proxy: PASS\n");
 }
 
 /* Regression test: a NULL env pointer must degrade to RISK_UNKNOWN, not crash.
@@ -299,8 +344,7 @@ int main() {
     test_flood_risk();
     test_hrv_not_ready();
     test_null_env();
-    test_flood_unknown_skin_temp();
-    test_int8_matches_float_nn();
+    test_flood_ambient_proxy();    test_int8_matches_float_nn();
     test_spo2_clinical_rejection();
     printf("ALL TESTS PASSED.\n");
     return 0;

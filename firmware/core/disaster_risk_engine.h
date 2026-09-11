@@ -51,7 +51,13 @@
 #define POLLUTION_PRSI_HIGH     50.0f
 #define POLLUTION_PRSI_MODERATE 30.0f
 
-/* --- Flood/Cold Risk Thresholds --- */
+/* --- Flood/Cold Risk Thresholds ---
+ *
+ * `FLOOD_SKIN_TEMP_*` are SKIN-temperature thresholds and must only ever be fed
+ * a measured skin temperature. Skin and air temperature are not interchangeable:
+ * normal skin is ~33-35 C while normal air is ~25 C. Feeding ambient air into
+ * these would classify a pleasant 28 C afternoon as severe hypothermia.
+ */
 #define FLOOD_SKIN_TEMP_CRIT    28.0f
 #define FLOOD_SKIN_TEMP_HIGH    32.0f
 #define FLOOD_SKIN_TEMP_MOD     34.0f
@@ -63,6 +69,42 @@
 #define FLOOD_SCORE_CRITICAL    60.0f
 #define FLOOD_SCORE_HIGH        40.0f
 #define FLOOD_SCORE_MODERATE    20.0f
+
+/* --- Cold-Stress Proxy (used only when no skin-temperature sensor exists) ---
+ *
+ * The ShrikeFi build carries a BME280, which measures AMBIENT AIR. When
+ * `env->skin_temp_c` is 0 (no skin sensor) the engine falls back to this
+ * ambient-air cold-stress estimate rather than reporting RISK_UNKNOWN forever.
+ *
+ * The proxy scores three things: air temperature, relative humidity (wet cold
+ * removes heat far faster than dry cold, which is the dominant mechanism in
+ * flooding), and the same cardiac / autonomic terms the clinical path uses.
+ * It is deliberately CAPPED AT RISK_HIGH: without a measured skin or core
+ * temperature a CRITICAL hypothermia call cannot be justified.
+ *
+ * NOTE this is an exposure-risk estimate, not a hypothermia diagnosis. Ambient
+ * air temperature is a weak proxy for core temperature - wind, immersion,
+ * clothing and wetness dominate - so the advisory text says "cold-stress
+ * exposure" and never claims a measured clinical state.
+ *
+ * Framework and cold physiology:
+ *   Moran DS, Castellani JW, O'Brien C, Young AJ, Pandolf KB. "Evaluating
+ *   physiological strain during cold exposure using a new cold strain index."
+ *   Am J Physiol. 1999;277(2):R556-64. doi:10.1152/ajpregu.1999.277.2.R556
+ *   (the cold analogue of the Moran PSI already used for heat stress)
+ *   Castellani JW, Young AJ. "Human physiological responses to cold exposure."
+ *   Auton Neurosci. 2016;196:63-74.
+ */
+#define COLD_AMBIENT_VALID_MIN_C (-20.0f) /* outside this band the reading is  */
+#define COLD_AMBIENT_VALID_MAX_C ( 65.0f) /* treated as unusable -> RISK_UNKNOWN */
+#define COLD_AMBIENT_SEVERE_C      0.0f
+#define COLD_AMBIENT_HIGH_C        5.0f
+#define COLD_AMBIENT_MOD_C        10.0f
+#define COLD_AMBIENT_MILD_C       15.0f
+#define COLD_AMBIENT_COOL_C       20.0f
+#define COLD_HUMIDITY_VHIGH_PCT   85.0f
+#define COLD_HUMIDITY_HIGH_PCT    70.0f
+#define COLD_HUMIDITY_MOD_PCT     55.0f
 
 #ifdef __cplusplus
 extern "C" {

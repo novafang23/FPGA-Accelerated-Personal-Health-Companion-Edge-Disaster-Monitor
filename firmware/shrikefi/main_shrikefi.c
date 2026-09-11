@@ -469,12 +469,14 @@ static void task_disaster_monitor(void *pvParameters) {
             disaster_assess(&hrv_snapshot, engine_spo2, hr, &env, &rule_risk);
 
             /* This build has no skin-temperature sensor: the BME280 measures
-             * ambient air, so env.skin_temp_c above is 0 and assess_flood_risk()
-             * returns RISK_UNKNOWN. finalize_overall_risk() deliberately
-             * propagates a single UNKNOWN, which buried a perfectly normal
-             * heat/pollution picture behind "Overall: UNKNOWN" in every frame.
-             * Report the blind spot honestly rather than letting an
-             * un-instrumented modality mask the two that did run. */
+             * ambient air, so env.skin_temp_c is 0 and assess_flood_risk() uses
+             * its ambient cold-stress proxy instead of the clinical skin-temp
+             * thresholds. This block is therefore now a FALLBACK for the case
+             * where even the ambient reading is unusable (BME280 absent or out
+             * of range): finalize_overall_risk() deliberately propagates a
+             * single UNKNOWN, which would otherwise bury a normal heat/pollution
+             * picture behind "Overall: UNKNOWN". Report the blind spot honestly
+             * rather than letting it mask the modalities that did run. */
             if (rule_risk.flood_risk == RISK_UNKNOWN && rule_risk.heat_risk != RISK_UNKNOWN) {
                 if (rule_risk.pollution_risk > rule_risk.heat_risk) {
                     rule_risk.overall_risk     = rule_risk.pollution_risk;
@@ -508,11 +510,16 @@ static void task_disaster_monitor(void *pvParameters) {
             printf("[TELEMETRY] HR=%.1f,SPO2=%.1f,RMSSD=%.1f,TEMP=%.1f,HUM=%.1f,PM25=%.1f\n",
                    hr, engine_spo2, hrv_snapshot.rmssd, env.ambient_temp_c, env.humidity_pct, env.pm25);
             fflush(stdout);
+            /* Label which cold-risk path produced the flood figure, so the
+             * ambient proxy is never mistaken for a measured skin temperature. */
+            char flood_str[40];
+            snprintf(flood_str, sizeof(flood_str), "%s%s",
+                     risk_level_to_string(rule_risk.flood_risk),
+                     (env.skin_temp_c > 0.0f) ? "" : " (ambient proxy)");
             ESP_LOGI(TAG, "[RuleEngine] Heat: %s | Poll: %s | Flood: %s => Overall: %s",
                      risk_level_to_string(rule_risk.heat_risk),
                      risk_level_to_string(rule_risk.pollution_risk),
-                     (env.skin_temp_c > 0.0f) ? risk_level_to_string(rule_risk.flood_risk)
-                                              : "N/A (no skin-temp sensor)",
+                     flood_str,
                      risk_level_to_string(rule_risk.overall_risk));
             ESP_LOGI(TAG, "[TinyML INT8] Heat: %.3f (%s) | Poll: %.3f (%s) | Flood: %.3f (%s) => AI Overall: %s",
                      nn_out.heat_score, risk_level_to_string(nn_risk.heat_risk),

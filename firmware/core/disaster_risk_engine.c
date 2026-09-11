@@ -18,7 +18,13 @@ static risk_level_t assess_heat_risk(float bpm, float rmssd, float ambient_temp_
 static risk_level_t assess_pollution_risk(float bpm, float spo2, float pm25, float rmssd,
                                           const char **advisory);
 
-static risk_level_t assess_flood_risk(float bpm, float skin_temp_c, float rmssd,
+static risk_level_t assess_skin_hypothermia(float bpm, float skin_temp_c, float rmssd,
+                                            const char **advisory);
+
+static risk_level_t assess_cold_stress_proxy(float bpm, const env_sensors_t *env, float rmssd,
+                                             const char **advisory);
+
+static risk_level_t assess_flood_risk(float bpm, const env_sensors_t *env, float rmssd,
                                       const char **advisory);
 
 /* Utility Functions */
@@ -205,15 +211,11 @@ static risk_level_t assess_pollution_risk(float bpm, float spo2, float pm25, flo
 }
 
 /* Flood / Hypothermia / Extreme Exertion */
-static risk_level_t assess_flood_risk(float bpm, float skin_temp_c, float rmssd,
-                                      const char **advisory) {
+/* Clinical path: a real skin temperature is available, so use the measured
+ * skin-temperature thresholds directly. */
+static risk_level_t assess_skin_hypothermia(float bpm, float skin_temp_c, float rmssd,
+                                            const char **advisory) {
     float score = 0.0f;
-
-    /* Skip if no skin temperature sensor data available */
-    if (skin_temp_c <= 0.0f) {
-        *advisory = "No skin temperature data available";
-        return RISK_UNKNOWN;
-    }
 
     /* Hypothermia indicators (0-40 points) */
     if (skin_temp_c < FLOOD_SKIN_TEMP_CRIT)
@@ -251,6 +253,91 @@ static risk_level_t assess_flood_risk(float bpm, float skin_temp_c, float rmssd,
         *advisory = "Exposure status normal";
         return RISK_NORMAL;
     }
+}
+
+/* Ambient-proxy path: no skin-temperature sensor, so estimate COLD-STRESS
+ * EXPOSURE from ambient air + humidity + the same cardiac/autonomic terms.
+ * See the rationale and citations in disaster_risk_engine.h.
+ *
+ * Deliberately capped at RISK_HIGH - a CRITICAL hypothermia call requires a
+ * measured skin or core temperature, which this sensor set cannot provide. */
+static risk_level_t assess_cold_stress_proxy(float bpm, const env_sensors_t *env, float rmssd,
+                                             const char **advisory) {
+    float score = 0.0f;
+    float t  = env->ambient_temp_c;
+    float rh = env->humidity_pct;
+
+    /* Air temperature (0-32 points) */
+    if (t < COLD_AMBIENT_SEVERE_C)
+        score += 32.0f;
+    else if (t < COLD_AMBIENT_HIGH_C)
+        score += 28.0f;
+    else if (t < COLD_AMBIENT_MOD_C)
+        score += 20.0f;
+    else if (t < COLD_AMBIENT_MILD_C)
+        score += 10.0f;
+    else if (t < COLD_AMBIENT_COOL_C)
+        score += 5.0f;
+
+    /* Humidity (0-13 points). Wet cold removes heat far faster than dry cold.
+     * Gated on the temperature band: 80 % RH at 48 C is not a cold stressor,
+     * and without this gate a hot humid day scored as cold exposure. */
+    if (t < COLD_AMBIENT_COOL_C) {
+        if (rh >= COLD_HUMIDITY_VHIGH_PCT)
+            score += 13.0f;
+        else if (rh >= COLD_HUMIDITY_HIGH_PCT)
+            score += 8.0f;
+        else if (rh >= COLD_HUMIDITY_MOD_PCT)
+            score += 4.0f;
+    }
+
+    /* Cardiac stress (0-30 points). Cold exposure is U-shaped: shivering
+     * thermogenesis drives early tachycardia, while deep hypothermia drives
+     * bradycardia. Both ends are warning signs. */
+    if (bpm < FLOOD_BPM_BRADYCARDIA)
+        score += 30.0f;
+    else if (bpm > FLOOD_BPM_TACHY_EXTREME)
+        score += 30.0f;
+    else if (bpm > FLOOD_BPM_TACHY_MOD)
+        score += 15.0f;
+
+    /* Autonomic strain (0-20 points): cold reduces parasympathetic tone. */
+    if (rmssd < FLOOD_RMSSD_CRITICAL)
+        score += 20.0f;
+    else if (rmssd < FLOOD_RMSSD_HIGH)
+        score += 10.0f;
+
+    if (score >= FLOOD_SCORE_CRITICAL) {
+        *advisory = "DANGER: severe cold-stress exposure (ambient estimate). Dry, insulate and shelter the patient now";
+        return RISK_HIGH;   /* capped - see function comment */
+    } else if (score >= FLOOD_SCORE_HIGH) {
+        *advisory = "WARNING: cold-stress exposure (ambient estimate). Wet clothing is the main risk - dry off and shelter";
+        return RISK_HIGH;
+    } else if (score >= FLOOD_SCORE_MODERATE) {
+        *advisory = "CAUTION: cold-stress exposure (ambient estimate). Keep the patient dry and monitor";
+        return RISK_MODERATE;
+    }
+    *advisory = "Cold-stress exposure low for current ambient conditions (air temperature estimate)";
+    return RISK_NORMAL;
+}
+
+/* Dispatch on what the sensor set can actually support. */
+static risk_level_t assess_flood_risk(float bpm, const env_sensors_t *env, float rmssd,
+                                      const char **advisory) {
+    /* Preferred: a measured skin temperature. */
+    if (env->skin_temp_c > 0.0f) {
+        return assess_skin_hypothermia(bpm, env->skin_temp_c, rmssd, advisory);
+    }
+
+    /* Fallback: ambient air is usable (BME280 present and reporting). */
+    if (env->ambient_temp_c > COLD_AMBIENT_VALID_MIN_C &&
+        env->ambient_temp_c < COLD_AMBIENT_VALID_MAX_C) {
+        return assess_cold_stress_proxy(bpm, env, rmssd, advisory);
+    }
+
+    /* Neither: report the blind spot rather than guessing. */
+    *advisory = "No skin-temperature sensor and no usable ambient reading";
+    return RISK_UNKNOWN;
 }
 
 /*
@@ -343,7 +430,7 @@ void disaster_assess(const hrv_state_t *hrv, float spo2, float bpm, const env_se
     result->pollution_risk =
         assess_pollution_risk(bpm, spo2, env->pm25, rmssd, &result->pollution_advisory);
 
-    result->flood_risk = assess_flood_risk(bpm, env->skin_temp_c, rmssd, &result->flood_advisory);
+    result->flood_risk = assess_flood_risk(bpm, env, rmssd, &result->flood_advisory);
 
     /* Overall risk triage via robust multi-modality aggregation */
     finalize_overall_risk(result, "All vitals and environmental conditions normal");
