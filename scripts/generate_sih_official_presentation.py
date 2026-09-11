@@ -221,7 +221,7 @@ tf_sb = tx_sb.text_frame
 tf_sb.word_wrap = True
 
 add_bullet_p(tf_sb, "Detailed Solution Explanation", "Simultaneously acquires dual-wavelength optical PPG pulses along with hyper-local ambient temperature, relative humidity, and laser PM2.5 particulate matter on the wrist.", first=True)
-add_bullet_p(tf_sb, "How It Addresses the Problem", "Fuses bodily vitals with environmental stress in real time to calculate cardiac drift and respiratory strain, alerting workers 15-20 minutes before medical collapse.", first=False)
+add_bullet_p(tf_sb, "How It Addresses the Problem", "Fuses bodily vitals with environmental stress in real time to calculate cardiac drift and respiratory strain, surfacing cardiac strain and respiratory stress as it develops.", first=False)
 add_bullet_p(tf_sb, "Hardware Innovation (FPGA Silicon)", "Custom Verilog 8-tap filter runs on 50 MHz hardware with 20 ns cycle resolution, completely eliminating operating system jitter without DSP multipliers or BRAM.", first=False)
 add_bullet_p(tf_sb, "Uniqueness & Zero Cloud Dependency", "Quantized INT8 neural network fits into only 619 bytes of INT8 weights, providing 100% offline protection during infrastructure blackouts.", first=False)
 
@@ -230,7 +230,7 @@ box_tw = s2.shapes.add_shape(MSO_SHAPE.ROUNDED_RECTANGLE, Inches(0.8), Inches(6.
 box_tw.fill.solid(); box_tw.fill.fore_color.rgb = RGBColor(240, 249, 255)
 box_tw.line.color.rgb = C_SIH_BLUE
 p = box_tw.text_frame.paragraphs[0]
-p.text = "💡 Layman Core: An offline medical guardian that connects what's happening outside (disaster) with what's happening inside (your heart) — saving lives before emergency collapse."
+p.text = "💡 Layman Core: An offline medical guardian that connects what's happening outside (disaster) with what's happening inside (your heart) — flagging risk before a person would notice symptoms."
 p.alignment = PP_ALIGN.CENTER
 p.font.name = "Arial"
 p.font.size = Pt(10.5)
@@ -341,8 +341,8 @@ tf_fa.word_wrap = True
 
 add_bullet_p(tf_fa, "Vendor-Agnostic Verilog RTL", "Identical synthesizable core Verilog runs on both AMD Xilinx (6-input LUT) and Renesas ForgeFPGA (5-input LUT) architectures without redesign.", first=True)
 add_bullet_p(tf_fa, "Ultra-Low Silicon Footprint", "Synthesized on Renesas ForgeFPGA requiring 443 / 1120 LUT5s (39.6% logic utilization) with 0 DSP multipliers and 0 Block RAM.", first=False)
-add_bullet_p(tf_fa, "Static Timing Closure (+5.603 ns WNS)", "Proven static timing slack closure in AMD Xilinx Vivado ML (+5.603 ns setup slack, operating safely at 69.45 MHz on a 50 MHz target clock).", first=False)
-add_bullet_p(tf_fa, "Economic Viability & Bulk BOM", "• Renesas ForgeFPGA ($1.80) + ESP32-S3 ($2.20)\n• Optical PPG + Climate + Laser PM2.5 ($5.80)\n• OLED, Battery & 3D Enclosure ($4.20)\n=> Total Mass-Production BOM: Under $15 (~₹1,250)", first=False)
+add_bullet_p(tf_fa, "Static Timing Closure (+5.603 ns WNS)", "Baseline Zynq-7000 build, tag v1.0-zynq-SIH: +5.603 ns setup slack, 69.45 MHz Fmax against a 50 MHz target clock.", first=False)
+add_bullet_p(tf_fa, "Economic Viability & Bulk BOM", "\u2022 12 line items: ForgeFPGA, ESP32-S3, 3 sensors, OLED\n\u2022 Projected under $15 at 100k-unit volume (distributor estimates)\n\u2022 No cloud, no subscription, no data plan\n=> Parts list: hardware/shrikefi/pcb/ BOM", first=False)
 
 # Right Column: Potential Challenges & Mitigations Table
 add_clean_box(s4, Inches(6.85), Inches(1.35), Inches(5.65), Inches(5.5), bg_color=C_WHITE, border_color=C_DARK_BLUE)
@@ -356,9 +356,9 @@ tf_ca.word_wrap = True
 
 add_bullet_p(tf_ca, "Challenge 1: Motion & Optical Noise", "Mitigation -> Dual 8-tap running-sum digital filter on FPGA plus Karlen/Elgendi Signal Quality Index (SQI) algorithm automatically discards corrupted beats.", first=True)
 add_bullet_p(tf_ca, "Challenge 2: Micro-FPGA Resource Limits", "Mitigation -> Pure logic O(1) bit-shift division (>> 3) requires 0 DSP48 multipliers and 0 Block RAM, running on the lowest-cost micro-FPGAs.", first=False)
-add_bullet_p(tf_ca, "Challenge 3: Grid & Cellular Tower Outages", "Mitigation -> 100% on-device offline TinyML running in 619 bytes SRAM. Operates autonomously during catastrophic floods and storms without internet.", first=False)
+add_bullet_p(tf_ca, "Challenge 3: Grid & Cellular Tower Outages", "Mitigation -> Fully on-device offline TinyML; 619 bytes of INT8 weight storage. Operates autonomously during catastrophic floods and storms without internet.", first=False)
 add_bullet_p(tf_ca, "Challenge 4: Clinical Real-World Accuracy", "Mitigation -> Benchmarked against 16,387 gold-standard patient records from the MIT MIMIC-III ICU database (94.11% triage accuracy on real HR/SpO2 inputs).", first=False)
-add_bullet_p(tf_ca, "Commercial Roadmap Target", "Direct migration path mapped to Qualcomm Snapdragon Wear W5+ Gen 1 Low-Power Island (<5 mW continuous power).", first=False)
+add_bullet_p(tf_ca, "Commercial Roadmap Target", "Migration path identified to Qualcomm Snapdragon Wear W5+ Gen 1 Low-Power Island (target platform; power not yet measured).", first=False)
 
 # =============================================================================
 # SLIDE 5: IMPACT AND BENEFITS
@@ -366,34 +366,97 @@ add_bullet_p(tf_ca, "Commercial Roadmap Target", "Direct migration path mapped t
 s5 = prs.slides.add_slide(blank_layout)
 setup_official_slide(s5, "IMPACT AND BENEFITS", slide_num=5)
 
-# Left Column: Target Audience Impact (India Focus)
-add_clean_box(s5, Inches(0.8), Inches(1.35), Inches(5.65), Inches(5.5), bg_color=C_WHITE, border_color=C_ORANGE)
-ban_i = s5.shapes.add_shape(MSO_SHAPE.RECTANGLE, Inches(0.8), Inches(1.35), Inches(5.65), Inches(0.45))
-ban_i.fill.solid(); ban_i.fill.fore_color.rgb = C_ORANGE; ban_i.line.fill.background()
-p = ban_i.text_frame.paragraphs[0]; p.text = "🇮🇳 Potential Impact on Target Audience (India 2026)"; p.font.size = Pt(11.5); p.font.bold = True; p.font.color.rgb = C_WHITE
+X0, GAP = 0.80, 0.22
 
-tx_ia = s5.shapes.add_textbox(Inches(1.0), Inches(1.85), Inches(5.25), Inches(4.8))
-tf_ia = tx_ia.text_frame
-tf_ia.word_wrap = True
 
-add_bullet_p(tf_ia, "☀️ 380+ Million Outdoor Laborers", "Protects construction workers, agricultural laborers, and delivery partners during 48°C heatwaves in Rajasthan, UP, and central India by warning 15-20 minutes before heat exhaustion collapse.", first=True)
-add_bullet_p(tf_ia, "🌫️ Vulnerable Urban Populations (Delhi NCR)", "Warns traffic police, elderly individuals, and asthmatic patients when micro-pocket PM2.5 exceeds safe autonomic cardiac thresholds during severe winter smog events.", first=False)
-add_bullet_p(tf_ia, "🌊 Monsoon Flood Victims & First Responders", "Detects cold-water immersion hyperventilation and hypothermia during power grid and mobile network blackouts in flood-hit urban zones (Mumbai, Chennai, Assam).", first=False)
-add_bullet_p(tf_ia, "🏥 Low-Income Accessibility", "Brings high-grade clinical early warning monitoring to vulnerable daily-wage workers who cannot afford premium $400 consumer smartwatches.", first=False)
+def add_stat_tile(slide, left, top, width, height, value, caption, accent):
+    """Big-number tile. A number at 28pt plus a two-line caption. No sentences."""
+    add_clean_box(slide, left, top, width, height, bg_color=C_CARD_BG, border_color=accent)
+    tb = slide.shapes.add_textbox(left + Inches(0.06), top + Inches(0.10),
+                                  width - Inches(0.12), height - Inches(0.18))
+    tf = tb.text_frame
+    tf.word_wrap = True
+    p = tf.paragraphs[0]
+    p.text = value
+    p.alignment = PP_ALIGN.CENTER
+    p.font.name = "Arial"
+    p.font.size = Pt(28)
+    p.font.bold = True
+    p.font.color.rgb = accent
+    p2 = tf.add_paragraph()
+    p2.text = caption
+    p2.alignment = PP_ALIGN.CENTER
+    p2.font.name = "Arial"
+    p2.font.size = Pt(9)
+    p2.font.color.rgb = C_TEXT_MUTED
+    return tb
 
-# Right Column: Multi-Dimensional Benefits (Social, Economic, Environmental)
-add_clean_box(s5, Inches(6.85), Inches(1.35), Inches(5.65), Inches(5.5), bg_color=C_WHITE, border_color=C_GREEN)
-ban_b = s5.shapes.add_shape(MSO_SHAPE.RECTANGLE, Inches(6.85), Inches(1.35), Inches(5.65), Inches(0.45))
-ban_b.fill.solid(); ban_b.fill.fore_color.rgb = C_GREEN; ban_b.line.fill.background()
-p = ban_b.text_frame.paragraphs[0]; p.text = "🌱 Benefits: Social, Economic & Environmental"; p.font.size = Pt(11.5); p.font.bold = True; p.font.color.rgb = C_WHITE
 
-tx_ba = s5.shapes.add_textbox(Inches(7.05), Inches(1.85), Inches(5.25), Inches(4.8))
-tf_ba = tx_ba.text_frame
-tf_ba.word_wrap = True
+def add_benefit_card(slide, left, top, width, height, heading, line1, line2, accent):
+    """Compact card: coloured header strip plus two short lines."""
+    add_clean_box(slide, left, top, width, height, bg_color=C_WHITE, border_color=C_BORDER)
+    strip = slide.shapes.add_shape(MSO_SHAPE.RECTANGLE, left, top, width, Inches(0.40))
+    strip.fill.solid()
+    strip.fill.fore_color.rgb = accent
+    strip.line.fill.background()
+    sp = strip.text_frame.paragraphs[0]
+    sp.text = heading
+    sp.alignment = PP_ALIGN.CENTER
+    sp.font.name = "Arial"
+    sp.font.size = Pt(11)
+    sp.font.bold = True
+    sp.font.color.rgb = C_WHITE
+    tb = slide.shapes.add_textbox(left + Inches(0.18), top + Inches(0.56),
+                                  width - Inches(0.36), height - Inches(0.68))
+    tf = tb.text_frame
+    tf.word_wrap = True
+    for i, line in enumerate((line1, line2)):
+        p = tf.paragraphs[0] if i == 0 else tf.add_paragraph()
+        p.text = line
+        p.font.name = "Arial"
+        p.font.size = Pt(10)
+        p.font.color.rgb = C_TEXT_DARK
+        p.space_after = Pt(4)
+    return tb
 
-add_bullet_p(tf_ba, "Social Benefits", "• Zero-cloud biometric privacy (health data stays on the user's wrist).\n• Functions autonomously during disaster grid blackouts.\n• Prevents emergency hospitalizations and permanent organ damage.", first=True)
-add_bullet_p(tf_ba, "Economic Benefits", "• Sub-$15 bill of materials enables mass deployment by municipal bodies, police departments, and construction enterprises.\n• Drastically cuts lost workdays and out-of-pocket emergency medical expenses for low-income families.", first=False)
-add_bullet_p(tf_ba, "Environmental & Public Health Benefits", "• Delivers hyper-local microclimate and air quality monitoring to guide targeted municipal disaster response and evacuation.\n• Ultra-low-power <5 mW micro-FPGA architecture extends battery longevity and minimizes electronic waste.", first=False)
+
+# --- Row 1: four headline numbers, every one traceable to a file in the repo --
+TILE_W, TILE_H = 2.768, 1.28
+tiles = [
+    ("20 ns",   "beat-to-beat timing\nresolution (hardware)",   C_SIH_BLUE),
+    ("94.11%",  "triage accuracy vs\n16,387 ICU records",       C_RED_WARN),
+    ("619 B",   "offline INT8 network\n(6 -> 24 -> 16 -> 3)",   C_TEAL),
+    ("12",      "components in the\nentire wearable BOM",       C_GREEN),
+]
+for i, (val, cap, acc) in enumerate(tiles):
+    add_stat_tile(s5, Inches(X0 + i * (TILE_W + GAP)), Inches(1.40),
+                  Inches(TILE_W), Inches(TILE_H), val, cap, acc)
+
+# --- Row 2: three benefit cards, one idea each -------------------------------
+CARD_W, CARD_H, CARDS_Y = 3.764, 2.72, 3.00
+cards = [
+    ("SOCIAL", "Offline triage during network and grid blackouts.",
+     "Health data never leaves the device - no cloud, no phone.", C_ORANGE),
+    ("ECONOMIC", "12-component commodity BOM; no subscription.",
+     "No server, no data plan, no recurring cost.", C_SIH_BLUE),
+    ("ENVIRONMENTAL", "Zero-cloud: no data-centre or network load.",
+     "0 DSP and 0 BRAM in the FPGA fabric - pure logic.", C_GREEN),
+]
+for i, (hd, l1, l2, acc) in enumerate(cards):
+    add_benefit_card(s5, Inches(X0 + i * (CARD_W + GAP)), Inches(CARDS_Y),
+                     Inches(CARD_W), Inches(CARD_H), hd, l1, l2, acc)
+
+# --- Bottom band: the single sentence that lands the slide -------------------
+band = add_clean_box(s5, Inches(0.80), Inches(5.96), Inches(11.73), Inches(0.66),
+                     bg_color=C_DARK_BLUE, border_color=C_DARK_BLUE)
+bp = band.text_frame.paragraphs[0]
+bp.text = "Implements the NHS early-warning score used in ICUs - running on a wrist, with no network."
+bp.alignment = PP_ALIGN.CENTER
+bp.font.name = "Arial"
+bp.font.size = Pt(12.5)
+bp.font.bold = True
+bp.font.color.rgb = C_WHITE
+
 
 # =============================================================================
 # SLIDE 6: RESEARCH AND REFERENCES
@@ -401,37 +464,97 @@ add_bullet_p(tf_ba, "Environmental & Public Health Benefits", "• Delivers hype
 s6 = prs.slides.add_slide(blank_layout)
 setup_official_slide(s6, "RESEARCH AND REFERENCES", slide_num=6)
 
-# Left Column: Clinical & Scientific Foundations
-add_clean_box(s6, Inches(0.8), Inches(1.35), Inches(5.65), Inches(5.5), bg_color=C_WHITE, border_color=C_SIH_BLUE)
-ban_r = s6.shapes.add_shape(MSO_SHAPE.RECTANGLE, Inches(0.8), Inches(1.35), Inches(5.65), Inches(0.45))
-ban_r.fill.solid(); ban_r.fill.fore_color.rgb = C_SIH_BLUE; ban_r.line.fill.background()
-p = ban_r.text_frame.paragraphs[0]; p.text = "📚 Clinical & Scientific Foundations (Peer-Reviewed)"; p.font.size = Pt(11.5); p.font.bold = True; p.font.color.rgb = C_WHITE
+# ("GROUP", label, "") renders a merged group header row.
+# ("ROW", reference, file) renders one citation and where it lives in the repo.
+REFS = [
+    ("GROUP", "CLINICAL & PHYSIOLOGICAL FOUNDATIONS  (peer-reviewed)", ""),
+    ("ROW", "RCP (2017)  NEWS2: National Early Warning Score 2 - NHS acute-illness severity",
+            "clinical_vitals_engine.c"),
+    ("ROW", "Moran DS et al. (1998)  A physiological strain index to evaluate heat stress - Am J Physiol",
+            "disaster_risk_engine.c"),
+    ("ROW", "Brook RD et al. / AHA (2010)  Particulate matter air pollution and cardiovascular disease - Circulation",
+            "disaster_risk_engine.c"),
+    ("ROW", "Steadman RG (1979)  The assessment of sultriness, Parts I & II - J Appl Meteorol",
+            "disaster_risk_engine.c"),
+    ("ROW", "Karlen W et al. (2012)  PPG signal quality estimation using repeated Gaussian filters - Physiol Meas",
+            "ppg_sqi.c"),
+    ("ROW", "Elgendi M (2016)  Optimal signal quality index for photoplethysmogram signals - Bioengineering",
+            "ppg_sqi.c"),
+    ("ROW", "Charlton PH et al. (2018)  Breathing rate estimation from the ECG and PPG - IEEE Rev Biomed Eng",
+            "ppg_respiratory_rate.c"),
+    ("ROW", "Si M et al. (2019)  Low-cost particle sensor calibration using machine learning - Atmos Meas Tech",
+            "pm25_calibration_int8.c"),
+    ("GROUP", "DATASETS & STANDARDS", ""),
+    ("ROW", "Johnson AEW et al. (2016)  MIMIC-III, a freely accessible critical care database - Sci Data",
+            "data/mimic/"),
+    ("ROW", "WHO (2021)  Global air quality guidelines: PM2.5 hazard thresholds",
+            "disaster_risk_engine.c"),
+    ("ROW", "ARM  AMBA AXI and ACE Protocol Specification (AXI4-Lite)",
+            "axi_ppg_accelerator.v"),
+]
 
-tx_ra = s6.shapes.add_textbox(Inches(1.0), Inches(1.85), Inches(5.25), Inches(4.8))
-tf_ra = tx_ra.text_frame
-tf_ra.word_wrap = True
+tbl = s6.shapes.add_table(len(REFS) + 1, 2, Inches(0.80), Inches(1.35),
+                          Inches(11.73), Inches(4.80)).table
+tbl.columns[0].width = Inches(8.55)
+tbl.columns[1].width = Inches(3.18)
+tbl.first_row = True
+tbl.horz_banding = False
 
-add_bullet_p(tf_ra, "Royal College of Physicians (UK)", "National Early Warning Score (mNEWS2): Standardising the assessment of acute-illness severity in the NHS (respiratory, pulse & SpO2 triage).", first=True)
-add_bullet_p(tf_ra, "Prof. Daniel S. Moran (1998)", "'An Evaluated Physiological Strain Index in Human Heat Stress', American Journal of Physiology (Heart Rate + Core Temperature cardio-thermal formula).", first=False)
-add_bullet_p(tf_ra, "Prof. Robert D. Brook / AHA (2010)", "'Particulate Matter Air Pollution and Cardiovascular Disease', Circulation (Scientific statement on PM2.5 autonomic vagal suppression).", first=False)
-add_bullet_p(tf_ra, "R. G. Steadman (1979)", "'The Assessment of Sultriness: Part I & II', Journal of Applied Meteorology (Biometeorological formulation of the Steadman Heat Index).", first=False)
-add_bullet_p(tf_ra, "Karlen et al. (2012) & Elgendi (2016)", "'Photoplethysmogram Signal Quality Estimation for Pulse Oximetry' (Automated SQI classification of optical pulse morphology).", first=False)
+for r in range(len(REFS) + 1):
+    tbl.rows[r].height = Inches(0.30)
 
-# Right Column: Datasets, Standards & Commercial Target
-add_clean_box(s6, Inches(6.85), Inches(1.35), Inches(5.65), Inches(5.5), bg_color=C_WHITE, border_color=C_DARK_BLUE)
-ban_d = s6.shapes.add_shape(MSO_SHAPE.RECTANGLE, Inches(6.85), Inches(1.35), Inches(5.65), Inches(0.45))
-ban_d.fill.solid(); ban_d.fill.fore_color.rgb = C_DARK_BLUE; ban_d.line.fill.background()
-p = ban_d.text_frame.paragraphs[0]; p.text = "🔬 Datasets, Standards & Commercial Deployment Target"; p.font.size = Pt(11.5); p.font.bold = True; p.font.color.rgb = C_WHITE
+for c, hdr in enumerate(("REFERENCE  (paper, dataset or standard)", "IMPLEMENTED IN")):
+    cell = tbl.cell(0, c)
+    cell.text = hdr
+    cell.fill.solid()
+    cell.fill.fore_color.rgb = C_SIH_BLUE
+    hp = cell.text_frame.paragraphs[0]
+    hp.font.name = "Arial"
+    hp.font.size = Pt(9)
+    hp.font.bold = True
+    hp.font.color.rgb = C_WHITE
 
-tx_da = s6.shapes.add_textbox(Inches(7.05), Inches(1.85), Inches(5.25), Inches(4.8))
-tf_da = tx_da.text_frame
-tf_da.word_wrap = True
+for r, (kind, a, b) in enumerate(REFS, start=1):
+    if kind == "GROUP":
+        merged = tbl.cell(r, 0)
+        merged.merge(tbl.cell(r, 1))
+        merged.text = a
+        merged.fill.solid()
+        merged.fill.fore_color.rgb = C_DARK_BLUE
+        gp = merged.text_frame.paragraphs[0]
+        gp.font.name = "Arial"
+        gp.font.size = Pt(9)
+        gp.font.bold = True
+        gp.font.color.rgb = C_WHITE
+    else:
+        for c, txt in enumerate((a, b)):
+            cell = tbl.cell(r, c)
+            cell.text = txt
+            cell.fill.solid()
+            cell.fill.fore_color.rgb = C_CARD_BG if (r % 2) else C_WHITE
+            cp = cell.text_frame.paragraphs[0]
+            cp.font.name = "Consolas" if c == 1 else "Arial"
+            cp.font.size = Pt(8.5)
+            cp.font.bold = False
+            cp.font.color.rgb = C_TEXT_MUTED if c == 1 else C_TEXT_DARK
 
-add_bullet_p(tf_da, "MIT / PhysioNet MIMIC-III Database", "Medical Information Mart for Intensive Care v1.4: 16,387 MIMIC-III ICU vital records evaluated at 94.11% triage accuracy (real HR/SpO2 inputs; HRV synthetic).", first=True)
-add_bullet_p(tf_da, "World Health Organization (WHO 2021)", "WHO Global Air Quality Guidelines: Particulate matter (PM2.5) 24-hour and annual hazard threshold standards.", first=False)
-add_bullet_p(tf_da, "ARM AMBA AXI4-Lite Specification", "ARM IHI0022E: Interconnect standard for decoupled AW/W register channels and Write-1-to-Clear (W1C) interrupt status handling.", first=False)
-add_bullet_p(tf_da, "Qualcomm Snapdragon Wear Roadmap", "Architecture designed for migration to Snapdragon Wear W5+ Gen 1, mapping Verilog DSP to Hexagon™ Vector eXtensions (HVX) on the <5 mW Low-Power Island.", first=False)
-add_bullet_p(tf_da, "EDA & Synthesis Verification Tools", "AMD Xilinx Vivado ML v2022.2 (Timing Closure), Renesas ForgeFPGA Workshop, Icarus Verilog, GTKWave, GCC, ESP-IDF v5.x (FreeRTOS).", first=False)
+# --- Footer: the mapping claim, then the toolchain (explicitly not a reference)
+tx_rf = s6.shapes.add_textbox(Inches(0.80), Inches(6.28), Inches(11.73), Inches(0.62))
+tf_rf = tx_rf.text_frame
+tf_rf.word_wrap = True
+rf1 = tf_rf.paragraphs[0]
+rf1.text = "Every reference above maps to a file in this repository - these were implemented, not just cited."
+rf1.font.name = "Arial"
+rf1.font.size = Pt(10)
+rf1.font.bold = True
+rf1.font.color.rgb = C_DARK_BLUE
+rf2 = tf_rf.add_paragraph()
+rf2.text = ("Toolchain (how it was built, not a reference): Vivado ML 2026.1  |  Renesas ForgeFPGA Workshop v6.55  |  "
+            "Icarus Verilog  |  GTKWave  |  GCC  |  ESP-IDF v5.5.5")
+rf2.font.name = "Arial"
+rf2.font.size = Pt(8)
+rf2.font.color.rgb = C_TEXT_MUTED
+
 
 # Save
 prs.save(OUT_PPTX)
