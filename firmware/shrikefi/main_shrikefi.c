@@ -231,20 +231,36 @@ static void task_ppg_accelerator(void *pvParameters) {
                 float ibi_ms = (float)ibi_cycles * (20.0f / 1000000.0f); // 50 MHz clock
 
                 /* Split-beat guard.
-                 * The ForgeFPGA peak detector blanks for 250 ms after a beat,
-                 * but the dicrotic notch arrives ~330 ms after the systolic
-                 * peak, so on roughly one beat in five the detector fires twice.
-                 * The floor below correctly rejected the SHORT interval - but
-                 * the interval AFTER it is then the remainder of the same
+                 * On hardware the peak detector fires twice, ~330 ms apart, on
+                 * roughly one beat in five (44 detections produced 6 such
+                 * pairs). The floor below correctly rejected the SHORT interval
+                 * - but the interval AFTER it is the remainder of the same
                  * cardiac cycle (~1080 ms), which looks entirely valid and was
-                 * being accepted as a real beat. On hardware that produced an
-                 * alternating ~700 / ~1080 ms pattern which drove RMSSD to
-                 * ~190 ms, roughly four times the genuine beat-to-beat
-                 * variability - and RMSSD feeds the autonomic-strain terms in
-                 * the heat, pollution and cold-stress engines, so the patient
-                 * was being scored as less strained than they really were.
-                 * When a too-short interval is seen, discard the next one too:
-                 * the pair is one heartbeat, not two. */
+                 * being accepted as a real beat. That produced an alternating
+                 * ~700 / ~1080 ms pattern which drove RMSSD to ~190 ms, roughly
+                 * four times the genuine beat-to-beat variability. RMSSD feeds
+                 * the autonomic-strain terms in the heat, pollution and
+                 * cold-stress engines, so the patient was being scored as less
+                 * strained than they really were.
+                 *
+                 * The CAUSE of the double firing is NOT established.
+                 * The dicrotic notch was the first suspect and the timing rules
+                 * it out: the notch lands 50-70 ms after the SYSTOLIC PEAK -
+                 * well inside the detector's 250 ms refractory - so it cannot
+                 * produce a second firing at 330 ms. (The 320-380 ms figure
+                 * often quoted is measured from the ECG R-wave, not from the
+                 * systolic peak; conflating the two references is what made the
+                 * notch look like a match.)
+                 * 330 ms is ~47% of a ~715 ms cardiac cycle, i.e. mid-diastole,
+                 * where a finger PPG has no physiological peak at all. That
+                 * points away from a waveform feature and toward a digital or
+                 * filter artifact in the FPGA link or the 8-tap average.
+                 *
+                 * This guard removes the symptom regardless of the cause, which
+                 * is why it is applied now: a split detection always contributes
+                 * one bogus long interval, and discarding the pair is correct
+                 * whatever produced it. Identifying the cause needs the waveform
+                 * the FPGA actually sees - see the commit message for how. */
                 if (ibi_ms < IBI_MIN_MS) {
                     s_skip_next_ibi = true;    /* artifact: do not add */
                 } else if (ibi_ms > IBI_MAX_MS) {
