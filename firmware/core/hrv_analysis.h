@@ -65,6 +65,18 @@ void  hrv_median_init(hrv_median_t *m);
 /* Insert one interval and return the median of the window including it.
  * Values are passed through unchanged until HRV_MEDIAN_MIN entries exist. */
 float hrv_median_push(hrv_median_t *m, float ibi_ms);
+/* Median of the accepted window, or 0.0f until the window is FULL
+ * (HRV_MEDIAN_WINDOW entries). The full-window requirement is deliberate: a
+ * median taken over a partly-filled window can be dominated by outliers, and
+ * a caller that acts on it will act on noise.
+ *
+ * WARNING - this value is safe to use as an UPPER bound only, to reject
+ * intervals that are too LONG (missed beats). A lower bound derived from it
+ * locks the pipeline up: rejecting short intervals removes exactly the values
+ * that would pull the median back down, so the bound ratchets upward and
+ * eventually rejects the subject's real rhythm forever. That failure was
+ * measured on hardware; see the comment above IBI_MIN_MS in main_shrikefi.c. */
+float hrv_median_value(const hrv_median_t *m);
 
 #define HRV_MEDIAN_MIN 3
 

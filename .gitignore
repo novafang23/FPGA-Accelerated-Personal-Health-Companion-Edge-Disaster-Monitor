@@ -111,3 +111,9 @@ firmware/shrikefi/wifi_credentials.h
 mimic-iii-clinical-database-demo-1.4/
 .history/
 
+# Raw serial captures and their scratch scripts. These are multi-hundred-KB
+# console dumps taken with idf.py monitor or a background serial reader; they
+# are useful evidence but must not be committed. Analysis goes through
+# hardware/shrikefi/tools/analyse_capture.py.
+.capture/
+

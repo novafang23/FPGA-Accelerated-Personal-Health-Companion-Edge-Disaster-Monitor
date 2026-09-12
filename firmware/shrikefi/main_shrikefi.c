@@ -130,6 +130,31 @@ static ssd1306_t s_ssd1306;
  * rejections the median window is discarded and rebuilt from fresh data. */
 #define IBI_REJECT_ESCAPE 12
 
+/* Missed-beat ceiling, as a multiple of this subject's recent median interval.
+ *
+ * IBI_MAX_MS alone is not enough, because it is absolute and a missed beat does
+ * not have to exceed it. Measured on hardware at a 770 ms rhythm: the detector
+ * dropped a crest and reported a 1300 ms interval. 1300 < 1500, so it was
+ * accepted. RMSSD is a root-mean-square of SUCCESSIVE DIFFERENCES, so that one
+ * interval against the previous ~721 ms produced a single 579 ms difference and
+ * took RMSSD from 27.8 ms - a healthy resting value - to 152.0 ms. It then
+ * decayed only by dilution, 152 -> 113 ms over the following 87 s, because the
+ * HRV window is 300 intervals and never forgets an early value.
+ *
+ * WHY AN UPPER BOUND IS SAFE HERE AND A LOWER BOUND IS NOT
+ * -------------------------------------------------------
+ * Rejecting LONG intervals removes only values that would drag the median UP,
+ * so the median settles at the true rhythm and the ceiling adapts to it. The
+ * true rhythm is always inside the window (it is far below 1.6x the median),
+ * so it is always accepted, and it always pulls the median back if it drifts.
+ * The fixed point is stable.
+ *
+ * A LOWER bound has the opposite sign and is unstable: rejecting SHORT
+ * intervals removes exactly the values that would pull the median DOWN, so the
+ * floor ratchets up and eventually excludes the real rhythm permanently. That
+ * is the latch described above IBI_MIN_MS. Do not add one. */
+#define IBI_MISSED_BEAT_RATIO 1.6f
+
 typedef struct {
     int          source;        /* IBI_SRC_* currently feeding the buffer */
     hrv_median_t median;        /* artifact filter on the accepted series */
@@ -180,12 +205,21 @@ static bool ibi_pipeline_submit(ibi_pipeline_t *p, hrv_state_t *hrv,
 
     bool accepted = false;
 
+    /* Median of the accepted series, or 0.0f until the window is full. The
+     * full-window requirement is what makes this safe: a median over a
+     * partly-filled window can be dominated by its outliers, which is how the
+     * latch above IBI_MIN_MS originally got seeded. */
+    float med = hrv_median_value(&p->median);
+
     if (ibi_ms > IBI_MAX_MS) {
-        /* Missed beats, or the very first interval after lock (measured from
-         * the FPGA's previous arbitrary beat, i.e. from power-on). Either way
-         * this is not a beat-to-beat measurement and must not enter the series.
-         * Handled before the split test so it also clears skip_next: a gap is
-         * not the remainder of a split cycle. */
+        /* Hard gap. Handled before the split test so it also clears skip_next:
+         * a gap is not the remainder of a split cycle. */
+        p->skip_next = false;
+    } else if (med > 0.0f && ibi_ms > (IBI_MISSED_BEAT_RATIO * med)) {
+        /* A missed beat: the detector dropped a crest, so this interval spans
+         * two cardiac cycles and is not a beat-to-beat measurement. Reject it
+         * but do NOT set skip_next - the next interval is timed from the real
+         * previous beat, so it is still valid. See IBI_MISSED_BEAT_RATIO. */
         p->skip_next = false;
     } else if (ibi_ms < IBI_MIN_MS) {
         p->skip_next = true;    /* detector double-fired on one cardiac cycle */

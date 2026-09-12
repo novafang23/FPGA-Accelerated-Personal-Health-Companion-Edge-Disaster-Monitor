@@ -118,3 +118,8 @@ float hrv_median_push(hrv_median_t *m, float ibi_ms) {
     return hrv_median_of(m->buf, m->count);
 }
 
+float hrv_median_value(const hrv_median_t *m) {
+    if (m == NULL || m->count < HRV_MEDIAN_WINDOW) return 0.0f;
+    return hrv_median_of(m->buf, m->count);
+}
+

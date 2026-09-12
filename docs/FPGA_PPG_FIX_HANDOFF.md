@@ -3,27 +3,30 @@
 **Audience:** Antigravity (or any agent/human continuing this work)
 **Board:** ShrikeFi — ESP32-S3-WROOM-1-N8R2 + Renesas ForgeFPGA SLG47910C
 **Firmware base:** `d5baf3f`
-**Head after this work:** `fccfaea`
-**Build status:** clean, `shrikefi_health_companion.bin` = 0xf9ed0 bytes
+**Head after this work:** see `git log`; the numbered sections below are stable
+**Build status:** clean, `shrikefi_health_companion.bin` = 0xf9f30 bytes
 
 ---
 
 ## 0. Read this first
 
-Three things changed, in three commits:
+Four things changed:
 
 | Commit | What |
 |---|---|
 | `59ebaf1` | HRV window no longer mixes intervals from two detectors; IBI series median-filtered |
 | `4a353ac` | Replay tool + evidence report proving the FPGA's 8-tap average runs in hardware |
 | `fccfaea` | **Reverts a bug introduced by `59ebaf1`** — the median-relative rejection floor latched |
+| *(latest)* | Missed-beat ceiling: reject intervals above 1.6× the subject's own median |
 
 `fccfaea` matters most. One of the changes in `59ebaf1` looked smarter than the
 code it replaced and was actively harmful. Section 3 explains it in full, because
 the same mistake is easy to make again.
 
 **Do not re-introduce a rejection threshold that is relative to a running
-statistic.** That is the single most important line in this document.
+statistic — unless it is an UPPER bound.** That is the single most important line
+in this document. Section 6.1 gives the asymmetry, which is provable rather than
+a rule of thumb.
 
 ---
 
@@ -248,7 +251,92 @@ discarded the HR and SpO2 values and flickered its contact indicator.
 
 ---
 
-## 6. Change: baseline re-seed on sustained ADC railing
+## 6. Defect 4: one accepted missed beat cost 124 ms of RMSSD
+
+Found by the 00:58 capture, after the latch fix was in. Analysis:
+`hardware/shrikefi/tools/analyse_capture.py`.
+
+### Symptom
+
+RMSSD settled at **27.8 ms** — a healthy resting value, exactly what you want —
+then jumped to **152.0 ms** in a single step, and decayed only slowly:
+152 → 113 ms over the following 87 seconds.
+
+### Evidence
+
+Session t=380034..486074 ms, 106 s, 125 crests:
+
+```
+interval median 770 ms (77.9 BPM), min 360, max 1770
+<400 ms (split double-fire) : 3
+400..1500 ms                : 115
+>1500 ms (missed beat)      : 6
+escape warnings             : none
+```
+
+The crest timestamps bracketing the jump are **396234** and **397534** — a
+**1300 ms** interval. The rhythm is 770 ms, so the detector dropped a crest.
+`IBI_MAX_MS` is 1500 ms, and **1300 < 1500, so it was accepted**.
+
+RMSSD is a root-mean-square of *successive differences*, so one interval is all
+it takes:
+
+```
+before: n=15, RMSSD  27.8  ->  sum(diff^2) =   772.84 * 14 =  10,820
+after : n=16, RMSSD 152.0  ->  sum(diff^2) = 23104.00 * 15 = 346,560
+delta = 335,740   ->   sqrt = 579.4 ms
+```
+
+`analyse_capture.py` solves that delta for each candidate `n`; the `n=15` row
+gives **579.4 ms**, and 1300 − 579 = 721 ms is exactly the preceding interval.
+Two independent routes to the same number.
+
+It then decayed only by dilution, because the HRV window holds **300** intervals
+and never forgets an early value. That is inherent to a 5-minute RMSSD and is not
+a bug — but it means one accepted artefact poisons the metric for minutes.
+
+### Root cause
+
+The plausibility window was **absolute** and the absolute ceiling was too high.
+A missed beat does not have to exceed 1500 ms: at a 770 ms rhythm it produces
+~1300–1770 ms, and everything below 1500 slipped through.
+
+### Fix — and why this one is safe
+
+`IBI_MISSED_BEAT_RATIO = 1.6f` in `main_shrikefi.c`: reject an interval above
+1.6 × the median of the accepted series.
+
+Two conditions make it safe, and both are load-bearing:
+
+**1. The median window must be FULL (5 entries) before it is consulted.**
+`hrv_median_value()` returns `0.0f` until then. This is the direct lesson of §3:
+the latch was seeded by a median over a *partly-filled* window (4 entries, 2 of
+them outliers) — not a robust statistic, and `hrv_median_of()` picks the
+upper-middle element for an even count, which makes it worse.
+
+**2. It is an UPPER bound only. Never add a lower one.** The asymmetry is
+provable, not a rule of thumb:
+
+* **Rejecting LONG intervals** removes only values that would drag the median
+  *up*, so the median settles at the true rhythm and the ceiling adapts to it.
+  The true rhythm is always far below 1.6 × the median, so it is always accepted,
+  and it always pulls the median back if it drifts. The fixed point is stable.
+* **Rejecting SHORT intervals** removes exactly the values that would pull the
+  median *down*, so the floor ratchets up and eventually excludes the real rhythm
+  permanently. That is §3.
+
+A missed beat is rejected **without** setting `skip_next`, because the next
+interval is timed from the real previous beat and remains valid. Only a split
+double-fire has a remainder that must also be discarded.
+
+### Expected result
+
+The 1300 ms interval is rejected, no 579 ms successive difference enters the
+series, and RMSSD stays near 28 ms instead of jumping to 152 ms.
+
+---
+
+## 7. Change: baseline re-seed on sustained ADC railing
 
 Not a correctness bug on its own, but it was costing ~7 seconds of lock time
 after every finger placement.
@@ -297,7 +385,7 @@ single shared counter state is exactly the bug that was fixed earlier by
 
 ---
 
-## 7. Link diagnostic logging
+## 8. Link diagnostic logging
 
 `shrikefi_link_driver.c` now has a compile-time switch:
 
@@ -335,7 +423,7 @@ this as a detector bug. It is logged in the report as a recommended RTL change.
 
 ---
 
-## 8. What was deliberately NOT changed
+## 9. What was deliberately NOT changed
 
 ### The RTL
 
@@ -367,21 +455,23 @@ still contains claims that have been corrected elsewhere in this repo — see
 
 ---
 
-## 9. Files changed
+## 10. Files changed
 
 | File | Change |
 |---|---|
-| `firmware/core/hrv_analysis.h` | Added `hrv_median_t`, `hrv_median_init()`, `hrv_median_push()`, `HRV_MEDIAN_WINDOW` (5), `HRV_MEDIAN_MIN` (3). Header comment carries the rationale and the low-bias caveat. |
-| `firmware/core/hrv_analysis.c` | Added `hrv_median_of()` (insertion sort over ≤5 floats) and the two public functions. `hrv_median_peek()` added then removed — see §3. |
-| `firmware/shrikefi/main_shrikefi.c` | Added `ibi_pipeline_t`, `ibi_pipeline_reset()`, `ibi_pipeline_submit()`; hoisted `IBI_MIN_MS`/`IBI_MAX_MS` to file scope; added `IBI_REJECT_ESCAPE`; routed **both** detectors through the pipeline; added the rail re-seed; fixed the `NO_FINGER` telemetry mislabel; reset the pipeline on finger removal; rewrote the split-beat comment now that the cause is established. |
+| `firmware/core/hrv_analysis.h` | Added `hrv_median_t`, `hrv_median_init()`, `hrv_median_push()`, `hrv_median_value()`, `HRV_MEDIAN_WINDOW` (5), `HRV_MEDIAN_MIN` (3). Header comments carry the rationale, the low-bias caveat, and the warning that the median is only safe as an upper bound. |
+| `firmware/core/hrv_analysis.c` | Added `hrv_median_of()` (insertion sort over ≤5 floats) and the three public functions. `hrv_median_peek()` was added in `59ebaf1` then removed in `fccfaea` — see §3. `hrv_median_value()` replaces it and refuses to return anything until the window is full. |
+| `firmware/shrikefi/main_shrikefi.c` | Added `ibi_pipeline_t`, `ibi_pipeline_reset()`, `ibi_pipeline_submit()`; hoisted `IBI_MIN_MS`/`IBI_MAX_MS` to file scope; added `IBI_REJECT_ESCAPE` and `IBI_MISSED_BEAT_RATIO`; routed **both** detectors through the pipeline; added the rail re-seed; fixed the `NO_FINGER` telemetry mislabel; reset the pipeline on finger removal; rewrote the split-beat comment now that the cause is established. |
 | `firmware/shrikefi/shrikefi_dashboard.c` | Added the `ACQUIRING` telemetry branch (Packet 2b). |
 | `firmware/shrikefi/shrikefi_link_driver.c` | Decimated logging by default; added `SHRIKEFI_LINK_FULL_RATE_LOG`; documented the 7-bit truncation. |
-| `hardware/shrikefi/tools/replay_fpga_link_log.py` | **New.** Bit-accurate RTL replay tool. |
-| `reports/FPGA_PPG_WAVEFORM_ANALYSIS.md` | **New.** Full evidence report, including §5.1 on the latch. |
+| `hardware/shrikefi/tools/replay_fpga_link_log.py` | **New.** Bit-accurate RTL replay tool — checks the FPGA. |
+| `hardware/shrikefi/tools/analyse_capture.py` | **New.** Session analyser — checks the firmware pipeline that consumes the FPGA. Reports detector cadence, artefact rate, IBI count progression, RMSSD jumps and what caused them. |
+| `reports/FPGA_PPG_WAVEFORM_ANALYSIS.md` | **New.** Full evidence report: §5.1 the latch, §5.2 the missed-beat ceiling. |
+| `.gitignore` | Added `.capture/` so raw serial dumps cannot be committed by accident. |
 
 ---
 
-## 10. How to build, flash and verify
+## 11. How to build, flash and verify
 
 ```powershell
 # one-time per shell
@@ -391,18 +481,28 @@ cd C:\Users\abhin\OneDrive\Desktop\verilog\firmware\shrikefi
 idf.py -p COM5 build flash monitor
 ```
 
-Hold a finger on the MAX30102 for **60 seconds**, then `Ctrl+]`.
+Hold a finger on the MAX30102 for **60–120 seconds**, then `Ctrl+]`.
 
 **What to look for:**
 
 | Check | Expected |
 |---|---|
 | `IBI detector handover -> ForgeFPGA` | Exactly one per contact session, shortly after the finger lands |
-| `IBI samples: N` | Climbs **monotonically**. If it stalls for more than ~10 s, the escape hatch should log `IBI filter rejected 12 intervals in a row` — report that, it means a new latch |
-| `[FPGA ACCEL]` beat cadence | Steady, one per cardiac cycle |
+| `IBI samples: N` | Climbs **monotonically**. If it stalls for more than ~10 s the escape hatch logs `IBI filter rejected 12 intervals in a row` — report that, it means a new latch |
+| `[FPGA ACCEL]` beat cadence | Steady, ~70–80 crests/min, with occasional splits and missed beats |
 | `HR:` | Starts near the true rate, does **not** ramp down from ~119 |
-| `RMSSD:` | ~35–40 ms at rest once the counter passes 10. **Ignore any RMSSD printed with fewer than 10 samples** — with 1–4 intervals it is arithmetic on noise, and values like 744 ms are meaningless |
+| `RMSSD:` | **~28–40 ms at rest, and it must not spike.** A step from ~28 to >100 ms means an artefact was accepted — see §6 |
 | `[TELEMETRY]` | `ACQUIRING,...` with real HR/SpO2 while filling, `NO_FINGER` only with no contact |
+
+Then analyse the capture rather than eyeballing it:
+
+```powershell
+python hardware\shrikefi\tools\analyse_capture.py `
+       firmware\shrikefi\build\log\idf_py_stdout_output_<pid>
+```
+
+It prints the detector's artefact rate and flags every RMSSD jump with the crest
+intervals responsible. A clean run shows `escape warnings: none` and no jumps.
 
 ### To take a diagnostic capture
 
@@ -425,13 +525,13 @@ the bitstream and the `.v` have diverged, or a pin has moved.
 
 ---
 
-## 11. Open items
+## 12. Open items
 
 | Item | Owner | Notes |
 |---|---|---|
-| Confirm the counter now climbs steadily | next flash | The whole point of `fccfaea` |
-| Recapture at full rate and re-run the replay | next flash | `SHRIKEFI_LINK_FULL_RATE_LOG = 1` |
-| Decide whether the RTL crest-confirmation change is needed | needs evidence | If notch pairs persist at >1 in 6 beats after the firmware fix, yes. Firmware cannot recover a crest time measured 100 ms early. |
+| Confirm RMSSD no longer spikes | next flash | The whole point of the latest change — see §6. Run `analyse_capture.py` and check for jumps |
+| Reduce the detector's 7.3% artefact rate | needs a full-rate capture | Measured: 3 splits + 6 missed beats per 124 intervals. Firmware filtering now absorbs them, but they are the dominant remaining error source |
+| Decide whether the RTL crest-confirmation changes are needed | needs evidence | If notch pairs persist after the firmware fix, yes. Firmware cannot recover a crest time measured 100 ms early |
 | WiFi never associates | open | Log shows `reason 201: SSID NOT FOUND`. `Airtel_Abhi-506` in `wifi_credentials.h` is either misspelled or a 5 GHz-only AP — the ESP32-S3 has no 5 GHz radio. **The cloud dashboard receives nothing until this is fixed.** |
 | `tb_forgefpga_system.v` does not compile | open | Still instantiates the old `rst_n` / `link_strobe` / `link_dir` / `link_din` / `link_dout` port set. Two copies exist (`hardware/shrikefi/` and `forgefpga_project/ffpga/sim/`). |
 | Docs claim 443 LUT5s | open | ForgeFPGA fitter reports **202/1120 (18.04%)**, 123 FFs, 37/140 CLBs. Deck must follow the fitter report. |
@@ -440,26 +540,32 @@ the bitstream and the `.v` have diverged, or a pin has moved.
 
 ---
 
-## 12. Guardrails
+## 13. Guardrails
 
 * **Do not `git add -A`.** The working tree contains another agent's
   `docs/presentation/*` changes and a set of untracked reference files
   (`Web_FPGA_programmer.ino`, `esp.rs`, `universal.rs`, `shrike_*.txt`/`.svg`,
   `vicharak_spi_target.v`, `shrike.pdc`). Stage explicit paths only.
 * **Do not edit the RTL and the bitstream independently.** They are a matched
-  pair; see §8.
-* **Do not make any rejection threshold relative to a running statistic.** See §3.
+  pair; see §9.
+* **Never add a rejection threshold that is a LOWER bound on a running
+  statistic.** An upper bound is safe and is used for missed beats; a lower
+  bound latched the pipeline on hardware. See §3 for the failure and §6 for the
+  proof of the asymmetry.
+* **Only consult the median when its window is full.** `hrv_median_value()`
+  enforces this by returning `0.0f` early. Do not "optimise" that away.
 * **Do not call `hrv_add_ibi()` directly** from either detector. Go through
   `ibi_pipeline_submit()`, or the two-detector mixing bug comes straight back.
-* **Do not share baseline or railing-counter state between RED and IR.** See §6.
-* **Do not remove the rail re-seed or `IBI_REJECT_ESCAPE`.** Both exist because of
-  a measured hardware failure, and both are documented at their definitions.
+* **Do not share baseline or railing-counter state between RED and IR.** See §7.
+* **Do not remove the rail re-seed, `IBI_REJECT_ESCAPE` or the missed-beat
+  ceiling.** Each exists because of a measured hardware failure and is
+  documented at its definition.
 * If you change a `[TELEMETRY]` packet format, **update both** `main_shrikefi.c`
   and `shrikefi_dashboard.c`.
 
 ---
 
-## 13. Reference: how the analysis was done
+## 14. Reference: how the analysis was done
 
 `hardware/shrikefi/tools/replay_fpga_link_log.py` is self-documenting and its
 module docstring contains the full method and the first capture's results. In

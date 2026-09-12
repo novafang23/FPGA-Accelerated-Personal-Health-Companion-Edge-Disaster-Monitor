@@ -278,24 +278,82 @@ producing an artifact. Every rejection rule needs an escape.
 
 ---
 
-## 5.2 Open: this session's raw detector output is noisier than the first
+## 5.2 RESOLVED: the residual RMSSD error was one accepted missed beat
 
-The 160 s capture contains ~160 beats, but the inter-beat intervals swing from
-340 ms to 2020 ms, with repeated short/long pairs (340+1140, 360+1160,
-400+1060, 460+1160, 340+900). The first capture, on the same board, produced 18
-consecutive intervals between 760 and 960 ms.
+Superseded by the 00:58 capture (`hardware/shrikefi/tools/analyse_capture.py`
+has the full output). The open question in the first version of this section was
+whether the remaining RMSSD error came from early-session contamination or from
+pervasive interval noise. Neither: it was **one interval**.
 
-The latch in §5.1 hides how much of that is real, because it suppressed most
-intervals before they reached the log. Two things are needed to settle it:
+Session 2 of that capture (t=380034..486074 ms, 106 s, 125 crests):
 
-1. Re-flash with the §5.1 fix and confirm the counter climbs monotonically.
-2. Take another **full-rate** capture. `SHRIKEFI_LINK_FULL_RATE_LOG` in
-   `shrikefi_link_driver.c` is now a compile-time switch for exactly this, so no
-   code edit is needed — set it to 1, capture 30 s, set it back to 0.
+```
+interval median 770 ms (77.9 BPM), min 360, max 1770
+<400 ms (split double-fire) : 3
+400..1500 ms                : 115
+>1500 ms (missed beat)      : 6
+escape warnings             : none
+```
 
-If the notch pairs persist at this rate, the RTL change in §6 (require a deeper
-fall before confirming a crest) moves from "recommended" to "needed"; firmware
-filtering cannot recover a crest time that was measured 100 ms early.
+Artefact rate 7.3%. The pipeline was working. RMSSD settled at **27.8 ms** — a
+healthy resting value — and then jumped to **152.0 ms** between t=397194 and
+t=398264.
+
+The crest timestamps in that window are **396234** and **397534**: a **1300 ms**
+interval. The rhythm is 770 ms, so the detector dropped a crest. But
+`IBI_MAX_MS` is 1500 ms and `1300 < 1500`, so it was **accepted**.
+
+RMSSD is a root-mean-square of *successive differences*, so one interval is
+enough:
+
+```
+before: n=15, RMSSD  27.8  ->  sum(diff^2) =   772.84 * 14 =  10,820
+after : n=16, RMSSD 152.0  ->  sum(diff^2) = 23104.00 * 15 = 346,560
+delta = 335,740   ->   sqrt = 579.4 ms
+```
+
+`analyse_capture.py` solves that delta for each candidate `n`; the `n=15` row
+gives **579.4 ms**, and 1300 − 579 = 721 ms is exactly the preceding interval.
+
+So: **one accepted missed beat cost 124 ms of RMSSD.** It then decayed only by
+dilution — 152 → 113 ms over the following 87 s — because the HRV window holds
+300 intervals and never forgets an early value.
+
+### Fix
+
+`IBI_MISSED_BEAT_RATIO` (1.6) in `main_shrikefi.c`: reject an interval that
+exceeds 1.6 × the median of the accepted series.
+
+The median is only consulted when its window is **full** (5 entries). That
+requirement is the direct lesson of §5.1: the latch there was seeded by a median
+taken over a partly-filled window (4 entries, 2 of them outliers), which is not
+a robust statistic.
+
+**An upper bound is safe; a lower bound is not**, and the asymmetry is provable:
+
+* Rejecting LONG intervals removes only values that would drag the median up, so
+  the median settles at the true rhythm and the ceiling adapts to it. The true
+  rhythm is always far below 1.6 × the median, so it is always accepted, and it
+  always pulls the median back if it drifts. The fixed point is stable.
+* Rejecting SHORT intervals removes exactly the values that would pull the
+  median *down*, so the floor ratchets up and eventually excludes the real
+  rhythm permanently. That is the §5.1 latch.
+
+A missed beat is rejected **without** setting `skip_next`: the next interval is
+timed from the real previous beat, so it remains valid. Only a split
+double-fire is followed by a remainder that must also be discarded.
+
+### Expected result
+
+The 1300 ms interval is rejected, so no 579 ms successive difference enters the
+series, and RMSSD stays at ~28 ms instead of jumping to 152 ms.
+
+### What this says about the detector
+
+7.3% artefact rate (3 splits + 6 missed beats in 124 intervals) is usable but
+not excellent, and it is now the dominant remaining error source. The two RTL
+changes in §6 would reduce it at the source; firmware filtering cannot recover a
+crest time that was measured 100 ms early.
 
 ---
 
@@ -310,7 +368,8 @@ filtering cannot recover a crest time that was measured 100 ms early.
 | `tb_forgefpga_system.v` | Stale — still instantiates the old `rst_n` / `link_*` port set and will not compile. |
 | Docs claim 443 LUT5s | ForgeFPGA fitter reports **202/1120 (18.04%)**, 123 FFs, 37/140 CLBs. Deck must follow the fitter report. |
 | HRV sample counter latched at 4/6/7 | **Fixed** — see §5.1. Absolute bounds restored, escape hatch added. |
-| Session-to-session detector quality varies | **Open** — see §5.2. Needs a full-rate recapture with `SHRIKEFI_LINK_FULL_RATE_LOG = 1`. |
+| Residual RMSSD error | **Fixed** — see §5.2. Caused by a single accepted missed beat (1300 ms against a 770 ms rhythm). `IBI_MISSED_BEAT_RATIO` now rejects those. |
+| Detector artefact rate: 3 splits + 6 missed beats per 124 intervals (7.3%) | **Open.** Firmware filtering now absorbs them; reducing them needs the RTL changes above. |
 
 ---
 
