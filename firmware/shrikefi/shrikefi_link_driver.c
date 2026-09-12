@@ -165,7 +165,7 @@ shrikefi_err_t shrikefi_write_ir_sample(uint8_t sample) {
          * the true 8-bit value from the input stream and therefore does not
          * care. */
 #ifndef SHRIKEFI_LINK_FULL_RATE_LOG
-#define SHRIKEFI_LINK_FULL_RATE_LOG 1   /* TEMPORARY: diagnosing the FPGA dropout */
+#define SHRIKEFI_LINK_FULL_RATE_LOG 0
 #endif
         static int s_dbg_cnt = 0;
 #if SHRIKEFI_LINK_FULL_RATE_LOG
