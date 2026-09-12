@@ -103,68 +103,76 @@ static ssd1306_t s_ssd1306;
 #define IBI_SRC_SOFTWARE  1
 #define IBI_SRC_FPGA      2
 
-/* Absolute plausibility bounds. Below IBI_MIN_MS the detector double-fired;
- * above IBI_MAX_MS a beat was missed entirely.
+/* Absolute plausibility bounds, and the relative window around the local
+ * rhythm. Everything here is expressed against ONE reference: a median over the
+ * last few DETECTED intervals.
  *
- * These are deliberately ABSOLUTE and must not be replaced by a threshold
- * relative to the running median. A relative floor is a positive feedback loop:
- * once a couple of long intervals (missed beats) are in the median window, the
- * floor rises above the subject's true rhythm, every normal beat is then
- * rejected, and because nothing is accepted the median never comes back down.
+ * THE REFERENCE IS FED BY EVERY INTERVAL THAT PASSES THE ABSOLUTE BOUNDS,
+ * ACCEPTED OR NOT. That is the whole trick, and it is what makes a lower bound
+ * safe. An earlier version derived its floor from a median over ACCEPTED
+ * intervals only, and it latched: rejecting short intervals removed exactly the
+ * values that would have pulled the median down, so the floor ratcheted upward
+ * until it excluded the subject's real rhythm permanently. Measured on
+ * hardware - four intervals in (1470, 720, 759, 1400 ms), median 1400 ms, a
+ * 0.80x floor of 1120 ms, and every subsequent ~740 ms beat rejected. The
+ * sample counter froze at 4, took 12.5 s to reach 5, 49 s to reach 6 and 62 s
+ * more to reach 7 while the FPGA detected ~80 BPM throughout.
  *
- * That is not hypothetical - it is what the first version of this pipeline did
- * on hardware. Four intervals were accepted (1470, 720, 759, 1400 ms), the
- * 5-window median sat at 1400 ms, the 0.80x floor became 1120 ms, and every
- * subsequent ~740 ms beat was rejected. The HRV sample counter latched at 4,
- * took 12.5 s to reach 5, 49 s to reach 6 and another 62 s to reach 7, while
- * the FPGA kept detecting ~80 beats per minute the whole time.
+ * When the reference is fed by everything plausible, a rejection cannot change
+ * it at all, so no bound derived from it can ratchet. There is no feedback path
+ * left to latch. This is why the ratio bounds below are allowed to be
+ * two-sided, which they must be: the detector's errors come in PAIRS.
  *
- * The artifact filter below is feed-forward (a median over accepted intervals)
- * and cannot latch. Keep it that way. */
-#define IBI_MIN_MS   400.0f
-#define IBI_MAX_MS  1500.0f
+ * WHY TWO-SIDED IS NECESSARY - measured, not assumed
+ * --------------------------------------------------
+ * From the 01:34 capture, the raw IR waveform was autocorrelated independently
+ * of the FPGA (hardware/shrikefi/tools/analyse_capture.py plus the raw [PPG]
+ * stream). The true rhythm was 730-770 ms, 78-82 BPM, with no competitor at
+ * half that lag. The FPGA detector's own interval distribution over the same
+ * 116 s was bimodal:
+ *
+ *      700-899 ms : 74 intervals   <- real
+ *      340-599 ms : 15 intervals   <- artefact
+ *     1000-1300 ms: 33 intervals   <- artefact, 23% of all intervals
+ *
+ * 23% of intervals at 1000-1300 ms is impossible at a 78-82 BPM rhythm. The
+ * short and long clusters are two halves of one event: a short interval plus
+ * its long partner sum to two cardiac cycles (e.g. 340 + 1200 = 1540 = 2 x 770).
+ * The FPGA's crest detector therefore has TWO fiducial points about 350 ms
+ * apart, and picks between them beat by beat.
+ *
+ * Rejecting only the long half would leave the short half in the series, and
+ * vice versa; either one alone still injects a ~350 ms successive difference.
+ * Both halves have to go, so the window is symmetric.
+ *
+ * A +/-30% window around the local median is the standard ectopic/artefact
+ * filter used in HRV preprocessing (the classical form is Malik's 20% filter;
+ * 30% is the usual relaxation for PPG, which is noisier than ECG). Removing
+ * beats is cheap for RMSSD - Sheridan et al., Psychiatry Investig
+ * 2020;17(9):960-965 measured it staying within a 5% change with up to 36% of
+ * intervals removed. Keeping MIS-TIMED beats is what is expensive: the same
+ * study puts the threshold at ~16 ms of beat-picking error. */
+#define IBI_MIN_MS    400.0f   /* hard floor: below this the detector double-fired  */
+#define IBI_MAX_MS   1500.0f   /* hard ceiling: above this a whole cycle was lost  */
+#define IBI_LOW_RATIO  0.70f   /* reject below this x the reference median         */
+#define IBI_HIGH_RATIO 1.30f   /* reject above this x the reference median         */
 
 /* Escape hatch. Any rejection rule can in principle reject a run of real beats
  * (a genuine rate change, a stretch of poor perfusion). A filter that keeps
  * rejecting is itself producing an artifact, so after this many consecutive
- * rejections the median window is discarded and rebuilt from fresh data. */
+ * rejections the reference window is discarded and rebuilt from fresh data. */
 #define IBI_REJECT_ESCAPE 12
-
-/* Missed-beat ceiling, as a multiple of this subject's recent median interval.
- *
- * IBI_MAX_MS alone is not enough, because it is absolute and a missed beat does
- * not have to exceed it. Measured on hardware at a 770 ms rhythm: the detector
- * dropped a crest and reported a 1300 ms interval. 1300 < 1500, so it was
- * accepted. RMSSD is a root-mean-square of SUCCESSIVE DIFFERENCES, so that one
- * interval against the previous ~721 ms produced a single 579 ms difference and
- * took RMSSD from 27.8 ms - a healthy resting value - to 152.0 ms. It then
- * decayed only by dilution, 152 -> 113 ms over the following 87 s, because the
- * HRV window is 300 intervals and never forgets an early value.
- *
- * WHY AN UPPER BOUND IS SAFE HERE AND A LOWER BOUND IS NOT
- * -------------------------------------------------------
- * Rejecting LONG intervals removes only values that would drag the median UP,
- * so the median settles at the true rhythm and the ceiling adapts to it. The
- * true rhythm is always inside the window (it is far below 1.6x the median),
- * so it is always accepted, and it always pulls the median back if it drifts.
- * The fixed point is stable.
- *
- * A LOWER bound has the opposite sign and is unstable: rejecting SHORT
- * intervals removes exactly the values that would pull the median DOWN, so the
- * floor ratchets up and eventually excludes the real rhythm permanently. That
- * is the latch described above IBI_MIN_MS. Do not add one. */
-#define IBI_MISSED_BEAT_RATIO 1.6f
 
 typedef struct {
     int          source;        /* IBI_SRC_* currently feeding the buffer */
-    hrv_median_t median;        /* artifact filter on the accepted series */
+    hrv_median_t ref;           /* median of recent DETECTED intervals, not accepted ones */
     bool         skip_next;     /* previous interval was rejected as an artifact */
     int          reject_streak; /* consecutive rejections, triggers the escape */
 } ibi_pipeline_t;
 
 static void ibi_pipeline_reset(ibi_pipeline_t *p) {
     p->source = IBI_SRC_NONE;
-    hrv_median_init(&p->median);
+    hrv_median_init(&p->ref);
     p->skip_next = false;
     p->reject_streak = 0;
 }
@@ -186,7 +194,7 @@ static bool ibi_pipeline_submit(ibi_pipeline_t *p, hrv_state_t *hrv,
     if (p->source != source) {
         p->source = source;
         hrv_init(hrv);
-        hrv_median_init(&p->median);
+        hrv_median_init(&p->ref);
         p->skip_next = false;
         p->reject_streak = 0;
 
@@ -205,33 +213,43 @@ static bool ibi_pipeline_submit(ibi_pipeline_t *p, hrv_state_t *hrv,
 
     bool accepted = false;
 
-    /* Median of the accepted series, or 0.0f until the window is full. The
-     * full-window requirement is what makes this safe: a median over a
-     * partly-filled window can be dominated by its outliers, which is how the
-     * latch above IBI_MIN_MS originally got seeded. */
-    float med = hrv_median_value(&p->median);
+    /* Absolute plausibility first. Only intervals that clear it may enter the
+     * reference window, so one absurd reading cannot corrupt the local rhythm
+     * estimate. */
+    bool plausible = (ibi_ms >= IBI_MIN_MS && ibi_ms <= IBI_MAX_MS);
 
-    if (ibi_ms > IBI_MAX_MS) {
-        /* Hard gap. Handled before the split test so it also clears skip_next:
-         * a gap is not the remainder of a split cycle. */
+    if (plausible) {
+        /* Fed by EVERY plausible interval, accepted or rejected. Rejections
+         * therefore cannot move the reference, which is what removes the
+         * feedback path that used to latch the floor. Do not make this
+         * conditional on `accepted`. */
+        hrv_median_push(&p->ref, ibi_ms);
+    }
+
+    /* Reference rhythm, or 0.0f until its window is full. The full-window
+     * requirement matters: a median over a partly-filled window can be
+     * dominated by its own outliers - which is exactly how the old latch was
+     * seeded (4 entries, 2 of them artefacts). */
+    float ref = hrv_median_value(&p->ref);
+
+    if (!plausible && ibi_ms > IBI_MAX_MS) {
+        /* A whole cardiac cycle was lost. Not a beat-to-beat measurement, and
+         * not the remainder of a split either, so clear skip_next. */
         p->skip_next = false;
-    } else if (med > 0.0f && ibi_ms > (IBI_MISSED_BEAT_RATIO * med)) {
-        /* A missed beat: the detector dropped a crest, so this interval spans
-         * two cardiac cycles and is not a beat-to-beat measurement. Reject it
-         * but do NOT set skip_next - the next interval is timed from the real
-         * previous beat, so it is still valid. See IBI_MISSED_BEAT_RATIO. */
-        p->skip_next = false;
+    } else if (ref > 0.0f &&
+               (ibi_ms < (IBI_LOW_RATIO * ref) || ibi_ms > (IBI_HIGH_RATIO * ref))) {
+        /* Outside this subject's local rhythm by more than 30%, in either
+         * direction. The detector's two fiducial points put it here. A SHORT
+         * interval is the first half of a split pair, so its partner must be
+         * dropped too; a LONG interval is a late detection or a lost cycle and
+         * needs no such follow-up. */
+        p->skip_next = (ibi_ms < (IBI_LOW_RATIO * ref));
     } else if (ibi_ms < IBI_MIN_MS) {
-        p->skip_next = true;    /* detector double-fired on one cardiac cycle */
+        p->skip_next = true;    /* detector double-fired, partner follows */
     } else if (p->skip_next) {
-        p->skip_next = false;   /* the long remainder of that same cycle */
+        p->skip_next = false;   /* the compensating half of that same cycle */
     } else {
-        /* Feed-forward artifact filter. The stored series is the median of the
-         * last few raw intervals, so an isolated short/long pair (a dicrotic
-         * notch split, a motion twitch) is replaced by its neighbours while a
-         * run of genuinely short or genuinely long beats survives. */
-        float nn = hrv_median_push(&p->median, ibi_ms);
-        hrv_add_ibi(hrv, nn);
+        hrv_add_ibi(hrv, ibi_ms);
         hrv_compute(hrv);
         accepted = true;
     }
@@ -240,9 +258,9 @@ static bool ibi_pipeline_submit(ibi_pipeline_t *p, hrv_state_t *hrv,
         p->reject_streak = 0;
     } else if (++p->reject_streak >= IBI_REJECT_ESCAPE) {
         ESP_LOGW(TAG, "IBI filter rejected %d intervals in a row; discarding the "
-                      "artifact reference and re-seeding from live beats",
+                      "rhythm reference and re-seeding from live beats",
                  p->reject_streak);
-        hrv_median_init(&p->median);
+        hrv_median_init(&p->ref);
         p->skip_next = false;
         p->reject_streak = 0;
     }
