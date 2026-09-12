@@ -63,12 +63,8 @@ typedef struct {
 
 void  hrv_median_init(hrv_median_t *m);
 /* Insert one interval and return the median of the window including it.
- * Values passed through unchanged until HRV_MEDIAN_MIN entries are present. */
+ * Values are passed through unchanged until HRV_MEDIAN_MIN entries exist. */
 float hrv_median_push(hrv_median_t *m, float ibi_ms);
-/* Median of the current window WITHOUT inserting. Returns 0.0f until enough
- * entries exist to be a meaningful reference, so callers fall back to absolute
- * plausibility bounds during warm-up. */
-float hrv_median_peek(const hrv_median_t *m);
 
 #define HRV_MEDIAN_MIN 3
 

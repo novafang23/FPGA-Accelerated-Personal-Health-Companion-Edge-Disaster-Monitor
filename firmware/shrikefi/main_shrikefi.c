@@ -103,22 +103,45 @@ static ssd1306_t s_ssd1306;
 #define IBI_SRC_SOFTWARE  1
 #define IBI_SRC_FPGA      2
 
-/* Absolute plausibility bounds, used until the median filter has enough history
- * to say what is normal for this particular subject. Below IBI_MIN_MS the
- * detector double-fired; above IBI_MAX_MS a beat was missed entirely. */
+/* Absolute plausibility bounds. Below IBI_MIN_MS the detector double-fired;
+ * above IBI_MAX_MS a beat was missed entirely.
+ *
+ * These are deliberately ABSOLUTE and must not be replaced by a threshold
+ * relative to the running median. A relative floor is a positive feedback loop:
+ * once a couple of long intervals (missed beats) are in the median window, the
+ * floor rises above the subject's true rhythm, every normal beat is then
+ * rejected, and because nothing is accepted the median never comes back down.
+ *
+ * That is not hypothetical - it is what the first version of this pipeline did
+ * on hardware. Four intervals were accepted (1470, 720, 759, 1400 ms), the
+ * 5-window median sat at 1400 ms, the 0.80x floor became 1120 ms, and every
+ * subsequent ~740 ms beat was rejected. The HRV sample counter latched at 4,
+ * took 12.5 s to reach 5, 49 s to reach 6 and another 62 s to reach 7, while
+ * the FPGA kept detecting ~80 beats per minute the whole time.
+ *
+ * The artifact filter below is feed-forward (a median over accepted intervals)
+ * and cannot latch. Keep it that way. */
 #define IBI_MIN_MS   400.0f
 #define IBI_MAX_MS  1500.0f
 
+/* Escape hatch. Any rejection rule can in principle reject a run of real beats
+ * (a genuine rate change, a stretch of poor perfusion). A filter that keeps
+ * rejecting is itself producing an artifact, so after this many consecutive
+ * rejections the median window is discarded and rebuilt from fresh data. */
+#define IBI_REJECT_ESCAPE 12
+
 typedef struct {
-    int          source;       /* IBI_SRC_* currently feeding the buffer */
-    hrv_median_t median;       /* artifact filter on the accepted series */
-    bool         skip_next;    /* previous interval was rejected as an artifact */
+    int          source;        /* IBI_SRC_* currently feeding the buffer */
+    hrv_median_t median;        /* artifact filter on the accepted series */
+    bool         skip_next;     /* previous interval was rejected as an artifact */
+    int          reject_streak; /* consecutive rejections, triggers the escape */
 } ibi_pipeline_t;
 
 static void ibi_pipeline_reset(ibi_pipeline_t *p) {
     p->source = IBI_SRC_NONE;
     hrv_median_init(&p->median);
     p->skip_next = false;
+    p->reject_streak = 0;
 }
 
 /**
@@ -140,6 +163,7 @@ static bool ibi_pipeline_submit(ibi_pipeline_t *p, hrv_state_t *hrv,
         hrv_init(hrv);
         hrv_median_init(&p->median);
         p->skip_next = false;
+        p->reject_streak = 0;
 
         if (xSemaphoreTake(s_data_mutex, pdMS_TO_TICKS(10)) == pdTRUE) {
             g_state.heart_rate         = 0.0f;
@@ -154,37 +178,43 @@ static bool ibi_pipeline_submit(ibi_pipeline_t *p, hrv_state_t *hrv,
                  (source == IBI_SRC_FPGA) ? "ForgeFPGA" : "software fallback");
     }
 
-    /* Hard gap (missed beats, or the very first interval after lock, which is
-     * measured from the FPGA's previous arbitrary state). Not a beat-to-beat
-     * measurement, so it must not enter the series at all. */
+    bool accepted = false;
+
     if (ibi_ms > IBI_MAX_MS) {
+        /* Missed beats, or the very first interval after lock (measured from
+         * the FPGA's previous arbitrary beat, i.e. from power-on). Either way
+         * this is not a beat-to-beat measurement and must not enter the series.
+         * Handled before the split test so it also clears skip_next: a gap is
+         * not the remainder of a split cycle. */
         p->skip_next = false;
-        return false;
+    } else if (ibi_ms < IBI_MIN_MS) {
+        p->skip_next = true;    /* detector double-fired on one cardiac cycle */
+    } else if (p->skip_next) {
+        p->skip_next = false;   /* the long remainder of that same cycle */
+    } else {
+        /* Feed-forward artifact filter. The stored series is the median of the
+         * last few raw intervals, so an isolated short/long pair (a dicrotic
+         * notch split, a motion twitch) is replaced by its neighbours while a
+         * run of genuinely short or genuinely long beats survives. */
+        float nn = hrv_median_push(&p->median, ibi_ms);
+        hrv_add_ibi(hrv, nn);
+        hrv_compute(hrv);
+        accepted = true;
     }
 
-    /* Artifact test. Once the median filter has history, "too short" is judged
-     * against this subject's own recent intervals rather than a fixed 400 ms:
-     * a 600 ms interval is an artifact against an 800 ms rhythm but perfectly
-     * normal for someone at 100 BPM. */
-    float med = hrv_median_peek(&p->median);
-    float lo  = (med > 0.0f) ? (0.80f * med) : IBI_MIN_MS;
-
-    if (ibi_ms < lo) {
-        p->skip_next = true;   /* artifact: drop it and the remainder of the cycle */
-        return false;
-    }
-    if (p->skip_next) {
-        p->skip_next = false;  /* the long remainder of a split cardiac cycle */
-        return false;
+    if (accepted) {
+        p->reject_streak = 0;
+    } else if (++p->reject_streak >= IBI_REJECT_ESCAPE) {
+        ESP_LOGW(TAG, "IBI filter rejected %d intervals in a row; discarding the "
+                      "artifact reference and re-seeding from live beats",
+                 p->reject_streak);
+        hrv_median_init(&p->median);
+        p->skip_next = false;
+        p->reject_streak = 0;
     }
 
-    float nn = hrv_median_push(&p->median, ibi_ms);
-    hrv_add_ibi(hrv, nn);
-    hrv_compute(hrv);
-    return true;
+    return accepted;
 }
-
-
 
 static int read_bme280_env(bme280_data_t *data) {
     return bme280_read(&s_bme280, data);

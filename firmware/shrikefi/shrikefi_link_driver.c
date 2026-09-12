@@ -141,15 +141,19 @@ shrikefi_err_t shrikefi_write_ir_sample(uint8_t sample) {
     if (ret == ESP_OK) {
         uint8_t rx = t.rx_data[0];
         uint8_t tx = sample;
-        /* Full-rate capture of the link was needed once, to settle whether the
-         * peak detector's double firing came from the FPGA or from the ESP32:
-         * logging EVERY transaction at 100 Hz (~2.5 KB/s) let the returned
-         * waveform be reconstructed offline and replayed through the RTL. That
-         * answered it - the FPGA's 8-tap average reproduces bit-for-bit, and the
-         * double firing is the dicrotic notch, not a link error. See
-         * hardware/shrikefi/tools/replay_fpga_link_log.py.
+        /* Link diagnostics.
          *
-         * Back to a decimated log now: every 25th transaction, ~4 Hz.
+         * SHRIKEFI_LINK_FULL_RATE_LOG = 0 (default) logs every 25th transaction,
+         * ~4 Hz, which is enough to see that the link is alive and what range
+         * the samples occupy.
+         *
+         * Set it to 1 to log EVERY transaction at 100 Hz (~2.5 KB/s). That is
+         * the mode that settles questions about the FPGA's internal arithmetic:
+         * the returned byte stream can be reconstructed offline and replayed
+         * through the RTL with hardware/shrikefi/tools/replay_fpga_link_log.py.
+         * It is how the 8-tap moving average was proven bit-exact, and how the
+         * dicrotic-notch split was found. Turn it on, take a 30 s capture, turn
+         * it back off - the console is unreadable while it runs.
          *
          * NOTE ON THE RETURNED VALUE: the FPGA packs its reply as
          * {beat_latched, filt_sample[6:0]}, so bit 7 is the beat flag and only
@@ -157,12 +161,22 @@ shrikefi_err_t shrikefi_write_ir_sample(uint8_t sample) {
          * full 8-bit quantity (it reaches 255), so it wraps at 128 and this
          * logged value is a sawtooth, not the waveform. The FPGA's own peak
          * detector uses the full 8-bit filt_sample internally, so detection is
-         * unaffected - only this diagnostic is. */
+         * unaffected - only this diagnostic is. The replay tool reconstructs
+         * the true 8-bit value from the input stream and therefore does not
+         * care. */
+#ifndef SHRIKEFI_LINK_FULL_RATE_LOG
+#define SHRIKEFI_LINK_FULL_RATE_LOG 0
+#endif
         static int s_dbg_cnt = 0;
+#if SHRIKEFI_LINK_FULL_RATE_LOG
+        printf("FG %d %u %u %u\n", s_dbg_cnt, tx, rx & 0x7F, (rx >> 7) & 1);
+        fflush(stdout);
+#else
         if ((s_dbg_cnt % 25) == 0) {
             printf("FG %d %u %u %u\n", s_dbg_cnt, tx, rx & 0x7F, (rx >> 7) & 1);
             fflush(stdout);
         }
+#endif
         s_dbg_cnt++;
         s_last_filtered_ir = rx & 0x7F;
         bool beat = ((rx >> 7) & 1) != 0;

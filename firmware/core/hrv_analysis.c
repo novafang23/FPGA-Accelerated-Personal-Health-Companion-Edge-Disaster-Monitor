@@ -89,13 +89,13 @@ void hrv_median_init(hrv_median_t *m) {
     memset(m, 0, sizeof(*m));
 }
 
-float hrv_median_peek(const hrv_median_t *m) {
-    if (m == NULL || m->count < HRV_MEDIAN_MIN) return 0.0f;
-
-    /* Insertion sort of at most HRV_MEDIAN_WINDOW (5) floats. */
+/* Insertion sort of at most HRV_MEDIAN_WINDOW (5) floats, then take the middle.
+ * For an even count n/2 selects the upper of the two middle values; the filter
+ * output feeds HRV statistics only and never feeds back into the rejection
+ * rule, so that bias is harmless. */
+static float hrv_median_of(const float *v, int n) {
     float s[HRV_MEDIAN_WINDOW];
-    int   n = m->count;
-    for (int i = 0; i < n; i++) s[i] = m->buf[i];
+    for (int i = 0; i < n; i++) s[i] = v[i];
     for (int i = 1; i < n; i++) {
         float key = s[i];
         int   j   = i - 1;
@@ -115,6 +115,6 @@ float hrv_median_push(hrv_median_t *m, float ibi_ms) {
     /* Not enough history to know what "normal" is yet: pass the value through
      * rather than replacing a real measurement with a guess. */
     if (m->count < HRV_MEDIAN_MIN) return ibi_ms;
-    return hrv_median_peek(m);
+    return hrv_median_of(m->buf, m->count);
 }
 

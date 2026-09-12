@@ -218,6 +218,9 @@ sets a floor around 15–20 ms even on clean data.
    (`hrv_median_t` in `hrv_analysis.{c,h}`). A rank filter removes an isolated
    short/long artifact pair; a run of genuinely short or long beats survives it.
    On the reconstructed series above this yields RMSSD ≈ **34 ms**.
+3. **Absolute plausibility bounds restored** (`[400, 1500] ms`), plus a
+   consecutive-rejection escape hatch. See §5.1 — the first version of this
+   pipeline used a threshold relative to the running median, and that latched.
 
 Expected result: **RMSSD ~190 ms → ~35–40 ms**, and HR that starts at the true
 rate instead of ramping down from 119.
@@ -226,6 +229,73 @@ rate instead of ramping down from 119.
 genuine beat-to-beat variability, so the reported RMSSD is a slightly
 conservative (low-biased) estimate. The unfiltered interval remains available as
 `g_state.r_peak_interval_ms`, so no raw data is discarded.
+
+---
+
+## 5.1 Regression: the median-relative threshold latched (fixed)
+
+The first version of the artifact guard rejected an interval when it was below
+`0.80 ×` the median of recently accepted intervals, on the theory that a 600 ms
+interval is an artifact against an 800 ms rhythm but normal for someone at
+100 BPM. **That was wrong, and it deadlocked the counter on hardware.**
+
+A relative floor is a *positive feedback loop*. Once long intervals are in the
+median window, the floor rises above the subject's true rhythm; every normal beat
+is then rejected; and because nothing is accepted, the median never comes back
+down. It is a latch, not a filter.
+
+Measured, from `idf_py_stdout_output_22648` (160 s capture, FPGA detecting
+~80 BPM throughout):
+
+| Time | HRV sample count | Interval accepted |
+|---|---|---|
+| 19652 ms | 1 | 1470 ms |
+| 34222 ms | 2 | 720 ms |
+| 35262 ms | 3 | 759 ms |
+| 36302 ms | 4 | 1400 ms |
+| 48782 ms | 5 | *(12.5 s later)* |
+| 49822 ms | 6 | |
+| 98732 ms | 7 | *(48.9 s later)* |
+| 161182 ms | 0 | finger removed |
+
+After the fourth interval the 5-window median was `1400 ms`, so the floor became
+`0.80 × 1400 = 1120 ms`. Every ~740 ms beat was then rejected indefinitely. The
+counter sat at 6 for 49 s and at 7 for 62 s while the FPGA was detecting beats
+normally — the operator-visible symptom was "6/10 and 7/10 are stuck".
+
+The four intervals that seeded it are themselves the §4.2 notch split and two
+missed beats; they should never have become the reference for what is normal.
+
+**Fix:** the plausibility window is absolute again, the median filter is
+feed-forward only (it filters the HRV series but never feeds back into the
+rejection rule, so it cannot latch), and `IBI_REJECT_ESCAPE = 12` discards and
+re-seeds the artifact reference after 12 consecutive rejections. That escape is
+what turns any residual lockout into a 10-second delay instead of a permanent
+one.
+
+**Lesson worth keeping:** an artifact filter that keeps rejecting is itself
+producing an artifact. Every rejection rule needs an escape.
+
+---
+
+## 5.2 Open: this session's raw detector output is noisier than the first
+
+The 160 s capture contains ~160 beats, but the inter-beat intervals swing from
+340 ms to 2020 ms, with repeated short/long pairs (340+1140, 360+1160,
+400+1060, 460+1160, 340+900). The first capture, on the same board, produced 18
+consecutive intervals between 760 and 960 ms.
+
+The latch in §5.1 hides how much of that is real, because it suppressed most
+intervals before they reached the log. Two things are needed to settle it:
+
+1. Re-flash with the §5.1 fix and confirm the counter climbs monotonically.
+2. Take another **full-rate** capture. `SHRIKEFI_LINK_FULL_RATE_LOG` in
+   `shrikefi_link_driver.c` is now a compile-time switch for exactly this, so no
+   code edit is needed — set it to 1, capture 30 s, set it back to 0.
+
+If the notch pairs persist at this rate, the RTL change in §6 (require a deeper
+fall before confirming a crest) moves from "recommended" to "needed"; firmware
+filtering cannot recover a crest time that was measured 100 ms early.
 
 ---
 
@@ -239,6 +309,8 @@ conservative (low-biased) estimate. The unfiltered interval remains available as
 | IBI resolution limited to the 20 ms task period | Known limitation. Real fix is a protocol change to read the FPGA's `ibi_cycles` register. |
 | `tb_forgefpga_system.v` | Stale — still instantiates the old `rst_n` / `link_*` port set and will not compile. |
 | Docs claim 443 LUT5s | ForgeFPGA fitter reports **202/1120 (18.04%)**, 123 FFs, 37/140 CLBs. Deck must follow the fitter report. |
+| HRV sample counter latched at 4/6/7 | **Fixed** — see §5.1. Absolute bounds restored, escape hatch added. |
+| Session-to-session detector quality varies | **Open** — see §5.2. Needs a full-rate recapture with `SHRIKEFI_LINK_FULL_RATE_LOG = 1`. |
 
 ---
 
