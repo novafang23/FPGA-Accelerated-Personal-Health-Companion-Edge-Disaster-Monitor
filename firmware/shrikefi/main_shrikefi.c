@@ -373,7 +373,6 @@ static void task_ppg_accelerator(void *pvParameters) {
      * window within which the FPGA counts as "currently detecting". See the
      * FPGA-liveness gate in the peak-detection block below. */
     static uint32_t s_last_fpga_beat_ms  = 0;
-    static const uint32_t SW_FALLBACK_ARM_MS = 3000;
 
     /* Split-beat guard + artifact filter + detector-handover flushing. Every
      * interval from either detector goes through this one pipeline; see
@@ -570,8 +569,26 @@ static void task_ppg_accelerator(void *pvParameters) {
                  * While the FPGA is healthy it is the authoritative detector and
                  * the fallback must not contribute. If the FPGA goes quiet for
                  * SW_FALLBACK_ARM_MS, the fallback resumes by itself. */
-                bool fpga_alive = (s_last_fpga_beat_ms != 0) &&
-                                  ((uint32_t)(now_ms - s_last_fpga_beat_ms) < SW_FALLBACK_ARM_MS);
+                /* Sticky for the whole contact session: once the ForgeFPGA has
+                 * produced a beat, it stays the authoritative detector until
+                 * the finger comes off. It is NOT a rolling window.
+                 *
+                 * It used to be `(now_ms - s_last_fpga_beat_ms) <
+                 * SW_FALLBACK_ARM_MS`, i.e. 3 s. Measured cost of that, from the
+                 * 02:49 capture: the FPGA's crest detector went silent for
+                 * 3.38 s four times in three minutes while the optical signal
+                 * was perfectly healthy (raw IR mean 106,800, peak-to-peak
+                 * ~1300, uninterrupted across the gaps). Each silence tripped
+                 * the 3 s gate, flipped the source to the software fallback for
+                 * a few hundred milliseconds - not even one beat at 78 BPM -
+                 * and each flip flushed the entire 300-interval HRV window.
+                 * The measurement restarted four times, which is why the
+                 * reported RMSSD appeared to "settle" at four different values.
+                 *
+                 * A brief detector dropout should cost the intervals it spans,
+                 * not the whole session. Swapping in a different detector
+                 * mid-measurement is worse than briefly showing no data. */
+                bool fpga_alive = (s_last_fpga_beat_ms != 0);
 
                 if (sw_finger_start_ms == 0) {
                     sw_finger_start_ms = now_ms;
