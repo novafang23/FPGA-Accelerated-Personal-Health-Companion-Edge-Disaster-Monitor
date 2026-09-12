@@ -145,15 +145,19 @@ shrikefi_err_t shrikefi_write_ir_sample(uint8_t sample) {
          * This was capped at the first 10 samples, which all occur within the
          * first 0.1 s of boot with no finger on the sensor - so the FPGA's reply
          * was never observable during an actual measurement, which is precisely
-         * when it matters. Periodically decimating instead of capping keeps the
-         * console readable while staying live for the whole session.
-         * beat/filtered are decoded here so they do not have to be peeled out of
-         * the hex by hand while watching a live test. */
+         * when it matters.
+         *
+         * TEMPORARY DIAGNOSTIC: logs EVERY transaction rather than a decimated
+         * one, so the waveform the FPGA receives (tx) and returns (filtered) can
+         * be reconstructed offline at the full 100 Hz sample rate. This is what
+         * settles why the peak detector fires twice ~330 ms apart: ONE peak per
+         * cardiac cycle in filtered means the split is digital (the SPI
+         * beat-flag path); TWO means it is in the AC scaling or the 8-tap
+         * average. Costs ~2.5 KB/s on the console. Revert to the decimated
+         * (% 25) form once the cause is identified. */
         static int s_dbg_cnt = 0;
-        if ((s_dbg_cnt++ % 25) == 0) {
-            ESP_LOGI(LINK_TAG, "SPI sample[%d] tx=0x%02X -> rx=0x%02X (beat=%d, filtered=%d)",
-                     s_dbg_cnt, tx, rx, (rx >> 7) & 1, rx & 0x7F);
-        }
+        printf("FG %d %u %u %u\n", s_dbg_cnt++, tx, rx & 0x7F, (rx >> 7) & 1);
+        fflush(stdout);
         s_last_filtered_ir = rx & 0x7F;
         bool beat = ((rx >> 7) & 1) != 0;
         if (beat && !s_last_beat) {
