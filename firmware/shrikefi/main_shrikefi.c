@@ -175,6 +175,7 @@ typedef struct {
     hrv_median_t ref;           /* median of recent DETECTED intervals, not accepted ones */
     bool         skip_next;     /* previous interval was rejected as an artifact */
     int          reject_streak; /* consecutive rejections, triggers the escape */
+    bool         primed;        /* a usable beat-to-beat interval has been seen */
 } ibi_pipeline_t;
 
 static void ibi_pipeline_reset(ibi_pipeline_t *p) {
@@ -182,6 +183,7 @@ static void ibi_pipeline_reset(ibi_pipeline_t *p) {
     hrv_median_init(&p->ref);
     p->skip_next = false;
     p->reject_streak = 0;
+    p->primed = false;
 }
 
 /**
@@ -204,6 +206,7 @@ static bool ibi_pipeline_submit(ibi_pipeline_t *p, hrv_state_t *hrv,
         hrv_median_init(&p->ref);
         p->skip_next = false;
         p->reject_streak = 0;
+        p->primed = false;
 
         if (xSemaphoreTake(s_data_mutex, pdMS_TO_TICKS(10)) == pdTRUE) {
             g_state.heart_rate         = 0.0f;
@@ -240,7 +243,24 @@ static bool ibi_pipeline_submit(ibi_pipeline_t *p, hrv_state_t *hrv,
     float ref = hrv_median_value(&p->ref);
     const char *verdict;
 
-    if (!plausible && ibi_ms > IBI_MAX_MS) {
+    if (plausible && !p->primed) {
+        /* The first PLAUSIBLE interval after a detector handover is not a
+         * beat-to-beat measurement, whatever its value: it is timed from an
+         * arbitrary previous beat - the link handshake, or the other detector's
+         * last beat - not from the beat that preceded it.
+         *
+         * It is still evidence about the rhythm, so it seeds the reference, but
+         * it must never enter the HRV series. Measured cost of getting this
+         * wrong, from the 02:17 capture at a 790 ms rhythm: the first accepted
+         * interval was 1440 ms, putting a single 711 ms successive difference
+         * into a window that holds 300 intervals and never forgets. That one
+         * difference held RMSSD at 62.1 ms when the remaining 239 differences
+         * were 41.9 ms. It does not age out - at n=300 it would still be
+         * supplying half the variance. */
+        p->primed = true;
+        p->skip_next = false;
+        verdict = "first";
+    } else if (!plausible && ibi_ms > IBI_MAX_MS) {
         /* A whole cardiac cycle was lost. Not a beat-to-beat measurement, and
          * not the remainder of a split either, so clear skip_next. */
         p->skip_next = false;
