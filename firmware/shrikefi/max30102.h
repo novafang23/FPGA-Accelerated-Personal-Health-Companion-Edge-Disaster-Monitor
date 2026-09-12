@@ -128,27 +128,63 @@ int max30102_read_fifo(max30102_t *dev, max30102_sample_t *buf, int max_samples)
 float max30102_read_temperature(max30102_t *dev);
 
 /*
- * Scale an 18-bit raw ADC reading to 8-bit for the FPGA pipeline.
- * Real human pulsatile PPG has a large DC baseline (~80k-140k) and an AC swing of
- * ~500-2000 counts. A naive (raw >> 10) shift squashes the pulsatile wave to < 1 LSB.
- * We apply dynamic baseline-tracking AC scaling centered around the FPGA's
- * systolic threshold (120) so the ForgeFPGA peak detector triggers reliably.
+ * Scale an 18-bit raw ADC reading to 8-bit for the ForgeFPGA pipeline.
+ *
+ * WHY THIS EXISTS
+ * Real pulsatile PPG has a large DC baseline (~80k-140k counts) and an AC swing of
+ * only a few hundred to ~1500 counts, so a naive (raw >> 10) shift squashes the
+ * pulse below one LSB and the FPGA receives a flat line.
+ *
+ * WHAT THE FPGA EXPECTS
+ * ppg_peak_detector (forgefpga_ppg_top.v) arms when the sample reaches its
+ * threshold (120), confirms a peak when the sample then falls for two consecutive
+ * samples, and re-arms only once the sample drops back BELOW 120. The 8-bit stream
+ * must therefore be centred on 120 with the pulsatile component cleanly crossing it
+ * in both directions.
+ *
+ * THE BUG THIS REPLACES
+ * An earlier revision used a single function-static baseline shared by the RED and
+ * IR calls. The two channels sit ~50,000-70,000 counts apart (RED ~180k, IR ~115k),
+ * so each call dragged the shared baseline onto the other channel's DC level:
+ *     scale(red): baseline was at IR level  -> ac = +60,000 -> clamped to 255
+ *     scale(ir) : baseline was at RED level -> ac = -65,000 -> clamped to 0
+ * The IR byte handed to the FPGA was pinned to the rails on alternating samples, so
+ * the peak detector found roughly one beat in nine. The software fallback was
+ * unaffected because it uses the raw 18-bit value straight from the sensor - which
+ * is exactly why the FPGA looked "configured but not contributing".
+ *
+ * `baseline` MUST be a distinct variable per optical channel. Do NOT collapse this
+ * back into a shared function-static.
+ *
+ * The tracker time constant is 64 samples (~0.64 s at 100 Hz): slow enough not to
+ * follow the ~1 Hz pulse, fast enough to track finger pressure and perfusion.
  */
-static inline uint8_t max30102_scale_to_8bit(uint32_t raw_18bit) {
-    static uint32_t s_baseline = 0;
-    if (raw_18bit < 1000) {
-        s_baseline = 0;
+#define MAX30102_AC_CENTRE 120  /* Must match the FPGA's dyn_threshold (8'd120) */
+#define MAX30102_AC_DIV      8  /* AC gain: swing = ac / MAX30102_AC_DIV.
+                                 * Raise for headroom on strong signals, lower for
+                                 * sensitivity on weak ones. At 8, an AC of 1000
+                                 * counts spans roughly 120 +/- 62. */
+
+static inline uint8_t max30102_scale_to_8bit_ch(uint32_t raw_18bit, uint32_t *baseline) {
+    if (baseline == NULL) {
         return 0;
     }
-    if (s_baseline == 0) {
-        s_baseline = raw_18bit;
-    } else {
-        // Exponential moving average baseline filter (tau ~ 1.5s at 50Hz)
-        s_baseline = (s_baseline * 63 + raw_18bit) / 64;
+
+    /* No optical contact: reset the tracker so the next finger re-acquires cleanly. */
+    if (raw_18bit < 1000) {
+        *baseline = 0;
+        return 0;
     }
-    int32_t ac = (int32_t)raw_18bit - (int32_t)s_baseline;
-    int32_t scaled = 120 + (ac / 16);
-    if (scaled < 0) scaled = 0;
+
+    if (*baseline == 0) {
+        *baseline = raw_18bit;
+    } else {
+        *baseline = (*baseline * 63 + raw_18bit) / 64;
+    }
+
+    int32_t ac     = (int32_t)raw_18bit - (int32_t)*baseline;
+    int32_t scaled = MAX30102_AC_CENTRE + (ac / MAX30102_AC_DIV);
+    if (scaled < 0)   scaled = 0;
     if (scaled > 255) scaled = 255;
     return (uint8_t)scaled;
 }

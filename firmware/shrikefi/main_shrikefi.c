@@ -166,8 +166,14 @@ static void task_ppg_accelerator(void *pvParameters) {
             /* Optical contact check: ambient air is IR<1000; tissue contact elevates levels to >50,000 */
             bool optical_contact = (ppg_sample.ir > 1500 || ppg_sample.red > 1500);
 
-            uint8_t raw_red = max30102_scale_to_8bit(ppg_sample.red);
-            uint8_t raw_ir  = max30102_scale_to_8bit(ppg_sample.ir);
+            /* Per-channel DC trackers. These MUST be separate: RED and IR sit
+             * ~50-70k counts apart, and a shared baseline saturates the IR byte
+             * handed to the FPGA to 0/255 on alternating samples. */
+            static uint32_t s_base_red = 0;
+            static uint32_t s_base_ir  = 0;
+
+            uint8_t raw_red = max30102_scale_to_8bit_ch(ppg_sample.red, &s_base_red);
+            uint8_t raw_ir  = max30102_scale_to_8bit_ch(ppg_sample.ir,  &s_base_ir);
 
             /* 2. Stream to ForgeFPGA over 4-bit parallel link */
             shrikefi_write_red_sample(raw_red);
