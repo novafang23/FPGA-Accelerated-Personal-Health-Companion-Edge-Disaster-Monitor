@@ -119,7 +119,13 @@ float hrv_median_push(hrv_median_t *m, float ibi_ms) {
 }
 
 float hrv_median_value(const hrv_median_t *m) {
-    if (m == NULL || m->count < HRV_MEDIAN_WINDOW) return 0.0f;
+    /* Deliberately NOT "count < HRV_MEDIAN_WINDOW". Waiting for a full window
+     * would leave the first ~10 intervals of every session judged on absolute
+     * bounds alone, and an artefact landing there is accepted and then pinned
+     * into the HRV series. A partly-filled window is safe to act on here
+     * because the caller feeds it with every plausible interval, accepted or
+     * rejected, so a wrong early estimate corrects itself as data arrives. */
+    if (m == NULL || m->count < HRV_MEDIAN_MIN_REF) return 0.0f;
     return hrv_median_of(m->buf, m->count);
 }
 

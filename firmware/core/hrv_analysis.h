@@ -53,7 +53,9 @@ void  hrv_compute(hrv_state_t *state);
  * (low-biased) estimate. The unfiltered interval is still published separately
  * as g_state.r_peak_interval_ms, so no raw data is lost.
  */
-#define HRV_MEDIAN_WINDOW 5
+#define HRV_MEDIAN_WINDOW 11   /* see below: 5 was not robust to a burst */
+#define HRV_MEDIAN_MIN 3       /* pass the value through below this */
+#define HRV_MEDIAN_MIN_REF 5   /* hrv_median_value() returns 0 below this */
 
 typedef struct {
     float buf[HRV_MEDIAN_WINDOW];
@@ -65,20 +67,26 @@ void  hrv_median_init(hrv_median_t *m);
 /* Insert one interval and return the median of the window including it.
  * Values are passed through unchanged until HRV_MEDIAN_MIN entries exist. */
 float hrv_median_push(hrv_median_t *m, float ibi_ms);
-/* Median of the accepted window, or 0.0f until the window is FULL
- * (HRV_MEDIAN_WINDOW entries). The full-window requirement is deliberate: a
- * median taken over a partly-filled window can be dominated by outliers, and
- * a caller that acts on it will act on noise.
+/* Median of the reference window, or 0.0f until HRV_MEDIAN_MIN_REF entries
+ * exist. Below that a caller falls back to absolute bounds.
  *
- * WARNING - this value is safe to use as an UPPER bound only, to reject
- * intervals that are too LONG (missed beats). A lower bound derived from it
- * locks the pipeline up: rejecting short intervals removes exactly the values
- * that would pull the median back down, so the bound ratchets upward and
- * eventually rejects the subject's real rhythm forever. That failure was
- * measured on hardware; see the comment above IBI_MIN_MS in main_shrikefi.c. */
+ * WINDOW SIZE IS A ROBUSTNESS CHOICE, NOT ARBITRARY. It was 5, and on hardware
+ * a run of five consecutive missed beats captured it: the median became an
+ * artefact value, the caller's +/30% window then rejected the subject's real
+ * beats and accepted the artefacts, and RMSSD went from 26 ms to 100+ ms.
+ * A burst can only capture a window of N by supplying more than half of it, so
+ * N=11 tolerates runs up to 5 - which covers what the detector actually
+ * produces. Lengthening it further would track a genuine rate change more
+ * slowly; at 78 BPM, 11 intervals is about 8 s.
+ *
+ * A partly-filled window is safe here ONLY because the caller feeds this with
+ * every plausible interval, accepted or rejected. Rejections cannot move it, so
+ * a temporarily wrong estimate self-corrects instead of latching.
+ *
+ * WARNING - safe to use as an UPPER or LOWER bound only under that condition.
+ * See the comment above IBI_MIN_MS in main_shrikefi.c for what happens when a
+ * bound is derived from a window that rejections can shrink. */
 float hrv_median_value(const hrv_median_t *m);
-
-#define HRV_MEDIAN_MIN 3
 
 float hrv_get_rmssd(const hrv_state_t *state);
 float hrv_get_sdnn(const hrv_state_t *state);
