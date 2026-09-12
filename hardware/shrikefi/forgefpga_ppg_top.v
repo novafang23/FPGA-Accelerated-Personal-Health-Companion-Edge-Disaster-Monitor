@@ -317,9 +317,10 @@ endmodule
 // ============================================================================
 
 module ppg_peak_detector #(
-    parameter DATA_WIDTH      = 8,
-    parameter REFRACTORY_CYC  = 12_500_000, // 250ms at 50MHz
-    parameter DEFAULT_THRESH  = 8'd120
+    parameter DATA_WIDTH        = 8,
+    parameter REFRACTORY_CYC    = 12_500_000, // 250ms at 50MHz
+    parameter DEFAULT_THRESH    = 8'd120,
+    parameter CREST_FALL_THRESH = 8'd12       // Require drop of 12 counts from peak to confirm crest
 )(
     input  wire                   clk,
     input  wire                   rst_n,
@@ -336,21 +337,21 @@ module ppg_peak_detector #(
 
     reg [1:0]  current_state, next_state;
     reg [DATA_WIDTH-1:0] prev_sample;
+    reg [DATA_WIDTH-1:0] peak_val;
     reg [31:0] refractory_cnt;
     reg [31:0] interval_cnt;
     reg        first_beat_seen;
-    reg [1:0]  fall_count;
 
     always @(posedge clk or negedge rst_n) begin
         if (!rst_n) begin
             current_state   <= STATE_ARMED;
             prev_sample     <= {DATA_WIDTH{1'b0}};
+            peak_val        <= {DATA_WIDTH{1'b0}};
             refractory_cnt  <= 32'd0;
             interval_cnt    <= 32'd0;
             ibi_cycles      <= 32'd0;
             beat_detected   <= 1'b0;
             first_beat_seen <= 1'b0;
-            fall_count      <= 2'd0;
         end else begin
             current_state <= next_state;
 
@@ -365,15 +366,16 @@ module ppg_peak_detector #(
             case (current_state)
                 STATE_ARMED: begin
                     beat_detected <= 1'b0;
-                    fall_count    <= 2'd0;
+                    if (sample_valid) begin
+                        peak_val <= sample_in;
+                    end
                 end
                 STATE_RISING: begin
                     beat_detected <= 1'b0;
                     if (sample_valid) begin
-                        if (sample_in < prev_sample)
-                            fall_count <= fall_count + 2'd1;
-                        else
-                            fall_count <= 2'd0;
+                        if (sample_in > peak_val) begin
+                            peak_val <= sample_in;
+                        end
                     end
                 end
                 STATE_PEAK_FOUND: begin
@@ -404,14 +406,14 @@ module ppg_peak_detector #(
                     next_state = STATE_RISING;
             end
             STATE_RISING: begin
-                if (sample_valid && (sample_in < prev_sample) && (fall_count >= 2'd1))
+                if (sample_valid && (peak_val > sample_in) && ((peak_val - sample_in) >= CREST_FALL_THRESH))
                     next_state = STATE_PEAK_FOUND;
             end
             STATE_PEAK_FOUND: begin
                 next_state = STATE_REFRACTORY;
             end
             STATE_REFRACTORY: begin
-                if (refractory_cnt == 32'd0 && sample_valid && (sample_in < dyn_threshold))
+                if (refractory_cnt == 32'd0 && sample_valid)
                     next_state = STATE_ARMED;
             end
             default: next_state = STATE_ARMED;
