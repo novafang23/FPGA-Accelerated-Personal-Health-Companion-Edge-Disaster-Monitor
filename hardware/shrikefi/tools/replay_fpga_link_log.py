@@ -117,36 +117,73 @@ def rtl_moving_average(tx, nmax):
     return ma
 
 
-def rtl_peak_detector(ma, nmax):
-    """Bit-accurate model of ppg_peak_detector (sample domain).
+def rtl_peak_detector(ma, nmax, thresh="const12", rearm_below=True):
+    """Bit-accurate model of ppg_peak_detector in its CURRENT form.
 
-    The RTL confirms a crest on the second consecutive falling sample, because
-    the combinational next-state test reads the fall_count of the PREVIOUS
-    sample. That two-sample confirmation delay is what makes the notch fatal.
+    The FSM no longer counts falling samples. It holds peak_val since entering
+    RISING and confirms a crest when the drop from that peak reaches a
+    threshold:
+
+        STATE_RISING: if (sample_valid && (peak_val > sample_in) &&
+                          ((peak_val - sample_in) >= CREST_FALL_THRESH))
+
+    `thresh` selects the crest-fall rule, so the same capture can be replayed
+    under candidate RTL changes before anyone opens the ForgeFPGA GUI:
+
+        const12   the flashed design: an absolute 12 counts
+        const24   absolute 24
+        peak8     peak_val >> 3          (12.5% of the peak)
+        drop4     max(6, (peak_val - 120) >> 2)   (25% of the pulse height)
+
+    `rearm_below` models the OTHER half of the state machine:
+
+        STATE_REFRACTORY: if (refractory_cnt == 0 && sample_valid &&
+                              (sample_in < dyn_threshold)) -> ARMED
+
+    That level condition is what makes the detector go blind. If the scaled
+    signal is biased above 120 - which it is whenever the 640 ms baseline
+    tracker lags a slow DC drift by more than the pulse amplitude - then the
+    moving average never comes back below 120, the FSM never leaves REFRACTORY,
+    and the detector produces nothing until the bias goes away. Set this False
+    to model re-arming on the refractory alone.
     """
     state = ARMED
-    prev = 0
-    fall = 0
+    peak = 0
     refr = 0
     first_beat_seen = False
     beats = []
 
+    def limit(p):
+        if thresh == "const12":
+            return 12
+        if thresh == "const24":
+            return 24
+        if thresh == "peak8":
+            return max(1, p >> 3)
+        if thresh == "drop4":
+            return max(6, (p - DYN_THRESHOLD) >> 2) if p > DYN_THRESHOLD else 6
+        raise ValueError(f"unknown thresh rule {thresh!r}")
+
     for n in range(nmax + 1):
         s = ma[n]
 
+        # combinational next-state, evaluated with the CURRENT peak
         if state == ARMED:
             nxt = RISING if s >= DYN_THRESHOLD else ARMED
         elif state == RISING:
-            nxt = PEAK if (s < prev and fall >= 1) else RISING
+            nxt = PEAK if (peak > s and (peak - s) >= limit(peak)) else RISING
         elif state == PEAK:
             nxt = REFRAC
         else:
-            nxt = ARMED if (refr == 0 and s < DYN_THRESHOLD) else REFRAC
+            armed_ok = (refr == 0) and (s < DYN_THRESHOLD if rearm_below else True)
+            nxt = ARMED if armed_ok else REFRAC
 
-        if state == RISING:
-            fall = fall + 1 if s < prev else 0
-        elif state == ARMED:
-            fall = 0
+        # sequential
+        if state == ARMED:
+            peak = s
+        elif state == RISING:
+            if s > peak:
+                peak = s
 
         if state == PEAK:
             if first_beat_seen:
@@ -158,7 +195,6 @@ def rtl_peak_detector(ma, nmax):
             refr -= 1
 
         state = nxt
-        prev = s
 
     return beats
 
@@ -197,6 +233,12 @@ def main():
                     help="dump the filtered waveform around each detected beat")
     ap.add_argument("--trace", type=int, nargs=2, metavar=("LO", "HI"),
                     help="print the FSM state for a sample range")
+    ap.add_argument("--thresh", default="const12",
+                    choices=["const12", "const24", "peak8", "drop4"],
+                    help="crest-fall rule to model (default const12 = as flashed)")
+    ap.add_argument("--sweep", action="store_true",
+                    help="replay under every crest-fall rule and compare the "
+                         "resulting interval distributions")
     args = ap.parse_args()
 
     data = parse_log(args.log)
@@ -231,23 +273,63 @@ def main():
     print("      full 8-bit value internally); only the diagnostic lies.")
 
     print("\n-- 2. does the RTL peak detector reproduce the reported beats? --")
-    pred = rtl_peak_detector(ma, nmax)
+    pred = rtl_peak_detector(ma, nmax, args.thresh)
     led = sorted(n for n in bt if bt[n] == 1)
     print(f"   predicted {len(pred)} beats, logged {len(led)}")
-    print(f"   predicted: {pred}")
-    print(f"   logged   : {led}")
     extra = [n for n in led if n not in pred]
     missing_b = [n for n in pred if n not in led]
-    print(f"   logged-but-not-predicted: {extra}")
-    print(f"   predicted-but-not-logged: {missing_b}")
+    print(f"   logged-but-not-predicted ({len(extra)}): {extra if not args.sweep else ''}")
+    print(f"   predicted-but-not-logged ({len(missing_b)}): {missing_b if not args.sweep else ''}")
 
     def intervals(a):
         return [round((a[i + 1] - a[i]) * 10.0, 1) for i in range(len(a) - 1)]
 
-    if pred:
-        print(f"   predicted intervals (ms): {intervals(pred)}")
-    if led:
-        print(f"   logged    intervals (ms): {intervals(led)}")
+    if not args.sweep:
+        if pred:
+            print(f"   predicted intervals (ms): {intervals(pred)}")
+        if led:
+            print(f"   logged    intervals (ms): {intervals(led)}")
+
+    if args.sweep:
+        print("\n-- 2b. crest-fall rule sweep --")
+        print("   (same captured samples, different CREST_FALL_THRESH rule; the")
+        print("    model is validated first by const12 reproducing the logged beats)")
+
+        def quality(idx):
+            iv = sorted(idx[i + 1] - idx[i] for i in range(len(idx) - 1))
+            if not iv:
+                return None
+            med = iv[len(iv) // 2]
+            lo, hi = 0.70 * med, 1.30 * med
+            within = sum(1 for v in iv if lo <= v <= hi)
+            return {
+                "n": len(iv), "median": med * 10,
+                "within": 100.0 * within / len(iv),
+                "short": sum(1 for v in iv if v * 10 < 400),
+                "long": sum(1 for v in iv if v * 10 > 1300),
+                "missed": sum(1 for v in iv if v * 10 > 1500),
+            }
+
+        rows = [("logged (as flashed)", quality(led))]
+        for rule in ("const12", "const24", "peak8", "drop4"):
+            b = rtl_peak_detector(ma, nmax, rule)
+            rows.append((rule, quality(b)))
+        # the other half of the FSM: re-arm on the refractory alone, without
+        # requiring the moving average to fall back below the 120 threshold
+        for rule in ("const12", "peak8"):
+            b = rtl_peak_detector(ma, nmax, rule, rearm_below=False)
+            rows.append((f"{rule} + no-rearm-level", quality(b)))
+
+        print(f"\n   {'rule':22s} {'n':>5} {'median':>7} {'within +/-30%':>14} "
+              f"{'<400':>6} {'>1300':>6} {'>1500':>6}")
+        for name, q in rows:
+            if q is None:
+                continue
+            print(f"   {name:22s} {q['n']:5d} {q['median']:6d}ms "
+                  f"{q['within']:13.1f}% {q['short']:6d} {q['long']:6d} "
+                  f"{q['missed']:6d}")
+        print("\n   'within +/-30%' is the fraction of intervals consistent with the")
+        print("   subject's own median rhythm - higher is a cleaner detector.")
 
     print("\n-- 3. filter output statistics --")
     seg = [ma[n] for n in range(nmax + 1)]
