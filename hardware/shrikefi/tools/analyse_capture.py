@@ -65,6 +65,9 @@ IBI_OPT = re.compile(r"^I \((\d+)\).*\| IBI: (\d+) \(need")
 RMSSD = re.compile(r"^I \((\d+)\).*RMSSD: ([\d.]+) ms")
 HANDOVER = re.compile(r"^I \((\d+)\).*IBI detector handover -> (\w+)")
 ESCAPE = re.compile(r"^I \((\d+)\).*IBI filter rejected (\d+) intervals")
+# Per-interval audit trace emitted by ibi_pipeline_submit() when
+# SHRIKEFI_IBI_TRACE is on: IBI <src> <ms> <verdict> ref=<r> n=<c> rmssd=<m>
+IBI_TRACE = re.compile(r"^IBI (\d+) (\d+) (\S+) ref=(\d+) n=(\d+) rmssd=([\d.]+)")
 NOFINGER = re.compile(r"Status: NO FINGER")
 
 SESSION_GAP_MS = 3000     # a gap this long starts a new contact session
@@ -84,7 +87,7 @@ def read_lines(path):
 
 
 def parse(path):
-    beats, counts, rmssd, handovers, escapes = [], [], [], [], []
+    beats, counts, rmssd, handovers, escapes, trace = [], [], [], [], [], []
     for ln in read_lines(path):
         if m := BEAT.search(ln):     beats.append((int(m.group(1)), int(m.group(2))))
         if m := IBI_CNT.search(ln):  counts.append((int(m.group(1)), int(m.group(2))))
@@ -92,7 +95,10 @@ def parse(path):
         if m := RMSSD.search(ln):    rmssd.append((int(m.group(1)), float(m.group(2))))
         if m := HANDOVER.search(ln): handovers.append((int(m.group(1)), m.group(2)))
         if m := ESCAPE.search(ln):   escapes.append((int(m.group(1)), int(m.group(2))))
-    return beats, counts, rmssd, handovers, escapes
+        if m := IBI_TRACE.search(ln):
+            trace.append((int(m.group(2)), m.group(3), int(m.group(4)),
+                          int(m.group(5)), float(m.group(6))))
+    return beats, counts, rmssd, handovers, escapes, trace
 
 
 def sessions(beats):
@@ -115,7 +121,7 @@ def main():
                     help="ms of crest history to show before an RMSSD jump")
     args = ap.parse_args()
 
-    beats, counts, rmssd, handovers, escapes = parse(args.capture)
+    beats, counts, rmssd, handovers, escapes, trace = parse(args.capture)
     if not beats:
         sys.exit(f"no '[FPGA ACCEL]' lines found in {args.capture}")
 
@@ -206,6 +212,45 @@ def main():
             d = s_after - s_before
             if d > 0:
                 print(f"    n={n:2d}: d = sqrt({d:.0f}) = {math.sqrt(d):6.1f} ms")
+
+    print("\n=== 6. per-interval verdicts (SHRIKEFI_IBI_TRACE) ===")
+    if not trace:
+        print("  no 'IBI ...' lines found - rebuild with SHRIKEFI_IBI_TRACE=1 to get"
+              " the per-interval audit trail")
+    else:
+        tally = {}
+        for ms, verdict, ref, n, r in trace:
+            tally[verdict] = tally.get(verdict, 0) + 1
+        total = len(trace)
+        print(f"  {total} intervals classified")
+        for v in ("ok", "low", "high", "pair", "gap", "abs-low"):
+            if v in tally:
+                print(f"    {v:8s} {tally[v]:4d}  ({100.0*tally[v]/total:5.1f}%)")
+        unknown = {k: c for k, c in tally.items() if k not in
+                   ("ok", "low", "high", "pair", "gap", "abs-low")}
+        if unknown:
+            print(f"    UNRECOGNISED: {unknown}")
+
+        rej = [(ms, v, ref, n) for ms, v, ref, n, _ in trace if v != "ok"]
+        print(f"\n  {len(rej)} rejected intervals, with the rhythm reference at the time:")
+        for ms, v, ref, n in rej:
+            ratio = ms / ref if ref else 0.0
+            print(f"    {ms:>5} ms  {v:8s} ref={ref:>4}  ratio={ratio:.2f}  n={n}")
+
+        ok = [ms for ms, v, _, _, _ in trace if v == "ok"]
+        if ok:
+            o = sorted(ok)
+            print(f"\n  accepted series: {len(ok)} intervals, median {o[len(o)//2]} ms "
+                  f"({60000.0/o[len(o)//2]:.1f} BPM), min {o[0]}, max {o[-1]}")
+            import math as _m
+            d = [ok[i + 1] - ok[i] for i in range(len(ok) - 1)]
+            if d:
+                print(f"  successive-difference RMS of the ACCEPTED series: "
+                      f"{_m.sqrt(sum(x*x for x in d)/len(d)):.1f} ms")
+                print(f"  (that is the floor RMSSD would sit at; the reported RMSSD "
+                      f"differs only because the window is longer than this capture)")
+            print(f"  accepted sequence: {ok}")
+
     print()
 
 

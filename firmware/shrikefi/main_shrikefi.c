@@ -163,6 +163,13 @@ static ssd1306_t s_ssd1306;
  * rejections the reference window is discarded and rebuilt from fresh data. */
 #define IBI_REJECT_ESCAPE 12
 
+/* Per-interval audit trail. Costs ~1 console line per second at 75 BPM. Set to
+ * 0 once the pipeline is trusted; it is the only way to see WHY an interval was
+ * dropped, as opposed to inferring it from the surviving HRV statistics. */
+#ifndef SHRIKEFI_IBI_TRACE
+#define SHRIKEFI_IBI_TRACE 1
+#endif
+
 typedef struct {
     int          source;        /* IBI_SRC_* currently feeding the buffer */
     hrv_median_t ref;           /* median of recent DETECTED intervals, not accepted ones */
@@ -231,11 +238,13 @@ static bool ibi_pipeline_submit(ibi_pipeline_t *p, hrv_state_t *hrv,
      * dominated by its own outliers - which is exactly how the old latch was
      * seeded (4 entries, 2 of them artefacts). */
     float ref = hrv_median_value(&p->ref);
+    const char *verdict;
 
     if (!plausible && ibi_ms > IBI_MAX_MS) {
         /* A whole cardiac cycle was lost. Not a beat-to-beat measurement, and
          * not the remainder of a split either, so clear skip_next. */
         p->skip_next = false;
+        verdict = "gap";
     } else if (ref > 0.0f &&
                (ibi_ms < (IBI_LOW_RATIO * ref) || ibi_ms > (IBI_HIGH_RATIO * ref))) {
         /* Outside this subject's local rhythm by more than 30%, in either
@@ -243,16 +252,40 @@ static bool ibi_pipeline_submit(ibi_pipeline_t *p, hrv_state_t *hrv,
          * interval is the first half of a split pair, so its partner must be
          * dropped too; a LONG interval is a late detection or a lost cycle and
          * needs no such follow-up. */
-        p->skip_next = (ibi_ms < (IBI_LOW_RATIO * ref));
+        bool short_side = (ibi_ms < (IBI_LOW_RATIO * ref));
+        p->skip_next = short_side;
+        verdict = short_side ? "low" : "high";
     } else if (ibi_ms < IBI_MIN_MS) {
         p->skip_next = true;    /* detector double-fired, partner follows */
+        verdict = "abs-low";
     } else if (p->skip_next) {
         p->skip_next = false;   /* the compensating half of that same cycle */
+        verdict = "pair";
     } else {
         hrv_add_ibi(hrv, ibi_ms);
         hrv_compute(hrv);
         accepted = true;
+        verdict = "ok";
     }
+
+#if SHRIKEFI_IBI_TRACE
+    /* One line per detected interval: what the filter decided, and why.
+     *
+     * Without this the ONLY view of the filter is the HRV sample count, which
+     * updates once per second and says nothing about which intervals were
+     * dropped or on what grounds - so every diagnosis has to be inferred from
+     * arithmetic on the surviving statistics. That is how the two earlier
+     * mistakes in this pipeline survived as long as they did. At ~75 BPM this
+     * costs about one line per second.
+     *
+     *   IBI <src> <ms> <verdict> ref=<rhythm> n=<count> rmssd=<ms>
+     *   verdict: ok | low | high | gap | abs-low | pair
+     */
+    printf("IBI %d %lu %s ref=%.0f n=%d rmssd=%.1f\n",
+           source, (unsigned long)ibi_ms, verdict, ref,
+           hrv->count, hrv->rmssd);
+    fflush(stdout);
+#endif
 
     if (accepted) {
         p->reject_streak = 0;
