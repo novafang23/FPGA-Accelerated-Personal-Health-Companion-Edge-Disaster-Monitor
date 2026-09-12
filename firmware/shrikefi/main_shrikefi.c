@@ -75,6 +75,115 @@ static bme280_t s_bme280;
 static pms5003_t s_pms5003;
 static ssd1306_t s_ssd1306;
 
+/* ---------------------------------------------------------------------------
+ * IBI acceptance pipeline - the single door every heartbeat interval passes
+ * through, whichever detector measured it.
+ * ---------------------------------------------------------------------------
+ * Two independent peak detectors run on this board and they do not agree:
+ *
+ *   * the ForgeFPGA crest detector, which answers once per SPI transaction and
+ *     therefore timestamps a beat to within ~1 ms, and
+ *   * the software fallback FSM in this task, which runs on the 18-bit IR
+ *     stream and has its own threshold, refractory and confirmation delay.
+ *
+ * Whichever one is authoritative changes mid-session: at the start of every
+ * finger contact the FPGA has not yet produced a beat, so the software FSM is
+ * authoritative and fills the HRV window; a second or two later the FPGA takes
+ * over. Measured consequence on hardware: intervals recorded by the software
+ * detector sat near 500 ms (HR ~119) and intervals recorded by the FPGA sat near
+ * 880 ms (HR ~70), all in one rolling window. The device therefore reported an
+ * HR that ramped 119 -> 98 -> 84 -> 72 over ~20 s as the faster intervals were
+ * diluted, and an RMSSD of 190 ms that was mostly the one 400 ms step between
+ * the two groups rather than anything physiological.
+ *
+ * So: a change of detector flushes the window. Intervals measured by two
+ * different detectors are never mixed in one statistic.
+ */
+#define IBI_SRC_NONE      0
+#define IBI_SRC_SOFTWARE  1
+#define IBI_SRC_FPGA      2
+
+/* Absolute plausibility bounds, used until the median filter has enough history
+ * to say what is normal for this particular subject. Below IBI_MIN_MS the
+ * detector double-fired; above IBI_MAX_MS a beat was missed entirely. */
+#define IBI_MIN_MS   400.0f
+#define IBI_MAX_MS  1500.0f
+
+typedef struct {
+    int          source;       /* IBI_SRC_* currently feeding the buffer */
+    hrv_median_t median;       /* artifact filter on the accepted series */
+    bool         skip_next;    /* previous interval was rejected as an artifact */
+} ibi_pipeline_t;
+
+static void ibi_pipeline_reset(ibi_pipeline_t *p) {
+    p->source = IBI_SRC_NONE;
+    hrv_median_init(&p->median);
+    p->skip_next = false;
+}
+
+/**
+ * @brief Validate, artifact-filter and record one heartbeat interval.
+ *
+ * @param p        Pipeline state (one per contact session).
+ * @param hrv      HRV accumulator this interval belongs to.
+ * @param source   IBI_SRC_SOFTWARE or IBI_SRC_FPGA.
+ * @param ibi_ms   Interval in milliseconds, as measured by that detector.
+ * @return true if the interval was accepted into the HRV window, in which case
+ *         the caller may publish hrv->rmssd / hrv->count.
+ */
+static bool ibi_pipeline_submit(ibi_pipeline_t *p, hrv_state_t *hrv,
+                                int source, float ibi_ms) {
+    if (!(ibi_ms > 0.0f)) return false;
+
+    if (p->source != source) {
+        p->source = source;
+        hrv_init(hrv);
+        hrv_median_init(&p->median);
+        p->skip_next = false;
+
+        if (xSemaphoreTake(s_data_mutex, pdMS_TO_TICKS(10)) == pdTRUE) {
+            g_state.heart_rate         = 0.0f;
+            g_state.r_peak_interval_ms = 0.0f;
+            g_state.hrv_rmssd          = 0.0f;
+            g_state.hrv_sdnn           = 0.0f;
+            g_state.hrv_sample_count   = 0;
+            xSemaphoreGive(s_data_mutex);
+        }
+        ESP_LOGI(TAG, "IBI detector handover -> %s; HRV window flushed so the "
+                      "two detectors' intervals are never averaged together",
+                 (source == IBI_SRC_FPGA) ? "ForgeFPGA" : "software fallback");
+    }
+
+    /* Hard gap (missed beats, or the very first interval after lock, which is
+     * measured from the FPGA's previous arbitrary state). Not a beat-to-beat
+     * measurement, so it must not enter the series at all. */
+    if (ibi_ms > IBI_MAX_MS) {
+        p->skip_next = false;
+        return false;
+    }
+
+    /* Artifact test. Once the median filter has history, "too short" is judged
+     * against this subject's own recent intervals rather than a fixed 400 ms:
+     * a 600 ms interval is an artifact against an 800 ms rhythm but perfectly
+     * normal for someone at 100 BPM. */
+    float med = hrv_median_peek(&p->median);
+    float lo  = (med > 0.0f) ? (0.80f * med) : IBI_MIN_MS;
+
+    if (ibi_ms < lo) {
+        p->skip_next = true;   /* artifact: drop it and the remainder of the cycle */
+        return false;
+    }
+    if (p->skip_next) {
+        p->skip_next = false;  /* the long remainder of a split cardiac cycle */
+        return false;
+    }
+
+    float nn = hrv_median_push(&p->median, ibi_ms);
+    hrv_add_ibi(hrv, nn);
+    hrv_compute(hrv);
+    return true;
+}
+
 
 
 static int read_bme280_env(bme280_data_t *data) {
@@ -122,12 +231,16 @@ static void task_ppg_accelerator(void *pvParameters) {
     static uint32_t s_last_fpga_beat_ms  = 0;
     static const uint32_t SW_FALLBACK_ARM_MS = 3000;
 
-    /* Split-beat guard. Set when an interval was rejected as too short, so the
-     * remainder of the same cardiac cycle is discarded as well. See the peak
-     * detection block below for the full rationale. */
-    static bool s_skip_next_ibi = false;
-    static const float IBI_MIN_MS = 400.0f;   /* below this: detector double-fired */
-    static const float IBI_MAX_MS = 1500.0f;  /* above this: gap / missed beats    */
+    /* Split-beat guard + artifact filter + detector-handover flushing. Every
+     * interval from either detector goes through this one pipeline; see
+     * ibi_pipeline_submit() for why. */
+    ibi_pipeline_t  ibi_pipe;
+    ibi_pipeline_reset(&ibi_pipe);
+
+    /* Optical baseline railing counters (see the re-seed below) */
+    static uint8_t  s_rail_red = 0;
+    static uint8_t  s_rail_ir  = 0;
+
     static int      raw_log_timer        = 0;
 
     /* Perfusion & AC amplitude tracking over 1-second rolling windows */
@@ -188,6 +301,32 @@ static void task_ppg_accelerator(void *pvParameters) {
             uint8_t raw_red = max30102_scale_to_8bit_ch(ppg_sample.red, &s_base_red);
             uint8_t raw_ir  = max30102_scale_to_8bit_ch(ppg_sample.ir,  &s_base_ir);
 
+            /* --- Re-seed a baseline that has stopped tracking --------------
+             * max30102_scale_to_8bit_ch() centres its output on 120 and clamps
+             * to [0,255], so at DIV=8 it can express only +/-120 counts of AC.
+             * The MAX30100's DC output ramps from 0 to ~127000 counts over the
+             * ~1.5 s after a finger is seated. The 640 ms baseline EMA lags a
+             * ramp by (slope x tau) - tens of thousands of counts here - so the
+             * byte handed to the FPGA pins at a rail instead of carrying the
+             * pulse.
+             *
+             * Measured cost of that, from the SPI capture: tx sat at 255 for
+             * 4.6 s, the FPGA's 8-tap average railed with it, the peak detector
+             * could not see a crest for 7.7 s after contact, and the one beat it
+             * did report in that window was a phantom emitted when the signal
+             * finally came off the rail. That phantom is what produced the
+             * 7740 ms first interval.
+             *
+             * A genuine pulse is periodic, so it never sits on a rail for 300 ms
+             * in a row. Counting consecutive railed samples separates "the
+             * tracker has lost the DC level" from "the pulse is large", and
+             * re-seeds the tracker (setting the baseline to 0 makes the scaler
+             * adopt the current sample) instead of integrating for seconds. */
+            s_rail_red = (raw_red == 0 || raw_red == 255) ? (uint8_t)(s_rail_red + 1) : 0;
+            s_rail_ir  = (raw_ir  == 0 || raw_ir  == 255) ? (uint8_t)(s_rail_ir  + 1) : 0;
+            if (s_rail_red > 30) { s_base_red = 0; s_rail_red = 0; }
+            if (s_rail_ir  > 30) { s_base_ir  = 0; s_rail_ir  = 0; }
+
             /* 2. Stream to ForgeFPGA over 4-bit parallel link */
             shrikefi_write_red_sample(raw_red);
             shrikefi_write_ir_sample(raw_ir);
@@ -230,47 +369,34 @@ static void task_ppg_accelerator(void *pvParameters) {
 
                 float ibi_ms = (float)ibi_cycles * (20.0f / 1000000.0f); // 50 MHz clock
 
-                /* Split-beat guard.
-                 * On hardware the peak detector fires twice, ~330 ms apart, on
-                 * roughly one beat in five (44 detections produced 6 such
-                 * pairs). The floor below correctly rejected the SHORT interval
-                 * - but the interval AFTER it is the remainder of the same
-                 * cardiac cycle (~1080 ms), which looks entirely valid and was
-                 * being accepted as a real beat. That produced an alternating
-                 * ~700 / ~1080 ms pattern which drove RMSSD to ~190 ms, roughly
-                 * four times the genuine beat-to-beat variability. RMSSD feeds
-                 * the autonomic-strain terms in the heat, pollution and
-                 * cold-stress engines, so the patient was being scored as less
-                 * strained than they really were.
+                /* Split-beat guard - CAUSE NOW ESTABLISHED.
+                 * The detector fires twice on roughly one beat in six. The
+                 * waveform the FPGA sees was captured at full rate and replayed
+                 * through the RTL (hardware/shrikefi/tools/replay_fpga_link_log.py);
+                 * the trace shows WHY. On the affected beats the 8-tap filtered
+                 * pulse is not one hump but two: a first systolic maximum at
+                 * ~187 counts, a dicrotic notch down to ~171, then a second and
+                 * larger maximum at ~199. The FSM confirms a crest as soon as it
+                 * sees two consecutive falling samples, so it latches onto the
+                 * FIRST maximum. The second one lands ~100 ms later, inside the
+                 * 250 ms refractory, so it is ignored and the next detection is
+                 * a whole cardiac cycle late.
                  *
-                 * The CAUSE of the double firing is NOT established.
-                 * The dicrotic notch was the first suspect and the timing rules
-                 * it out: the notch lands 50-70 ms after the SYSTOLIC PEAK -
-                 * well inside the detector's 250 ms refractory - so it cannot
-                 * produce a second firing at 330 ms. (The 320-380 ms figure
-                 * often quoted is measured from the ECG R-wave, not from the
-                 * systolic peak; conflating the two references is what made the
-                 * notch look like a match.)
-                 * 330 ms is ~47% of a ~715 ms cardiac cycle, i.e. mid-diastole,
-                 * where a finger PPG has no physiological peak at all. That
-                 * points away from a waveform feature and toward a digital or
-                 * filter artifact in the FPGA link or the 8-tap average.
+                 * That is the dicrotic notch, on finger PPG, ~100-210 ms after
+                 * the first systolic peak. An earlier revision of this comment
+                 * retracted the notch as the cause on the grounds that the
+                 * notch sits inside the refractory; that retraction was wrong,
+                 * because the notch does not need to be detected itself - it
+                 * only has to make the waveform fall, which is all the FSM
+                 * needs to declare the preceding sample a crest.
                  *
-                 * This guard removes the symptom regardless of the cause, which
-                 * is why it is applied now: a split detection always contributes
-                 * one bogus long interval, and discarding the pair is correct
-                 * whatever produced it. Identifying the cause needs the waveform
-                 * the FPGA actually sees - see the commit message for how. */
-                if (ibi_ms < IBI_MIN_MS) {
-                    s_skip_next_ibi = true;    /* artifact: do not add */
-                } else if (ibi_ms > IBI_MAX_MS) {
-                    s_skip_next_ibi = false;   /* gap, not part of a split cycle */
-                } else if (s_skip_next_ibi) {
-                    s_skip_next_ibi = false;   /* remainder of a split cycle */
-                } else {
-                    hrv_add_ibi(&hrv_state, ibi_ms);
-                    hrv_compute(&hrv_state);
-
+                 * Fixing this properly means changing the RTL (confirm a crest
+                 * only after a fall of, say, 8% of the peak, or widen the
+                 * averaging window), which requires re-synthesising the
+                 * bitstream in the Renesas ForgeFPGA GUI. Until that happens
+                 * this guard removes the symptom, and ibi_pipeline_submit()
+                 * removes the residual one-in-N split with a median filter. */
+                if (ibi_pipeline_submit(&ibi_pipe, &hrv_state, IBI_SRC_FPGA, ibi_ms)) {
                     float inst_hr = 60000.0f / ibi_ms;
                     if (xSemaphoreTake(s_data_mutex, pdMS_TO_TICKS(10)) == pdTRUE) {
                         g_state.r_peak_interval_ms = ibi_ms;
@@ -349,13 +475,12 @@ static void task_ppg_accelerator(void *pvParameters) {
                                         sw_last_valid_ibi_ms = ibi_ms;
                                         sw_beat_streak++;
 
-                                        /* Keep the FSM warm for handover, but do
-                                         * not let it double-count a heartbeat the
-                                         * FPGA has already reported. */
-                                        if (!fpga_alive) {
-                                            hrv_add_ibi(&hrv_state, (float)ibi_ms);
-                                            hrv_compute(&hrv_state);
-
+                                        /* Keep the FSM warm for handover, but
+                                         * do not let it double-count a heartbeat
+                                         * the FPGA has already reported. */
+                                        if (!fpga_alive &&
+                                            ibi_pipeline_submit(&ibi_pipe, &hrv_state,
+                                                                IBI_SRC_SOFTWARE, (float)ibi_ms)) {
                                             float inst_hr = 60000.0f / (float)ibi_ms;
                                             if (xSemaphoreTake(s_data_mutex, pdMS_TO_TICKS(10)) == pdTRUE) {
                                                 g_state.r_peak_interval_ms = (float)ibi_ms;
@@ -419,7 +544,10 @@ static void task_ppg_accelerator(void *pvParameters) {
                 ir_win_count         = 0;
 
                 hrv_init(&hrv_state);   /* Reset HRV history on finger removal */
+                ibi_pipeline_reset(&ibi_pipe); /* ...and the detector-handover state */
                 spo2_init(&spo2_state); /* Reset SpO2 history on finger removal */
+                s_rail_red = 0;
+                s_rail_ir  = 0;
 
                 if (xSemaphoreTake(s_data_mutex, pdMS_TO_TICKS(10)) == pdTRUE) {
                     g_state.heart_rate         = 0.0f;
@@ -649,8 +777,22 @@ static void task_disaster_monitor(void *pvParameters) {
                      (sig_stat == SIGNAL_STATUS_ACQUIRING)     ? "ACQUIRING" :
                      (sig_stat == SIGNAL_STATUS_TRACKING)      ? "READY" : "WAITING",
                      hrv_snapshot.count, 10, env.ambient_temp_c, env.pm25);
-            printf("[TELEMETRY] NO_FINGER,TEMP=%.1f,HUM=%.1f,PM25=%.1f\n",
-                   env.ambient_temp_c, env.humidity_pct, env.pm25);
+            /* This branch runs while the HRV window is not yet full - but that
+             * is NOT the same thing as "no finger". It previously printed
+             * "[TELEMETRY] NO_FINGER" unconditionally, so for the first ~8 s of
+             * every contact the host dashboard was told there was no finger
+             * while the device was in fact locked on and reporting a heart rate
+             * and a valid SpO2. The dashboard dropped those HR/SpO2 values on
+             * the floor (it only accepts them from the "HR=..." packet) and
+             * flickered its contact indicator. Report the real state instead. */
+            if (sig_stat == SIGNAL_STATUS_NO_FINGER) {
+                printf("[TELEMETRY] NO_FINGER,TEMP=%.1f,HUM=%.1f,PM25=%.1f\n",
+                       env.ambient_temp_c, env.humidity_pct, env.pm25);
+            } else {
+                printf("[TELEMETRY] ACQUIRING,HR=%.1f,SPO2=%.1f,RMSSD=%.1f,TEMP=%.1f,HUM=%.1f,PM25=%.1f\n",
+                       hr, spo2, hrv_snapshot.rmssd,
+                       env.ambient_temp_c, env.humidity_pct, env.pm25);
+            }
             fflush(stdout);
         }
 

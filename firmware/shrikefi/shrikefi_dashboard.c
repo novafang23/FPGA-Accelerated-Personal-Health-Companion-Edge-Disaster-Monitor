@@ -238,6 +238,23 @@ static DWORD WINAPI SerialReaderThread(LPVOID lpParam) {
                             g_state.is_finger_present = 0;
                             g_state.last_packet_time_ms = GetTickCount();
                         }
+                        // Packet 2b: [TELEMETRY] ACQUIRING... - finger IS present
+                        // and vitals are live, the HRV window simply has not
+                        // filled yet. Without this the firmware's pre-lock
+                        // packets were parsed as NO_FINGER and the HR/SpO2 they
+                        // carried were discarded.
+                        else if (sscanf(line_buf, "[TELEMETRY] ACQUIRING,HR=%f,SPO2=%f,RMSSD=%f,TEMP=%f,HUM=%f,PM25=%f",
+                                        &r_hr, &r_spo2, &r_rmssd, &r_temp, &r_hum, &r_pm) == 6) {
+                            if (r_hr > 20.0f) g_state.hr = r_hr;
+                            if (r_spo2 > 50.0f) g_state.spo2 = r_spo2;
+                            if (r_rmssd > 0.0f) g_state.rmssd = r_rmssd;
+                            g_state.temp_c = r_temp;
+                            g_state.humidity_pct = r_hum;
+                            g_state.pm25_raw = r_pm;
+                            g_state.is_finger_present = 1;
+                            g_state.sqi = 0.60f;   /* acquiring, not yet locked */
+                            g_state.last_packet_time_ms = GetTickCount();
+                        }
                         // Packet 3: Real Optical Waveform Sample: [PPG] %lu
                         else if (sscanf(line_buf, "[PPG] %lu", &r_ir) == 1 ||
                                  strstr(line_buf, "Raw: IR=") != NULL) {

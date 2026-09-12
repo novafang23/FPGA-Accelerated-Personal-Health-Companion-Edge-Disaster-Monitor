@@ -79,3 +79,42 @@ float hrv_get_rmssd(const hrv_state_t *state)  { return state ? state->rmssd   :
 float hrv_get_sdnn(const hrv_state_t *state)    { return state ? state->sdnn    : 0.0f; }
 float hrv_get_mean_hr(const hrv_state_t *state) { return state ? state->mean_hr : 0.0f; }
 int   hrv_is_ready(const hrv_state_t *state)    { return state && state->count >= HRV_MIN_SAMPLES; }
+
+/* ---------------------------------------------------------------------------
+ * Causal median filter over the IBI series (see hrv_analysis.h for rationale).
+ * ------------------------------------------------------------------------- */
+
+void hrv_median_init(hrv_median_t *m) {
+    if (m == NULL) return;
+    memset(m, 0, sizeof(*m));
+}
+
+float hrv_median_peek(const hrv_median_t *m) {
+    if (m == NULL || m->count < HRV_MEDIAN_MIN) return 0.0f;
+
+    /* Insertion sort of at most HRV_MEDIAN_WINDOW (5) floats. */
+    float s[HRV_MEDIAN_WINDOW];
+    int   n = m->count;
+    for (int i = 0; i < n; i++) s[i] = m->buf[i];
+    for (int i = 1; i < n; i++) {
+        float key = s[i];
+        int   j   = i - 1;
+        while (j >= 0 && s[j] > key) { s[j + 1] = s[j]; j--; }
+        s[j + 1] = key;
+    }
+    return s[n / 2];
+}
+
+float hrv_median_push(hrv_median_t *m, float ibi_ms) {
+    if (m == NULL) return ibi_ms;
+
+    m->buf[m->head] = ibi_ms;
+    m->head = (m->head + 1) % HRV_MEDIAN_WINDOW;
+    if (m->count < HRV_MEDIAN_WINDOW) m->count++;
+
+    /* Not enough history to know what "normal" is yet: pass the value through
+     * rather than replacing a real measurement with a guess. */
+    if (m->count < HRV_MEDIAN_MIN) return ibi_ms;
+    return hrv_median_peek(m);
+}
+

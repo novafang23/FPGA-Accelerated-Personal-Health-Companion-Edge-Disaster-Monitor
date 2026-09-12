@@ -141,23 +141,29 @@ shrikefi_err_t shrikefi_write_ir_sample(uint8_t sample) {
     if (ret == ESP_OK) {
         uint8_t rx = t.rx_data[0];
         uint8_t tx = sample;
-        /* Log roughly 4 times per second, indefinitely.
-         * This was capped at the first 10 samples, which all occur within the
-         * first 0.1 s of boot with no finger on the sensor - so the FPGA's reply
-         * was never observable during an actual measurement, which is precisely
-         * when it matters.
+        /* Full-rate capture of the link was needed once, to settle whether the
+         * peak detector's double firing came from the FPGA or from the ESP32:
+         * logging EVERY transaction at 100 Hz (~2.5 KB/s) let the returned
+         * waveform be reconstructed offline and replayed through the RTL. That
+         * answered it - the FPGA's 8-tap average reproduces bit-for-bit, and the
+         * double firing is the dicrotic notch, not a link error. See
+         * hardware/shrikefi/tools/replay_fpga_link_log.py.
          *
-         * TEMPORARY DIAGNOSTIC: logs EVERY transaction rather than a decimated
-         * one, so the waveform the FPGA receives (tx) and returns (filtered) can
-         * be reconstructed offline at the full 100 Hz sample rate. This is what
-         * settles why the peak detector fires twice ~330 ms apart: ONE peak per
-         * cardiac cycle in filtered means the split is digital (the SPI
-         * beat-flag path); TWO means it is in the AC scaling or the 8-tap
-         * average. Costs ~2.5 KB/s on the console. Revert to the decimated
-         * (% 25) form once the cause is identified. */
+         * Back to a decimated log now: every 25th transaction, ~4 Hz.
+         *
+         * NOTE ON THE RETURNED VALUE: the FPGA packs its reply as
+         * {beat_latched, filt_sample[6:0]}, so bit 7 is the beat flag and only
+         * the LOW SEVEN bits of the 8-tap average come back. The average is a
+         * full 8-bit quantity (it reaches 255), so it wraps at 128 and this
+         * logged value is a sawtooth, not the waveform. The FPGA's own peak
+         * detector uses the full 8-bit filt_sample internally, so detection is
+         * unaffected - only this diagnostic is. */
         static int s_dbg_cnt = 0;
-        printf("FG %d %u %u %u\n", s_dbg_cnt++, tx, rx & 0x7F, (rx >> 7) & 1);
-        fflush(stdout);
+        if ((s_dbg_cnt % 25) == 0) {
+            printf("FG %d %u %u %u\n", s_dbg_cnt, tx, rx & 0x7F, (rx >> 7) & 1);
+            fflush(stdout);
+        }
+        s_dbg_cnt++;
         s_last_filtered_ir = rx & 0x7F;
         bool beat = ((rx >> 7) & 1) != 0;
         if (beat && !s_last_beat) {
