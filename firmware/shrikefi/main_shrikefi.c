@@ -115,6 +115,12 @@ static void task_ppg_accelerator(void *pvParameters) {
     static int      sw_beat_streak       = 0;
     static uint32_t sw_finger_start_ms   = 0;
     static uint32_t sw_running_mean      = 15000;
+
+    /* Timestamp of the most recent beat reported by the ForgeFPGA, and the
+     * window within which the FPGA counts as "currently detecting". See the
+     * FPGA-liveness gate in the peak-detection block below. */
+    static uint32_t s_last_fpga_beat_ms  = 0;
+    static const uint32_t SW_FALLBACK_ARM_MS = 3000;
     static int      raw_log_timer        = 0;
 
     /* Perfusion & AC amplitude tracking over 1-second rolling windows */
@@ -213,6 +219,7 @@ static void task_ppg_accelerator(void *pvParameters) {
                 /* Hardware beat detected by ForgeFPGA on GPIO 10 */
                 uint32_t ibi_cycles = shrikefi_read_ibi_cycles();
                 shrikefi_clear_irq();
+                s_last_fpga_beat_ms = now_ms;
 
                 float ibi_ms = (float)ibi_cycles * (20.0f / 1000000.0f); // 50 MHz clock
                 if (ibi_ms > 400.0f && ibi_ms < 1500.0f) {
@@ -231,6 +238,26 @@ static void task_ppg_accelerator(void *pvParameters) {
                     }
                 }
             } else if (optical_contact) {
+                /* FPGA-liveness gate.
+                 * The two detectors are mutually exclusive per SAMPLE, but not
+                 * per HEARTBEAT: the FPGA branch above runs only on the single
+                 * sample where the beat flag is set, so this software FSM still
+                 * runs across every other sample and independently finds the
+                 * SAME systolic peaks. Both then called hrv_add_ibi(), so each
+                 * heartbeat entered the HRV buffer twice - measured on hardware
+                 * as 51 intervals added for 34 FPGA-detected beats.
+                 * The two detectors timestamp a beat at slightly different
+                 * instants (the FPGA answers within one SPI transaction; this
+                 * FSM only confirms after two falling samples), so the
+                 * interleaved pairs roughly doubled RMSSD, from ~60 ms of
+                 * genuine variability to ~100 ms - which in turn made the
+                 * autonomic-strain terms in the risk engines read too low.
+                 * While the FPGA is healthy it is the authoritative detector and
+                 * the fallback must not contribute. If the FPGA goes quiet for
+                 * SW_FALLBACK_ARM_MS, the fallback resumes by itself. */
+                bool fpga_alive = (s_last_fpga_beat_ms != 0) &&
+                                  ((uint32_t)(now_ms - s_last_fpga_beat_ms) < SW_FALLBACK_ARM_MS);
+
                 if (sw_finger_start_ms == 0) {
                     sw_finger_start_ms = now_ms;
                 }
@@ -277,21 +304,26 @@ static void task_ppg_accelerator(void *pvParameters) {
                                         sw_last_valid_ibi_ms = ibi_ms;
                                         sw_beat_streak++;
 
-                                        hrv_add_ibi(&hrv_state, (float)ibi_ms);
-                                        hrv_compute(&hrv_state);
+                                        /* Keep the FSM warm for handover, but do
+                                         * not let it double-count a heartbeat the
+                                         * FPGA has already reported. */
+                                        if (!fpga_alive) {
+                                            hrv_add_ibi(&hrv_state, (float)ibi_ms);
+                                            hrv_compute(&hrv_state);
 
-                                        float inst_hr = 60000.0f / (float)ibi_ms;
-                                        if (xSemaphoreTake(s_data_mutex, pdMS_TO_TICKS(10)) == pdTRUE) {
-                                            g_state.r_peak_interval_ms = (float)ibi_ms;
-                                            /* Require 2 consecutive valid beats before displaying HR */
-                                            if (sw_beat_streak >= 2) {
-                                                g_state.heart_rate = (g_state.heart_rate > 30.0f) ?
-                                                                     (0.70f * g_state.heart_rate + 0.30f * inst_hr) : inst_hr;
+                                            float inst_hr = 60000.0f / (float)ibi_ms;
+                                            if (xSemaphoreTake(s_data_mutex, pdMS_TO_TICKS(10)) == pdTRUE) {
+                                                g_state.r_peak_interval_ms = (float)ibi_ms;
+                                                /* Require 2 consecutive valid beats before displaying HR */
+                                                if (sw_beat_streak >= 2) {
+                                                    g_state.heart_rate = (g_state.heart_rate > 30.0f) ?
+                                                                         (0.70f * g_state.heart_rate + 0.30f * inst_hr) : inst_hr;
+                                                }
+                                                g_state.hrv_rmssd = hrv_state.rmssd;
+                                                g_state.hrv_sdnn = hrv_state.sdnn;
+                                                g_state.hrv_sample_count = hrv_state.count;
+                                                xSemaphoreGive(s_data_mutex);
                                             }
-                                            g_state.hrv_rmssd = hrv_state.rmssd;
-                                            g_state.hrv_sdnn = hrv_state.sdnn;
-                                            g_state.hrv_sample_count = hrv_state.count;
-                                            xSemaphoreGive(s_data_mutex);
                                         }
                                     }
                                 }
@@ -328,6 +360,7 @@ static void task_ppg_accelerator(void *pvParameters) {
                 }
             } else {
                 /* No optical contact (IR <= 1500) */
+                s_last_fpga_beat_ms  = 0;   /* FPGA liveness is scoped to one contact session */
                 sw_finger_start_ms   = 0;
                 sw_last_peak_time_ms = 0;
                 sw_last_valid_ibi_ms = 0;
