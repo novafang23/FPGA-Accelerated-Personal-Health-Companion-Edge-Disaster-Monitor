@@ -1,27 +1,18 @@
 # ==============================================================================
-# Renesas ForgeFPGA (SLG47910) Pin Constraints for ShrikeFi Board
+# Renesas ForgeFPGA (SLG47910) Pin Constraints for Vicharak ShrikeFi Board
 # SIH26181 Health Companion & Edge Disaster Monitor
-#
-# CRITICAL ELECTRICAL NOTICE:
-# All FPGA I/Os are 3.3V LVCMOS ONLY. Exceeding 3.3V will permanently damage the IC.
 # ==============================================================================
 
-# Clock & Reset
-set_io clk          PIN_12  # Onboard 50MHz oscillator / External clock input
-set_io rst_n        PIN_13  # Connected to ESP32 GPIO / Reset button (Active-Low)
+# Clock
+set_io clk_en       OSC_EN      # Oscillator enable - resource, NOT a GPIO
 
-# 4-Bit Parallel Link Interface (Connected to ESP32-S3 GPIOs)
-set_io link_strobe  PIN_14  # ESP32 Strobe Clock Line
-set_io link_dir     PIN_15  # ESP32 Direction Line (0=Write, 1=Read)
-set_io link_din[0]  PIN_16  # 4-Bit Data Line 0
-set_io link_din[1]  PIN_17  # 4-Bit Data Line 1
-set_io link_din[2]  PIN_18  # 4-Bit Data Line 2
-set_io link_din[3]  PIN_19  # 4-Bit Data Line 3
+# 4-Wire SPI Target Interface to ESP32-S3 (Internal PCB traces verified by schematic Sheet 5)
+set_io spi_sck      PIN_16      # Connected to ESP32 GPIO 12 (F_SP_CLK)  -> GPIO3
+set_io spi_ss_n     PIN_17      # Connected to ESP32 GPIO 10 (F_SPI_CS)  -> GPIO4
+set_io spi_mosi     PIN_18      # Connected to ESP32 GPIO 11 (F_SPI_SI)  -> GPIO5
+set_io spi_miso     PIN_19      # Connected to ESP32 GPIO 13 (F_SPI_SO)  -> GPIO6
+set_io spi_miso_oe  PIN_19_OE   # Output enable for Pin 19 MISO pad (GPIO6_OE)
 
-set_io link_dout[0] PIN_20  # 4-Bit Return Data Line 0
-set_io link_dout[1] PIN_21  # 4-Bit Return Data Line 1
-set_io link_dout[2] PIN_22  # 4-Bit Return Data Line 2
-set_io link_dout[3] PIN_23  # 4-Bit Return Data Line 3
-
-# Hardware Interrupt (Output to ESP32-S3 Interrupt GPIO)
-set_io irq_beat     PIN_24  # Beat Detected IRQ (Active-High)
+# Observable Hardware Output (Blue User LED D12 on Pin 7)
+set_io led_user     PIN_7       # Blue User LED D12 -> GPIO16
+set_io led_user_oe  PIN_7_OE    # Output enable for Pin 7 LED pad

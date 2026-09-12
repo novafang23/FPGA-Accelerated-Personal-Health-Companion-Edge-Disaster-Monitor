@@ -2,329 +2,267 @@
 // File: forgefpga_ppg_top.v
 // Module: forgefpga_ppg_top
 // Project: SIH26181 Health Companion & Disaster Monitor
-// Target: Renesas ForgeFPGA (SLG47910) / ShrikeFi Development Board
+// Target: Renesas ForgeFPGA (SLG47910) / Vicharak Shrike-Fi Board
 // Description:
-//   Top-level FPGA hardware accelerator for ShrikeFi. Interfaces the ESP32-S3
-//   microcontroller with the moving-average filters and systolic peak detector
-//   over a 4-bit parallel nibble link.
+//   Hardware accelerator for photoplethysmography (PPG).
+//   Interfaces with ESP32-S3 over full-duplex 4-wire SPI bus (Pins 3, 4, 5, 6).
+//   Drives onboard Blue User LED on Pin 16 on each detected heartbeat.
+//
+// Official Vicharak Shrike-Fi ForgeFPGA Architecture Implementation:
+//   1. Clocking: 'clk' (OSC_CLK) and 'clk_en' (OSC_EN = 1'b1) for internal 50MHz oscillator.
+//   2. Reset: Internally generated power-on reset (avoids floating undriven external pins).
+//   3. User LED: 'led_user' (GPIO3_OUT / Pin 16) and 'led_user_oe' (GPIO3_OE / Pin 16 = 1'b1).
+//   4. SPI Target: spi_sck (PIN 3), spi_ss_n (PIN 4), spi_mosi (PIN 5),
+//                  spi_miso (PIN 6), spi_miso_oe (PIN 6).
+//
+// MAINTENANCE NOTICE:
+//   This file is the authoritative, unified hardware accelerator module compiled
+//   by Renesas Go Configure Software Hub for the ForgeFPGA SLG47910. The modular
+//   files in hardware/common/ (moving_average_8tap.v, ppg_peak_detector.v) are
+//   maintained for unit simulation testbenches.
 // =============================================================================
 
 `timescale 1ns / 1ps
 
 (* top *)
 module forgefpga_ppg_top #(
-    parameter integer CLK_FREQ_HZ    = 50_000_000, // Core clock (50 MHz)
-    parameter integer REFRACTORY_CYC = 12_500_000  // 250ms blanking window at 50MHz
+    parameter integer CLK_FREQ_HZ    = 50_000_000,
+    parameter integer REFRACTORY_CYC = 12_500_000,  // 250ms blanking at 50MHz
+    parameter integer LED_PULSE_CYC  = 2_500_000    // 50ms LED pulse at 50MHz
 )(
-    // System Clock & Reset
-    input  wire        clk,             // 50MHz System clock
-    input  wire        rst_n,           // Active-low synchronous reset
+    // System Clock
+    (* iopad_external_pin, clkbuf_inhibit *) input  wire        clk,             // 50MHz system clock (OSC_CLK resource)
+    (* iopad_external_pin *)                 output wire        clk_en,          // OSC_EN - MUST be driven or the core has NO CLOCK
 
-    // 4-Bit Parallel Link Interface (from ESP32-S3)
-    input  wire        link_strobe,     // Strobe clock pulse driven by ESP32
-    input  wire        link_dir,        // Link direction: 0 = ESP32 Write, 1 = ESP32 Read
-    input  wire [3:0]  link_din,        // 4-bit data input bus from ESP32
-    output reg  [3:0]  link_dout,       // 4-bit data output bus to ESP32
-    output reg         link_dout_oe,    // Output enable for bidirectional pin driver
+    // 4-Wire SPI Target Interface to ESP32-S3 (Pins 3, 4, 5, 6)
+    (* iopad_external_pin *) input  wire        spi_sck,         // Pin 3 (ESP32 GPIO 12 - SPI SCK)
+    (* iopad_external_pin *) input  wire        spi_ss_n,        // Pin 4 (ESP32 GPIO 10 - SPI CS)
+    (* iopad_external_pin *) input  wire        spi_mosi,        // Pin 5 (ESP32 GPIO 11 - SPI MOSI)
+    (* iopad_external_pin *) output wire        spi_miso,        // Pin 19 (ESP32 GPIO 13 - SPI MISO / GPIO6)
+    (* iopad_external_pin *) output wire        spi_miso_oe,     // Output enable for MISO pad (Pin 19 / GPIO6_OE)
 
-    // Hardware Interrupt to ESP32-S3
-    output reg         irq_beat         // Latched beat interrupt (cleared via CMD_CLEAR_IRQ)
+    // Observable Hardware Output
+    (* iopad_external_pin *) output reg         led_user,        // Pin 16: Blue User LED (heartbeat flash)
+    (* iopad_external_pin *) output wire        led_user_oe      // GPIO16_OE - MUST be high or the LED pad is never driven
 );
 
-    // =========================================================================
-    // Protocol Command Definitions (CMD Nibble)
-    // =========================================================================
-    localparam [3:0] CMD_NOP          = 4'h0;
-    localparam [3:0] CMD_WRITE_RED    = 4'h1; // Write Red PPG sample (2 nibbles)
-    localparam [3:0] CMD_WRITE_IR     = 4'h2; // Write IR PPG sample (2 nibbles)
-    localparam [3:0] CMD_WRITE_THRESH = 4'h3; // Write Systolic Threshold (2 nibbles)
-    localparam [3:0] CMD_READ_RED     = 4'h4; // Read Filtered Red (2 nibbles)
-    localparam [3:0] CMD_READ_IR      = 4'h5; // Read Filtered IR (2 nibbles)
-    localparam [3:0] CMD_READ_IBI     = 4'h6; // Read 32-bit IBI cycles (8 nibbles)
-    localparam [3:0] CMD_CLEAR_IRQ    = 4'h7; // Clear beat_flag & irq_beat (1 nibble)
-    localparam [3:0] CMD_READ_STATUS  = 4'h8; // Read Status Byte (1 nibble)
+    // -------------------------------------------------------------------------
+    // Clock enable and output enables.
+    // The Vicharak ForgeFPGA requires an explicit enable for the oscillator and
+    // for every output pad. Without clk_en the configured design has NO CLOCK;
+    // without led_user_oe the LED pad is never driven, so the design is silent
+    // even when it is running correctly.
+    // -------------------------------------------------------------------------
+    assign clk_en      = 1'b1;
+    assign led_user_oe = 1'b1;
+    assign spi_miso_oe = 1'b1;
 
-    // =========================================================================
-    // Link Transceiver FSM States
-    // =========================================================================
-    localparam [4:0] ST_IDLE          = 5'd0;
-    
-    // Write States
-    localparam [4:0] ST_W_RED_H       = 5'd1;
-    localparam [4:0] ST_W_RED_L       = 5'd2;
-    localparam [4:0] ST_W_IR_H        = 5'd3;
-    localparam [4:0] ST_W_IR_L        = 5'd4;
-    localparam [4:0] ST_W_TH_H        = 5'd5;
-    localparam [4:0] ST_W_TH_L        = 5'd6;
-    
-    // Read States
-    localparam [4:0] ST_R_RED_H       = 5'd7;
-    localparam [4:0] ST_R_RED_L       = 5'd8;
-    localparam [4:0] ST_R_IR_H        = 5'd9;
-    localparam [4:0] ST_R_IR_L        = 5'd10;
-    localparam [4:0] ST_R_IBI_0       = 5'd11; // [31:28]
-    localparam [4:0] ST_R_IBI_1       = 5'd12; // [27:24]
-    localparam [4:0] ST_R_IBI_2       = 5'd13; // [23:20]
-    localparam [4:0] ST_R_IBI_3       = 5'd14; // [19:16]
-    localparam [4:0] ST_R_IBI_4       = 5'd15; // [15:12]
-    localparam [4:0] ST_R_IBI_5       = 5'd16; // [11:8]
-    localparam [4:0] ST_R_IBI_6       = 5'd17; // [7:4]
-    localparam [4:0] ST_R_IBI_7       = 5'd18; // [3:0]
-    localparam [4:0] ST_R_STATUS      = 5'd19;
+    // -------------------------------------------------------------------------
+    // Internal reset.
+    // rst_n was a top-level input mapped to FPGA PIN_13, but the Shrike-Fi
+    // ESP32<->FPGA interconnect carries only EN, PWR, SCLK, SS, MOSI and MISO -
+    // NOTHING drives PIN_13. Since rst_n gates every always block in this file,
+    // an undriven reset pin holds the entire design in reset. Reset is therefore
+    // sourced internally; the device's own power-on reset handles initialisation.
+    // -------------------------------------------------------------------------
+    wire rst_n = 1'b1;
 
-    reg [4:0] state;
+    // -------------------------------------------------------------------------
+    // 1. SPI Target Submodule
+    // -------------------------------------------------------------------------
+    wire [7:0] rx_data;
+    wire       rx_valid;
+    reg  [7:0] tx_data;
+    wire       beat_raw;
+    reg        beat_latched;
+    wire [7:0] filt_sample;
+    wire       filt_valid;
+    wire [31:0] ibi_val;
 
-    // =========================================================================
-    // Internal Registers & Signals
-    // =========================================================================
-    reg  [7:0]  reg_red_raw;
-    reg  [7:0]  reg_ir_raw;
-    reg  [7:0]  reg_threshold;
-    reg  [31:0] reg_ibi_latched;
-    reg         red_valid_pulse;
-    reg         ir_valid_pulse;
-    reg         red_filtered_ready; // Latched flag for STATUS register
-    reg  [3:0]  nibble_temp;
-
-    // Wires from submodules
-    wire [7:0]  red_filtered;
-    wire        red_filtered_valid;
-    wire [7:0]  ir_filtered;
-    wire        ir_filtered_valid;
-    wire        peak_beat_detected;
-    wire [31:0] peak_ibi_cycles;
-
-    // Synchronizer & Edge Detector for link_strobe
-    reg [2:0] strobe_sync;
-    wire strobe_rise = (strobe_sync[1] && (strobe_sync[2] == 1'b0));
-
-    always @(posedge clk) begin
-        if (rst_n == 1'b0) begin
-            strobe_sync <= 3'b000;
-        end else begin
-            strobe_sync <= {strobe_sync[1:0], link_strobe};
-        end
-    end
-
-    // Synchronizer for link_dir (asynchronous control input from ESP32,
-    // same clock-domain-crossing hazard as link_strobe above). Previously
-    // sampled directly with no synchronizer, relying entirely on the
-    // software-side delay margins between direction changes and strobes to
-    // avoid metastability -- correct in practice given the ~1us settling
-    // delay in shrikefi_link_driver.c, but not something the hardware itself
-    // guaranteed. Two flip-flops is the standard minimum for a single-bit
-    // level synchronizer (no edge detection needed here, unlike strobe).
-    reg [1:0] dir_sync;
-    wire link_dir_sync = dir_sync[1];
-
-    always @(posedge clk) begin
-        if (rst_n == 1'b0) begin
-            dir_sync <= 2'b00;
-        end else begin
-            dir_sync <= {dir_sync[0], link_dir};
-        end
-    end
-
-    // =========================================================================
-    // Core DSP Submodules Instantiation
-    // =========================================================================
-
-    // Red Channel 8-Tap Moving Average Filter
-    moving_average_8tap u_filter_red (
-        .clk        (clk),
-        .rst_n      (rst_n),
-        .data_valid (red_valid_pulse),
-        .data_in    (reg_red_raw),
-        .data_out   (red_filtered),
-        .out_valid  (red_filtered_valid)
+    spi_target #(
+        .WIDTH(8)
+    ) u_spi_target (
+        .i_clk(clk),
+        .i_rst_n(rst_n),
+        .i_enable(1'b1),
+        .i_ss_n(spi_ss_n),
+        .i_sck(spi_sck),
+        .i_mosi(spi_mosi),
+        .o_miso(spi_miso),
+        .o_miso_oe(),
+        .o_rx_data(rx_data),
+        .o_rx_data_valid(rx_valid),
+        .i_tx_data(tx_data),
+        .o_tx_data_hold()
     );
 
-    // IR Channel 8-Tap Moving Average Filter
-    moving_average_8tap u_filter_ir (
-        .clk        (clk),
-        .rst_n      (rst_n),
-        .data_valid (ir_valid_pulse),
-        .data_in    (reg_ir_raw),
-        .data_out   (ir_filtered),
-        .out_valid  (ir_filtered_valid)
+    // -------------------------------------------------------------------------
+    // 2. 8-Tap Moving Average Filter
+    // -------------------------------------------------------------------------
+    moving_average_8tap #(
+        .DATA_WIDTH(8)
+    ) u_ma_filter (
+        .clk(clk),
+        .rst_n(rst_n),
+        .data_valid(rx_valid),
+        .data_in(rx_data),
+        .data_out(filt_sample),
+        .out_valid(filt_valid)
     );
 
-    // Systolic Peak Detector & IBI Hardware Counter
+    // -------------------------------------------------------------------------
+    // 3. Systolic Peak Detector & IBI Timing
+    // -------------------------------------------------------------------------
     ppg_peak_detector #(
-        .REFRACTORY_CYC (REFRACTORY_CYC)
+        .DATA_WIDTH(8),
+        .REFRACTORY_CYC(REFRACTORY_CYC),
+        .DEFAULT_THRESH(8'd120)
     ) u_peak_det (
-        .clk           (clk),
-        .rst_n         (rst_n),
-        .sample_valid  (red_filtered_valid),
-        .sample_in     (red_filtered),
-        .dyn_threshold (reg_threshold),
-        .beat_detected (peak_beat_detected),
-        .ibi_cycles    (peak_ibi_cycles)
+        .clk(clk),
+        .rst_n(rst_n),
+        .sample_valid(filt_valid),
+        .sample_in(filt_sample),
+        .dyn_threshold(8'd120),
+        .beat_detected(beat_raw),
+        .ibi_cycles(ibi_val)
     );
 
-    // =========================================================================
-    // 4-Bit Parallel Link Protocol FSM & IRQ Latch
-    // =========================================================================
-    always @(posedge clk) begin
-        if (rst_n == 1'b0) begin
-            state           <= ST_IDLE;
-            reg_red_raw     <= 8'd0;
-            reg_ir_raw      <= 8'd0;
-            reg_threshold   <= 8'd120; // Default threshold: 120
-            reg_ibi_latched <= 32'd0;
-            irq_beat           <= 1'b0;
-            red_valid_pulse    <= 1'b0;
-            ir_valid_pulse     <= 1'b0;
-            red_filtered_ready <= 1'b0;
-            nibble_temp     <= 4'd0;
-            link_dout       <= 4'd0;
-            link_dout_oe    <= 1'b0;
+    // -------------------------------------------------------------------------
+    // 4. Beat Latch & SPI Response Register
+    // -------------------------------------------------------------------------
+    // Packet returned to ESP32:
+    // Bit 7: Beat detected flag (1 = systolic crest)
+    // Bits [6:0]: 7-bit filtered PPG amplitude
+    always @(posedge clk or negedge rst_n) begin
+        if (!rst_n) begin
+            beat_latched <= 1'b0;
+            tx_data      <= 8'hA5; // Distinct hardware-alive signature
         end else begin
-            // Single-cycle pulse clearing
-            red_valid_pulse <= 1'b0;
-            ir_valid_pulse  <= 1'b0;
-
-            // Output Enable control based on direction
-            link_dout_oe    <= link_dir_sync;
-
-            // Latch red_filtered_valid so it isn't missed by slow CMD_READ_STATUS polling
-            if (red_filtered_valid) begin
-                red_filtered_ready <= 1'b1;
+            if (beat_raw) begin
+                beat_latched <= 1'b1;
+            end else if (rx_valid) begin
+                // Clear beat latch once transmitted over SPI
+                beat_latched <= 1'b0;
             end
 
-            if (strobe_rise) begin
-                case (state)
-                    // ---------------------------------------------------------
-                    // IDLE State: Decode Command Nibble
-                    // ---------------------------------------------------------
-                    ST_IDLE: begin
-                        if (link_dir_sync == 1'b0) begin
-                            // Write Commands (from ESP32)
-                            case (link_din)
-                                CMD_WRITE_RED:    state <= ST_W_RED_H;
-                                CMD_WRITE_IR:     state <= ST_W_IR_H;
-                                CMD_WRITE_THRESH: state <= ST_W_TH_H;
-                                CMD_READ_RED: begin
-                                    link_dout          <= red_filtered[7:4];
-                                    red_filtered_ready <= 1'b0; // Clear latched flag on read
-                                    state              <= ST_R_RED_L;
-                                end
-                                CMD_READ_IR: begin
-                                    link_dout <= ir_filtered[7:4];
-                                    state     <= ST_R_IR_L;
-                                end
-                                CMD_READ_IBI: begin
-                                    link_dout <= reg_ibi_latched[31:28];
-                                    state     <= ST_R_IBI_1;
-                                end
-                                CMD_READ_STATUS: begin
-                                    link_dout <= {2'b00, red_filtered_ready, irq_beat};
-                                    state     <= ST_IDLE;
-                                end
-                                CMD_CLEAR_IRQ: begin
-                                    irq_beat  <= 1'b0;
-                                    state     <= ST_IDLE;
-                                end
-                                default:          state <= ST_IDLE;
-                            endcase
-                        end
-                    end
+            tx_data <= {beat_latched, filt_sample[6:0]};
+        end
+    end
 
-                    // ---------------------------------------------------------
-                    // Write Sample Red (2 Nibbles)
-                    // ---------------------------------------------------------
-                    ST_W_RED_H: begin
-                        nibble_temp <= link_din;
-                        state       <= ST_W_RED_L;
-                    end
-                    ST_W_RED_L: begin
-                        reg_red_raw     <= {nibble_temp, link_din};
-                        red_valid_pulse <= 1'b1;
-                        state           <= ST_IDLE;
-                    end
+    // -------------------------------------------------------------------------
+    // 5. Observable Output: Pulse Stretcher for User LED (Pin 16)
+    // -------------------------------------------------------------------------
+    // Hardware Circuit is Active-HIGH (Schematic Sheet 5: Pin 7 -> R16 -> D12 Anode -> GND):
+    //   1'b0 = Pin LOW  (0.0V) -> LED is OFF (Dark between heartbeats)
+    //   1'b1 = Pin HIGH (3.3V) -> LED is ON  (Flashes bright blue on systolic peak)
+    reg [23:0] led_timer;
+    always @(posedge clk or negedge rst_n) begin
+        if (!rst_n) begin
+            led_timer <= 24'd0;
+            led_user  <= 1'b0;  // Power-on / reset: LED dark
+        end else if (beat_raw) begin
+            led_timer <= LED_PULSE_CYC[23:0];
+            led_user  <= 1'b1;  // Heartbeat detected: flash LED bright blue!
+        end else if (led_timer > 24'd0) begin
+            led_timer <= led_timer - 24'd1;
+            led_user  <= 1'b1;  // Hold flash for duration of pulse
+        end else begin
+            led_user  <= 1'b0;  // Idle: LED dark
+        end
+    end
 
-                    // ---------------------------------------------------------
-                    // Write Sample IR (2 Nibbles)
-                    // ---------------------------------------------------------
-                    ST_W_IR_H: begin
-                        nibble_temp <= link_din;
-                        state       <= ST_W_IR_L;
-                    end
-                    ST_W_IR_L: begin
-                        reg_ir_raw      <= {nibble_temp, link_din};
-                        ir_valid_pulse  <= 1'b1;
-                        state           <= ST_IDLE;
-                    end
+endmodule
 
-                    // ---------------------------------------------------------
-                    // Write Systolic Threshold (2 Nibbles)
-                    // ---------------------------------------------------------
-                    ST_W_TH_H: begin
-                        nibble_temp <= link_din;
-                        state       <= ST_W_TH_L;
-                    end
-                    ST_W_TH_L: begin
-                        reg_threshold <= {nibble_temp, link_din};
-                        state         <= ST_IDLE;
-                    end
+// ============================================================================
+// Submodule 1: Vicharak SPI Target (Slave) for Renesas ForgeFPGA
+// ============================================================================
 
-                    // ---------------------------------------------------------
-                    // Read Filtered Red Output (2 Nibbles)
-                    // ---------------------------------------------------------
-                    ST_R_RED_L: begin
-                        link_dout <= red_filtered[3:0];
-                        state     <= ST_IDLE;
-                    end
+module spi_target #(
+    parameter CPOL = 1'b0,
+    parameter CPHA = 1'b0,
+    parameter WIDTH = 8,
+    parameter LSB = 1'b0
+)(
+    input  wire             i_clk,
+    input  wire             i_rst_n,
+    input  wire             i_enable,
+    input  wire             i_ss_n,
+    input  wire             i_sck,
+    input  wire             i_mosi,
+    output reg              o_miso,
+    output reg              o_miso_oe,
+    output reg  [WIDTH-1:0] o_rx_data,
+    output reg              o_rx_data_valid,
+    input  wire [WIDTH-1:0] i_tx_data,
+    output reg              o_tx_data_hold
+);
+    localparam [2:0] BIT_MAX = WIDTH[2:0] - 3'd1;
 
-                    // ---------------------------------------------------------
-                    // Read Filtered IR Output (2 Nibbles)
-                    // ---------------------------------------------------------
-                    ST_R_IR_L: begin
-                        link_dout <= ir_filtered[3:0];
-                        state     <= ST_IDLE;
-                    end
+    reg [1:0] sck_sync;
+    reg [1:0] ss_sync;
+    reg [2:0] bit_cnt;
+    reg [WIDTH-1:0] rx_shift;
+    reg [WIDTH-1:0] tx_shift;
 
-                    // ---------------------------------------------------------
-                    // Read 32-Bit IBI Cycles (8 Nibbles)
-                    // ---------------------------------------------------------
-                    ST_R_IBI_1: begin
-                        link_dout <= reg_ibi_latched[27:24];
-                        state     <= ST_R_IBI_2;
-                    end
-                    ST_R_IBI_2: begin
-                        link_dout <= reg_ibi_latched[23:20];
-                        state     <= ST_R_IBI_3;
-                    end
-                    ST_R_IBI_3: begin
-                        link_dout <= reg_ibi_latched[19:16];
-                        state     <= ST_R_IBI_4;
-                    end
-                    ST_R_IBI_4: begin
-                        link_dout <= reg_ibi_latched[15:12];
-                        state     <= ST_R_IBI_5;
-                    end
-                    ST_R_IBI_5: begin
-                        link_dout <= reg_ibi_latched[11:8];
-                        state     <= ST_R_IBI_6;
-                    end
-                    ST_R_IBI_6: begin
-                        link_dout <= reg_ibi_latched[7:4];
-                        state     <= ST_R_IBI_7;
-                    end
-                    ST_R_IBI_7: begin
-                        link_dout <= reg_ibi_latched[3:0];
-                        state     <= ST_IDLE;
-                    end
+    wire sck_r = (sck_sync == 2'b01);
+    wire sck_f = (sck_sync == 2'b10);
+    wire ss_n  = ss_sync[1];
 
-                    default: state <= ST_IDLE;
-                endcase
-            end
+    always @(posedge i_clk or negedge i_rst_n) begin
+        if (!i_rst_n) begin
+            sck_sync <= 2'b00;
+            ss_sync  <= 2'b11;
+        end else begin
+            sck_sync <= {sck_sync[0], i_sck};
+            ss_sync  <= {ss_sync[0], i_ss_n};
+        end
+    end
 
-            // Hardware Beat Latches (placed AFTER strobe_rise so a new beat occurring 
-            // on the exact same cycle as CMD_CLEAR_IRQ will override the clear)
-            if (peak_beat_detected) begin
-                reg_ibi_latched <= peak_ibi_cycles;
-                irq_beat        <= 1'b1;
+    always @(posedge i_clk or negedge i_rst_n) begin
+        if (!i_rst_n) begin
+            bit_cnt         <= 3'd0;
+            rx_shift        <= {WIDTH{1'b0}};
+            tx_shift        <= {WIDTH{1'b0}};
+            o_rx_data       <= {WIDTH{1'b0}};
+            o_rx_data_valid <= 1'b0;
+            o_miso          <= 1'b0;
+            o_miso_oe       <= 1'b0;
+            o_tx_data_hold  <= 1'b0;
+        end else begin
+            o_rx_data_valid <= 1'b0;
+            if (ss_n) begin
+                bit_cnt   <= 3'd0;
+                tx_shift  <= i_tx_data;
+                o_miso    <= (LSB) ? i_tx_data[0] : i_tx_data[WIDTH-1];
+                o_miso_oe <= 1'b0;
+            end else if (i_enable) begin
+                o_miso_oe <= 1'b1;
+                if (sck_r) begin
+                    if (LSB)
+                        rx_shift <= {i_mosi, rx_shift[WIDTH-1:1]};
+                    else
+                        rx_shift <= {rx_shift[WIDTH-2:0], i_mosi};
+
+                    bit_cnt <= bit_cnt + 3'd1;
+
+                    if (bit_cnt == BIT_MAX) begin
+                        if (LSB)
+                            o_rx_data <= {i_mosi, rx_shift[WIDTH-1:1]};
+                        else
+                            o_rx_data <= {rx_shift[WIDTH-2:0], i_mosi};
+                        o_rx_data_valid <= 1'b1;
+                    end
+                end
+
+                if (sck_f) begin
+                    if (LSB) begin
+                        o_miso   <= tx_shift[1];
+                        tx_shift <= {1'b0, tx_shift[WIDTH-1:1]};
+                    end else begin
+                        o_miso   <= tx_shift[WIDTH-2];
+                        tx_shift <= {tx_shift[WIDTH-2:0], 1'b0};
+                    end
+                end
             end
         end
     end
@@ -332,10 +270,8 @@ module forgefpga_ppg_top #(
 endmodule
 
 // ============================================================================
-// Submodule 1: 8-Tap Moving Average Filter
+// Submodule 2: 8-Tap Moving Average Filter
 // ============================================================================
-
-`timescale 1ns / 1ps
 
 module moving_average_8tap #(
     parameter DATA_WIDTH = 8
@@ -347,14 +283,13 @@ module moving_average_8tap #(
     output reg  [DATA_WIDTH-1:0]  data_out,
     output reg                    out_valid
 );
-
     reg [DATA_WIDTH-1:0] shift_reg [0:7];
-    reg [DATA_WIDTH+2:0] running_sum; // +3 bits prevents overflow for 8 samples
+    reg [DATA_WIDTH+2:0] running_sum;
     integer i;
 
     wire [DATA_WIDTH+2:0] next_sum = running_sum + {3'b000, data_in} - {3'b000, shift_reg[7]};
 
-    always @(posedge clk) begin
+    always @(posedge clk or negedge rst_n) begin
         if (!rst_n) begin
             running_sum <= {(DATA_WIDTH+3){1'b0}};
             data_out    <= {DATA_WIDTH{1'b0}};
@@ -363,16 +298,11 @@ module moving_average_8tap #(
                 shift_reg[i] <= {DATA_WIDTH{1'b0}};
             end
         end else if (data_valid) begin
-            // Shift pipeline
             shift_reg[0] <= data_in;
             for (i = 1; i < 8; i = i + 1) begin
                 shift_reg[i] <= shift_reg[i-1];
             end
-
-            // Update sum: (Old Sum + New Sample - Oldest Sample)
             running_sum <= next_sum;
-            
-            // Division by 8 via 3-bit right shift
             data_out    <= next_sum[DATA_WIDTH+2:3];
             out_valid   <= 1'b1;
         end else begin
@@ -383,25 +313,22 @@ module moving_average_8tap #(
 endmodule
 
 // ============================================================================
-// Submodule 2: Systolic Peak Detector
+// Submodule 3: Systolic Peak Detector with 250ms Refractory Blanking
 // ============================================================================
-
-`timescale 1ns / 1ps
 
 module ppg_peak_detector #(
     parameter DATA_WIDTH      = 8,
-    parameter REFRACTORY_CYC  = 12_500_000, // 250ms at 50MHz clock
+    parameter REFRACTORY_CYC  = 12_500_000, // 250ms at 50MHz
     parameter DEFAULT_THRESH  = 8'd120
 )(
     input  wire                   clk,
     input  wire                   rst_n,
     input  wire                   sample_valid,
     input  wire [DATA_WIDTH-1:0]  sample_in,
-    input  wire [DATA_WIDTH-1:0]  dyn_threshold, // Dynamically programmable from AXI
+    input  wire [DATA_WIDTH-1:0]  dyn_threshold,
     output reg                    beat_detected,
     output reg  [31:0]            ibi_cycles
 );
-
     localparam STATE_ARMED      = 2'b00;
     localparam STATE_RISING     = 2'b01;
     localparam STATE_PEAK_FOUND = 2'b10;
@@ -411,16 +338,10 @@ module ppg_peak_detector #(
     reg [DATA_WIDTH-1:0] prev_sample;
     reg [31:0] refractory_cnt;
     reg [31:0] interval_cnt;
-    reg        first_beat_seen;  // Guard: IBI only valid from 2nd beat
-    reg [1:0]  fall_count;       // Consecutive decreasing samples seen while
-                                 // in STATE_RISING; requiring 2 before
-                                 // committing to a peak means a single-
-                                 // sample dip (filter/quantization noise)
-                                 // on the rising edge can't prematurely
-                                 // truncate the real systolic peak.
+    reg        first_beat_seen;
+    reg [1:0]  fall_count;
 
-    // Sequential state & timer management
-    always @(posedge clk) begin
+    always @(posedge clk or negedge rst_n) begin
         if (!rst_n) begin
             current_state   <= STATE_ARMED;
             prev_sample     <= {DATA_WIDTH{1'b0}};
@@ -433,7 +354,6 @@ module ppg_peak_detector #(
         end else begin
             current_state <= next_state;
 
-            // Timer with saturation clamp at 32'hFFFF_FFFF
             if (interval_cnt != 32'hFFFF_FFFF) begin
                 interval_cnt <= interval_cnt + 32'd1;
             end
@@ -445,24 +365,21 @@ module ppg_peak_detector #(
             case (current_state)
                 STATE_ARMED: begin
                     beat_detected <= 1'b0;
-                    fall_count    <= 2'd0;  // clear any stale count before the next rise
+                    fall_count    <= 2'd0;
                 end
-
                 STATE_RISING: begin
                     beat_detected <= 1'b0;
                     if (sample_valid) begin
-                        if (sample_in < prev_sample) begin
+                        if (sample_in < prev_sample)
                             fall_count <= fall_count + 2'd1;
-                        end else begin
-                            fall_count <= 2'd0;  // any non-decrease resets the run
-                        end
+                        else
+                            fall_count <= 2'd0;
                     end
                 end
-
                 STATE_PEAK_FOUND: begin
                     if (first_beat_seen) begin
-                        beat_detected  <= 1'b1;
-                        ibi_cycles     <= interval_cnt;
+                        beat_detected <= 1'b1;
+                        ibi_cycles    <= interval_cnt;
                     end else begin
                         beat_detected   <= 1'b0;
                         first_beat_seen <= 1'b1;
@@ -470,54 +387,33 @@ module ppg_peak_detector #(
                     interval_cnt   <= 32'd0;
                     refractory_cnt <= REFRACTORY_CYC[31:0];
                 end
-
                 STATE_REFRACTORY: begin
                     beat_detected <= 1'b0;
-                    if (refractory_cnt > 32'd0) begin
+                    if (refractory_cnt > 32'd0)
                         refractory_cnt <= refractory_cnt - 32'd1;
-                    end
                 end
             endcase
         end
     end
 
-    // Combinational next-state transitions
     always @(*) begin
         next_state = current_state;
         case (current_state)
             STATE_ARMED: begin
-                if (sample_valid && (sample_in >= dyn_threshold)) begin
+                if (sample_valid && (sample_in >= dyn_threshold))
                     next_state = STATE_RISING;
-                end
             end
-
             STATE_RISING: begin
-                // True peak crest detected when slope flips negative for
-                // 2 consecutive samples (fall_count already >=1 from a
-                // prior decrease this rise, and this sample is also a
-                // decrease) -- not on the very first downward tick, which
-                // may just be a single-sample dip rather than the real peak.
-                if (sample_valid && (sample_in < prev_sample) && (fall_count >= 2'd1)) begin
+                if (sample_valid && (sample_in < prev_sample) && (fall_count >= 2'd1))
                     next_state = STATE_PEAK_FOUND;
-                end
             end
-
             STATE_PEAK_FOUND: begin
                 next_state = STATE_REFRACTORY;
             end
-
             STATE_REFRACTORY: begin
-                // Don't re-arm just because the timer expired -- also
-                // require the signal to have actually returned below
-                // threshold first. Otherwise, if refractory clears while
-                // the pulse is still decaying above threshold, STATE_ARMED
-                // immediately re-triggers STATE_RISING on the tail of the
-                // very same pulse instead of waiting for the next real beat.
-                if (refractory_cnt == 32'd0 && sample_valid && (sample_in < dyn_threshold)) begin
+                if (refractory_cnt == 32'd0 && sample_valid && (sample_in < dyn_threshold))
                     next_state = STATE_ARMED;
-                end
             end
-
             default: next_state = STATE_ARMED;
         endcase
     end

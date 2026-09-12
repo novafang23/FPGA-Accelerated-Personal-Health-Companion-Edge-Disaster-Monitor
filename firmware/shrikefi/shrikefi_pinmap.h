@@ -55,8 +55,8 @@
  * Renesas ForgeFPGA (SLG47910) Interconnect — Official Vicharak Shrike-Fi Traces
  * =========================================================================
  * These 6 pins are internal PCB copper traces on the Vicharak Shrike-Fi board:
- *   - GPIO 8:  FPGA Power Control (PWR)
- *   - GPIO 9:  FPGA Hardware Enable (EN)
+ *   - GPIO 9:  FPGA Power Control (PWR)
+ *   - GPIO 8:  FPGA Hardware Enable (EN)
  *   - GPIO 10: SPI Chip Select (SS) / Dual-purpose Link Data 0
  *   - GPIO 11: SPI MOSI (SI) / Dual-purpose Link Data 1
  *   - GPIO 12: SPI Clock (SCK) / Dual-purpose Link Data 2
@@ -64,8 +64,8 @@
  *
  * NOTE: These are completely internal to the Shrike-Fi PCB. No Zero PCB wiring needed!
  * ====================================================================== */
-#define PIN_FPGA_PWR         8    /* GPIO8  — FPGA Power Control */
-#define PIN_FPGA_EN          9    /* GPIO9  — FPGA Hardware Reset/Enable */
+#define PIN_FPGA_PWR         9    /* GPIO9  — FPGA Power Control (Schematic Sheet 5: PWR to GPIO9) */
+#define PIN_FPGA_EN          8    /* GPIO8  — FPGA Hardware Reset/Enable (Schematic Sheet 5: EN to GPIO8) */
 #define PIN_FPGA_SS          10   /* GPIO10 — SPI CS / Dual-Purpose Link D0 */
 #define PIN_FPGA_MOSI        11   /* GPIO11 — SPI MOSI / Dual-Purpose Link D1 */
 #define PIN_FPGA_SCK         12   /* GPIO12 — SPI SCK / Dual-Purpose Link D2 */

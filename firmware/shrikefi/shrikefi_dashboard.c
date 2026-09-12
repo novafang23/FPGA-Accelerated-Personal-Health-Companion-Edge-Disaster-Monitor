@@ -1126,7 +1126,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
     g_state.pm25_calibrated = 12.0f;
     g_state.active_scenario = 0;
     g_state.h_serial_port = INVALID_HANDLE_VALUE;
-    strncpy(g_state.com_port_str, "COM3", sizeof(g_state.com_port_str) - 1);
+    strncpy(g_state.com_port_str, "COM5", sizeof(g_state.com_port_str) - 1);
     strncpy(g_state.status_bar_text, "Ready. Enter COM port and click 'Connect COM' for live hardware, or select a scenario below.",
             sizeof(g_state.status_bar_text) - 1);
     

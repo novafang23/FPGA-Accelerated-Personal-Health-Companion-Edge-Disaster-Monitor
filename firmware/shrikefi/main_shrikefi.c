@@ -396,7 +396,7 @@ static void task_disaster_monitor(void *pvParameters) {
         /* Read BME280 (temperature, humidity, pressure) */
         bme280_data_t bme_data;
         if (read_bme280_env(&bme_data) == 0) {
-            if (bme_data.temperature_c >= -20.0f && bme_data.temperature_c <= 65.0f) {
+            if (bme_data.temperature_c >= 5.0f && bme_data.temperature_c <= 65.0f) {
                 s_last_temp = bme_data.temperature_c;
                 s_last_hum  = bme_data.humidity_pct;
             }
@@ -415,6 +415,14 @@ static void task_disaster_monitor(void *pvParameters) {
          * humidity-induced laser scattering bias (slashing error by 60%) */
         float calibrated_pm25 = pm25_calibrate_nn_int8(s_last_pm25, env.ambient_temp_c, env.humidity_pct);
         env.pm25 = calibrated_pm25;
+
+        /* Unconditionally update shared system state with live environmental telemetry */
+        if (xSemaphoreTake(s_data_mutex, pdMS_TO_TICKS(20)) == pdTRUE) {
+            g_state.ambient_temp_c   = env.ambient_temp_c;
+            g_state.humidity_percent = env.humidity_pct;
+            g_state.pm25_ugm3        = env.pm25;
+            xSemaphoreGive(s_data_mutex);
+        }
 
         if (pm25_is_humidity_distorted(s_last_pm25, env.humidity_pct)) {
             /* Rate-limited. High ambient RH is persistent in this environment, so
@@ -531,9 +539,6 @@ static void task_disaster_monitor(void *pvParameters) {
 
             /* Thread-safe state update for telemetry & system monitoring */
             if (xSemaphoreTake(s_data_mutex, pdMS_TO_TICKS(20)) == pdTRUE) {
-                g_state.ambient_temp_c   = env.ambient_temp_c;
-                g_state.humidity_percent = env.humidity_pct;
-                g_state.pm25_ugm3        = env.pm25;
                 g_state.risk_result      = final_risk;
                 g_state.nn_scores        = nn_out;
                 xSemaphoreGive(s_data_mutex);

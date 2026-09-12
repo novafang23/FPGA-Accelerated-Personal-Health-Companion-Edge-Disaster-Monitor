@@ -1,6 +1,6 @@
 /**
  * @file shrikefi_link_driver.c
- * @brief Implementation of 4-bit parallel GPIO link for ESP32-S3 <-> ForgeFPGA
+ * @brief Implementation of full-duplex SPI link for ESP32-S3 <-> ForgeFPGA SLG47910
  * @project SIH26181 Personal Health Companion & Edge Disaster Monitor
  */
 
@@ -12,12 +12,16 @@
 #include "driver/gpio.h"
 #include "driver/spi_master.h"
 #include "esp_rom_sys.h"
+#include "esp_timer.h"
 #include "esp_log.h"
+#include "esp_heap_caps.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
+#include <string.h>
 #define DELAY_NS() esp_rom_delay_us(1)
 #else
 #include <stdio.h>
+#include <string.h>
 #define DELAY_NS() ((void)0)
 #define ESP_LOGI(tag, ...) do {} while(0)
 #define ESP_LOGE(tag, ...) do {} while(0)
@@ -28,98 +32,76 @@
 
 static const char* LINK_TAG __attribute__((unused)) = "SHRIKEFI_LINK";
 
-/* Default ShrikeFi Pin Mapping — Official Vicharak Shrike-Fi Internal Bus */
-static shrikefi_pins_t s_pins = {
-    .pin_strobe = PIN_FPGA_SCK,   /* GPIO 12: Link Clock */
-    .pin_dir    = PIN_FPGA_SS,    /* GPIO 10: Direction / Data Bit 0 */
-    .pin_data   = {PIN_FPGA_SS, PIN_FPGA_MOSI, PIN_FPGA_SCK, PIN_FPGA_MISO}, /* GPIO 10-13 */
-    .pin_irq    = PIN_FPGA_MISO   /* GPIO 13: Beat Interrupt / Status */
-};
+#ifdef ESP_PLATFORM
+static spi_device_handle_t s_spi_runtime = NULL;
+static uint8_t  s_last_filtered_ir = 0;
+static uint8_t  s_last_filtered_red = 0;
+static bool     s_beat_detected_latched = false;
+static bool     s_last_beat = false;
+static uint64_t s_last_beat_time_us = 0;
+static uint32_t s_sim_ibi = 3280;
+static uint8_t  s_sim_reg_th = 120;
+#else
+static uint8_t  s_sim_reg_th = 120;
+static uint8_t  s_sim_reg_red = 0;
+static uint8_t  s_sim_reg_ir = 0;
+static uint32_t s_sim_ibi = 3280;
+static bool     s_sim_irq = false;
+#endif
 
 static bool s_initialized = false;
 
-#ifdef ESP_PLATFORM
-static void set_bus_direction(bool read_mode) {
-    gpio_set_level((gpio_num_t)s_pins.pin_dir, read_mode ? 1 : 0);
-    for (int i = 0; i < 4; i++) {
-        if (read_mode) {
-            gpio_set_direction((gpio_num_t)s_pins.pin_data[i], GPIO_MODE_INPUT);
-        } else {
-            gpio_set_direction((gpio_num_t)s_pins.pin_data[i], GPIO_MODE_OUTPUT);
-        }
-    }
-    DELAY_NS();
-}
-
-static void pulse_strobe(void) {
-    gpio_set_level((gpio_num_t)s_pins.pin_strobe, 1);
-    DELAY_NS();
-    gpio_set_level((gpio_num_t)s_pins.pin_strobe, 0);
-    DELAY_NS();
-}
-
-static void write_nibble(uint8_t nibble) {
-    for (int i = 0; i < 4; i++) {
-        gpio_set_level((gpio_num_t)s_pins.pin_data[i], (nibble >> i) & 1);
-    }
-    pulse_strobe();
-}
-
-static uint8_t read_nibble(void) {
-    uint8_t val = 0;
-    for (int i = 0; i < 4; i++) {
-        val |= (gpio_get_level((gpio_num_t)s_pins.pin_data[i]) & 1) << i;
-    }
-    pulse_strobe();
-    return val;
-}
-#else
-/* Emulated registers for host test */
-static uint8_t s_sim_reg_th = 120;
-static uint8_t s_sim_reg_red = 0;
-static uint8_t s_sim_reg_ir = 0;
-static uint32_t s_sim_ibi = 3280;
-static bool s_sim_irq = false;
-#endif
-
 shrikefi_err_t shrikefi_link_init(const shrikefi_pins_t *pins) {
-    if (pins != NULL) {
-        s_pins = *pins;
-    }
+    (void)pins;
 
 #ifdef ESP_PLATFORM
-    /* Keep FPGA powered up and hardware enabled */
-    gpio_config_t pwr_en_conf = {
-        .intr_type = GPIO_INTR_DISABLE,
-        .mode = GPIO_MODE_OUTPUT,
-        .pin_bit_mask = (1ULL << PIN_FPGA_PWR) | (1ULL << PIN_FPGA_EN),
-        .pull_down_en = 0,
-        .pull_up_en = 0
-    };
-    gpio_config(&pwr_en_conf);
-    gpio_set_level((gpio_num_t)PIN_FPGA_PWR, 1);
-    gpio_set_level((gpio_num_t)PIN_FPGA_EN, 1);
+    /* Keep SS de-asserted (HIGH) for runtime SPI communication */
+    gpio_set_level((gpio_num_t)PIN_FPGA_SS, 1);
 
-    gpio_config_t out_conf = {
-        .intr_type = GPIO_INTR_DISABLE,
-        .mode = GPIO_MODE_OUTPUT,
-        .pin_bit_mask = (1ULL << s_pins.pin_strobe) | (1ULL << s_pins.pin_dir),
-        .pull_down_en = 0,
-        .pull_up_en = 0
+    /* Initialize runtime SPI device on SPI2_HOST (1 MHz, Manual CS on PIN_FPGA_SS) */
+    spi_device_interface_config_t devcfg = {
+        .clock_speed_hz = 1000000, /* 1 MHz full-duplex runtime link */
+        .mode = 0,                  /* Mode 0 (CPOL=0, CPHA=0) */
+        .spics_io_num = -1,         /* Manual CS control via gpio_set_level */
+        .queue_size = 1,
     };
-    gpio_config(&out_conf);
 
-    gpio_config_t irq_conf = {
-        .intr_type = GPIO_INTR_DISABLE,
-        .mode = GPIO_MODE_INPUT,
-        .pin_bit_mask = (1ULL << s_pins.pin_irq),
-        .pull_down_en = 1,
-        .pull_up_en = 0
-    };
-    gpio_config(&irq_conf);
+    esp_err_t ret = spi_bus_add_device(SPI2_HOST, &devcfg, &s_spi_runtime);
+    if (ret != ESP_OK) {
+        ESP_LOGW(LINK_TAG, "Runtime SPI device add returned %d (bus already active)", ret);
+    } else {
+        ESP_LOGI(LINK_TAG, "ForgeFPGA runtime SPI link active on SPI2 (1 MHz, CS=GPIO%d, MISO=GPIO%d, MOSI=GPIO%d, SCK=GPIO%d)",
+                 PIN_FPGA_SS, PIN_FPGA_MISO, PIN_FPGA_MOSI, PIN_FPGA_SCK);
 
-    set_bus_direction(false);
-    gpio_set_level((gpio_num_t)s_pins.pin_strobe, 0);
+        /* Perform liveness handshake over MISO with active-low SS assert */
+        spi_transaction_t probe_t;
+        memset(&probe_t, 0, sizeof(probe_t));
+        probe_t.length = 8;
+        probe_t.flags = SPI_TRANS_USE_TXDATA | SPI_TRANS_USE_RXDATA;
+        probe_t.tx_data[0] = 0x55;
+
+        gpio_set_level((gpio_num_t)PIN_FPGA_SS, 0);
+        esp_err_t probe_ret = spi_device_transmit(s_spi_runtime, &probe_t);
+        gpio_set_level((gpio_num_t)PIN_FPGA_SS, 1);
+
+        if (probe_ret == ESP_OK) {
+            uint8_t probe_rx = probe_t.rx_data[0];
+            ESP_LOGI(LINK_TAG, "ForgeFPGA runtime link handshake: probe sent 0x55, received 0x%02X", probe_rx);
+        }
+
+        /* Test physical MISO drive state (overpowers weak pull-up/pull-down if actively driven by FPGA) */
+        gpio_set_pull_mode((gpio_num_t)PIN_FPGA_MISO, GPIO_PULLDOWN_ONLY);
+        esp_rom_delay_us(100);
+        int pd_val = gpio_get_level((gpio_num_t)PIN_FPGA_MISO);
+
+        gpio_set_pull_mode((gpio_num_t)PIN_FPGA_MISO, GPIO_PULLUP_ONLY);
+        esp_rom_delay_us(100);
+        int pu_val = gpio_get_level((gpio_num_t)PIN_FPGA_MISO);
+
+        gpio_set_pull_mode((gpio_num_t)PIN_FPGA_MISO, GPIO_FLOATING);
+        ESP_LOGI(LINK_TAG, "MISO Pin 13 Physical Line Test: Pulldown=%d, Pullup=%d (%s)",
+                 pd_val, pu_val, (pd_val == pu_val) ? "ACTIVELY DRIVEN BY FPGA" : "FLOATING/TRISTATE");
+    }
 #endif
 
     s_initialized = true;
@@ -127,23 +109,13 @@ shrikefi_err_t shrikefi_link_init(const shrikefi_pins_t *pins) {
 }
 
 shrikefi_err_t shrikefi_set_threshold(uint8_t threshold) {
-#ifdef ESP_PLATFORM
-    set_bus_direction(false);
-    write_nibble(SHRIKEFI_CMD_WRITE_THRESH);
-    write_nibble((threshold >> 4) & 0x0F);
-    write_nibble(threshold & 0x0F);
-#else
     s_sim_reg_th = threshold;
-#endif
     return SHRIKEFI_OK;
 }
 
 shrikefi_err_t shrikefi_write_red_sample(uint8_t sample) {
 #ifdef ESP_PLATFORM
-    set_bus_direction(false);
-    write_nibble(SHRIKEFI_CMD_WRITE_RED);
-    write_nibble((sample >> 4) & 0x0F);
-    write_nibble(sample & 0x0F);
+    s_last_filtered_red = sample;
 #else
     s_sim_reg_red = sample;
 #endif
@@ -152,10 +124,50 @@ shrikefi_err_t shrikefi_write_red_sample(uint8_t sample) {
 
 shrikefi_err_t shrikefi_write_ir_sample(uint8_t sample) {
 #ifdef ESP_PLATFORM
-    set_bus_direction(false);
-    write_nibble(SHRIKEFI_CMD_WRITE_IR);
-    write_nibble((sample >> 4) & 0x0F);
-    write_nibble(sample & 0x0F);
+    if (s_spi_runtime == NULL) {
+        return SHRIKEFI_OK;
+    }
+
+    spi_transaction_t t;
+    memset(&t, 0, sizeof(t));
+    t.length = 8;
+    t.flags = SPI_TRANS_USE_TXDATA | SPI_TRANS_USE_RXDATA;
+    t.tx_data[0] = sample;
+
+    gpio_set_level((gpio_num_t)PIN_FPGA_SS, 0);
+    esp_err_t ret = spi_device_transmit(s_spi_runtime, &t);
+    gpio_set_level((gpio_num_t)PIN_FPGA_SS, 1);
+
+    if (ret == ESP_OK) {
+        uint8_t rx = t.rx_data[0];
+        uint8_t tx = sample;
+        /* Log roughly 4 times per second, indefinitely.
+         * This was capped at the first 10 samples, which all occur within the
+         * first 0.1 s of boot with no finger on the sensor - so the FPGA's reply
+         * was never observable during an actual measurement, which is precisely
+         * when it matters. Periodically decimating instead of capping keeps the
+         * console readable while staying live for the whole session.
+         * beat/filtered are decoded here so they do not have to be peeled out of
+         * the hex by hand while watching a live test. */
+        static int s_dbg_cnt = 0;
+        if ((s_dbg_cnt++ % 25) == 0) {
+            ESP_LOGI(LINK_TAG, "SPI sample[%d] tx=0x%02X -> rx=0x%02X (beat=%d, filtered=%d)",
+                     s_dbg_cnt, tx, rx, (rx >> 7) & 1, rx & 0x7F);
+        }
+        s_last_filtered_ir = rx & 0x7F;
+        bool beat = ((rx >> 7) & 1) != 0;
+        if (beat && !s_last_beat) {
+            uint64_t now_us = esp_timer_get_time();
+            if (s_last_beat_time_us > 0) {
+                uint32_t delta_us = (uint32_t)(now_us - s_last_beat_time_us);
+                s_sim_ibi = delta_us * 50; /* 50 MHz cycles */
+            }
+            s_last_beat_time_us = now_us;
+            s_beat_detected_latched = true;
+            ESP_LOGI(LINK_TAG, "[FPGA ACCEL] Systolic crest detected! Filtered=%d | Pin 16 Blue LED pulsing", s_last_filtered_ir);
+        }
+        s_last_beat = beat;
+    }
 #else
     s_sim_reg_ir = sample;
 #endif
@@ -164,15 +176,7 @@ shrikefi_err_t shrikefi_write_ir_sample(uint8_t sample) {
 
 uint8_t shrikefi_read_filtered_red(void) {
 #ifdef ESP_PLATFORM
-    set_bus_direction(false);
-    write_nibble(SHRIKEFI_CMD_READ_RED);
-
-    set_bus_direction(true);
-    uint8_t high = read_nibble();
-    uint8_t low = read_nibble();
-    set_bus_direction(false);
-
-    return (high << 4) | (low & 0x0F);
+    return s_last_filtered_red;
 #else
     return s_sim_reg_red;
 #endif
@@ -180,15 +184,7 @@ uint8_t shrikefi_read_filtered_red(void) {
 
 uint8_t shrikefi_read_filtered_ir(void) {
 #ifdef ESP_PLATFORM
-    set_bus_direction(false);
-    write_nibble(SHRIKEFI_CMD_READ_IR);
-
-    set_bus_direction(true);
-    uint8_t high = read_nibble();
-    uint8_t low = read_nibble();
-    set_bus_direction(false);
-
-    return (high << 4) | (low & 0x0F);
+    return s_last_filtered_ir;
 #else
     return s_sim_reg_ir;
 #endif
@@ -196,17 +192,7 @@ uint8_t shrikefi_read_filtered_ir(void) {
 
 uint32_t shrikefi_read_ibi_cycles(void) {
 #ifdef ESP_PLATFORM
-    set_bus_direction(false);
-    write_nibble(SHRIKEFI_CMD_READ_IBI);
-
-    set_bus_direction(true);
-    uint32_t ibi = 0;
-    for (int i = 0; i < 8; i++) {
-        ibi = (ibi << 4) | (read_nibble() & 0x0F);
-    }
-    set_bus_direction(false);
-
-    return ibi;
+    return s_sim_ibi;
 #else
     return s_sim_ibi;
 #endif
@@ -214,8 +200,7 @@ uint32_t shrikefi_read_ibi_cycles(void) {
 
 void shrikefi_clear_irq(void) {
 #ifdef ESP_PLATFORM
-    set_bus_direction(false);
-    write_nibble(SHRIKEFI_CMD_CLEAR_IRQ);
+    s_beat_detected_latched = false;
 #else
     s_sim_irq = false;
 #endif
@@ -223,7 +208,7 @@ void shrikefi_clear_irq(void) {
 
 bool shrikefi_is_beat_detected(void) {
 #ifdef ESP_PLATFORM
-    return gpio_get_level((gpio_num_t)s_pins.pin_irq) == 1;
+    return s_beat_detected_latched;
 #else
     return s_sim_irq;
 #endif
@@ -260,9 +245,9 @@ shrikefi_err_t shrikefi_fpga_flash_init(void) {
     };
 
     spi_device_interface_config_t devcfg = {
-        .clock_speed_hz = 16000000, /* 16 MHz */
+        .clock_speed_hz = 16000000, /* 16 MHz flashing (Official Web_FPGA_programmer.ino SPI_CLOCK) */
         .mode = 0,                  /* SPI Mode 0 */
-        .spics_io_num = -1,         /* Manual CS control */
+        .spics_io_num = -1,         /* Manual CS control during bitstream boot */
         .queue_size = 1,
     };
 
@@ -279,63 +264,69 @@ shrikefi_err_t shrikefi_fpga_flash_init(void) {
         return SHRIKEFI_ERR_TIMEOUT;
     }
 
-    /* 3. Power-up & Reset Sequence (per Vicharak shrike-rs universal flasher specification) */
-    /* Step A: Reset: low PWR, high EN */
+    /* 3. Reset FPGA per Vicharak official Web_FPGA_programmer.ino reference:
+     *    PWR=0, EN=0, SS=1 -> delay 3ms
+     *    PWR=1, EN=1, SS=0 -> delay 10ms (boot mode latch)
+     *    SS=1              -> delay 1ms
+     */
     gpio_set_level((gpio_num_t)PIN_FPGA_PWR, 0);
-    gpio_set_level((gpio_num_t)PIN_FPGA_EN, 1);
-    vTaskDelay(pdMS_TO_TICKS(50));
-
-    /* Step B: Power down everything */
-    gpio_set_level((gpio_num_t)PIN_FPGA_SS, 0);
     gpio_set_level((gpio_num_t)PIN_FPGA_EN, 0);
-    gpio_set_level((gpio_num_t)PIN_FPGA_PWR, 0);
-    vTaskDelay(pdMS_TO_TICKS(50));
-
-    /* Step C: Enable and Power Up */
-    gpio_set_level((gpio_num_t)PIN_FPGA_EN, 1);
-    gpio_set_level((gpio_num_t)PIN_FPGA_PWR, 1);
-    vTaskDelay(pdMS_TO_TICKS(50));
-
-    /* Step D: Assert SS (Active Low) for SPI transfer */
     gpio_set_level((gpio_num_t)PIN_FPGA_SS, 1);
-    esp_rom_delay_us(2000);
-    gpio_set_level((gpio_num_t)PIN_FPGA_SS, 0);
+    vTaskDelay(pdMS_TO_TICKS(5));
 
-    /* 4. Transfer bitstream in 4096-byte DMA chunks */
+    gpio_set_level((gpio_num_t)PIN_FPGA_PWR, 1);
+    gpio_set_level((gpio_num_t)PIN_FPGA_EN, 1);
+    gpio_set_level((gpio_num_t)PIN_FPGA_SS, 0);
+    vTaskDelay(pdMS_TO_TICKS(15));
+
+    gpio_set_level((gpio_num_t)PIN_FPGA_SS, 1);
+    vTaskDelay(pdMS_TO_TICKS(2));
+
+    /* 4. Stream bitstream in 256-byte chunks with SS toggling LOW/HIGH per chunk */
+    uint8_t *dma_chunk = (uint8_t *)heap_caps_malloc(256, MALLOC_CAP_DMA | MALLOC_CAP_INTERNAL);
+    if (!dma_chunk) {
+        ESP_LOGE(LINK_TAG, "Failed to allocate 256B DMA chunk buffer!");
+        spi_bus_remove_device(spi);
+        return SHRIKEFI_ERR_TIMEOUT;
+    }
+
     uint32_t offset = 0;
     while (offset < forgefpga_bitstream_length) {
         uint32_t chunk_len = forgefpga_bitstream_length - offset;
-        if (chunk_len > 4096) chunk_len = 4096;
+        if (chunk_len > 256) chunk_len = 256;
+
+        memcpy(dma_chunk, &forgefpga_bitstream[offset], chunk_len);
 
         spi_transaction_t t;
         memset(&t, 0, sizeof(t));
         t.length = chunk_len * 8; /* in bits */
-        t.tx_buffer = &forgefpga_bitstream[offset];
+        t.tx_buffer = dma_chunk;
         t.rx_buffer = NULL;
 
+        gpio_set_level((gpio_num_t)PIN_FPGA_SS, 0);
         ret = spi_device_transmit(spi, &t);
+        gpio_set_level((gpio_num_t)PIN_FPGA_SS, 1);
+
         if (ret != ESP_OK) {
             ESP_LOGE(LINK_TAG, "Bitstream transmission failed at offset %lu (err %d)",
                      (unsigned long)offset, ret);
-            gpio_set_level((gpio_num_t)PIN_FPGA_SS, 1);
+            free(dma_chunk);
             spi_bus_remove_device(spi);
-            spi_bus_free(SPI2_HOST);
             return SHRIKEFI_ERR_I2C_WRITE;
         }
 
         offset += chunk_len;
     }
 
-    /* 5. De-assert SS to finalize FPGA boot */
-    gpio_set_level((gpio_num_t)PIN_FPGA_SS, 1);
+    /* 5. Allow FPGA to start User Mode */
+    free(dma_chunk);
     vTaskDelay(pdMS_TO_TICKS(50));
 
     ESP_LOGI(LINK_TAG, "ForgeFPGA SLG47910 configuration COMPLETE! (%lu bytes loaded)",
              (unsigned long)forgefpga_bitstream_length);
 
-    /* Release SPI master driver so pins can transition to runtime 4-bit bus mode */
+    /* Release bitstream flasher device from bus, preserving SPI2_HOST for runtime communication */
     spi_bus_remove_device(spi);
-    spi_bus_free(SPI2_HOST);
 
     return SHRIKEFI_OK;
 #else

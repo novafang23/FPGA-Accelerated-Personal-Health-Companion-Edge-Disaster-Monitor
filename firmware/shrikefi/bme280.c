@@ -8,6 +8,7 @@
 
 #ifdef ESP_PLATFORM
 #include "esp_log.h"
+#include "esp_rom_sys.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 
@@ -43,7 +44,11 @@ static int bme280_i2c_write_read(bme280_t *dev, uint8_t reg, uint8_t *data, size
 
 static void bme280_delay_ms(int ms) {
 #ifdef ESP_PLATFORM
-    vTaskDelay(pdMS_TO_TICKS(ms));
+    if (ms <= 10) {
+        esp_rom_delay_us(ms * 1000);
+    } else {
+        vTaskDelay(pdMS_TO_TICKS(ms) < 1 ? 1 : pdMS_TO_TICKS(ms));
+    }
 #elif defined(_WIN32)
     Sleep(ms);
 #else
@@ -212,34 +217,31 @@ int bme280_init(bme280_t *dev, esp32_i2c_handle_t *i2c, uint8_t addr) {
         return -1;
     }
 
-    /* Configure for weather monitoring */
+    /* Configure for continuous weather monitoring (Normal Mode: auto hardware sampling every 1000ms) */
     if (!dev->is_bmp280) {
         if (bme280_i2c_write_reg(dev, BME280_REG_CTRL_HUM, BME280_OS_1X) != 0) return -1;
     }
     if (bme280_i2c_write_reg(dev, BME280_REG_CONFIG,
                     (BME280_STANDBY_1000MS << 5) | (BME280_FILTER_4 << 2)) != 0) return -1;
     if (bme280_i2c_write_reg(dev, BME280_REG_CTRL_MEAS,
-                    (BME280_OS_2X << 5) | (BME280_OS_1X << 2) | BME280_MODE_FORCED) != 0) return -1;
+                    (BME280_OS_2X << 5) | (BME280_OS_1X << 2) | BME280_MODE_NORMAL) != 0) return -1;
 
     dev->initialized = 1;
-    ESP_LOGI(TAG, "%s initialized successfully", dev->is_bmp280 ? "BMP280" : "BME280");
+    ESP_LOGI(TAG, "%s initialized successfully (Continuous Normal Mode)", dev->is_bmp280 ? "BMP280" : "BME280");
     return 0;
 }
 
 int bme280_read(bme280_t *dev, bme280_data_t *data) {
     if (!dev || !dev->initialized || !data) return -1;
 
-    if (bme280_i2c_write_reg(dev, BME280_REG_CTRL_MEAS,
-                    (BME280_OS_2X << 5) | (BME280_OS_1X << 2) | BME280_MODE_FORCED) != 0) return -1;
-
-    int timeout = 100;
+    /* Check status: if hardware is in middle of a measurement update, wait briefly */
+    int timeout = 25;
     while (timeout-- > 0) {
         int status = bme280_i2c_read_reg(dev, BME280_REG_STATUS);
         if (status < 0) return -1;
-        if (!(status & 0x08)) break;
+        if (!(status & 0x08)) break; // measuring bit 3 is 0 -> measurement complete
         bme280_delay_ms(1);
     }
-    if (timeout <= 0) return -1;
 
     uint8_t buf[8];
     size_t read_len = dev->is_bmp280 ? 6 : 8;
@@ -248,6 +250,14 @@ int bme280_read(bme280_t *dev, bme280_data_t *data) {
     int32_t adc_P = ((int32_t)buf[0] << 12) | ((int32_t)buf[1] << 4) | (buf[2] >> 4);
     int32_t adc_T = ((int32_t)buf[3] << 12) | ((int32_t)buf[4] << 4) | (buf[5] >> 4);
 
+    /* Guard against unmeasured reset value (0x80000) or bus disconnect (0x00000) */
+    if (adc_T == 0x80000 || adc_T == 0) {
+        /* Re-assert normal mode in case of momentary sensor brown-out */
+        bme280_i2c_write_reg(dev, BME280_REG_CTRL_MEAS,
+            (BME280_OS_2X << 5) | (BME280_OS_1X << 2) | BME280_MODE_NORMAL);
+        return -1;
+    }
+
     data->temperature_c = bme280_compensate_temperature(dev, adc_T);
     data->pressure_hpa  = bme280_compensate_pressure(dev, adc_P);
 
@@ -255,7 +265,11 @@ int bme280_read(bme280_t *dev, bme280_data_t *data) {
         data->humidity_pct = 50.0f; /* Nominal humidity fallback for BMP280 */
     } else {
         int32_t adc_H = ((int32_t)buf[6] << 8) | (int32_t)buf[7];
-        data->humidity_pct  = bme280_compensate_humidity(dev, adc_H);
+        if (adc_H == 0x8000) {
+            data->humidity_pct = 50.0f;
+        } else {
+            data->humidity_pct  = bme280_compensate_humidity(dev, adc_H);
+        }
     }
 
     return 0;
