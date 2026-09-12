@@ -132,13 +132,29 @@ The pulse on this beat is **not one hump**. It rises to **187**, dips through a
 notch to **171**, then rises again to **199**.
 
 The RTL confirms a crest as soon as it sees two consecutive falling samples, so
-it declares a beat 100 ms after the first maximum. The second, larger maximum
-arrives ~100 ms later — inside the 250 ms refractory — so it is discarded, and
-the next detection is a whole cardiac cycle late.
+it declares a beat two samples after the **first** maximum. The two maxima are
+**21 samples (210 ms) apart**; the notch between them is 10 samples (100 ms)
+after the first. The second maximum therefore lands well inside the 250 ms
+refractory and is discarded, and the next detection is a whole cardiac cycle
+late.
 
-That produces exactly the observed pattern: **600 ms then 1010 ms** against a
-~800 ms rhythm. Both halves sit inside the firmware's absolute `[400, 1500] ms`
-plausibility window, which is why the existing split guard did not catch it.
+The damaging part is not a fixed offset - it is that the detector has no single
+fiducial point. On a beat where the notch is resolved it fires at the first
+maximum; on one where it is not, it fires at the only crest. Consecutive
+intervals therefore jitter by up to 210 ms, and that jitter is exactly what the
+observed 360 ms split detections are.
+
+RMSSD is far more sensitive to that than to beats being dropped. Sheridan et al.
+(*Psychiatry Investig* 2020;17(9):960-965) measured it directly on PPG: RMSSD
+stays within a 5% change when **up to 36% of intervals are removed**, but
+degrades by more than 5% once beats are picked more than ~5 samples off - about
+**16 ms** at their 300 Hz rate. A 210 ms fiducial jitter is an order of magnitude
+past that. Removing bad intervals, which is what the firmware filter does, is
+cheap and correct; it cannot repair a crest time that was measured 210 ms wrong.
+
+That produces the observed pattern: **600 ms then 1010 ms** against an ~800 ms
+rhythm. Both halves sit inside the firmware's absolute `[400, 1500] ms`
+plausibility window, which is why the original split guard did not catch it.
 
 ### 4.3 The first interval, and why the source matches the bitstream
 

@@ -433,10 +433,16 @@ re-synthesising the bitstream in the Renesas ForgeFPGA GUI:
 1. **Require a deeper fall before confirming a crest.** The filtered pulse on
    some beats rises to ~187, dips through the dicrotic notch to ~171, then rises
    to ~199. The FSM confirms a crest after two falling samples, so it latches onto
-   the *first* maximum; the second lands ~100 ms later, inside the 250 ms
-   refractory, and is discarded. That produces one short and one long interval
-   (600 ms then 1010 ms against an ~800 ms rhythm). Requiring a fall of, say, 8%
-   of the peak — or widening the averaging window — would fix it at the source.
+   the *first* maximum. The two maxima are **21 samples (210 ms) apart**, so the
+   second lands well inside the 250 ms refractory and is discarded. That produces
+   one short and one long interval (600 ms then 1010 ms against an ~800 ms
+   rhythm). Requiring a fall of, say, 8% of the peak — or widening the averaging
+   window — would give the detector one consistent fiducial point.
+   This matters more than the raw artefact count suggests: Sheridan et al.
+   (*Psychiatry Investig* 2020;17(9):960-965) show RMSSD tolerates **removing up
+   to 36% of intervals** within a 5% change, but degrades by >5% once beats are
+   picked more than ~16 ms off. Fiducial jitter of 210 ms is an order of
+   magnitude past that, and no removal strategy can repair it.
 2. **Send `filt_sample[7:1]`** instead of `filt_sample[6:0]`, so the reported
    waveform stops wrapping at 128.
 
@@ -531,7 +537,7 @@ the bitstream and the `.v` have diverged, or a pin has moved.
 |---|---|---|
 | Confirm RMSSD no longer spikes | next flash | The whole point of the latest change — see §6. Run `analyse_capture.py` and check for jumps |
 | Reduce the detector's 7.3% artefact rate | needs a full-rate capture | Measured: 3 splits + 6 missed beats per 124 intervals. Firmware filtering now absorbs them, but they are the dominant remaining error source |
-| Decide whether the RTL crest-confirmation changes are needed | needs evidence | If notch pairs persist after the firmware fix, yes. Firmware cannot recover a crest time measured 100 ms early |
+| Decide whether the RTL crest-confirmation changes are needed | needs evidence | If notch pairs persist after the firmware fix, yes. Firmware cannot recover a crest time measured ~210 ms off, and RMSSD degrades past ~16 ms of beat-picking error (Sheridan 2020) |
 | WiFi never associates | open | Log shows `reason 201: SSID NOT FOUND`. `Airtel_Abhi-506` in `wifi_credentials.h` is either misspelled or a 5 GHz-only AP — the ESP32-S3 has no 5 GHz radio. **The cloud dashboard receives nothing until this is fixed.** |
 | `tb_forgefpga_system.v` does not compile | open | Still instantiates the old `rst_n` / `link_strobe` / `link_dir` / `link_din` / `link_dout` port set. Two copies exist (`hardware/shrikefi/` and `forgefpga_project/ffpga/sim/`). |
 | Docs claim 443 LUT5s | open | ForgeFPGA fitter reports **202/1120 (18.04%)**, 123 FFs, 37/140 CLBs. Deck must follow the fitter report. |
