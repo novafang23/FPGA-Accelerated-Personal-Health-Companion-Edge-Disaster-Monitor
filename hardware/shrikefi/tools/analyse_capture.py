@@ -223,11 +223,11 @@ def main():
             tally[verdict] = tally.get(verdict, 0) + 1
         total = len(trace)
         print(f"  {total} intervals classified")
-        for v in ("ok", "first", "low", "high", "pair", "gap", "abs-low"):
+        for v in ("ok", "prime", "low", "high", "pair", "gap", "abs-low"):
             if v in tally:
                 print(f"    {v:8s} {tally[v]:4d}  ({100.0*tally[v]/total:5.1f}%)")
         unknown = {k: c for k, c in tally.items() if k not in
-                   ("ok", "first", "low", "high", "pair", "gap", "abs-low")}
+                   ("ok", "prime", "low", "high", "pair", "gap", "abs-low")}
         if unknown:
             print(f"    UNRECOGNISED: {unknown}")
 

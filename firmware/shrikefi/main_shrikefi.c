@@ -163,6 +163,24 @@ static ssd1306_t s_ssd1306;
  * rejections the reference window is discarded and rebuilt from fresh data. */
 #define IBI_REJECT_ESCAPE 12
 
+/* Reference priming. The first few intervals after a detector handover cannot
+ * be validated - there is no rhythm estimate to validate them against yet - so
+ * they seed the reference and are not measured with.
+ *
+ * Measured why this matters, from the 02:49 capture. Three of its four contact
+ * sessions settled cleanly (RMSSD 39.4, 41.6 and 27.3 ms, no jumps). The fourth
+ * started noisily - a 420 ms interval, a 959 ms pair, a 1559 ms gap and a
+ * 1390 ms interval inside its first three accepted beats - and once past that,
+ * a 540 ms interval was accepted at a reference of about 771 ms. Its ratio was
+ * 0.7004, a hair inside the 0.70 floor. Against the 839 ms beat before it that
+ * is a 299 ms successive difference, and at n=6 it took RMSSD from 41.6 to
+ * 127.7 ms.
+ *
+ * Priming removes the whole class: the junk that a fresh contact produces is
+ * spent building the reference instead of entering the series. It costs
+ * IBI_PRIME_N intervals per contact - about 4 s at 75 BPM, once. */
+#define IBI_PRIME_N 5
+
 /* Per-interval audit trail. Costs ~1 console line per second at 75 BPM. Set to
  * 0 once the pipeline is trusted; it is the only way to see WHY an interval was
  * dropped, as opposed to inferring it from the surviving HRV statistics. */
@@ -175,7 +193,7 @@ typedef struct {
     hrv_median_t ref;           /* median of recent DETECTED intervals, not accepted ones */
     bool         skip_next;     /* previous interval was rejected as an artifact */
     int          reject_streak; /* consecutive rejections, triggers the escape */
-    bool         primed;        /* a usable beat-to-beat interval has been seen */
+    int          prime_count;   /* plausible intervals seen since handover */
 } ibi_pipeline_t;
 
 static void ibi_pipeline_reset(ibi_pipeline_t *p) {
@@ -183,7 +201,7 @@ static void ibi_pipeline_reset(ibi_pipeline_t *p) {
     hrv_median_init(&p->ref);
     p->skip_next = false;
     p->reject_streak = 0;
-    p->primed = false;
+    p->prime_count = 0;
 }
 
 /**
@@ -206,7 +224,7 @@ static bool ibi_pipeline_submit(ibi_pipeline_t *p, hrv_state_t *hrv,
         hrv_median_init(&p->ref);
         p->skip_next = false;
         p->reject_streak = 0;
-        p->primed = false;
+        p->prime_count = 0;
 
         if (xSemaphoreTake(s_data_mutex, pdMS_TO_TICKS(10)) == pdTRUE) {
             g_state.heart_rate         = 0.0f;
@@ -243,23 +261,14 @@ static bool ibi_pipeline_submit(ibi_pipeline_t *p, hrv_state_t *hrv,
     float ref = hrv_median_value(&p->ref);
     const char *verdict;
 
-    if (plausible && !p->primed) {
-        /* The first PLAUSIBLE interval after a detector handover is not a
-         * beat-to-beat measurement, whatever its value: it is timed from an
-         * arbitrary previous beat - the link handshake, or the other detector's
-         * last beat - not from the beat that preceded it.
-         *
-         * It is still evidence about the rhythm, so it seeds the reference, but
-         * it must never enter the HRV series. Measured cost of getting this
-         * wrong, from the 02:17 capture at a 790 ms rhythm: the first accepted
-         * interval was 1440 ms, putting a single 711 ms successive difference
-         * into a window that holds 300 intervals and never forgets. That one
-         * difference held RMSSD at 62.1 ms when the remaining 239 differences
-         * were 41.9 ms. It does not age out - at n=300 it would still be
-         * supplying half the variance. */
-        p->primed = true;
+    if (plausible && p->prime_count < IBI_PRIME_N) {
+        /* A fresh contact produces junk while the finger settles and while the
+         * pulse amplitude stabilises, and there is no rhythm estimate yet to
+         * catch it with. Spend these beats on the reference instead of on the
+         * measurement. See IBI_PRIME_N. */
+        p->prime_count++;
         p->skip_next = false;
-        verdict = "first";
+        verdict = "prime";
     } else if (!plausible && ibi_ms > IBI_MAX_MS) {
         /* A whole cardiac cycle was lost. Not a beat-to-beat measurement, and
          * not the remainder of a split either, so clear skip_next. */
