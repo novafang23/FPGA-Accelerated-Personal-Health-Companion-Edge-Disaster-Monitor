@@ -72,11 +72,20 @@ SPLIT_MS = 400            # matches IBI_MIN_MS  in main_shrikefi.c
 HARD_GAP_MS = 1500        # matches IBI_MAX_MS  in main_shrikefi.c
 JUMP_MS = 20.0            # RMSSD rise worth investigating
 
+# idf.py monitor writes its log with --force-color, so every line is wrapped in
+# ANSI SGR sequences. A bare `^I (123)` regex silently matches nothing against
+# those files, which is the capture path the docstring tells you to use.
+ANSI_RE = re.compile(r"\x1b\[[0-9;]*[A-Za-z]")
+
+
+def read_lines(path):
+    with open(path, encoding="utf-8", errors="replace") as fh:
+        return [ANSI_RE.sub("", ln).rstrip("\r") for ln in fh]
+
 
 def parse(path):
     beats, counts, rmssd, handovers, escapes = [], [], [], [], []
-    for ln in open(path, encoding="utf-8", errors="replace"):
-        ln = ln.rstrip("\r")
+    for ln in read_lines(path):
         if m := BEAT.search(ln):     beats.append((int(m.group(1)), int(m.group(2))))
         if m := IBI_CNT.search(ln):  counts.append((int(m.group(1)), int(m.group(2))))
         if m := IBI_OPT.search(ln):  counts.append((int(m.group(1)), int(m.group(2))))

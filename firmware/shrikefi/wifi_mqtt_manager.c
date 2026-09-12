@@ -64,6 +64,7 @@ static esp_mqtt_client_handle_t mqtt_client = NULL;
 static bool s_mqtt_connected = false;
 static int  s_wifi_retries   = 0;
 static bool s_scan_dumped    = false;   /* scan diagnostic runs at most once */
+static volatile bool s_scanning = false; /* suppress auto-reconnect during a scan */
 
 /* Human-readable form of the common esp_wifi disconnect reasons. Without this
  * a failing association is indistinguishable from a wrong password, a 5 GHz-only
@@ -112,13 +113,18 @@ static const char *wifi_reason_to_string(int reason) {
  * Runs in its own task because esp_wifi_scan_start(..., true) blocks, and the
  * caller is the system event task - blocking there would stall every other
  * event in the system.
+ *
+ * The FIRST version of this did not disconnect before scanning, and on hardware
+ * it failed with:
+ *     wifi:sta_scan: STA is connecting, scan are not allowed!
+ *     esp_wifi_scan_start failed: ESP_ERR_WIFI_STATE
+ * The driver refuses to scan while a connect attempt is in flight, which is
+ * precisely the state the third disconnect leaves it in. The wrapper task now
+ * disconnects first, holds off the auto-reconnect for the duration, and
+ * reconnects afterwards.
  */
-static void wifi_scan_diagnostic_task(void *arg)
+static void wifi_scan_and_report(void)
 {
-    (void)arg;
-
-    vTaskDelay(pdMS_TO_TICKS(500));   /* let the failed connect attempt settle */
-
     const char *want     = SHRIKEFI_WIFI_SSID;
     const size_t want_len = strlen(want);
 
@@ -134,7 +140,6 @@ static void wifi_scan_diagnostic_task(void *arg)
     esp_err_t err = esp_wifi_scan_start(&scan_cfg, true /* block until done */);
     if (err != ESP_OK) {
         ESP_LOGE(TAG, "esp_wifi_scan_start failed: %s", esp_err_to_name(err));
-        vTaskDelete(NULL);
         return;
     }
 
@@ -149,7 +154,6 @@ static void wifi_scan_diagnostic_task(void *arg)
                       "board in a Faraday cage. A metal enclosure or a hand wrapped "
                       "around the module does the same thing.");
         ESP_LOGW(TAG, "======================================================");
-        vTaskDelete(NULL);
         return;
     }
     if (ap_count > 24) ap_count = 24;   /* bound the console output */
@@ -157,14 +161,12 @@ static void wifi_scan_diagnostic_task(void *arg)
     wifi_ap_record_t *aps = calloc(ap_count, sizeof(wifi_ap_record_t));
     if (aps == NULL) {
         ESP_LOGE(TAG, "out of memory listing %u APs", (unsigned)ap_count);
-        vTaskDelete(NULL);
         return;
     }
     err = esp_wifi_scan_get_ap_records(&ap_count, aps);
     if (err != ESP_OK) {
         ESP_LOGE(TAG, "esp_wifi_scan_get_ap_records failed: %s", esp_err_to_name(err));
         free(aps);
-        vTaskDelete(NULL);
         return;
     }
 
@@ -215,6 +217,23 @@ static void wifi_scan_diagnostic_task(void *arg)
     ESP_LOGW(TAG, "======================================================");
 
     free(aps);
+}
+
+/* Disconnect, scan, reconnect. The driver will not scan while connecting, and
+ * disconnecting fires WIFI_EVENT_STA_DISCONNECTED whose handler would
+ * immediately reconnect and re-block the scan - hence s_scanning. */
+static void wifi_scan_diagnostic_task(void *arg)
+{
+    (void)arg;
+
+    s_scanning = true;
+    esp_wifi_disconnect();
+    vTaskDelay(pdMS_TO_TICKS(300));
+
+    wifi_scan_and_report();
+
+    s_scanning = false;
+    esp_wifi_connect();
     vTaskDelete(NULL);
 }
 
@@ -242,7 +261,10 @@ static void wifi_event_handler(void* arg, esp_event_base_t event_base,
                 ESP_LOGE(TAG, "could not start the scan diagnostic task");
             }
         }
-        esp_wifi_connect();
+        /* Skip the automatic retry while the scan diagnostic owns the radio. */
+        if (!s_scanning) {
+            esp_wifi_connect();
+        }
     } else if (event_base == IP_EVENT && event_id == IP_EVENT_STA_GOT_IP) {
         ip_event_got_ip_t* event = (ip_event_got_ip_t*) event_data;
         s_wifi_retries = 0;
