@@ -121,6 +121,13 @@ static void task_ppg_accelerator(void *pvParameters) {
      * FPGA-liveness gate in the peak-detection block below. */
     static uint32_t s_last_fpga_beat_ms  = 0;
     static const uint32_t SW_FALLBACK_ARM_MS = 3000;
+
+    /* Split-beat guard. Set when an interval was rejected as too short, so the
+     * remainder of the same cardiac cycle is discarded as well. See the peak
+     * detection block below for the full rationale. */
+    static bool s_skip_next_ibi = false;
+    static const float IBI_MIN_MS = 400.0f;   /* below this: detector double-fired */
+    static const float IBI_MAX_MS = 1500.0f;  /* above this: gap / missed beats    */
     static int      raw_log_timer        = 0;
 
     /* Perfusion & AC amplitude tracking over 1-second rolling windows */
@@ -222,7 +229,29 @@ static void task_ppg_accelerator(void *pvParameters) {
                 s_last_fpga_beat_ms = now_ms;
 
                 float ibi_ms = (float)ibi_cycles * (20.0f / 1000000.0f); // 50 MHz clock
-                if (ibi_ms > 400.0f && ibi_ms < 1500.0f) {
+
+                /* Split-beat guard.
+                 * The ForgeFPGA peak detector blanks for 250 ms after a beat,
+                 * but the dicrotic notch arrives ~330 ms after the systolic
+                 * peak, so on roughly one beat in five the detector fires twice.
+                 * The floor below correctly rejected the SHORT interval - but
+                 * the interval AFTER it is then the remainder of the same
+                 * cardiac cycle (~1080 ms), which looks entirely valid and was
+                 * being accepted as a real beat. On hardware that produced an
+                 * alternating ~700 / ~1080 ms pattern which drove RMSSD to
+                 * ~190 ms, roughly four times the genuine beat-to-beat
+                 * variability - and RMSSD feeds the autonomic-strain terms in
+                 * the heat, pollution and cold-stress engines, so the patient
+                 * was being scored as less strained than they really were.
+                 * When a too-short interval is seen, discard the next one too:
+                 * the pair is one heartbeat, not two. */
+                if (ibi_ms < IBI_MIN_MS) {
+                    s_skip_next_ibi = true;    /* artifact: do not add */
+                } else if (ibi_ms > IBI_MAX_MS) {
+                    s_skip_next_ibi = false;   /* gap, not part of a split cycle */
+                } else if (s_skip_next_ibi) {
+                    s_skip_next_ibi = false;   /* remainder of a split cycle */
+                } else {
                     hrv_add_ibi(&hrv_state, ibi_ms);
                     hrv_compute(&hrv_state);
 
