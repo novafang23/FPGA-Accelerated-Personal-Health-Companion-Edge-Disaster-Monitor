@@ -342,6 +342,8 @@ module ppg_peak_detector #(
     reg [31:0] interval_cnt;
     reg        first_beat_seen;
 
+    wire [7:0] crest_fall_min = (peak_val > 8'd48) ? (peak_val >> 3) : 8'd6;
+
     always @(posedge clk or negedge rst_n) begin
         if (!rst_n) begin
             current_state   <= STATE_ARMED;
@@ -406,7 +408,7 @@ module ppg_peak_detector #(
                     next_state = STATE_RISING;
             end
             STATE_RISING: begin
-                if (sample_valid && (peak_val > sample_in) && ((peak_val - sample_in) >= CREST_FALL_THRESH))
+                if (sample_valid && (peak_val > sample_in) && ((peak_val - sample_in) >= crest_fall_min))
                     next_state = STATE_PEAK_FOUND;
             end
             STATE_PEAK_FOUND: begin
