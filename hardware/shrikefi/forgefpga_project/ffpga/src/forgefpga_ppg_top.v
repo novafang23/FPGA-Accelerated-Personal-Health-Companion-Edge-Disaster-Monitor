@@ -1,25 +1,43 @@
 // =============================================================================
+// GENERATED FILE -- DO NOT EDIT
+//
+// Produced by hardware/shrikefi/gen_flat_source.py by combining
+//   hardware/shrikefi/forgefpga_ppg_top.v        (the top level)
+// with the shared DSP modules in hardware/common/.
+//
+// The Renesas ForgeFPGA Workshop needs one flat source set, which is the only
+// reason this duplication exists. Edit the sources above, then re-run the
+// generator. Hand-editing this file reintroduces the drift it was created to
+// eliminate.
+// =============================================================================
+// =============================================================================
 // File: forgefpga_ppg_top.v
 // Module: forgefpga_ppg_top
 // Project: SIH26181 Health Companion & Disaster Monitor
 // Target: Renesas ForgeFPGA (SLG47910) / Vicharak Shrike-Fi Board
 // Description:
 //   Hardware accelerator for photoplethysmography (PPG).
-//   Interfaces with ESP32-S3 over full-duplex 4-wire SPI bus (Pins 3, 4, 5, 6).
-//   Drives onboard Blue User LED on Pin 16 on each detected heartbeat.
+//   Interfaces with ESP32-S3 over full-duplex 4-wire SPI (mode 0, MSB first).
+//   Drives the onboard blue user LED on each detected heartbeat.
 //
 // Official Vicharak Shrike-Fi ForgeFPGA Architecture Implementation:
 //   1. Clocking: 'clk' (OSC_CLK) and 'clk_en' (OSC_EN = 1'b1) for internal 50MHz oscillator.
 //   2. Reset: Internally generated power-on reset (avoids floating undriven external pins).
-//   3. User LED: 'led_user' (GPIO3_OUT / Pin 16) and 'led_user_oe' (GPIO3_OE / Pin 16 = 1'b1).
-//   4. SPI Target: spi_sck (PIN 3), spi_ss_n (PIN 4), spi_mosi (PIN 5),
-//                  spi_miso (PIN 6), spi_miso_oe (PIN 6).
+//   3. User LED: 'led_user' (PIN_7) and 'led_user_oe' (PIN_7_OE).
+//   4. SPI Target: spi_sck (PIN_16), spi_ss_n (PIN_17), spi_mosi (PIN_18),
+//                  spi_miso (PIN_19), spi_miso_oe (PIN_19_OE).
+//      Pin assignments are authoritative in forgefpga_pins.pcf.
 //
-// MAINTENANCE NOTICE:
-//   This file is the authoritative, unified hardware accelerator module compiled
-//   by Renesas Go Configure Software Hub for the ForgeFPGA SLG47910. The modular
-//   files in hardware/common/ (moving_average_8tap.v, ppg_peak_detector.v) are
-//   maintained for unit simulation testbenches.
+// MAINTENANCE NOTICE -- READ BEFORE EDITING
+//   This file INSTANTIATES moving_average_8tap and ppg_peak_detector from
+//   hardware/common/. It deliberately does NOT contain inline copies of them:
+//   hardware/common/ is the single source of truth for both DSP modules.
+//
+//   The Renesas ForgeFPGA Workshop needs ONE flat source set, so
+//   forgefpga_project/ffpga/src/forgefpga_ppg_top.v is GENERATED from this file
+//   plus hardware/common/ by gen_flat_source.py. Never hand-edit the generated
+//   copy, and never paste the DSP modules back in here -- doing exactly that
+//   forked the detector once and the two copies silently diverged for months.
 // =============================================================================
 
 `timescale 1ns / 1ps
@@ -28,22 +46,23 @@
 module forgefpga_ppg_top #(
     parameter integer CLK_FREQ_HZ    = 50_000_000,
     parameter integer REFRACTORY_CYC = 12_500_000,  // 250ms blanking at 50MHz
-    parameter integer LED_PULSE_CYC  = 2_500_000    // 50ms LED pulse at 50MHz
+    parameter integer LED_PULSE_CYC  = 2_500_000,   // 50ms LED pulse at 50MHz
+    parameter integer POR_CYC        = 255          // clocks reset is held after power-up
 )(
     // System Clock
     (* iopad_external_pin, clkbuf_inhibit *) input  wire        clk,             // 50MHz system clock (OSC_CLK resource)
     (* iopad_external_pin *)                 output wire        clk_en,          // OSC_EN - MUST be driven or the core has NO CLOCK
 
-    // 4-Wire SPI Target Interface to ESP32-S3 (Pins 3, 4, 5, 6)
-    (* iopad_external_pin *) input  wire        spi_sck,         // Pin 3 (ESP32 GPIO 12 - SPI SCK)
-    (* iopad_external_pin *) input  wire        spi_ss_n,        // Pin 4 (ESP32 GPIO 10 - SPI CS)
-    (* iopad_external_pin *) input  wire        spi_mosi,        // Pin 5 (ESP32 GPIO 11 - SPI MOSI)
-    (* iopad_external_pin *) output wire        spi_miso,        // Pin 19 (ESP32 GPIO 13 - SPI MISO / GPIO6)
-    (* iopad_external_pin *) output wire        spi_miso_oe,     // Output enable for MISO pad (Pin 19 / GPIO6_OE)
+    // 4-Wire SPI Target Interface to ESP32-S3 (assignments in forgefpga_pins.pcf)
+    (* iopad_external_pin *) input  wire        spi_sck,         // FPGA PIN_16 <- ESP32 GPIO12
+    (* iopad_external_pin *) input  wire        spi_ss_n,        // FPGA PIN_17 <- ESP32 GPIO10
+    (* iopad_external_pin *) input  wire        spi_mosi,        // FPGA PIN_18 <- ESP32 GPIO11
+    (* iopad_external_pin *) output wire        spi_miso,        // FPGA PIN_19 -> ESP32 GPIO13
+    (* iopad_external_pin *) output wire        spi_miso_oe,     // output enable for PIN_19
 
     // Observable Hardware Output
-    (* iopad_external_pin *) output reg         led_user,        // Pin 16: Blue User LED (heartbeat flash)
-    (* iopad_external_pin *) output wire        led_user_oe      // GPIO16_OE - MUST be high or the LED pad is never driven
+    (* iopad_external_pin *) output reg         led_user,        // FPGA PIN_7: blue user LED D12
+    (* iopad_external_pin *) output wire        led_user_oe      // output enable for PIN_7
 );
 
     // -------------------------------------------------------------------------
@@ -58,14 +77,35 @@ module forgefpga_ppg_top #(
     assign spi_miso_oe = 1'b1;
 
     // -------------------------------------------------------------------------
-    // Internal reset.
-    // rst_n was a top-level input mapped to FPGA PIN_13, but the Shrike-Fi
-    // ESP32<->FPGA interconnect carries only EN, PWR, SCLK, SS, MOSI and MISO -
-    // NOTHING drives PIN_13. Since rst_n gates every always block in this file,
-    // an undriven reset pin holds the entire design in reset. Reset is therefore
-    // sourced internally; the device's own power-on reset handles initialisation.
+    // Internal power-on reset
     // -------------------------------------------------------------------------
-    wire rst_n = 1'b1;
+    // rst_n was a top-level input mapped to FPGA PIN_13, but the Shrike-Fi
+    // ESP32<->FPGA interconnect carries only EN, PWR, SCLK, SS, MOSI and MISO --
+    // NOTHING drives PIN_13, so rst_n cannot be an input.
+    //
+    // It must not be tied to 1'b1 either. rst_n gates every register in this
+    // file, so tying it high leaves the SPI shifter, the filter and the peak
+    // detector FSM with no defined start state: they would depend entirely on
+    // whatever the fabric happens to power up holding. Under simulation that is
+    // fatal -- every register starts as X, the FSM's `case` matches nothing, and
+    // the design never produces a single output -- and on hardware it is a
+    // latent intermittent-boot-failure risk.
+    //
+    // Reset is therefore generated here: hold low for POR_CYC clocks, then
+    // release. por_cnt is initialised at its declaration, which both simulators
+    // and the ForgeFPGA configuration flow treat as the register's power-up
+    // value. POR_CYC is a parameter so a testbench can shorten the wait.
+    // -------------------------------------------------------------------------
+    reg [7:0] por_cnt = 8'd0;
+    localparam [7:0] POR_LAST = POR_CYC[7:0];
+
+    wire rst_n = (por_cnt == POR_LAST);
+
+    always @(posedge clk) begin
+        if (por_cnt != POR_LAST) begin
+            por_cnt <= por_cnt + 8'd1;
+        end
+    end
 
     // -------------------------------------------------------------------------
     // 1. SPI Target Submodule
@@ -136,7 +176,12 @@ module forgefpga_ppg_top #(
     always @(posedge clk or negedge rst_n) begin
         if (!rst_n) begin
             beat_latched <= 1'b0;
-            tx_data      <= 8'hA5; // Distinct hardware-alive signature
+            // Reset value only. tx_data is overwritten with
+            // {beat_latched, filt_sample[6:0]} on the very next clock, so this
+            // byte never reaches MISO -- do not use it as a liveness signature
+            // in firmware (shrikefi_link_driver.c sends 0x55 to probe and only
+            // logs the reply).
+            tx_data      <= 8'hA5;
         end else begin
             if (beat_raw) begin
                 beat_latched <= 1'b1;
@@ -268,11 +313,9 @@ module spi_target #(
     end
 
 endmodule
-
 // ============================================================================
-// Submodule 2: 8-Tap Moving Average Filter
+// From hardware/common/moving_average_8tap.v -- generated, do not edit here
 // ============================================================================
-
 module moving_average_8tap #(
     parameter DATA_WIDTH = 8
 )(
@@ -283,8 +326,9 @@ module moving_average_8tap #(
     output reg  [DATA_WIDTH-1:0]  data_out,
     output reg                    out_valid
 );
+
     reg [DATA_WIDTH-1:0] shift_reg [0:7];
-    reg [DATA_WIDTH+2:0] running_sum;
+    reg [DATA_WIDTH+2:0] running_sum; // +3 bits prevents overflow for 8 samples
     integer i;
 
     wire [DATA_WIDTH+2:0] next_sum = running_sum + {3'b000, data_in} - {3'b000, shift_reg[7]};
@@ -298,11 +342,16 @@ module moving_average_8tap #(
                 shift_reg[i] <= {DATA_WIDTH{1'b0}};
             end
         end else if (data_valid) begin
+            // Shift pipeline
             shift_reg[0] <= data_in;
             for (i = 1; i < 8; i = i + 1) begin
                 shift_reg[i] <= shift_reg[i-1];
             end
+
+            // Update sum: (Old Sum + New Sample - Oldest Sample)
             running_sum <= next_sum;
+            
+            // Division by 8 via 3-bit right shift
             data_out    <= next_sum[DATA_WIDTH+2:3];
             out_valid   <= 1'b1;
         end else begin
@@ -313,23 +362,22 @@ module moving_average_8tap #(
 endmodule
 
 // ============================================================================
-// Submodule 3: Systolic Peak Detector with 250ms Refractory Blanking
+// From hardware/common/ppg_peak_detector.v -- generated, do not edit here
 // ============================================================================
-
 module ppg_peak_detector #(
-    parameter DATA_WIDTH        = 8,
-    parameter REFRACTORY_CYC    = 12_500_000, // 250ms at 50MHz
-    parameter DEFAULT_THRESH    = 8'd120,
-    parameter CREST_FALL_THRESH = 8'd12       // Require drop of 12 counts from peak to confirm crest
+    parameter DATA_WIDTH      = 8,
+    parameter REFRACTORY_CYC  = 12_500_000, // 250 ms at 50 MHz clock
+    parameter DEFAULT_THRESH  = 8'd120      // arm level if caller ties dyn_threshold
 )(
     input  wire                   clk,
     input  wire                   rst_n,
     input  wire                   sample_valid,
     input  wire [DATA_WIDTH-1:0]  sample_in,
-    input  wire [DATA_WIDTH-1:0]  dyn_threshold,
+    input  wire [DATA_WIDTH-1:0]  dyn_threshold, // dynamically programmable (AXI reg / SPI constant)
     output reg                    beat_detected,
     output reg  [31:0]            ibi_cycles
 );
+
     localparam STATE_ARMED      = 2'b00;
     localparam STATE_RISING     = 2'b01;
     localparam STATE_PEAK_FOUND = 2'b10;
@@ -337,13 +385,23 @@ module ppg_peak_detector #(
 
     reg [1:0]  current_state, next_state;
     reg [DATA_WIDTH-1:0] prev_sample;
-    reg [DATA_WIDTH-1:0] peak_val;
+    reg [DATA_WIDTH-1:0] peak_val;         // running maximum of the current rise
     reg [31:0] refractory_cnt;
     reg [31:0] interval_cnt;
-    reg        first_beat_seen;
+    reg        first_beat_seen;            // guard: IBI is only valid from the 2nd beat
 
-    wire [7:0] crest_fall_min = (peak_val > 8'd48) ? (peak_val >> 3) : 8'd6;
+    // Required drop from peak_val to confirm a crest.
+    //   peak > 48 : peak/8 -- proportional, so a tall pulse is not confirmed by
+    //               a ripple-sized dip on its own shoulder.
+    //   peak <= 48: fixed floor of 6 -- a weak pulse (poor contact) has a small
+    //               absolute swing, and a proportional-only rule would demand a
+    //               drop smaller than the ADC noise floor or larger than the
+    //               pulse itself.
+    // Constants assume the 8-bit sample path used by both platforms.
+    wire [DATA_WIDTH-1:0] crest_fall_min =
+        (peak_val > 8'd48) ? (peak_val >> 3) : 8'd6;
 
+    // Sequential state, timers and running-peak tracking
     always @(posedge clk or negedge rst_n) begin
         if (!rst_n) begin
             current_state   <= STATE_ARMED;
@@ -357,6 +415,7 @@ module ppg_peak_detector #(
         end else begin
             current_state <= next_state;
 
+            // Interval counter with saturation clamp at 32'hFFFF_FFFF
             if (interval_cnt != 32'hFFFF_FFFF) begin
                 interval_cnt <= interval_cnt + 32'd1;
             end
@@ -368,22 +427,25 @@ module ppg_peak_detector #(
             case (current_state)
                 STATE_ARMED: begin
                     beat_detected <= 1'b0;
+                    // Re-seed the running peak on the way back down, so the next
+                    // rise starts measuring from this sample rather than from the
+                    // previous beat's crest.
                     if (sample_valid) begin
                         peak_val <= sample_in;
                     end
                 end
+
                 STATE_RISING: begin
                     beat_detected <= 1'b0;
-                    if (sample_valid) begin
-                        if (sample_in > peak_val) begin
-                            peak_val <= sample_in;
-                        end
+                    if (sample_valid && (sample_in > peak_val)) begin
+                        peak_val <= sample_in;
                     end
                 end
+
                 STATE_PEAK_FOUND: begin
                     if (first_beat_seen) begin
-                        beat_detected <= 1'b1;
-                        ibi_cycles    <= interval_cnt;
+                        beat_detected  <= 1'b1;
+                        ibi_cycles     <= interval_cnt;
                     end else begin
                         beat_detected   <= 1'b0;
                         first_beat_seen <= 1'b1;
@@ -391,33 +453,52 @@ module ppg_peak_detector #(
                     interval_cnt   <= 32'd0;
                     refractory_cnt <= REFRACTORY_CYC[31:0];
                 end
+
                 STATE_REFRACTORY: begin
                     beat_detected <= 1'b0;
-                    if (refractory_cnt > 32'd0)
+                    if (refractory_cnt > 32'd0) begin
                         refractory_cnt <= refractory_cnt - 32'd1;
+                    end
                 end
             endcase
         end
     end
 
+    // Combinational next-state transitions
     always @(*) begin
         next_state = current_state;
         case (current_state)
             STATE_ARMED: begin
-                if (sample_valid && (sample_in >= dyn_threshold))
+                if (sample_valid && (sample_in >= dyn_threshold)) begin
                     next_state = STATE_RISING;
+                end
             end
+
             STATE_RISING: begin
-                if (sample_valid && (peak_val > sample_in) && ((peak_val - sample_in) >= crest_fall_min))
+                // Crest confirmed when the sample has dropped at least
+                // crest_fall_min below the running peak.
+                if (sample_valid && (peak_val > sample_in) &&
+                    ((peak_val - sample_in) >= crest_fall_min)) begin
                     next_state = STATE_PEAK_FOUND;
+                end
             end
+
             STATE_PEAK_FOUND: begin
                 next_state = STATE_REFRACTORY;
             end
+
             STATE_REFRACTORY: begin
-                if (refractory_cnt == 32'd0 && sample_valid)
+                // Re-arm on the refractory timer alone. Requiring the signal to
+                // also fall back below dyn_threshold first would blind the
+                // detector whenever the timer expires while a pulse is still
+                // decaying above threshold -- and in a real recording the tail
+                // frequently is still high at 250 ms, so that extra condition
+                // dropped beats outright.
+                if (refractory_cnt == 32'd0 && sample_valid) begin
                     next_state = STATE_ARMED;
+                end
             end
+
             default: next_state = STATE_ARMED;
         endcase
     end

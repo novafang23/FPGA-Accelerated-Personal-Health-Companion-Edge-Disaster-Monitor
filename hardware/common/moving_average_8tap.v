@@ -1,5 +1,21 @@
 `timescale 1ns / 1ps
 
+// =============================================================================
+// moving_average_8tap.v — 8-tap moving-average (boxcar) filter
+//
+// Vendor-agnostic: no bus protocol, no vendor primitives. Instantiated by both
+// the Zynq AXI accelerator (hardware/zynq/axi_ppg_accelerator.v) and the
+// ShrikeFi ForgeFPGA top (hardware/shrikefi/forgefpga_ppg_top.v). This is the
+// single source for the filter on both platforms -- the ForgeFPGA vendor tool
+// needs a flat source set, but that flat file is GENERATED from this one by
+// hardware/shrikefi/gen_flat_source.py. Do not hand-copy this module into a
+// top level.
+//
+// The Zynq design predates this file's async reset, but rst_n is tied to 1'b1
+// throughout the ForgeFPGA top (see forgefpga_ppg_top.v), so the reset style is
+// unobservable there: the reset branch is dead logic in that build.
+// =============================================================================
+
 module moving_average_8tap #(
     parameter DATA_WIDTH = 8
 )(
@@ -17,7 +33,7 @@ module moving_average_8tap #(
 
     wire [DATA_WIDTH+2:0] next_sum = running_sum + {3'b000, data_in} - {3'b000, shift_reg[7]};
 
-    always @(posedge clk) begin
+    always @(posedge clk or negedge rst_n) begin
         if (!rst_n) begin
             running_sum <= {(DATA_WIDTH+3){1'b0}};
             data_out    <= {DATA_WIDTH{1'b0}};

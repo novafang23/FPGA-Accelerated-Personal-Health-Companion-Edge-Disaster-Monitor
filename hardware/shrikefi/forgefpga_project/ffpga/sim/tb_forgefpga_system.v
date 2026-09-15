@@ -1,352 +1,349 @@
 // =============================================================================
-// File: tb_forgefpga_system.v
-// Module: tb_forgefpga_system
-// Project: SIH26181 Health Companion & Disaster Monitor
-// Target: Renesas ForgeFPGA (SLG47910) / ShrikeFi Development Board
-// Description:
-//   Comprehensive, self-checking testbench for the ShrikeFi 4-bit parallel
-//   FPGA hardware accelerator. Simulates an ESP32-S3 microcontroller issuing
-//   4-bit nibble transactions over GPIOs, verifying filter convergence,
-//   cycle-accurate IBI timestamping, and interrupt handshaking.
+// GENERATED FILE -- DO NOT EDIT
+//
+// Synced from hardware/shrikefi/tb_forgefpga_system.v by
+// hardware/shrikefi/gen_flat_source.py. It exists only because the Renesas
+// project file references this path. Edit the original, then re-run the
+// generator.
 // =============================================================================
 
 `timescale 1ns / 1ps
 
+// =============================================================================
+// tb_forgefpga_system.v
+// Module: tb_forgefpga_system
+// Project: SIH26181 Health Companion & Disaster Monitor
+// Target: Renesas ForgeFPGA (SLG47910) / Vicharak Shrike-Fi board
+//
+// Self-checking testbench for forgefpga_ppg_top. It drives the DUT the way the
+// ESP32-S3 firmware in firmware/shrikefi/shrikefi_link_driver.c actually drives
+// it -- not the way an older 4-bit parallel protocol used to:
+//
+//   * 8-bit SPI, mode 0 (CPOL=0, CPHA=0), MSB first, CS asserted manually.
+//   * One transfer per PPG sample; MOSI carries the raw 8-bit sample.
+//   * MISO returns {beat_latched, filt_sample[6:0]}.
+//   * The FPGA's reply for transfer k+1 carries the result of the sample sent
+//     in transfer k (one transfer of pipeline latency: the filter, the beat
+//     latch and the SPI transmit shift register each cost a clock).
+//
+// Two properties of the reply shape what can be checked through it:
+//
+//   * Bit 7 is the beat flag, so only the LOW SEVEN bits of the 8-tap average
+//     come back. The filter tests therefore keep their stimulus below 128 and
+//     the 7-bit wrap never comes into play. The FPGA's own detector uses the
+//     full 8-bit average internally, so detection is unaffected.
+//   * The RTL exposes ibi_cycles, but no SPI register carries it and the
+//     firmware does not read it -- it times beats with esp_timer_get_time().
+//     IBI accuracy is therefore checked here the way the product measures it:
+//     transfers between consecutive beat flags.
+//
+// Run: hardware/shrikefi/build_shrikefi_sim.bat (same command as CI)
+// =============================================================================
+
 module tb_forgefpga_system;
 
-    // Clock and Timing Parameters
-    localparam CLK_PERIOD_NS  = 20;            // 50 MHz Clock = 20 ns period
-    localparam STROBE_PERIOD  = 100;           // 10 MHz Link Strobe = 100 ns period
-    localparam CLK_FREQ_HZ    = 50_000_000;
-    localparam REFRACTORY_MS  = 250;
+    // -------------------------------------------------------------------------
+    // Timing
+    // -------------------------------------------------------------------------
+    localparam CLK_PERIOD_NS  = 20;      // 50 MHz core clock
+    localparam SCK_HALF_NS    = 100;     // SCK half period -> 5 MHz SPI
+    localparam CS_GAP_NS      = 400;     // idle between transfers
 
-    // Protocol Command Constants
-    localparam [3:0] CMD_NOP          = 4'h0;
-    localparam [3:0] CMD_WRITE_RED    = 4'h1;
-    localparam [3:0] CMD_WRITE_IR     = 4'h2;
-    localparam [3:0] CMD_WRITE_THRESH = 4'h3;
-    localparam [3:0] CMD_READ_RED     = 4'h4;
-    localparam [3:0] CMD_READ_IR      = 4'h5;
-    localparam [3:0] CMD_READ_IBI     = 4'h6;
-    localparam [3:0] CMD_CLEAR_IRQ    = 4'h7;
-    localparam [3:0] CMD_READ_STATUS  = 4'h8;
+    // Shortened so the design leaves reset quickly in simulation. The real
+    // default is 255 clocks (~5 us at 50 MHz).
+    localparam POR_CYC        = 8;
 
-    // DUT Signals
-    reg         clk;
-    reg         rst_n;
-    reg         link_strobe;
-    reg         link_dir;
-    reg  [3:0]  link_din;
-    wire [3:0]  link_dout;
-    wire        link_dout_oe;
-    wire        irq_beat;
+    // 250 ms of blanking at 50 MHz, expressed against this bench's transfer
+    // period: one transfer is ~2900 ns, so 1800 core clocks is ~12.4 transfers
+    // -- the same ratio the shipping 50 Hz sample rate gives (250 ms / 20 ms).
+    localparam REFRACTORY_CYC = 1800;
 
-    // Test Tracking
-    integer tests_passed = 0;
-    integer tests_failed = 0;
-    integer total_tests  = 0;
+    // -------------------------------------------------------------------------
+    // Synthetic PPG waveform (transaction space = one sample per transfer)
+    // -------------------------------------------------------------------------
+    localparam PULSE_SAMPLES   = 14;     // rise + systolic decay
+    localparam CYCLE_SAMPLES   = 50;     // 0.6 s at the shipping 50 Hz rate
+    localparam N_CYCLES        = 6;
+    localparam BASE_LEVEL      = 8'd65;  // diastolic baseline, below threshold
+    localparam PEAK_THRESHOLD  = 8'd120; // dyn_threshold strapped in the top
 
-    // Instantiate DUT (Device Under Test)
+    // The first crest after reset only primes first_beat_seen, so one fewer
+    // beat comes out than there are pulses.
+    localparam EXPECTED_BEATS  = N_CYCLES - 1;
+
+    // -------------------------------------------------------------------------
+    // DUT
+    // -------------------------------------------------------------------------
+    reg  clk = 1'b0;
+    reg  spi_sck  = 1'b0;
+    reg  spi_ss_n = 1'b1;
+    reg  spi_mosi = 1'b0;
+
+    wire spi_miso;
+    wire spi_miso_oe;
+    wire clk_en;
+    wire led_user;
+    wire led_user_oe;
+
     forgefpga_ppg_top #(
-        .CLK_FREQ_HZ   (CLK_FREQ_HZ),
-        .REFRACTORY_CYC(100)
+        .REFRACTORY_CYC (REFRACTORY_CYC),
+        .POR_CYC        (POR_CYC)
     ) dut (
         .clk         (clk),
-        .rst_n       (rst_n),
-        .link_strobe (link_strobe),
-        .link_dir    (link_dir),
-        .link_din    (link_din),
-        .link_dout   (link_dout),
-        .link_dout_oe(link_dout_oe),
-        .irq_beat    (irq_beat)
+        .clk_en      (clk_en),
+        .spi_sck     (spi_sck),
+        .spi_ss_n    (spi_ss_n),
+        .spi_mosi    (spi_mosi),
+        .spi_miso    (spi_miso),
+        .spi_miso_oe (spi_miso_oe),
+        .led_user    (led_user),
+        .led_user_oe (led_user_oe)
     );
 
-    // 50 MHz System Clock Generator
-    initial clk = 0;
     always #(CLK_PERIOD_NS / 2) clk = ~clk;
 
-    // =========================================================================
-    // ESP32-S3 Bus Functional Model (BFM) Tasks
-    // =========================================================================
+    // -------------------------------------------------------------------------
+    // Test bookkeeping
+    // -------------------------------------------------------------------------
+    integer tests_passed = 0;
+    integer tests_failed = 0;
 
-    // Send Strobe Pulse
-    task pulse_strobe;
+    // Note: the label is passed as a 512-bit vector, not 256. Icarus Verilog's
+    // %0s drops the first byte when the vector is exactly as wide as the string
+    // it holds, so a 32-character label in a 256-bit field prints truncated.
+    task expect_eq;
+        input [8*64-1:0] name;
+        input integer    got;
+        input integer    exp;
         begin
-            #20 link_strobe = 1;
-            #40 link_strobe = 0;
-            #40;
-        end
-    endtask
-
-    // Write 8-bit value to FPGA over 4-bit link (Command + 2 Nibbles)
-    task link_write_reg;
-        input [3:0] cmd;
-        input [7:0] data;
-        begin
-            link_dir = 0; // Host write
-            
-            // 1. Command Nibble
-            link_din = cmd;
-            pulse_strobe();
-            
-            // 2. High Data Nibble
-            link_din = data[7:4];
-            pulse_strobe();
-            
-            // 3. Low Data Nibble
-            link_din = data[3:0];
-            pulse_strobe();
-            
-            link_din = 4'h0;
-        end
-    endtask
-
-    // Read 8-bit value from FPGA (Command in Write mode -> Switch to Read mode -> 2 Nibbles)
-    task link_read_8bit;
-        input  [3:0] cmd;
-        output [7:0] data;
-        reg    [3:0] high_nib;
-        reg    [3:0] low_nib;
-        begin
-            // 1. Send Command (Write mode)
-            link_dir = 0;
-            link_din = cmd;
-            pulse_strobe();
-
-            // 2. Switch to Read mode
-            link_dir = 1;
-            #100;
-
-            // 3. Read High Nibble
-            high_nib = link_dout;
-            pulse_strobe();
-            #100;
-
-            // 4. Read Low Nibble
-            low_nib = link_dout;
-            pulse_strobe();
-            #50;
-
-            link_dir = 0;
-            data = {high_nib, low_nib};
-        end
-    endtask
-
-    // Read 32-bit IBI Cycles (Command + 8 Nibbles)
-    task link_read_ibi;
-        output [31:0] ibi_val;
-        reg [3:0] n[0:7];
-        integer i;
-        begin
-            // 1. Send Command
-            link_dir = 0;
-            link_din = CMD_READ_IBI;
-            pulse_strobe();
-
-            // 2. Switch to Read mode
-            link_dir = 1;
-            #100;
-
-            // 3. Read 8 nibbles
-            for (i = 0; i < 8; i = i + 1) begin
-                n[i] = link_dout;
-                pulse_strobe();
-                #100;
+            if (got === exp) begin
+                tests_passed = tests_passed + 1;
+                $display("  PASS: %0s (got %0d, expected %0d)", name, got, exp);
+            end else begin
+                tests_failed = tests_failed + 1;
+                $display("  FAIL: %0s (got %0d, expected %0d)", name, got, exp);
             end
-
-            link_dir = 0;
-            ibi_val = {n[0], n[1], n[2], n[3], n[4], n[5], n[6], n[7]};
         end
     endtask
 
-    // Clear Interrupt (Single nibble command)
-    task link_clear_irq;
+    task expect_defined;
+        input [8*64-1:0] name;
+        input [7:0]      got;
         begin
-            link_dir = 0;
-            link_din = CMD_CLEAR_IRQ;
-            pulse_strobe();
-            link_din = 4'h0;
+            if (^got === 1'bx) begin
+                tests_failed = tests_failed + 1;
+                $display("  FAIL: %0s (reply is X - the design never left reset)", name);
+            end else begin
+                tests_passed = tests_passed + 1;
+                $display("  PASS: %0s (reply defined: 0x%02X)", name, got);
+            end
         end
     endtask
 
-    // Task to send a complete systolic pulse
-    task send_cardiac_pulse;
+    // -------------------------------------------------------------------------
+    // ESP32-S3 SPI master bus functional model: mode 0, MSB first.
+    //   MISO is driven by the slave before each rising edge (loaded while CS is
+    //   high, then shifted on every falling edge), so it is sampled here during
+    //   the SCK high phase.
+    // -------------------------------------------------------------------------
+    task spi_transfer;
+        input  [7:0] tx;
+        output [7:0] rx;
+        integer b;
         begin
-            link_write_reg(CMD_WRITE_RED, 8'd50);
-            link_write_reg(CMD_WRITE_RED, 8'd50);
-            link_write_reg(CMD_WRITE_RED, 8'd80);
-            link_write_reg(CMD_WRITE_RED, 8'd110);
-            link_write_reg(CMD_WRITE_RED, 8'd150);
-            link_write_reg(CMD_WRITE_RED, 8'd180);
-            link_write_reg(CMD_WRITE_RED, 8'd210); // Peak
-            link_write_reg(CMD_WRITE_RED, 8'd190);
-            link_write_reg(CMD_WRITE_RED, 8'd140);
-            link_write_reg(CMD_WRITE_RED, 8'd90);
-            link_write_reg(CMD_WRITE_RED, 8'd50);
-            link_write_reg(CMD_WRITE_RED, 8'd50);
+            rx = 8'h00;
+            @(negedge clk);
+            spi_ss_n = 1'b0;
+            #(SCK_HALF_NS);
+            for (b = 7; b >= 0; b = b - 1) begin
+                spi_mosi = tx[b];
+                #(SCK_HALF_NS);
+                spi_sck  = 1'b1;            // slave samples MOSI on this edge
+                #(SCK_HALF_NS);
+                rx       = {rx[6:0], spi_miso};
+                spi_sck  = 1'b0;            // slave shifts out the next bit
+                #(SCK_HALF_NS);
+            end
+            spi_ss_n = 1'b1;
+            #(CS_GAP_NS);
         end
     endtask
 
-    // =========================================================================
-    // Main Verification Flow
-    // =========================================================================
-    reg [7:0]  read_val8;
-    reg [31:0] read_val32;
-    integer    k;
+    // -------------------------------------------------------------------------
+    // Independent sliding-window model of the 8-tap average.
+    // Computed from the raw sample stream, not from DUT state, so it catches a
+    // wrong window depth, a stale eviction index, or truncation vs rounding.
+    // -------------------------------------------------------------------------
+    reg [7:0]  win [0:7];
+    reg [11:0] win_sum;
+    integer    wi;
 
     initial begin
-        $dumpfile("shrikefi_sim.vcd");
-        $dumpvars(0, tb_forgefpga_system);
+        win_sum = 12'd0;
+        for (wi = 0; wi < 8; wi = wi + 1) win[wi] = 8'd0;
+    end
 
-        $display("\n================================================================");
-        $display("  SIH26181 ShrikeFi (ESP32-S3 + Renesas ForgeFPGA) Testbench");
-        $display("  Qualcomm Hardware Challenge — Smart India Hackathon 2026");
-        $display("================================================================\n");
-
-        // Initialization
-        link_strobe = 0;
-        link_dir    = 0;
-        link_din    = 4'h0;
-        rst_n       = 0;
-
-        // Reset Sequence
-        #100;
-        rst_n = 1;
-        #100;
-
-        // ---------------------------------------------------------------------
-        // TEST 1: Programmable Threshold Write via 4-Bit Link
-        // ---------------------------------------------------------------------
-        total_tests = total_tests + 1;
-        $display("[TEST 1] Setting Systolic Threshold to 150 over 4-bit link...");
-        link_write_reg(CMD_WRITE_THRESH, 8'd150);
-        #200;
-        if (dut.reg_threshold === 8'd150) begin
-            $display("  PASS: reg_threshold set to %0d (expected 150)", dut.reg_threshold);
-            tests_passed = tests_passed + 1;
-        end else begin
-            $display("  FAIL: reg_threshold = %0d (expected 150)", dut.reg_threshold);
-            tests_failed = tests_failed + 1;
+    task model_avg;
+        input  [7:0] s;
+        output [7:0] avg;
+        begin
+            win_sum = win_sum + s - win[7];
+            for (wi = 7; wi > 0; wi = wi - 1) win[wi] = win[wi - 1];
+            win[0] = s;
+            avg = win_sum[10:3];
         end
-        #200;
+    endtask
 
-        // ---------------------------------------------------------------------
-        // TEST 2: Red Channel Filter Convergence (8-Tap Moving Average)
-        // ---------------------------------------------------------------------
-        total_tests = total_tests + 1;
-        $display("\n[TEST 2] Red channel 8-tap filter convergence (Stream constant 100)...");
-        for (k = 0; k < 12; k = k + 1) begin
-            link_write_reg(CMD_WRITE_RED, 8'd100);
-            #100;
+    // -------------------------------------------------------------------------
+    // Stimulus
+    // -------------------------------------------------------------------------
+    reg [7:0] pulse_wave [0:PULSE_SAMPLES-1];
+    reg [7:0] rx, model_out, sample;
+    integer   k, cyc, s, idx;
+    integer   nbeats;
+    integer   beat_at [0:15];
+    reg       prev_beat;
+    reg [7:0] prev_expected;
+
+    initial begin
+        pulse_wave[0]  = 8'd140; pulse_wave[1]  = 8'd180;
+        pulse_wave[2]  = 8'd215; pulse_wave[3]  = 8'd230;
+        pulse_wave[4]  = 8'd225; pulse_wave[5]  = 8'd205;
+        pulse_wave[6]  = 8'd175; pulse_wave[7]  = 8'd145;
+        pulse_wave[8]  = 8'd120; pulse_wave[9]  = 8'd100;
+        pulse_wave[10] = 8'd85;  pulse_wave[11] = 8'd75;
+        pulse_wave[12] = 8'd70;  pulse_wave[13] = 8'd68;
+
+        idx       = 0;
+        nbeats    = 0;
+        prev_beat = 1'b0;
+    end
+
+    initial begin
+        $display("================================================================");
+        $display("  tb_forgefpga_system -- ShrikeFi SPI link + PPG accelerator");
+        $display("================================================================");
+
+        spi_sck  = 1'b0;
+        spi_ss_n = 1'b1;
+        spi_mosi = 1'b0;
+
+        // Let the internal power-on reset release before talking to the part.
+        #1000;
+
+        // =====================================================================
+        // TEST 1 -- the design comes out of reset and the link is defined
+        // =====================================================================
+        $display("\n[TEST 1] Internal POR released; first reply is defined");
+        spi_transfer(8'h00, rx);
+        expect_defined("first SPI reply is a defined byte", rx);
+        expect_eq("beat flag clear on an idle link", rx[7], 0);
+        expect_eq("clk_en asserted (oscillator enable)", clk_en, 1);
+        expect_eq("spi_miso_oe asserted (MISO pad driven)", spi_miso_oe, 1);
+
+        // =====================================================================
+        // TEST 2 -- filter converges to a constant input through the SPI path
+        // =====================================================================
+        $display("\n[TEST 2] 8-tap average converges to a constant (100)");
+        sample = 8'd100;
+        for (k = 0; k < 16; k = k + 1) begin
+            spi_transfer(sample, rx);
+            model_avg(sample, model_out);
         end
-        link_read_8bit(CMD_READ_RED, read_val8);
-        if (read_val8 === 8'd100) begin
-            $display("  PASS: Filtered Red output converged to %0d (expected 100)", read_val8);
-            tests_passed = tests_passed + 1;
-        end else begin
-            $display("  FAIL: Filtered Red output = %0d (expected 100)", read_val8);
-            tests_failed = tests_failed + 1;
-        end
-        #200;
+        // 16 transfers is twice the window depth, so the reply has settled.
+        expect_eq("converged filtered sample (low 7 bits)", rx[6:0], 100);
+        expect_eq("no false beat during a steady input", nbeats, 0);
 
-        // ---------------------------------------------------------------------
-        // TEST 3: IR Channel Filter Convergence (8-Tap Moving Average)
-        // ---------------------------------------------------------------------
-        total_tests = total_tests + 1;
-        $display("\n[TEST 3] IR channel 8-tap filter convergence (Stream constant 180)...");
-        for (k = 0; k < 12; k = k + 1) begin
-            link_write_reg(CMD_WRITE_IR, 8'd180);
-            #100;
-        end
-        link_read_8bit(CMD_READ_IR, read_val8);
-        if (read_val8 === 8'd180) begin
-            $display("  PASS: Filtered IR output converged to %0d (expected 180)", read_val8);
-            tests_passed = tests_passed + 1;
-        end else begin
-            $display("  FAIL: Filtered IR output = %0d (expected 180)", read_val8);
-            tests_failed = tests_failed + 1;
-        end
-        #200;
-
-        // ---------------------------------------------------------------------
-        // TEST 4: Cardiac Beat Detection, IRQ Assertion, & 32-bit IBI Extraction
-        // ---------------------------------------------------------------------
-        total_tests = total_tests + 1;
-        $display("\n[TEST 4] Simulating synthetic PPG cardiac waves across 4-bit link...");
-
-        // Set threshold to 120
-        link_write_reg(CMD_WRITE_THRESH, 8'd120);
-
-        // Pulse 1: Baseline -> Peak (210) -> Fall (locks baseline)
-        send_cardiac_pulse();
-        #2000;
-        $display("  Beat 1 processed. Simulating 3,000 clock tick inter-beat interval...");
-
-        // Interval simulation
-        #60000;
-
-        // Pulse 2: Second beat (triggers IBI interval measurement)
-        send_cardiac_pulse();
-        #500;
-
-        if (irq_beat === 1'b1) begin
-            $display("  PASS: Hardware interrupt (irq_beat) asserted!");
-            
-            // Read 32-bit IBI value across 8 nibbles
-            link_read_ibi(read_val32);
-            if (read_val32 < 50000) begin
-                $display("  Read 32-bit IBI cycles = %0d (%0.2f µs at 50MHz)", read_val32, (read_val32 * 20.0) / 1000.0);
-            end else begin
-                $display("  Read 32-bit IBI cycles = %0d (%0.2f ms at 50MHz)", read_val32, (read_val32 * 20.0) / 1000000.0);
+        // =====================================================================
+        // TEST 3 -- the returned average is bit-exact for a varying input
+        // =====================================================================
+        // One transfer of pipeline latency: the reply to transfer k+1 carries
+        // the window that ends at sample k. Values stay below 128 so the 7-bit
+        // reply field is lossless.
+        $display("\n[TEST 3] Returned average is bit-exact against a sliding window");
+        begin : test3
+            integer mismatches;
+            mismatches = 0;
+            prev_expected = 8'd0;
+            for (k = 0; k < 40; k = k + 1) begin
+                sample = 8'd20 + ((k * 7) % 90);   // 20..109, varying, < 128
+                spi_transfer(sample, rx);
+                model_avg(sample, model_out);
+                // rx still holds the reply for the PREVIOUS sample; compare it
+                // with the model output for that same previous sample.
+                if (k > 0) begin
+                    if (rx[6:0] !== prev_expected[6:0]) begin
+                        if (mismatches < 3) begin
+                            $display("    mismatch at sample %0d: reply %0d, model %0d",
+                                     k - 1, rx[6:0], prev_expected[6:0]);
+                        end
+                        mismatches = mismatches + 1;
+                    end
+                end
+                prev_expected = model_out;
             end
-            // Sanity-check the IBI value itself, not just that the IRQ fired.
-            // Expected ~3000 cycles (the scripted inter-beat gap) plus a few
-            // hundred cycles of link/pulse-generation overhead; band is wide
-            // enough to tolerate timing tweaks but tight enough to catch a
-            // badly wrong reading (e.g. a spurious extra peak detection
-            // resetting the interval counter mid-pulse, which used to make
-            // this read back as ~134 cycles instead of ~3000).
-            if (read_val32 > 2900 && read_val32 < 3600) begin
-                $display("  PASS: IBI value is within expected range (2900-3600 cycles)");
-                tests_passed = tests_passed + 1;
-            end else begin
-                $display("  FAIL: IBI value %0d is outside expected range (2900-3600 cycles)", read_val32);
-                tests_failed = tests_failed + 1;
-            end
-        end else begin
-            $display("  FAIL: irq_beat was not asserted on second beat!");
-            tests_failed = tests_failed + 1;
-        end
-
-        // ---------------------------------------------------------------------
-        // TEST 5: Interrupt Clear Handshake (CMD_CLEAR_IRQ)
-        // ---------------------------------------------------------------------
-        total_tests = total_tests + 1;
-        $display("\n[TEST 5] Verifying CMD_CLEAR_IRQ deasserts hardware interrupt...");
-        link_clear_irq();
-        #200;
-        if (irq_beat === 1'b0) begin
-            $display("  PASS: irq_beat successfully deasserted after clear command.");
-            tests_passed = tests_passed + 1;
-        end else begin
-            $display("  FAIL: irq_beat remained asserted after clear command.");
-            tests_failed = tests_failed + 1;
+            expect_eq("bit-exact filter replies over 39 comparisons", mismatches, 0);
         end
 
         // =====================================================================
-        // Final Test Report
+        // TEST 4 -- one beat flag per pulse; the first crest only primes the IBI
+        // =====================================================================
+        $display("\n[TEST 4] Pulse train produces exactly one beat flag per crest");
+        // Guard the test's own premise: the diastolic baseline must sit below
+        // the threshold strapped in forgefpga_ppg_top, or the FSM would never
+        // leave STATE_ARMED and a "0 beats" result would mean nothing.
+        expect_eq("stimulus baseline is below the strapped threshold",
+                  BASE_LEVEL < PEAK_THRESHOLD, 1);
+        idx = 0;
+        nbeats = 0;
+        prev_beat = 1'b0;
+        for (cyc = 0; cyc < N_CYCLES; cyc = cyc + 1) begin
+            for (s = 0; s < CYCLE_SAMPLES; s = s + 1) begin
+                if (s < PULSE_SAMPLES) sample = pulse_wave[s];
+                else                   sample = BASE_LEVEL;
+
+                spi_transfer(sample, rx);
+                idx = idx + 1;
+
+                if (rx[7] === 1'b1 && prev_beat === 1'b0 && nbeats < 16) begin
+                    beat_at[nbeats] = idx;
+                    nbeats = nbeats + 1;
+                end
+                if (rx[7] !== 1'bx) prev_beat = rx[7];
+            end
+        end
+        $display("    %0d pulse(s) fed, %0d beat flag(s) returned", N_CYCLES, nbeats);
+        expect_eq("beat flags for 6 pulses (first crest primes the IBI clock)",
+                  nbeats, EXPECTED_BEATS);
+
+        // =====================================================================
+        // TEST 5 -- beat spacing matches the stimulus period
+        // =====================================================================
+        // This is the IBI the ESP32-S3 would compute: it timestamps beats itself
+        // and never reads the RTL's ibi_cycles counter.
+        $display("\n[TEST 5] Beat spacing equals the stimulus period (IBI accuracy)");
+        begin : test5
+            integer i, spacing, max_err;
+            max_err = 0;
+            for (i = 1; i < nbeats; i = i + 1) begin
+                spacing = beat_at[i] - beat_at[i - 1];
+                $display("    beat %0d -> %0d: %0d transfers", i, i + 1, spacing);
+                if (spacing - CYCLE_SAMPLES > max_err) max_err = spacing - CYCLE_SAMPLES;
+                if (CYCLE_SAMPLES - spacing > max_err) max_err = CYCLE_SAMPLES - spacing;
+            end
+            expect_eq("beat spacing matches the 50-transfer stimulus period",
+                      max_err, 0);
+        end
+
+        // =====================================================================
+        // Summary
         // =====================================================================
         $display("\n================================================================");
-        $display("  SHRIKEFI FORGEFPGA SIMULATION RESULTS");
-        $display("  Passed: %0d / %0d", tests_passed, total_tests);
-        if (tests_failed == 0) begin
-            $display("  >>> ALL %0d TESTS PASSED (100%%) <<<", total_tests);
-        end else begin
-            $display("  >>> %0d TEST(S) FAILED <<<", tests_failed);
-        end
-        $display("================================================================\n");
-
-        #500;
+        $display("  RESULTS: %0d passed, %0d failed (out of %0d checks)",
+                 tests_passed, tests_failed, tests_passed + tests_failed);
+        if (tests_failed == 0) $display("  >>> ALL TESTS PASSED <<<");
+        else                   $display("  >>> FAILURES PRESENT <<<");
+        $display("================================================================");
         $finish;
     end
 

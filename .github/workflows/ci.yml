@@ -39,22 +39,39 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y iverilog build-essential python3
 
-      - name: Run Zynq RTL testbench (expects 6/6)
+      - name: Verify generated sources are up to date
+        # The ForgeFPGA vendor tool needs one flat source set. It is generated
+        # from hardware/shrikefi/forgefpga_ppg_top.v + hardware/common/ by
+        # gen_flat_source.py, so it cannot drift. This fails if someone edits a
+        # source and forgets to re-run the generator.
+        run: python3 hardware/shrikefi/gen_flat_source.py --check
+
+      - name: Run Zynq RTL testbench (expects 6 passed, 0 failed)
         run: |
           iverilog -o sim_ppg.vvp hardware/zynq/tb_ppg_system.v hardware/zynq/axi_ppg_accelerator.v hardware/common/moving_average_8tap.v hardware/common/ppg_peak_detector.v
-          vvp sim_ppg.vvp
+          vvp sim_ppg.vvp | tee zynq.log
+          # These testbenches call $finish, which exits 0 whether or not a check
+          # failed. Grep the summary so a regression actually fails the build.
+          grep -q "6 passed, 0 failed" zynq.log
 
-      # NOTE: hardware/shrikefi/forgefpga_ppg_top.v instantiates the DSP core from
+      - name: Run common peak-detector unit testbench (expects 2/2)
+        run: |
+          iverilog -o sim_common.vvp hardware/common/tb_ppg_peak_detector.v hardware/common/moving_average_8tap.v hardware/common/ppg_peak_detector.v
+          vvp sim_common.vvp | tee common.log
+          grep -q "ALL 2 TESTS PASSED" common.log
+
+      # hardware/shrikefi/forgefpga_ppg_top.v instantiates the DSP core from
       # hardware/common/ and does NOT contain inline copies of those modules.
       # Listing them twice here is a duplicate-module error, not harmless.
-      - name: Run ShrikeFi RTL testbench (expects 5/5)
+      - name: Run ShrikeFi RTL testbench (expects 10 passed, 0 failed)
         run: |
           iverilog -o sim_shrikefi.vvp \
             hardware/shrikefi/tb_forgefpga_system.v \
             hardware/shrikefi/forgefpga_ppg_top.v \
             hardware/common/moving_average_8tap.v \
             hardware/common/ppg_peak_detector.v
-          vvp sim_shrikefi.vvp
+          vvp sim_shrikefi.vvp | tee shrikefi.log
+          grep -q "10 passed, 0 failed" shrikefi.log
 
       - name: Build & run firmware unit tests (incl. FP32 vs INT8 parity)
         run: |
