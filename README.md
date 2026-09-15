@@ -16,7 +16,7 @@ An end-to-end heterogeneous System-on-Chip (SoC) combining **synthesizable Veril
 ## 🏷️ Platform Status & Roadmap
 
 * **Verified Baseline:** [Xilinx Zynq-7000 (`xc7z020`)](hardware/zynq/) — Fully verified with 6/6 passing self-checking tests and static timing closed at 69.45 MHz (permanently tagged at `v1.0-zynq-SIH`).
-* **Active Port:** [ShrikeFi (ESP32-S3 + Renesas ForgeFPGA)](hardware/shrikefi/) — Affordable edge hardware platform. Post-synthesis verified at **443 / 1120 LUT5s (39.55%)**, 353 FFs and 85/140 CLBs, with 5/5 passing self-checking link tests. Raw synthesis log: [`hardware/shrikefi/synthesis_evidence/`](hardware/shrikefi/synthesis_evidence/). Includes **fully integrated ESP32-S3 firmware** that streams live health telemetry via **USB UART & WiFi/MQTT**. (The firmware also *attempts* to load the FPGA bitstream over I2C at boot — best-effort, and unverified: the FPGA is expected to configure itself from OTP/NVM or onboard QSPI flash. See [`firmware/shrikefi/README.md`](firmware/shrikefi/README.md#fpga-delivery-how-the-bitstream-reaches-the-fpga).)
+* **Active Port:** [ShrikeFi (ESP32-S3 + Renesas ForgeFPGA)](hardware/shrikefi/) — Affordable edge hardware platform. Post-synthesis fitter reports **222 / 1120 LUT5s (19.82%)**, 121 FFs and 40/140 CLBs, with 5 passing self-checking link test groups. Raw synthesis logs: [`hardware/shrikefi/synthesis_evidence/`](hardware/shrikefi/synthesis_evidence/) (read its README — an older, superseded build's numbers are also in there). Includes **fully integrated ESP32-S3 firmware** that streams live health telemetry via **USB UART & WiFi/MQTT**. (The firmware also *attempts* to load the FPGA bitstream over I2C at boot — best-effort, and unverified: the FPGA is expected to configure itself from OTP/NVM or onboard QSPI flash. See [`firmware/shrikefi/README.md`](firmware/shrikefi/README.md#fpga-delivery-how-the-bitstream-reaches-the-fpga).)
 * **Clinical Intelligence & Biomarkers:** Fuses **mNEWS2 Clinical Triage (Royal College of Physicians)**, **PPG-derived Respiratory Rate (Charlton 2018)**, **Signal Quality Index (Karlen 2012 / Elgendi 2016)**, **Moran's Physiological Strain Index (PSI)**, **AHA PM2.5-HRV Autonomic Strain (Brook 2010)**, and **Neural PM2.5 Humidity Calibration (Si et al. 2019)**.
 * **Interactive Graphical Dashboard:** Standalone Windows desktop GUI (`shrikefi_dashboard.exe`) featuring a 60 FPS real-time optical PPG oscilloscope, live vital displays, and dual-mode operation (Live Hardware streaming + 6 simulated disaster profiles).
 
@@ -37,7 +37,7 @@ Every headline number below is reproducible from a committed command. Where a cl
 | Clinical triage metrics | build & run `firmware/core/accuracy_evaluator.c` on `data/mimic/mimic_eval_feed.csv` | accuracy `94.11%`, TP `971` / FP `267` / TN `14451` / FN `698` |
 | MIMIC cohort scan | build & run `firmware/core/mimic_harness.c` on `data/mimic/mimic_vital_feed.csv` | 16,387 records over 98 subjects |
 | Zynq resource/timing reports | `hardware/zynq/synthesis_evidence/*.rpt` | see that directory's README |
-| ForgeFPGA resource report | `hardware/shrikefi/synthesis_evidence/resource_utilization.log` | 443/1120 LUT5s, 353 FFs |
+| ForgeFPGA resource report | `hardware/shrikefi/synthesis_evidence/resource_utilization_spi_link.log` | 222/1120 LUT5s, 121 FFs (see that directory's README) |
 
 CI (`.github/workflows/ci.yml`) runs the Zynq testbench, the ShrikeFi testbench, the firmware unit tests, and the accuracy evaluator, and fails the build if the model drops below its accuracy floor.
 
@@ -312,10 +312,19 @@ Post-synthesis compilation results from **Renesas ForgeFPGA Workshop v6.55** tar
 
 ![Renesas ForgeFPGA Resource Footprint](docs/images/forgefpga_utilization.png)
 
-* **Logic LUT5 Usage:** **443 / 1120 CLB LUT5s (39.55%)** — **60.45% of logic fabric remains free** for expanded DSP and filtering.
-* **Registers / Flip-Flops:** **353 Flip-Flops** (345 CLB FFs @ 30.80% + 8 IOB FFs @ 1.09%).
-* **CLB Macrocells:** **85 / 140 Blocks (60.71%)** — LUT headroom is comfortable, but CLB occupancy is the tighter constraint, and the part's **only PLL is consumed (1/1)**. Any significant DSP expansion should re-check the CLB budget, not just the LUT count.
+* **Logic LUT5 Usage:** **222 / 1120 CLB LUT5s (19.82%)** — **80.18% of logic fabric remains free** for expanded DSP and filtering.
+* **Registers / Flip-Flops:** **121 Flip-Flops** (117 CLB FFs @ 10.45% + 4 IOB FFs @ 0.54%).
+* **CLB Macrocells:** **40 / 140 Blocks (28.57%)** — CLB occupancy is the tighter constraint, though both are comfortable. The SPI design runs from the on-chip oscillator, so the PLL is **free (0/1)**.
 * **DSP Multipliers & BRAM:** **0 DSP Multipliers, 0 Block RAMs** (synthesized purely from logic).
+
+> **Footnote — the 443-LUT figure quoted by older revisions of this file, the
+> theory notes and the presentation decks belongs to the superseded 4-bit
+> parallel-link build**, which was replaced by the SPI link in commit `a44013f`.
+> It roughly doubles the real footprint, and its "only PLL is consumed" caveat no
+> longer applies. Evidence and comparison:
+> [`hardware/shrikefi/synthesis_evidence/README.md`](hardware/shrikefi/synthesis_evidence/README.md).
+> These numbers are themselves stale again after the shared-source refactor —
+> re-run the fitter before quoting a footprint figure.
 
 #### ForgeFPGA Workshop GUI Synthesis Evidence:
 ![Renesas ForgeFPGA Workshop Resources Report](docs/images/forgefpga_resources_report.png)
@@ -488,8 +497,8 @@ For an in-depth mathematical defense, signal processing equations, and clinical 
 │   │   │   ├── shrikefi_werable.kicad_pcb
 │   │   │   ├── shrikefi_werable.kicad_sch
 │   │   │   └── SIH26181_ShrikeFi_Wearable_BOM.csv
-│   │   ├── forgefpga_ppg_top.v     # 4-bit nibble link transceiver & DSP wrapper
-│   │   ├── tb_forgefpga_system.v   # Self-checking 4-bit link testbench (5/5 passing)
+│   │   ├── forgefpga_ppg_top.v     # SPI target + shared DSP wrapper (filter/detector come from common/)
+│   │   ├── tb_forgefpga_system.v   # Self-checking SPI link testbench (5 groups / 10 checks)
 │   │   └── forgefpga_pins.pcf      # Renesas ForgeFPGA physical pin constraints
 │   └── cad/                        # 3D Enclosure CAD drawings, renders & reports
 │       ├── SIH26181_Hardware_Integration_CAD_Design_Report.pdf
@@ -636,7 +645,7 @@ Pre-configured presentation views for both platforms:
 | Platform | Waveform File | Config File | Tests |
 |----------|---------------|-------------|-------|
 | **Zynq-7000** | `ppg_system.vcd` | `hardware/zynq/presentation.gtkw` | 6/6 passing |
-| **ShrikeFi** | `hardware/shrikefi/shrikefi_sim.vcd` | `hardware/shrikefi/presentation.gtkw` | 5/5 passing |
+| **ShrikeFi** | `hardware/shrikefi/shrikefi_sim.vcd` | `hardware/shrikefi/presentation.gtkw` | 10 checks passing |
 
 ### Quick Start
 ```bash
