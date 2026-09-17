@@ -2,7 +2,7 @@
 
 ## Second-opinion audit (DeepSeek-style independent review)
 
-I did a second-pass review of your current EdgeGuard architecture. The unanimous view is:
+I did a second-pass review of your current VALOR (Vital and Atmospheric Logic for Offline Rescue) architecture. The unanimous view is:
 
 - Your **NEWS2 + TinyML + PM correction** work is already strong.
 - The next highest-yield additions are: **PPG-derived respiratory rate**, **signal quality gating**, **PM2.5–HRV autonomic depression**, and **heat-strain indexing**.
@@ -115,7 +115,7 @@ Embedded impact:
 
 Clinical framing for judges:
 
-> “EdgeGuard implements a PSI-style physiological strain index for exertional heat stress, using HR and WBGT, with core temperature estimated via validated HR-based models.”
+> “VALOR implements a PSI-style physiological strain index for exertional heat stress, using HR and WBGT, with core temperature estimated via validated HR-based models.”
 
 That is rigorous and honest.
 
@@ -178,7 +178,7 @@ Disaster monitoring and wearable use imply motion, poor contact, sweating, vibra
 
 Elgendi 2016 and Karlen et al. 2012 provide robust SQI methods. Orphanidou et al. 2015 is exceptional because it focuses on wireless monitoring and clinical usability.
 
-**Recommended SQI features for EdgeGuard**
+**Recommended SQI features for VALOR**
 
 1. **Perfusion index** — AC/DC ratio from PPG  
 2. **Beat-template correlation** — each beat compared with rolling template  
@@ -312,7 +312,7 @@ Hackathon judges may not believe claims without quantitative validation.
 
 - Clinical rigor
 - Regulatory awareness
-- Objective evidence that EdgeGuard is not just a sensor demo
+- Objective evidence that VALOR is not just a sensor demo
 
 ---
 
@@ -328,4 +328,4 @@ The single most important correction is:
 
 > Do not claim full NEWS2 unless systolic BP and body/core temperature are actually available. Instead, claim “NEWS2-compatible” or “Modified NEWS2” with clear sensor limitations.
 
-This will make EdgeGuard substantially more credible to both medical and embedded-hardware judges.
+This will make VALOR substantially more credible to both medical and embedded-hardware judges.

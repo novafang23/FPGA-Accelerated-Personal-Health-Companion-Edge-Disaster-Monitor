@@ -1,7 +1,7 @@
 """
 generate_sih_presentation.py
 Generates the professional 7-slide presentation for SIH26181:
-EdgeGuard / ShrikeFi: AI-Powered Personal Health Companion & Edge Disaster Monitor.
+VALOR (Vital and Atmospheric Logic for Offline Rescue) / ShrikeFi: AI-Powered Personal Health Companion & Edge Disaster Monitor.
 """
 
 import os
@@ -27,7 +27,7 @@ C_GREEN     = RGBColor(22, 163, 74)     # Success Green
 
 ROOT_DIR = r"C:\Users\abhin\OneDrive\Desktop\verilog"
 DOCS_IMAGES = os.path.join(ROOT_DIR, "docs", "images")
-OUT_PPTX = os.path.join(ROOT_DIR, "docs", "presentation", "SIH26181_EdgeGuard_Presentation.pptx")
+OUT_PPTX = os.path.join(ROOT_DIR, "docs", "presentation", "SIH26181_VALOR_Presentation.pptx")
 
 prs = Presentation()
 prs.slide_width = Inches(13.333)
@@ -136,13 +136,13 @@ tx_m = s1.shapes.add_textbox(Inches(1.0), Inches(1.3), Inches(7.5), Inches(2.2))
 tf_m = tx_m.text_frame
 tf_m.word_wrap = True
 p = tf_m.paragraphs[0]
-p.text = "EdgeGuard / ShrikeFi"
+p.text = "VALOR / ShrikeFi"
 p.font.size = Pt(40)
 p.font.bold = True
 p.font.color.rgb = C_WHITE
 
 p2 = tf_m.add_paragraph()
-p2.text = "AI-Powered Personal Health Companion & Edge Disaster Monitor"
+p2.text = "VALOR: Vital and Atmospheric Logic for Offline Rescue\nAI-Powered Personal Health Companion & Edge Disaster Monitor"
 p2.font.size = Pt(20)
 p2.font.color.rgb = RGBColor(191, 219, 254)
 
@@ -201,7 +201,7 @@ add_bullet(tf_prob, "Software Jitter Destroys HRV", "Operating system scheduling
 add_card(s2, Inches(6.9), Inches(1.4), Inches(5.6), Inches(4.5), bg_color=C_WHITE, border_color=C_TEAL)
 header_green = s2.shapes.add_shape(MSO_SHAPE.RECTANGLE, Inches(6.9), Inches(1.4), Inches(5.6), Inches(0.6))
 header_green.fill.solid(); header_green.fill.fore_color.rgb = C_TEAL; header_green.line.fill.background()
-p = header_green.text_frame.paragraphs[0]; p.text = "✅ The Solution: EdgeGuard Heterogeneous Companion"; p.font.size = Pt(13); p.font.bold = True; p.font.color.rgb = C_WHITE
+p = header_green.text_frame.paragraphs[0]; p.text = "✅ The Solution: VALOR Heterogeneous Companion"; p.font.size = Pt(13); p.font.bold = True; p.font.color.rgb = C_WHITE
 
 tx_sol = s2.shapes.add_textbox(Inches(7.1), Inches(2.1), Inches(5.2), Inches(3.6))
 tf_sol = tx_sol.text_frame
@@ -309,7 +309,7 @@ fp_img = os.path.join(DOCS_IMAGES, "forgefpga_chip_schematic.png")
 if os.path.exists(fp_img):
     s4.shapes.add_picture(fp_img, Inches(1.0), Inches(2.8), Inches(5.3), Inches(2.4))
 
-box1 = add_stat_box(s4, Inches(1.0), Inches(5.35), Inches(1.65), Inches(1.5), "39.6%", "LUT5 Logic Used\n(443 / 1120)", C_TEAL)
+box1 = add_stat_box(s4, Inches(1.0), Inches(5.35), Inches(1.65), Inches(1.5), "30.5%", "LUT5 Logic Used\n(342 / 1120)", C_TEAL)
 box2 = add_stat_box(s4, Inches(2.8), Inches(5.35), Inches(1.7), Inches(1.5), "0 DSP / 0 BRAM", "Pure Logic Gates\n(Lowest Cost BOM)", C_BLUE_ACC)
 box3 = add_stat_box(s4, Inches(4.65), Inches(5.35), Inches(1.65), Inches(1.5), "+5.603 ns", "WNS Timing Slack\n(STA Met at 69 MHz)", C_GREEN)
 

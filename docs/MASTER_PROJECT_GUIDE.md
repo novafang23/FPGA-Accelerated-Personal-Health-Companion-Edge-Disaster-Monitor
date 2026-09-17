@@ -1,4 +1,4 @@
-# SIH26181 EdgeGuard / ShrikeFi — A to Z Master Project Guide & Presentation Companion
+# SIH26181 VALOR (Vital and Atmospheric Logic for Offline Rescue) / ShrikeFi — A to Z Master Project Guide & Presentation Companion
 
 > [!IMPORTANT]
 > **Read this box first.** This guide is written to be *defensible*, which means every number in it is traceable to a command you can run or a file in the repo. Three claims that circulate in older drafts of this project are **wrong** and must not be repeated in the judging room:
@@ -34,11 +34,11 @@ Picture a smoke alarm. It detects smoke. That's it. Now picture it going off whi
 
 Now put that alarm on a firefighter's chest during a wildfire, or on a flood rescue worker standing in cold water for six hours. You need to know four things at once: is their heart under strain, is their blood oxygen dropping, is the air poisoning them, and is the environment about to kill them faster than their body can compensate. **None of those questions can be answered by looking at any one sensor.**
 
-That is the project. EdgeGuard is a wearable that fuses what's happening *inside* a person with what's happening *around* them, and makes a triage call on the device — no cloud, no phone, no network.
+That is the project. VALOR (Vital and Atmospheric Logic for Offline Rescue) is a wearable that fuses what's happening *inside* a person with what's happening *around* them, and makes a triage call on the device — no cloud, no phone, no network.
 
 ### Who actually benefits
 
-| User | Why existing devices fail them | What EdgeGuard does differently |
+| User | Why existing devices fail them | What VALOR does differently |
 |---|---|---|
 | **Disaster first responders** | Consumer bands are optimised for fitness, not for toxic air or heat strain | Fuses PM2.5 + heat index + cardiac strain into one escalating advisory |
 | **Flood / cyclone evacuees** | No connectivity, no charging, often no phone | Fully offline; runs from a coin cell class of power budget |
@@ -60,7 +60,7 @@ This is a favourite judge question, so let's make the answer airtight. A consume
 
 ### The 15-second elevator pitch
 
-> "EdgeGuard is a wearable disaster-triage companion. A MAX30102 optical sensor, a BME280 environment sensor and a laser particulate counter feed an FPGA that extracts heartbeat timing with 20-nanosecond accuracy, and an ESP32-S3 that runs clinical triage and a 619-byte neural network. It tells a rescuer not just 'your heart rate is 140' but 'heat stroke is imminent, stop exertion now' — completely offline, because in a disaster the cloud is the first thing to disappear."
+> "VALOR (Vital and Atmospheric Logic for Offline Rescue) is a wearable disaster-triage companion. A MAX30102 optical sensor, a BME280 environment sensor and a laser particulate counter feed an FPGA that extracts heartbeat timing with 20-nanosecond accuracy, and an ESP32-S3 that runs clinical triage and a 619-byte neural network. It tells a rescuer not just 'your heart rate is 140' but 'heat stroke is imminent, stop exertion now' — completely offline, because in a disaster the cloud is the first thing to disappear."
 
 > [!TIP]
 > **Judge Defence Tip:** lead with *offline* and *fusion*. Judges have seen a hundred heart-rate wearables. The moment you say "and it knows the air is poisoning you at the same time, with no network", they lean in.
@@ -225,7 +225,7 @@ The *pulsatile* component (the wobble with each beat) is called **AC**; the stea
 
 ### BME280 — the weather station on your wrist
 
-| Measurement | Why EdgeGuard cares |
+| Measurement | Why VALOR cares |
 |---|---|
 | **Temperature** | Drives heat-index calculation; with humidity it determines whether heat illness is even possible |
 | **Relative humidity** | Feeds the heat index *and* is essential for correcting the particulate sensor |
@@ -363,10 +363,10 @@ ibi_cycles  XXXXXXXXXXXXXXXXXXXXXX< 0x00000CD1 >XXXX   (3,281 ticks)
 |---|---|---|
 | Zynq-7000 OOC (baseline, tag `v1.0-zynq-SIH`) | 185 LUT / 16 LUTRAM / 266 FF, **0 DSP, 0 BRAM**, WNS **+5.603 ns**, Fmax **69.45 MHz** | Tag + screenshots |
 | Zynq-7000 re-run (Vivado 2026.1) | **198** slice LUTs (182 logic + 16 LUTRAM), **267** FF, 0 DSP, 0 BRAM | `hardware/zynq/synthesis_evidence/ooc_utilization_synth.rpt` |
-| ForgeFPGA SLG47910C | **443 / 1120 LUT5s (39.55%)**, 353 FFs, 85/140 CLBs, 0 BRAM, PLL 1/1 | `hardware/shrikefi/synthesis_evidence/resource_utilization.log` |
+| ForgeFPGA SLG47910C | **342 / 1120 LUT5s (30.54%)**, 194 FFs, 76/140 CLBs, 0 BRAM, PLL 0/1 | `hardware/shrikefi/synthesis_evidence/resource_utilization_spi_link.log` |
 
 > [!WARNING]
-> **Do not quote "195 LUTs / 17.41%"** — that was a stale pre-link build and appears in older decks. The real figure is **443 / 1120**. Likewise do not mix the 185-LUT baseline with the 198-LUT re-run; they are different runs measuring different scopes.
+> **Do not quote 443 LUT5s / 353 FFs / 85 CLBs** — that belongs to the superseded 4-bit parallel link build. The current SPI hardware fitter report measures **342 / 1120 LUT5s (30.54%)**, **194 FFs**, and **76/140 CLBs** with **PLL 0/1**. Likewise do not mix the 185-LUT baseline with the 198-LUT re-run; they are different runs measuring different scopes.
 
 > [!TIP]
 > **Judge Defence Tip:** "Zero DSP, zero BRAM" is the number that impresses hardware engineers, because it proves the filter is arithmetic trickery rather than brute-force multipliers. Quote it with the mechanism: "running-sum with a bit-shift divide."
@@ -588,7 +588,7 @@ If SQI < 0.70, the engine **holds** the previous reliable triage rather than act
 | **Moran's Physiological Strain Index** | Moran 1998, US Army | Exertional heat strain on a 0–10 scale, from HR and core-temp proxies |
 | **AHA PM2.5–HRV Autonomic Strain** | Brook 2010 (AHA statement) | Acute vagal suppression from particulate inhalation — smoke attacking the autonomic system |
 
-Together with the NOAA heat index, these are what let EdgeGuard say *"stop exerting yourself now"* rather than *"it's 46 °C."*
+Together with the NOAA heat index, these are what let VALOR say *"stop exerting yourself now"* rather than *"it's 46 °C."*
 
 ### Triage decision table
 
@@ -792,7 +792,9 @@ A standalone Win32 GDI application — no Python, no browser, no dependencies. I
 
 - **Elevator:** "From the pulse itself — breathing modulates heart rate, and we can see that modulation in the beat intervals."
 - **Technical:** "Respiratory Sinus Arrhythmia: inspiration accelerates the heart, expiration slows it. Because we have 20 ns-resolution beat intervals, the breathing rhythm is recoverable from the IBI series without any additional sensor."
-- **Evidence:** "Implemented per Charlton 2018 with a confidence value; exercised in the host test where a 4-second IBI oscillation maps to ~15 breaths/min."
+- **Evidence:** "Implemented per Charlton 2018 and running on the device — `ppg_respiratory_rate.c` is compiled into the ESP build, fed from a 40-beat rolling window of *accepted* IBIs, and its output goes into the NEWS2 respiratory term via `clinical_vitals_assess_full()`. A 4-second IBI oscillation maps to ~15 breaths/min. It reports a confidence value and RR is only trusted when the estimate is reliable."
+
+  > **Be precise if pressed:** before this was wired up, NEWS2 ran with RR defaulted to a normal 14, which silently disabled the tachypnoea and bradypnoea terms — the most sensitive part of the score. If you are asked about an older build, that is the honest answer.
 
 ---
 
@@ -858,7 +860,7 @@ A standalone Win32 GDI application — no Python, no browser, no dependencies. I
 **Q13. "What's the battery / power consumption profile?"**
 
 - **Elevator:** "We haven't measured it on hardware — and I'd rather tell you that than quote a number I can't back."
-- **Technical:** "Architecturally, the FPGA core is small — 443 of 1120 LUT5s, zero DSP, zero BRAM, and one PLL — which is a deliberately low-power profile. The dominant consumer will be the ESP32-S3 radio."
+- **Technical:** "Architecturally, the FPGA core is small — 342 of 1120 LUT5s (30.54%), 194 FFs, 76/140 CLBs, zero DSP, zero BRAM, and zero PLL — which is a deliberately low-power profile. The dominant consumer will be the ESP32-S3 radio."
 - **Evidence:** "Synthesis reports confirm the fabric footprint. Honest position: a real power measurement needs a bench supply and a current probe, which is the next step. Treat any mW figure you've seen in our older decks as unverified."
 
 > [!TIP]
@@ -893,7 +895,7 @@ A standalone Win32 GDI application — no Python, no browser, no dependencies. I
 
 **[0:08 — Pick up the board. Hold it so the OLED is visible.]**
 
-> **"This is EdgeGuard. An optical sensor here, an environment sensor here, a laser particle counter here. And this — "** *(tap the FPGA)* **" — is an FPGA doing one job better than any processor can."**
+> **"This is VALOR (Vital and Atmospheric Logic for Offline Rescue). An optical sensor here, an environment sensor here, a laser particle counter here. And this — "** *(tap the FPGA)* **" — is an FPGA doing one job better than any processor can."**
 
 **[0:18 — Point at the board, then at the screen.]**
 
@@ -911,7 +913,7 @@ A standalone Win32 GDI application — no Python, no browser, no dependencies. I
 
 **[0:52 — Step back.]**
 
-> **"Sixteen thousand real ICU records, ninety-four percent triage accuracy, ninety-eight percent specificity. No cloud. No phone. Twenty nanosecond timing. That's EdgeGuard."**
+> **"Sixteen thousand real ICU records, ninety-four percent triage accuracy, ninety-eight percent specificity. No cloud. No phone. Twenty nanosecond timing. That's VALOR."**
 
 ---
 
@@ -934,9 +936,9 @@ A standalone Win32 GDI application — no Python, no browser, no dependencies. I
 
 | | |
 |---|---|
-| **Project** | SIH26181 EdgeGuard / ShrikeFi — wearable offline disaster triage |
+| **Project** | SIH26181 VALOR (Vital and Atmospheric Logic for Offline Rescue) / ShrikeFi — wearable offline disaster triage |
 | **MCU** | ESP32-S3, Xtensa LX7 dual-core, **160 MHz configured**, FreeRTOS, 2 MB flash |
-| **FPGA** | Renesas ForgeFPGA SLG47910C, 1120 LUT5s, 50 MHz, **443 LUT5s used (39.55%)**, 0 DSP, 0 BRAM |
+| **FPGA** | Renesas ForgeFPGA SLG47910C, 1120 LUT5s, 50 MHz, **342 LUT5s used (30.54%)**, 194 FFs, 76 CLBs, 0 DSP, 0 BRAM, 0 PLL |
 | **Baseline** | Xilinx Zynq-7000 `xc7z020`, AXI4-Lite, 6/6 tests, 0 DSP/BRAM |
 | **Sensors** | MAX30102 (PPG), BME280 (T/H/P), PMSA003 (PM1/2.5/10), SSD1306 OLED |
 | **Link** | 4-bit parallel nibble link: strobe, dir, din[3:0], dout[3:0], irq_beat |
@@ -948,7 +950,7 @@ A standalone Win32 GDI application — no Python, no browser, no dependencies. I
 | **Timing budget** | 0.44 µs per INT8 inference, **x86-64 host measured**; ESP32 target not yet measured |
 | **Image** | 945,520 B in a 1 MB partition — 103,056 B (9.8%) free, debug build |
 | **Tests** | Zynq 6/6 · ShrikeFi 5/5 · firmware unit tests pass · MIMIC gate 94.11% |
-| **Never say** | "95.40% specificity" · "240 MHz" · "195 LUTs" · "FPGA definitely needs no programming" |
+| **Never say** | "95.40% specificity" · "240 MHz" · "443 LUTs" · "FPGA definitely needs no programming" |
 
 > [!IMPORTANT]
 > **The one-sentence version of this entire guide:** *We built a wearable that fuses the patient and the environment, on hardware fast enough to measure what software cannot, and we documented it honestly enough that every number can be checked.*
@@ -961,7 +963,7 @@ A standalone Win32 GDI application — no Python, no browser, no dependencies. I
 |---|---|
 | 6/6 Zynq tests | `hardware/zynq/tb_ppg_system.v` |
 | 5/5 ShrikeFi tests | `hardware/shrikefi/tb_forgefpga_system.v` |
-| 443 / 1120 LUT5s | `hardware/shrikefi/synthesis_evidence/resource_utilization.log` |
+| 342 / 1120 LUT5s | `hardware/shrikefi/synthesis_evidence/resource_utilization_spi_link.log` |
 | 185 LUT / +5.603 ns baseline | Tag `v1.0-zynq-SIH` |
 | 198 LUT / 267 FF re-run | `hardware/zynq/synthesis_evidence/ooc_utilization_synth.rpt` |
 | 88.47% validation accuracy | `python3 firmware/core/train_nn_risk_model.py` |
@@ -971,4 +973,4 @@ A standalone Win32 GDI application — no Python, no browser, no dependencies. I
 | RMSSD is synthetic | `data/mimic/*.csv` vs MIMIC-III v1.4 table list |
 
 > [!NOTE]
-> **Regulatory humility:** EdgeGuard is a **decision-support and early-warning device for research, triage support and disaster response**. It is not a certified medical device, has not undergone regulatory clearance, and must not be used as the sole basis for a clinical decision. Saying this out loud protects you — and it is also simply true.
+> **Regulatory humility:** VALOR is a **decision-support and early-warning device for research, triage support and disaster response**. It is not a certified medical device, has not undergone regulatory clearance, and must not be used as the sole basis for a clinical decision. Saying this out loud protects you — and it is also simply true.

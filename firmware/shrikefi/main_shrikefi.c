@@ -63,6 +63,8 @@ typedef struct {
     float ambient_temp_c;
     float humidity_percent;
     float pm25_ugm3;
+    float respiratory_rate_bpm; /* PPG-derived (Charlton 2018 RSA); 0 = unavailable */
+    float ppg_sqi;              /* composite signal quality index [0,1]        */
     risk_assessment_t risk_result;
     nn_output_t nn_scores;
 } health_system_state_t;
@@ -204,6 +206,77 @@ static void ibi_pipeline_reset(ibi_pipeline_t *p) {
     p->prime_count = 0;
 }
 
+/* ---------------------------------------------------------------------------
+ * PPG-derived respiration and signal quality
+ * ---------------------------------------------------------------------------
+ * ppg_respiratory_rate.c (Charlton 2018, RSA) and ppg_sqi.c (Elgendi 2016 /
+ * Karlen 2012) were both written and both exercised - but only in the host
+ * harness. Neither was ever added to the ESP build, so on the device NEWS2 ran
+ * with its respiratory rate defaulted to a normal 14
+ * (clinical_vitals_engine.c:106) and could not flag tachypnoea or bradypnoea,
+ * which is the earliest and most sensitive term in the score. The sensor path
+ * was there; only the wiring was missing.
+ *
+ * Both estimators take a contiguous window, so these are shift buffers rather
+ * than rings. They are read about once a second, so the memmove is free.
+ */
+#define PPG_RR_HISTORY   40    /* accepted beats fed to the RR estimator        */
+#define PPG_SQI_RAW_WIN 100    /* raw IR samples fed to the SQI (1 s at 100 Hz) */
+
+static float    s_rr_ibis[PPG_RR_HISTORY];
+static int      s_rr_ibi_n = 0;
+static uint32_t s_sqi_raw[PPG_SQI_RAW_WIN];
+static int      s_sqi_raw_n = 0;
+
+static void ppg_history_push_f(float *buf, int *n, int cap, float v) {
+    if (*n < cap) {
+        buf[(*n)++] = v;
+    } else {
+        memmove(buf, buf + 1, sizeof(float) * (size_t)(cap - 1));
+        buf[cap - 1] = v;
+    }
+}
+
+static void ppg_history_push_u32(uint32_t *buf, int *n, int cap, uint32_t v) {
+    if (*n < cap) {
+        buf[(*n)++] = v;
+    } else {
+        memmove(buf, buf + 1, sizeof(uint32_t) * (size_t)(cap - 1));
+        buf[cap - 1] = v;
+    }
+}
+
+static void ppg_history_reset(void) {
+    s_rr_ibi_n  = 0;
+    s_sqi_raw_n = 0;
+}
+
+/* Recompute respiration and SQI from the rolling windows. Cheap enough to run
+ * at 1 Hz on a 160 MHz core. */
+static void ppg_update_respiration_and_sqi(void) {
+    ppg_respiratory_result_t rr;
+    ppg_sqi_result_t         sqi;
+    memset(&rr, 0, sizeof(rr));
+    memset(&sqi, 0, sizeof(sqi));
+
+    /* Charlton-style RSA needs a reasonable run of beats to resolve a
+     * respiratory modulation; below that the estimate is noise. */
+    if (s_rr_ibi_n >= 10) {
+        ppg_estimate_respiratory_rate(s_rr_ibis, NULL, (size_t)s_rr_ibi_n, &rr);
+    }
+
+    if (s_sqi_raw_n >= 30) {
+        ppg_calculate_sqi(s_sqi_raw, (size_t)s_sqi_raw_n,
+                          s_rr_ibis, (size_t)s_rr_ibi_n, &sqi);
+    }
+
+    if (xSemaphoreTake(s_data_mutex, pdMS_TO_TICKS(10)) == pdTRUE) {
+        g_state.respiratory_rate_bpm = rr.respiratory_rate_bpm;
+        g_state.ppg_sqi               = sqi.overall_sqi;
+        xSemaphoreGive(s_data_mutex);
+    }
+}
+
 /**
  * @brief Validate, artifact-filter and record one heartbeat interval.
  *
@@ -295,6 +368,10 @@ static bool ibi_pipeline_submit(ibi_pipeline_t *p, hrv_state_t *hrv,
         hrv_compute(hrv);
         accepted = true;
         verdict = "ok";
+        /* Feed the accepted series to the respiration / SQI windows. Only
+         * accepted intervals: an artefact here would corrupt the RSA estimate
+         * exactly as it would corrupt RMSSD. */
+        ppg_history_push_f(s_rr_ibis, &s_rr_ibi_n, PPG_RR_HISTORY, ibi_ms);
     }
 
 #if SHRIKEFI_IBI_TRACE
@@ -469,6 +546,13 @@ static void task_ppg_accelerator(void *pvParameters) {
             s_rail_ir  = (raw_ir  == 0 || raw_ir  == 255) ? (uint8_t)(s_rail_ir  + 1) : 0;
             if (s_rail_red > 30) { s_base_red = 0; s_rail_red = 0; }
             if (s_rail_ir  > 30) { s_base_ir  = 0; s_rail_ir  = 0; }
+
+            /* Raw 18-bit IR window for the signal-quality index. Fed only while
+             * there is optical contact, so a finger-lift cannot poison it. */
+            if (optical_contact) {
+                ppg_history_push_u32(s_sqi_raw, &s_sqi_raw_n, PPG_SQI_RAW_WIN,
+                                     ppg_sample.ir);
+            }
 
             /* 2. Stream to ForgeFPGA over 4-bit parallel link */
             shrikefi_write_red_sample(raw_red);
@@ -706,6 +790,7 @@ static void task_ppg_accelerator(void *pvParameters) {
 
                 hrv_init(&hrv_state);   /* Reset HRV history on finger removal */
                 ibi_pipeline_reset(&ibi_pipe); /* ...and the detector-handover state */
+                ppg_history_reset();  /* ...and the respiration/SQI windows */
                 spo2_init(&spo2_state); /* Reset SpO2 history on finger removal */
                 s_rail_red = 0;
                 s_rail_ir  = 0;
@@ -727,6 +812,7 @@ static void task_ppg_accelerator(void *pvParameters) {
         /* Periodic optical debug log (every 1 second at 50Hz = 50 iterations) */
         if (++raw_log_timer >= 50) {
             raw_log_timer = 0;
+            ppg_update_respiration_and_sqi();
             const char *status_str = (g_state.signal_status == SIGNAL_STATUS_LOW_PERFUSION) ? "LOW PERFUSION (PRESS FIRMER)" :
                                      (g_state.signal_status == SIGNAL_STATUS_ACQUIRING)     ? "ACQUIRING" :
                                      (g_state.signal_status == SIGNAL_STATUS_TRACKING)      ? "LOCKED" : "NO FINGER";
@@ -873,9 +959,24 @@ static void task_disaster_monitor(void *pvParameters) {
             /* 2. Execute On-Device TinyML INT8 Neural Network (single-pass populates both risk and telemetry) */
             disaster_assess_nn_int8(&hrv_snapshot, engine_spo2, hr, &env, &nn_risk, &nn_out);
 
-            /* 3. Execute NEWS2 Clinical Physiological Triage Engine */
+            /* 3. Execute NEWS2 Clinical Physiological Triage Engine.
+             *
+             * Uses the _full form so respiratory rate and signal quality come
+             * from the measurement rather than from a default. The 4-argument
+             * form pins RR at a normal 14, which silently disables the
+             * tachypnoea and bradypnoea terms - the most sensitive part of
+             * NEWS2. RR is only trusted once the estimator reports it reliable;
+             * SQI gates the whole score. */
             clinical_assessment_t clin_assess;
-            clinical_vitals_assess(hr, engine_spo2, hrv_snapshot.rmssd, &clin_assess);
+            float rr_for_news2 = 0.0f;
+            float sqi_for_news2 = 0.0f;
+            if (xSemaphoreTake(s_data_mutex, pdMS_TO_TICKS(10)) == pdTRUE) {
+                rr_for_news2  = g_state.respiratory_rate_bpm;
+                sqi_for_news2 = g_state.ppg_sqi;
+                xSemaphoreGive(s_data_mutex);
+            }
+            clinical_vitals_assess_full(hr, engine_spo2, hrv_snapshot.rmssd,
+                                        rr_for_news2, sqi_for_news2, &clin_assess);
 
             /* 4. Unified Triage: Fuse deterministic bounds, TinyML patterns, and clinical vitals */
             risk_assessment_t env_fused = rule_risk;
@@ -885,11 +986,17 @@ static void task_disaster_monitor(void *pvParameters) {
             }
             clinical_fuse_triage(&clin_assess, &env_fused, &final_risk);
 
-            ESP_LOGI(TAG, "[ShrikeFi] HR: %.1f BPM | SpO2: %s | RMSSD: %.1f ms | Temp: %.1f C | PM2.5: %.0f",
-                     hr, (spo2 > 0.0f ? "VALID" : "CALC"), hrv_snapshot.rmssd, env.ambient_temp_c, env.pm25);
-            /* Clean telemetry broadcast line for PC Dashboard */
-            printf("[TELEMETRY] HR=%.1f,SPO2=%.1f,RMSSD=%.1f,TEMP=%.1f,HUM=%.1f,PM25=%.1f\n",
-                   hr, engine_spo2, hrv_snapshot.rmssd, env.ambient_temp_c, env.humidity_pct, env.pm25);
+            ESP_LOGI(TAG, "[ShrikeFi] HR: %.1f BPM | SpO2: %s | RMSSD: %.1f ms | RR: %.1f br/min | SQI: %.2f | Temp: %.1f C | PM2.5: %.0f",
+                     hr, (spo2 > 0.0f ? "VALID" : "CALC"), hrv_snapshot.rmssd,
+                     rr_for_news2, sqi_for_news2, env.ambient_temp_c, env.pm25);
+            /* Clean telemetry broadcast line for PC Dashboard.
+             * RR and SQI are APPENDED, not inserted: the dashboard's sscanf
+             * matches the six original fields and returns on the last one, so
+             * trailing additions stay backward compatible with older builds of
+             * the dashboard binary. */
+            printf("[TELEMETRY] HR=%.1f,SPO2=%.1f,RMSSD=%.1f,TEMP=%.1f,HUM=%.1f,PM25=%.1f,RR=%.1f,SQI=%.2f\n",
+                   hr, engine_spo2, hrv_snapshot.rmssd, env.ambient_temp_c,
+                   env.humidity_pct, env.pm25, rr_for_news2, sqi_for_news2);
             fflush(stdout);
             /* Label which cold-risk path produced the flood figure, so the
              * ambient proxy is never mistaken for a measured skin temperature. */

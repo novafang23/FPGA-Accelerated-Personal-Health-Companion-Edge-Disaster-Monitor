@@ -1,7 +1,7 @@
 /*
  * clinical_vitals_engine.c
- * NEWS2-Derived Clinical Physiological Triage Engine Implementation
- * Synthesized with DeepSeek-V4-Pro for Project SIH26181 (EdgeGuard)
+ * Clinical Physiological Triage Engine Implementation
+ * Synthesized with DeepSeek-V4-Pro for Project SIH26181 (VALOR)
  */
 
 #include "clinical_vitals_engine.h"

@@ -61,7 +61,7 @@ Here is the exact story and rationale to present:
 |  2. RENESAS ForgeFPGA + ESP32-S3 (ShrikeFi Target)                                |
 |     - Role: Mass-Deployable, Ultra-Low-Cost (<$20 at-scale BOM) Pocket Wearable   |
 |     - Target Part: SLG47910C (1120 5-input LUTs) + Dual-Core ESP32-S3             |
-|     - Utilization: Only 443 / 1120 LUTs (39.55%), 353 FFs, 0 DSP, 0 BRAM          |
+|     - Utilization: Only 342 / 1120 LUT5s (30.54%), 194 FFs, 76 CLBs, 0 DSP, 0 BRAM |
 |     - Interconnect: Custom 4-Bit Parallel Link (5.0 MB/s max @ 10MHz; 500kHz bring-up)|
 |     - Purpose: Proved commercial feasibility for millions of workers              |
 |                                                                                   |
@@ -182,7 +182,7 @@ Digital hardware circuits do not "execute instructions" like C code or Python. T
    * *Internal FSM Sub-Blocks:*
      * **Command Decoder & Nibble Reassembler (RX Stage):** Decodes command headers (`CMD_WRITE_RED`, `CMD_WRITE_IR`, `CMD_WRITE_THRESH`) and combines sequential 4-bit nibbles into 8-bit sample bytes for DSP execution.
      * **32-Bit IBI Serializer (TX Stage):** Latches the 32-bit `peak_ibi_cycles` timestamp on a heartbeat and streams it across the 4-bit bus as 8 sequential nibbles (`[31:28]` down to `[3:0]`) upon receiving `CMD_READ_IBI`.
-   * *Resource Footprint:* Uses only **443 out of 1120 LUT5s (39.55%)**, **353 Flip-Flops**, and **85 CLBs**, leaving ~60% of the LUT fabric free (CLB occupancy is 60.7%).
+   * *Resource Footprint:* Uses only **342 out of 1120 LUT5s (30.54%)**, **194 Flip-Flops**, and **76 CLBs**, leaving ~70% of the LUT fabric free (CLB occupancy is 54.29%).
 
 ![Renesas ForgeFPGA Workshop GUI Resources Report](../images/forgefpga_resources_report.png)
 
@@ -398,7 +398,7 @@ Use these exact analogies when explaining the project to non-technical judges or
 * **Answer:** *"Three reasons: Determinism, CPU offloading, and Power. Software signal processing on an RTOS suffers from interrupt latency and task jitter when WiFi or sensor interrupts fire. Our FPGA accelerator processes raw PPG samples at hardware clock speeds with zero CPU overhead, allowing the microcontroller to stay in low-power sleep modes between assessments."*
 
 ### Q2: "How did you manage to fit your design into Renesas ForgeFPGA's tiny 1120 LUT capacity?"
-* **Answer:** *"Our architecture was designed from day one to be ultra-lean. By using an $O(1)$ running-sum filter with bit-shift division and an accumulator-based peak detector, our entire ShrikeFi design consumes **443 of 1120 LUT5s (39.55%)** and **353 flip-flops**, with zero DSP multiplier blocks and zero Block RAM."*
+* **Answer:** *"Our architecture was designed from day one to be ultra-lean. By using an $O(1)$ running-sum filter with bit-shift division and an accumulator-based peak detector, our entire ShrikeFi design consumes **342 of 1120 LUT5s (30.54%)** and **194 flip-flops**, with zero DSP multiplier blocks, zero Block RAM, and zero PLL."*
 
 ### Q3: "What makes your 4-bit link better than standard SPI or I2C?"
 * **Answer:** *"I2C is too slow (400 kHz) with heavy bus addressing, and SPI has protocol framing overhead. Our custom 4-bit parallel nibble link provides a dedicated hardware strobe and direct register-level latching. In our current bit-banged bring-up driver, a complete 32-bit IBI timestamp transfer takes only **18 microseconds** (occupying less than 0.1% of the 50 Hz optical sampling window). At our verified 10 MHz simulation target with hardware-assisted strobing, it transfers in **900 nanoseconds** (5.0 MB/s raw bandwidth) with zero protocol bloat."*

@@ -1,4 +1,4 @@
-# SIH26181 EdgeGuard: Clinical Triage & TinyML AI Engine Accuracy Report
+# SIH26181 VALOR (Vital and Atmospheric Logic for Offline Rescue): Clinical Triage & TinyML AI Engine Accuracy Report
 
 **Benchmark dataset:** PhysioNet / MIT MIMIC-III Clinical Database v1.4 (demo subset)
 **Evaluated set:** 16,387 vital time steps across 98 ICU subjects

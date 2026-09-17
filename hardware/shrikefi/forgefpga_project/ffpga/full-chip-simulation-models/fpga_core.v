@@ -160,12 +160,23 @@ module fpga_core_FPGA_SHRIKE (
     output wire [5:0]   pll_refdiv
 );
 
+    // Intermediate wires for delayed connections
+    wire gpio_out_6_to_delay;
+    wire gpio_out_16_to_delay;
+
+    assign #3.6 gpio_out[6] = gpio_out_6_to_delay;
+    assign #3.6 gpio_out[16] = gpio_out_16_to_delay;
+
     forgefpga_ppg_top dut (
-        .clk(1'bx),
-        .link_din({1'bx, 1'bx, 1'bx, 1'bx}),
-        .link_dir(1'bx),
-        .link_strobe(1'bx),
-        .rst_n(1'bx)
+        .spi_miso_oe(gpio_oe[6]),
+        .clk_en(osc_en),
+        .led_user_oe(gpio_oe[16]),
+        .clk(osc_clk),
+        .spi_ss_n(gpio_in[4]),
+        .spi_mosi(gpio_in[5]),
+        .spi_sck(gpio_in[3]),
+        .spi_miso(gpio_out_6_to_delay),
+        .led_user(gpio_out_16_to_delay)
     );
 
 
@@ -203,11 +214,8 @@ module fpga_core_FPGA_SHRIKE (
     assign pll_postdiv2[2] = 1'b0;
     assign gpio_out[5] = 1'b0;
     assign gpio_oe[5] = 1'b0;
-    assign gpio_out[6] = 1'b0;
-    assign gpio_oe[6] = 1'b0;
     assign gpio_out[7] = 1'b0;
     assign gpio_oe[7] = 1'b0;
-    assign osc_en = 1'b0;
     assign bram0_nwen = 1'b0;
     assign bram0_nwclken = 1'b0;
     assign bram0_nren = 1'b0;
@@ -459,8 +467,6 @@ module fpga_core_FPGA_SHRIKE (
     assign gpio_oe[18] = 1'b0;
     assign gpio_out[17] = 1'b0;
     assign gpio_oe[17] = 1'b0;
-    assign gpio_out[16] = 1'b0;
-    assign gpio_oe[16] = 1'b0;
     assign gpio_out[15] = 1'b0;
     assign gpio_oe[15] = 1'b0;
     assign gpio_out[14] = 1'b0;

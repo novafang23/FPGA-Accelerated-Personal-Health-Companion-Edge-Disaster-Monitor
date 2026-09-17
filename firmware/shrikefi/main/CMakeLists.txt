@@ -47,6 +47,12 @@ idf_component_register(
         "${CORE_DIR}/nn_risk_model_int8.c"
         "${CORE_DIR}/pm25_calibration_int8.c"
         "${CORE_DIR}/clinical_vitals_engine.c"
+        # Both of these were written and unit-exercised in the host harness but
+        # were never added here, so on the device NEWS2 ran with its respiratory
+        # rate defaulted to 14 and signal quality ungated. See the comment above
+        # ppg_update_respiration_and_sqi() in main_shrikefi.c.
+        "${CORE_DIR}/ppg_respiratory_rate.c"
+        "${CORE_DIR}/ppg_sqi.c"
         "${SHRIKEFI_DIR}/wifi_mqtt_manager.c"
     INCLUDE_DIRS 
         "${SHRIKEFI_DIR}"

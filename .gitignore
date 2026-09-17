@@ -117,3 +117,8 @@ mimic-iii-clinical-database-demo-1.4/
 # hardware/shrikefi/tools/analyse_capture.py.
 .capture/
 
+
+# Unrelated research-admin work (KIET faculty Scopus analysis). Kept on disk,
+# deliberately not part of this project's repository.
+data/scopus_analysis/
+

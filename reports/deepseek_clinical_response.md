@@ -1,6 +1,6 @@
 ```c
 /* =====================================================================
- * Project SIH26181 - EdgeGuard
+ * Project SIH26181 - VALOR (Vital and Atmospheric Logic for Offline Rescue)
  * clinical_vitals_engine.h
  * =====================================================================
  * NEWS2-derived physiological triage engine for wearable/ICU edge device.
@@ -82,7 +82,7 @@ void clinical_fuse_triage(const clinical_assessment_t *clinical,
 
 ```c
 /* =====================================================================
- * Project SIH26181 - EdgeGuard
+ * Project SIH26181 - VALOR (Vital and Atmospheric Logic for Offline Rescue)
  * clinical_vitals_engine.c
  * =====================================================================
  * Fixed-point / integer-optimized NEWS2-derived triage for ESP32-S3.

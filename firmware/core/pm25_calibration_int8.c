@@ -1,4 +1,4 @@
-/* EdgeGuard PM2.5 low-cost sensor calibration module.
+/* VALOR (Vital and Atmospheric Logic for Offline Rescue) PM2.5 low-cost sensor calibration module.
  * 3 -> 8 -> 4 -> 1 fully-connected ReLU network.
  * Quantization: symmetric int8 activations, int32 biases/accumulators.
  */

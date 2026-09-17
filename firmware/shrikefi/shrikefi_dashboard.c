@@ -1,8 +1,8 @@
 /**
  * @file shrikefi_dashboard.c
- * @brief Standalone Native Windows Graphical Dashboard (GUI) for ShrikeFi / EdgeGuard
+ * @brief Standalone Native Windows Graphical Dashboard (GUI) for ShrikeFi / VALOR (Vital and Atmospheric Logic for Offline Rescue)
  * 
- * SIH26181: FPGA-Accelerated Edge Health Companion & Disaster Triage System
+ * SIH26181: VALOR — FPGA-Accelerated Edge Health Companion & Disaster Triage System
  * 
  * Features:
  *  - High-precision 60 FPS double-buffered GDI rendering (0% flicker)
@@ -43,21 +43,28 @@
 #define WINDOW_WIDTH  1260
 #define WINDOW_HEIGHT 820
 
-/* Color Palette (Sleek Dark Medical/Cyberpunk Theme) */
-#define COL_BG          RGB(13, 17, 23)       /* Main dark background */
-#define COL_CARD_BG     RGB(22, 27, 34)       /* Card container */
-#define COL_CARD_BORDER RGB(48, 54, 61)       /* Card border */
-#define COL_HEADER_BG   RGB(18, 22, 29)       /* Top header */
-#define COL_TEXT_MAIN   RGB(240, 246, 252)    /* Bright white */
-#define COL_TEXT_MUTED  RGB(139, 148, 158)    /* Gray */
-#define COL_GREEN       RGB(46, 160, 67)      /* Normal status green */
-#define COL_GREEN_BRT   RGB(0, 255, 136)      /* Glowing oscilloscope green */
-#define COL_AMBER       RGB(210, 153, 34)     /* Warning amber */
-#define COL_RED         RGB(248, 81, 73)      /* Alarm red */
-#define COL_CYAN        RGB(0, 229, 255)      /* Accent cyan */
-#define COL_PURPLE      RGB(187, 134, 252)    /* AI accent purple */
-#define COL_GRID        RGB(22, 45, 40)       /* Oscilloscope grid */
-#define COL_GRID_SUB    RGB(16, 32, 28)       /* Oscilloscope sub-grid */
+/* -------------------------------------------------------------------------- */
+/* Premium Dark Theme Color Palette (Modern Medical / Cyberpunk Aesthetic)    */
+/* -------------------------------------------------------------------------- */
+#define COL_BG              RGB(8, 12, 20)        /* Deep space navy background */
+#define COL_BG_GRAD_TOP     RGB(10, 16, 28)
+#define COL_BG_GRAD_BOT     RGB(6, 9, 16)
+#define COL_CARD_BG         RGB(18, 24, 38)       /* Elevated card surface */
+#define COL_CARD_BG_HI      RGB(24, 32, 50)       /* Card highlight */
+#define COL_CARD_BORDER     RGB(44, 56, 80)       /* Card border */
+#define COL_HEADER_BG       RGB(12, 18, 30)       /* Top header */
+#define COL_TEXT_MAIN       RGB(238, 244, 255)    /* Bright white */
+#define COL_TEXT_MUTED      RGB(148, 160, 184)    /* Soft gray */
+#define COL_GREEN           RGB(46, 180, 90)      /* Normal status green */
+#define COL_GREEN_BRT       RGB(0, 255, 170)      /* Glowing neon green */
+#define COL_AMBER           RGB(255, 176, 48)     /* Warning amber */
+#define COL_RED             RGB(255, 90, 90)      /* Alarm red */
+#define COL_CYAN            RGB(0, 225, 255)      /* Accent cyan */
+#define COL_PURPLE          RGB(190, 130, 255)    /* AI accent purple */
+#define COL_PINK            RGB(255, 92, 168)     /* Secondary accent pink */
+#define COL_BLUE            RGB(64, 140, 255)     /* Secondary accent blue */
+#define COL_GRID            RGB(30, 52, 66)       /* Oscilloscope grid */
+#define COL_GRID_SUB        RGB(18, 34, 44)       /* Oscilloscope sub-grid */
 
 /* Control IDs */
 #define IDC_BTN_SCENARIO_1  101
@@ -180,12 +187,14 @@ static HWND g_hwnd_btn_pause = NULL;
 static HWND g_hwnd_scenario_btns[6];
 
 /* Fonts */
-static HFONT g_font_header = NULL;
-static HFONT g_font_title = NULL;
-static HFONT g_font_large_val = NULL;
-static HFONT g_font_med_val = NULL;
-static HFONT g_font_label = NULL;
-static HFONT g_font_small = NULL;
+static HFONT g_font_header = NULL;     /* App title - 24pt bold */
+static HFONT g_font_title = NULL;      /* Section titles - 18pt bold */
+static HFONT g_font_large_val = NULL;  /* Primary vitals - 46pt bold */
+static HFONT g_font_med_val = NULL;    /* Secondary vitals - 32pt bold */
+static HFONT g_font_label = NULL;      /* Card labels - 14pt semibold */
+static HFONT g_font_small = NULL;      /* Footnotes - 12pt normal */
+static HFONT g_font_tiny = NULL;       /* Tiny captions - 10pt normal */
+static HFONT g_font_value_small = NULL; /* Value sub-labels - 11pt bold */
 
 /* NOTE: the NOAA Steadman heat index used to be computed here purely to be
  * displayed. It was removed because the Rothfusz regression is only valid inside
@@ -503,27 +512,104 @@ static void UpdateTelemetryStep(void) {
 }
 
 /* -------------------------------------------------------------------------- */
-/* High-Precision GDI Drawing Helpers                                         */
+/* Drawing Helpers                                                        */
 /* -------------------------------------------------------------------------- */
-static void DrawDarkCard(HDC hdc, int x, int y, int w, int h, const char *title, COLORREF accent_col) {
-    HBRUSH hbg = CreateSolidBrush(COL_CARD_BG);
-    HPEN hborder = CreatePen(PS_SOLID, 1, COL_CARD_BORDER);
-    HBRUSH oldBrush = (HBRUSH)SelectObject(hdc, hbg);
-    HPEN oldPen = (HPEN)SelectObject(hdc, hborder);
-    RoundRect(hdc, x, y, x + w, y + h, 10, 10);
+
+/* Draw a vertical gradient background rect */
+static void DrawGradientRect(HDC hdc, int x, int y, int w, int h, COLORREF top, COLORREF bot) {
+    int r0 = GetRValue(top), g0 = GetGValue(top), b0 = GetBValue(top);
+    int r1 = GetRValue(bot), g1 = GetGValue(bot), b1 = GetBValue(bot);
     
-    if (accent_col != 0) {
-        HPEN hAccPen = CreatePen(PS_SOLID, 2, accent_col);
+    for (int i = 0; i < h; i++) {
+        float t = (float)i / (float)(h - 1);
+        BYTE r = (BYTE)(r0 + (r1 - r0) * t);
+        BYTE g = (BYTE)(g0 + (g1 - g0) * t);
+        BYTE b = (BYTE)(b0 + (b1 - b0) * t);
+        HPEN hPen = CreatePen(PS_SOLID, 1, RGB(r, g, b));
+        SelectObject(hdc, hPen);
+        MoveToEx(hdc, x, y + i, NULL);
+        LineTo(hdc, x + w, y + i);
+        DeleteObject(hPen);
+    }
+}
+
+/* Draw a subtle drop shadow behind a card */
+static void DrawCardShadow(HDC hdc, int x, int y, int w, int h) {
+    HPEN hShadowPen = CreatePen(PS_SOLID, 1, RGB(0, 0, 0));
+    SelectObject(hdc, hShadowPen);
+    for (int offset = 6; offset > 0; offset--) {
+        BYTE alpha = (BYTE)(offset * 8);
+        HPEN hDimPen = CreatePen(PS_SOLID, 1, RGB(0, 0, 0));
+        SelectObject(hdc, hDimPen);
+        RoundRect(hdc, x + offset, y + offset, x + w + offset, y + h + offset, 10, 10);
+        DeleteObject(hDimPen);
+    }
+    DeleteObject(hShadowPen);
+}
+
+/* Draw a glowing line effect (for waveforms) */
+static void DrawGlowLine(HDC hdc, int x1, int y1, int x2, int y2, COLORREF col, int thickness) {
+    for (int t = thickness; t > 0; t -= 2) {
+        int r = GetRValue(col);
+        int g = GetGValue(col);
+        int b = GetBValue(col);
+        BYTE fade = (BYTE)((t / (float)thickness) * 180);
+        if (fade > 255) fade = 255;
+        HPEN hPen = CreatePen(PS_SOLID, t, RGB(r, g, b));
+        SelectObject(hdc, hPen);
+        MoveToEx(hdc, x1, y1, NULL);
+        LineTo(hdc, x2, y2);
+        DeleteObject(hPen);
+    }
+}
+
+/* Draw a subtle horizontal scan line across the oscilloscope area */
+static void DrawScanLine(HDC hdc, int x, int y, int w, int frame_count) {
+    float scan_pos = (float)(frame_count % 600) / 600.0f;
+    int sy = y + (int)(scan_pos * (w));
+    if (sy > x && sy < x + w) {
+        HPEN hScanPen = CreatePen(PS_SOLID, 1, RGB(0, 255, 170));
+        SelectObject(hdc, hScanPen);
+        SetROP2(hdc, R2_XORPEN);
+        MoveToEx(hdc, x, sy, NULL);
+        LineTo(hdc, x + w, sy);
+        SetROP2(hdc, R2_COPYPEN);
+        DeleteObject(hScanPen);
+    }
+}
+
+/* Improved card drawing with gradient fill and accent bar */
+static void DrawDarkCard(HDC hdc, int x, int y, int w, int h, const char *title, COLORREF accent_col) {
+    /* Shadow */
+    DrawCardShadow(hdc, x, y, w, h);
+    
+    /* Card background gradient */
+    DrawGradientRect(hdc, x + 1, y + 1, w - 2, h - 2, COL_CARD_BG, RGB(14, 18, 28));
+    
+    /* Border */
+    HPEN hborder = CreatePen(PS_SOLID, 1, COL_CARD_BORDER);
+    SelectObject(hdc, hborder);
+    RoundRect(hdc, x, y, x + w, y + h, 10, 10);
+    DeleteObject(hborder);
+    
+    /* Top accent line (gradient) */
+    for (int i = 0; i < 2; i++) {
+        int r = GetRValue(accent_col);
+        int g = GetGValue(accent_col);
+        int b = GetBValue(accent_col);
+        HPEN hAccPen = CreatePen(PS_SOLID, 2, RGB(r, g, b));
         SelectObject(hdc, hAccPen);
-        MoveToEx(hdc, x + 8, y + 2, NULL);
-        LineTo(hdc, x + w - 8, y + 2);
+        MoveToEx(hdc, x + 8, y + 2 + i, NULL);
+        LineTo(hdc, x + w - 8, y + 2 + i);
         DeleteObject(hAccPen);
     }
     
-    SelectObject(hdc, oldBrush);
-    SelectObject(hdc, oldPen);
-    DeleteObject(hbg);
-    DeleteObject(hborder);
+    /* Subtle inner highlight at top */
+    HPEN hHiPen = CreatePen(PS_SOLID, 1, RGB(80, 96, 120));
+    SelectObject(hdc, hHiPen);
+    MoveToEx(hdc, x + 10, y + 1, NULL);
+    LineTo(hdc, x + w - 10, y + 1);
+    DeleteObject(hHiPen);
     
     if (title && title[0]) {
         SelectObject(hdc, g_font_label);
@@ -534,27 +620,74 @@ static void DrawDarkCard(HDC hdc, int x, int y, int w, int h, const char *title,
     }
 }
 
+/* Gradient-filled progress bar */
 static void DrawProgressBar(HDC hdc, int x, int y, int w, int h, float pct, COLORREF col) {
     if (pct < 0.0f) pct = 0.0f;
     if (pct > 100.0f) pct = 100.0f;
     
-    HBRUSH hbg = CreateSolidBrush(RGB(30, 36, 44));
-    HPEN hpen = CreatePen(PS_SOLID, 1, RGB(50, 58, 70));
-    SelectObject(hdc, hbg);
-    SelectObject(hdc, hpen);
+    /* Background */
+    HBRUSH hbg = CreateSolidBrush(RGB(24, 30, 42));
+    HPEN hpen = CreatePen(PS_SOLID, 1, RGB(50, 62, 78));
+    HBRUSH oldBrush = (HBRUSH)SelectObject(hdc, hbg);
+    HPEN oldPen = (HPEN)SelectObject(hdc, hpen);
     RoundRect(hdc, x, y, x + w, y + h, 4, 4);
-    DeleteObject(hbg);
-    DeleteObject(hpen);
     
     int fill_w = (int)((float)(w - 2) * (pct / 100.0f));
     if (fill_w > 2) {
-        HBRUSH hfill = CreateSolidBrush(col);
-        HPEN hfillPen = CreatePen(PS_SOLID, 1, col);
-        SelectObject(hdc, hfill);
-        SelectObject(hdc, hfillPen);
-        RoundRect(hdc, x + 1, y + 1, x + 1 + fill_w, y + h - 1, 3, 3);
-        DeleteObject(hfill);
-        DeleteObject(hfillPen);
+        int r = GetRValue(col);
+        int g = GetGValue(col);
+        int b = GetBValue(col);
+        
+        /* Gradient fill bar */
+        for (int i = 0; i < fill_w - 2; i++) {
+            float t = (float)i / (float)(fill_w - 2);
+            BYTE fr = (BYTE)(r * (1.0f - t * 0.3f));
+            BYTE fg = (BYTE)(g * (1.0f - t * 0.3f));
+            BYTE fb = (BYTE)(b * (1.0f - t * 0.3f));
+            HPEN hFillPen = CreatePen(PS_SOLID, 1, RGB(fr, fg, fb));
+            SelectObject(hdc, hFillPen);
+            MoveToEx(hdc, x + 1 + i, y + 1, NULL);
+            LineTo(hdc, x + 1 + i, y + h - 1);
+            DeleteObject(hFillPen);
+        }
+        
+        /* Top shine */
+        HPEN hShinePen = CreatePen(PS_SOLID, 1, RGB(255, 255, 255));
+        SelectObject(hdc, hShinePen);
+        MoveToEx(hdc, x + 1, y + 1, NULL);
+        LineTo(hdc, x + 1 + fill_w - 2, y + 1);
+        DeleteObject(hShinePen);
+    }
+    
+    SelectObject(hdc, oldBrush);
+    SelectObject(hdc, oldPen);
+    DeleteObject(hbg);
+    DeleteObject(hpen);
+}
+
+/* Draw a pulsing status dot */
+static void DrawPulseDot(HDC hdc, int cx, int cy, int radius, COLORREF col, float pulse_phase) {
+    float pulse = (sinf(pulse_phase * 3.0f) + 1.0f) * 0.5f;
+    int r = radius + (int)(pulse * 3);
+    if (r < 2) r = 2;
+    
+    HBRUSH hFill = CreateSolidBrush(col);
+    HPEN hPen = CreatePen(PS_SOLID, 1, RGB(255, 255, 255));
+    SelectObject(hdc, hFill);
+    SelectObject(hdc, hPen);
+    Ellipse(hdc, cx - r, cy - r, cx + r, cy + r);
+    DeleteObject(hFill);
+    DeleteObject(hPen);
+    
+    /* Outer glow ring */
+    if (pulse > 0.3f) {
+        int gr = r + 4 + (int)(pulse * 6);
+        HPEN hGlowPen = CreatePen(PS_SOLID, 1, RGB(GetRValue(col), GetGValue(col), GetBValue(col)));
+        SelectObject(hdc, hGlowPen);
+        SetROP2(hdc, R2_XORPEN);
+        Ellipse(hdc, cx - gr, cy - gr, cx + gr, cy + gr);
+        SetROP2(hdc, R2_COPYPEN);
+        DeleteObject(hGlowPen);
     }
 }
 
@@ -563,28 +696,30 @@ static void DrawProgressBar(HDC hdc, int x, int y, int w, int h, float pct, COLO
 /* -------------------------------------------------------------------------- */
 static void RenderDashboard(HDC hdcMem, int width, int height) {
     RECT rcCanvas = { 0, 0, width, height };
-    HBRUSH hbgBrush = CreateSolidBrush(COL_BG);
-    FillRect(hdcMem, &rcCanvas, hbgBrush);
-    DeleteObject(hbgBrush);
     
+    /* Premium gradient background with subtle vignette */
+    DrawGradientRect(hdcMem, 0, 0, width, height, COL_BG_GRAD_TOP, COL_BG_GRAD_BOT);
+    
+    /* Decorative header with gradient and accent line */
     RECT rcHeader = { 0, 0, width, 58 };
     HBRUSH hhdrBrush = CreateSolidBrush(COL_HEADER_BG);
     FillRect(hdcMem, &rcHeader, hhdrBrush);
     DeleteObject(hhdrBrush);
     
+    /* Header accent line */
+    HPEN hHeaderLine = CreatePen(PS_SOLID, 1, COL_CYAN);
+    SelectObject(hdcMem, hHeaderLine);
+    MoveToEx(hdcMem, 0, 58, NULL);
+    LineTo(hdcMem, width, 58);
+    DeleteObject(hHeaderLine);
+    
     COLORREF pulseCol = (g_state.pulse_anim > 0.3f) ? COL_GREEN_BRT : COL_GREEN;
-    HBRUSH hDot = CreateSolidBrush(pulseCol);
-    HPEN hDotPen = CreatePen(PS_SOLID, 1, pulseCol);
-    SelectObject(hdcMem, hDot);
-    SelectObject(hdcMem, hDotPen);
-    Ellipse(hdcMem, 22, 22, 34, 34);
-    DeleteObject(hDot);
-    DeleteObject(hDotPen);
+        DrawPulseDot(hdcMem, 28, 28, 8, pulseCol, (float)(g_state.frame_count % 200) / 100.0f);
     
     SelectObject(hdcMem, g_font_header);
     SetBkMode(hdcMem, TRANSPARENT);
     SetTextColor(hdcMem, COL_CYAN);
-    TextOutA(hdcMem, 42, 12, "EDGEGUARD / SHRIKEFI", 20);
+    TextOutA(hdcMem, 42, 12, "VALOR", 5);
     
     SelectObject(hdcMem, g_font_label);
     SetTextColor(hdcMem, COL_TEXT_MUTED);
@@ -608,7 +743,7 @@ static void RenderDashboard(HDC hdcMem, int width, int height) {
              g_state.frame_count);
     TextOutA(hdcMem, width - 420, 34, badgeBuf, strlen(badgeBuf));
     
-    // ROW 1: Oscilloscope & NEWS2 Triage
+// ROW 1: Oscilloscope & NEWS2 Triage
     int osc_x = 18, osc_y = 68, osc_w = 830, osc_h = 220;
     const char *oscHeader = g_state.is_serial_connected ? 
         "REAL-TIME OPTICAL PPG OSCILLOSCOPE (PHYSICAL MAX30100/MAX30102 AC WAVEFORM)" :
@@ -636,11 +771,29 @@ static void RenderDashboard(HDC hdcMem, int width, int height) {
     }
     DeleteObject(hGridPen);
     
+    /* Main waveform line */
     HPEN hWavePen = CreatePen(PS_SOLID, 2, COL_GREEN_BRT);
     SelectObject(hdcMem, hWavePen);
     
     float baseline_y = (float)(scr_y + scr_h - 22);
     float scale_amp  = (float)(scr_h - 40);
+    /* Draw glowing waveform with glow effect */
+    for (int i = 1; i < scr_w && i < OSC_POINTS; i++) {
+        int prev_idx = (s_osc_head - scr_w + i - 1 + OSC_POINTS) % OSC_POINTS;
+        int curr_idx = (s_osc_head - scr_w + i + OSC_POINTS) % OSC_POINTS;
+        int pp1 = scr_x + i - 1;
+        int pp2 = scr_x + i;
+        float vp1 = s_osc_buffer[prev_idx];
+        float vp2 = s_osc_buffer[curr_idx];
+        int ppy1 = (int)(baseline_y - vp1 * scale_amp);
+        int ppy2 = (int)(baseline_y - vp2 * scale_amp);
+        if (pp1 >= scr_x && pp1 < scr_x + scr_w) {
+            ppy1 = (ppy1 < scr_y + 4) ? scr_y + 4 : (ppy1 > scr_y + scr_h - 4) ? scr_y + scr_h - 4 : ppy1;
+            ppy2 = (ppy2 < scr_y + 4) ? scr_y + 4 : (ppy2 > scr_y + scr_h - 4) ? scr_y + scr_h - 4 : ppy2;
+            DrawGlowLine(hdcMem, pp1, ppy1, pp2, ppy2, COL_GREEN_BRT, 3);
+        }
+    }
+    
     int prev_px = 0, prev_py = 0;
     
     for (int i = 0; i < scr_w && i < OSC_POINTS; i++) {
@@ -660,6 +813,10 @@ static void RenderDashboard(HDC hdcMem, int width, int height) {
         prev_px = px;
         prev_py = py;
     }
+    
+    /* Animated scan line over the waveform */
+    DrawScanLine(hdcMem, scr_x, scr_y, scr_w, g_state.frame_count);
+    
     DeleteObject(hWavePen);
     
     HBRUSH hHead = CreateSolidBrush(RGB(255, 255, 255));
@@ -995,6 +1152,12 @@ static LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lPara
             g_font_small = CreateFontA(12, 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE, ANSI_CHARSET,
                                        OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS, CLEARTYPE_QUALITY,
                                        DEFAULT_PITCH | FF_DONTCARE, "Segoe UI");
+            g_font_tiny = CreateFontA(10, 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE, ANSI_CHARSET,
+                                      OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS, CLEARTYPE_QUALITY,
+                                      DEFAULT_PITCH | FF_DONTCARE, "Segoe UI");
+            g_font_value_small = CreateFontA(11, 0, 0, 0, FW_BOLD, FALSE, FALSE, FALSE, ANSI_CHARSET,
+                                            OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS, CLEARTYPE_QUALITY,
+                                            DEFAULT_PITCH | FF_DONTCARE, "Segoe UI");
             
             int btn_y = 696;
             int btn_w = 145, btn_h = 32;
@@ -1080,6 +1243,31 @@ static LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lPara
             break;
         }
         
+        case WM_CTLCOLORBTN: {
+            /* Custom button styling for scenario selector buttons */
+            HWND hBtn = (HWND)lParam;
+            int id = GetWindowLong(hBtn, GWL_ID);
+            HDC hdc = (HDC)wParam;
+            
+            if (id >= IDC_BTN_SCENARIO_1 && id <= IDC_BTN_SCENARIO_6) {
+                SetBkColor(hdc, COL_CARD_BG);
+                SetTextColor(hdc, COL_TEXT_MAIN);
+            } else if (id == IDC_BTN_PAUSE) {
+                SetBkColor(hdc, COL_CARD_BG);
+                SetTextColor(hdc, COL_TEXT_MAIN);
+            } else if (id == IDC_BTN_CONNECT) {
+                if (g_state.is_serial_connected) {
+                    SetBkColor(hdc, COL_RED);
+                    SetTextColor(hdc, RGB(255, 255, 255));
+                } else {
+                    SetBkColor(hdc, COL_AMBER);
+                    SetTextColor(hdc, RGB(0, 0, 0));
+                }
+            }
+            
+            return (LRESULT)GetStockObject(WHITE_BRUSH);
+        }
+        
         case WM_PAINT: {
             PAINTSTRUCT ps;
             HDC hdc = BeginPaint(hwnd, &ps);
@@ -1114,6 +1302,8 @@ static LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lPara
             if (g_font_med_val) DeleteObject(g_font_med_val);
             if (g_font_label) DeleteObject(g_font_label);
             if (g_font_small) DeleteObject(g_font_small);
+            if (g_font_tiny) DeleteObject(g_font_tiny);
+            if (g_font_value_small) DeleteObject(g_font_value_small);
             PostQuitMessage(0);
             break;
         }
@@ -1169,7 +1359,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
     HWND hwnd = CreateWindowExA(
         0,
         "ShrikeFiDashboardClass",
-        "EdgeGuard / ShrikeFi - FPGA & AI Clinical Companion Dashboard (SIH26181)",
+        "VALOR / ShrikeFi - FPGA & AI Clinical Companion Dashboard (SIH26181)",
         WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX,
         CW_USEDEFAULT, CW_USEDEFAULT,
         rc.right - rc.left, rc.bottom - rc.top,

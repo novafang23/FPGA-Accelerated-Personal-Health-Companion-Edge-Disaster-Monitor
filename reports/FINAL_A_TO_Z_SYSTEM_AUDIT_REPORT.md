@@ -14,9 +14,9 @@
 ---
 # Project SIH26181: Final A-to-Z DeepSeek System Audit & Certification
 
-# EdgeGuard / ShrikeFi — Independent System Architecture Audit Report
+# VALOR (Vital and Atmospheric Logic for Offline Rescue) / ShrikeFi — Independent System Architecture Audit Report
 
-**Project:** SIH26181 EdgeGuard / ShrikeFi  
+**Project:** SIH26181 VALOR / ShrikeFi  
 **Audit scope:** Supplied source slices: pin map, FPGA Verilog / C link driver, MAX30100/MAX30102 driver, INT8 neural network, clinical/disaster engines  
 **Auditor role:** Chief Hardware Architect / Embedded Systems Auditor / Biomedical AI Principal  
 **Date:** 09-MAY-2026  

@@ -1,4 +1,5 @@
-# SIH26181: FPGA-Accelerated Personal Health Companion & Edge Disaster Monitor
+# SIH26181: VALOR (Vital and Atmospheric Logic for Offline Rescue)
+### FPGA-Accelerated Personal Health Companion & Edge Disaster Monitor
 
 [![Verilog RTL](https://img.shields.io/badge/Hardware-Verilog%202001-blue.svg)](hardware/zynq/axi_ppg_accelerator.v)
 [![Bus Protocol](https://img.shields.io/badge/Interconnect-ARM%20AMBA%20AXI4--Lite-orange.svg)](docs/HARDWARE_ARCHITECTURE.md)
@@ -16,7 +17,7 @@ An end-to-end heterogeneous System-on-Chip (SoC) combining **synthesizable Veril
 ## 🏷️ Platform Status & Roadmap
 
 * **Verified Baseline:** [Xilinx Zynq-7000 (`xc7z020`)](hardware/zynq/) — Fully verified with 6/6 passing self-checking tests and static timing closed at 69.45 MHz (permanently tagged at `v1.0-zynq-SIH`).
-* **Active Port:** [ShrikeFi (ESP32-S3 + Renesas ForgeFPGA)](hardware/shrikefi/) — Affordable edge hardware platform. Post-synthesis fitter reports **222 / 1120 LUT5s (19.82%)**, 121 FFs and 40/140 CLBs, with 5 passing self-checking link test groups. Raw synthesis logs: [`hardware/shrikefi/synthesis_evidence/`](hardware/shrikefi/synthesis_evidence/) (read its README — an older, superseded build's numbers are also in there). Includes **fully integrated ESP32-S3 firmware** that streams live health telemetry via **USB UART & WiFi/MQTT**. (The firmware also *attempts* to load the FPGA bitstream over I2C at boot — best-effort, and unverified: the FPGA is expected to configure itself from OTP/NVM or onboard QSPI flash. See [`firmware/shrikefi/README.md`](firmware/shrikefi/README.md#fpga-delivery-how-the-bitstream-reaches-the-fpga).)
+* **Active Port:** [ShrikeFi (ESP32-S3 + Renesas ForgeFPGA)](hardware/shrikefi/) — Affordable edge hardware platform. Post-synthesis fitter reports **342 / 1120 LUT5s (30.54%)**, 194 FFs and 76/140 CLBs, with 5 passing self-checking link test groups. Raw synthesis logs: [`hardware/shrikefi/synthesis_evidence/`](hardware/shrikefi/synthesis_evidence/) (read its README — an older, superseded build's numbers are also in there). Includes **fully integrated ESP32-S3 firmware** that streams live health telemetry via **USB UART & WiFi/MQTT**. (The firmware also *attempts* to load the FPGA bitstream over I2C at boot — best-effort, and unverified: the FPGA is expected to configure itself from OTP/NVM or onboard QSPI flash. See [`firmware/shrikefi/README.md`](firmware/shrikefi/README.md#fpga-delivery-how-the-bitstream-reaches-the-fpga).)
 * **Clinical Intelligence & Biomarkers:** Fuses **mNEWS2 Clinical Triage (Royal College of Physicians)**, **PPG-derived Respiratory Rate (Charlton 2018)**, **Signal Quality Index (Karlen 2012 / Elgendi 2016)**, **Moran's Physiological Strain Index (PSI)**, **AHA PM2.5-HRV Autonomic Strain (Brook 2010)**, and **Neural PM2.5 Humidity Calibration (Si et al. 2019)**.
 * **Interactive Graphical Dashboard:** Standalone Windows desktop GUI (`shrikefi_dashboard.exe`) featuring a 60 FPS real-time optical PPG oscilloscope, live vital displays, and dual-mode operation (Live Hardware streaming + 6 simulated disaster profiles).
 
@@ -37,7 +38,7 @@ Every headline number below is reproducible from a committed command. Where a cl
 | Clinical triage metrics | build & run `firmware/core/accuracy_evaluator.c` on `data/mimic/mimic_eval_feed.csv` | accuracy `94.11%`, TP `971` / FP `267` / TN `14451` / FN `698` |
 | MIMIC cohort scan | build & run `firmware/core/mimic_harness.c` on `data/mimic/mimic_vital_feed.csv` | 16,387 records over 98 subjects |
 | Zynq resource/timing reports | `hardware/zynq/synthesis_evidence/*.rpt` | see that directory's README |
-| ForgeFPGA resource report | `hardware/shrikefi/synthesis_evidence/resource_utilization_spi_link.log` | 222/1120 LUT5s, 121 FFs (see that directory's README) |
+| ForgeFPGA resource report | `hardware/shrikefi/synthesis_evidence/resource_utilization_spi_link.log` | 342/1120 LUT5s, 194 FFs (see that directory's README) |
 
 CI (`.github/workflows/ci.yml`) runs the Zynq testbench, the ShrikeFi testbench, the firmware unit tests, and the accuracy evaluator, and fails the build if the model drops below its accuracy floor.
 
@@ -312,9 +313,9 @@ Post-synthesis compilation results from **Renesas ForgeFPGA Workshop v6.55** tar
 
 ![Renesas ForgeFPGA Resource Footprint](docs/images/forgefpga_utilization.png)
 
-* **Logic LUT5 Usage:** **222 / 1120 CLB LUT5s (19.82%)** — **80.18% of logic fabric remains free** for expanded DSP and filtering.
-* **Registers / Flip-Flops:** **121 Flip-Flops** (117 CLB FFs @ 10.45% + 4 IOB FFs @ 0.54%).
-* **CLB Macrocells:** **40 / 140 Blocks (28.57%)** — CLB occupancy is the tighter constraint, though both are comfortable. The SPI design runs from the on-chip oscillator, so the PLL is **free (0/1)**.
+* **Logic LUT5 Usage:** **342 / 1120 CLB LUT5s (30.54%)** — **69.46% of logic fabric remains free** for expanded DSP and filtering.
+* **Registers / Flip-Flops:** **194 Flip-Flops** (190 CLB FFs @ 16.96% + 4 IOB FFs @ 0.54%).
+* **CLB Macrocells:** **76 / 140 Blocks (54.29%)** — CLB occupancy is balanced. The SPI design runs from the on-chip oscillator, so the PLL is **free (0/1)**.
 * **DSP Multipliers & BRAM:** **0 DSP Multipliers, 0 Block RAMs** (synthesized purely from logic).
 
 > **Footnote — the 443-LUT figure quoted by older revisions of this file, the
@@ -563,8 +564,8 @@ For an in-depth mathematical defense, signal processing equations, and clinical 
 │   ├── presentation/               # SIH26181 Official Presentation Decks
 │   │   ├── SIH26181_Official_Template_Presentation.pdf  # Strict 6-slide SIH portal submission
 │   │   ├── SIH26181_Official_Template_Presentation.pptx # Editable official SIH template deck
-│   │   ├── SIH26181_EdgeGuard_Presentation.pdf         # Widescreen 16:9 pitch deck (PDF)
-│   │   └── SIH26181_EdgeGuard_Presentation.pptx        # Widescreen 16:9 pitch deck (PowerPoint)
+│   │   ├── SIH26181_VALOR_Presentation.pdf             # Widescreen 16:9 pitch deck (PDF)
+│   │   └── SIH26181_VALOR_Presentation.pptx            # Widescreen 16:9 pitch deck (PowerPoint)
 │   ├── theory/                     # Master theory notes & printable PDF book
 │   ├── HARDWARE_ARCHITECTURE.md    # In-depth microarchitecture specification
 │   ├── QUALCOMM_PLATFORM_STRATEGY.md # Qualcomm Snapdragon Wear W5+ migration spec

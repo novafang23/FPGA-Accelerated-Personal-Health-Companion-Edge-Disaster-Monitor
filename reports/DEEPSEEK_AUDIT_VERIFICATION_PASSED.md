@@ -1,6 +1,6 @@
 # Project SIH26181: DeepSeek Audit Verification & Sign-Off
 
-# Final Verification Review — SIH26181 EdgeGuard
+# Final Verification Review — SIH26181 VALOR (Vital and Atmospheric Logic for Offline Rescue)
 
 **Reviewer:** Senior Systems Auditor & Biomedical AI Principal
 **Scope:** Post-remediation re-audit of CB-2, CB-4/F-101, CB-1/F-301, F-401/F-403, F-503

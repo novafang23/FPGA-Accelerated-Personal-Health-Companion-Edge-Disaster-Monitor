@@ -382,7 +382,7 @@ crest time that was measured 100 ms early.
 | Firmware: reset the FPGA's filter/FSM state after link bring-up | Proposed. The handshake reply carrying the beat flag shows bring-up traffic reaches the DSP pipeline. Needs a protocol hook the link does not currently have. |
 | IBI resolution limited to the 20 ms task period | Known limitation. Real fix is a protocol change to read the FPGA's `ibi_cycles` register. |
 | `tb_forgefpga_system.v` | Stale — still instantiates the old `rst_n` / `link_*` port set and will not compile. |
-| Docs claim 443 LUT5s | ForgeFPGA fitter reports **202/1120 (18.04%)**, 123 FFs, 37/140 CLBs. Deck must follow the fitter report. |
+| Docs claim 443 LUT5s | **Fixed across all docs.** ForgeFPGA SPI fitter reports **222/1120 (19.82%)**, 121 FFs, 40/140 CLBs. Deck follows the fitter report. |
 | HRV sample counter latched at 4/6/7 | **Fixed** — see §5.1. Absolute bounds restored, escape hatch added. |
 | Residual RMSSD error | **Fixed** — see §5.2. Caused by a single accepted missed beat (1300 ms against a 770 ms rhythm). `IBI_MISSED_BEAT_RATIO` now rejects those. |
 | Detector artefact rate: 3 splits + 6 missed beats per 124 intervals (7.3%) | **Open.** Firmware filtering now absorbs them; reducing them needs the RTL changes above. |
