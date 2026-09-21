@@ -36,11 +36,11 @@ The Zynq-7000 design remains permanently preserved as the verified reference imp
 Measured post-synthesis results from **Renesas ForgeFPGA Workshop v6.55**:
 
 * **Target Part:** `SLG47910C` (WLCSP20 package, 1120 5-input LUTs)
-* **Resource Utilization** (latest fitter run of the SPI design,
+* **Resource Utilization** (current fitter run of the SPI design,
   `synthesis_evidence/resource_utilization_spi_link.log`):
-  * **CLB LUT5s:** **222 / 1120 (19.82%)** (206 Lut5 + 16 as shift-register)
-  * **Total Flip-Flops:** **121** (117 CLB FFs [10.45%] + 4 IOB FFs [0.54%])
-  * **CLB Blocks:** **40 / 140 (28.57%)**
+  * **CLB LUT5s:** **363 / 1120 (32.41%)** (all Lut5; 0 as shift-register)
+  * **Total Flip-Flops:** **202** (198 CLB FFs [17.68%] + 4 IOB FFs [0.54%])
+  * **CLB Blocks:** **75 / 140 (53.57%)**
   * **4k BRAMs:** **0 / 8 (0.00%)**
   * **PLLs:** **0 / 1 (0.00%)** — the SPI design runs from the on-chip oscillator
 * **Verification:** `tb_forgefpga_system.v`, 5 test groups / 10 checks passing
@@ -51,10 +51,18 @@ Measured post-synthesis results from **Renesas ForgeFPGA Workshop v6.55**:
 > See [`../hardware/shrikefi/synthesis_evidence/README.md`](../hardware/shrikefi/synthesis_evidence/README.md)
 > for the comparison and the port signature that distinguishes the two logs.
 >
-> **These figures are themselves stale.** The RTL was subsequently refactored to
-> consume the shared `hardware/common/` modules and to generate its own power-on
-> reset, which changes the netlist. Re-run the fitter before quoting a footprint
-> figure, and regenerate `firmware/shrikefi/forgefpga_bitstream.h` to match.
+> **These figures are current as of the 2026-09-21 fit**, which is the first run
+> to include the H-01 slope gate in the peak detector. That gate is what moved the
+> SPI design from 342 to 363 LUT5s; the fit history is tabulated in the evidence
+> README. Two numbers appeared for the SPI design before this (222 and 342) and
+> both are real measurements of earlier netlists — the prose quoting 222 was
+> simply never updated when the 342 log replaced it.
+>
+> **On timing:** the same run's `PNR_TIMING.log` reports WNS −10.088 ns, but
+> against an auto-generated 500 MHz constraint (no clock constraint exists in the
+> design). Achievable period is 12,087 ps (82.73 MHz), so at the documented 50 MHz
+> the margin is +7.913 ns. Do not quote the −10.088 ns figure as a real result.
+> See the timing section of the evidence README.
 
 ### Renesas ForgeFPGA Workshop GUI Synthesis Evidence & Project Tree:
 ![Renesas ForgeFPGA Resources Report](images/forgefpga_resources_report.png)

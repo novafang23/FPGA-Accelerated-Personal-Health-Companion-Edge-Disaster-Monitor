@@ -363,10 +363,12 @@ ibi_cycles  XXXXXXXXXXXXXXXXXXXXXX< 0x00000CD1 >XXXX   (3,281 ticks)
 |---|---|---|
 | Zynq-7000 OOC (baseline, tag `v1.0-zynq-SIH`) | 185 LUT / 16 LUTRAM / 266 FF, **0 DSP, 0 BRAM**, WNS **+5.603 ns**, Fmax **69.45 MHz** | Tag + screenshots |
 | Zynq-7000 re-run (Vivado 2026.1) | **198** slice LUTs (182 logic + 16 LUTRAM), **267** FF, 0 DSP, 0 BRAM | `hardware/zynq/synthesis_evidence/ooc_utilization_synth.rpt` |
-| ForgeFPGA SLG47910C | **342 / 1120 LUT5s (30.54%)**, 194 FFs, 76/140 CLBs, 0 BRAM, PLL 0/1 | `hardware/shrikefi/synthesis_evidence/resource_utilization_spi_link.log` |
+| ForgeFPGA SLG47910C | **363 / 1120 LUT5s (32.41%)**, 202 FFs, 75/140 CLBs, 0 BRAM, PLL 0/1 | `hardware/shrikefi/synthesis_evidence/resource_utilization_spi_link.log` |
 
 > [!WARNING]
-> **Do not quote 443 LUT5s / 353 FFs / 85 CLBs** — that belongs to the superseded 4-bit parallel link build. The current SPI hardware fitter report measures **342 / 1120 LUT5s (30.54%)**, **194 FFs**, and **76/140 CLBs** with **PLL 0/1**. Likewise do not mix the 185-LUT baseline with the 198-LUT re-run; they are different runs measuring different scopes.
+> **Do not quote 443 LUT5s / 353 FFs / 85 CLBs** — that belongs to the superseded 4-bit parallel link build. The current SPI hardware fitter report measures **363 / 1120 LUT5s (32.41%)**, **202 FFs**, and **75/140 CLBs** with **PLL 0/1**. Two earlier SPI figures (222 and 342 LUT5s) are also real measurements of older netlists — see `hardware/shrikefi/synthesis_evidence/README.md` for the fit history. Likewise do not mix the 185-LUT baseline with the 198-LUT re-run; they are different runs measuring different scopes.
+>
+> **Do not quote WNS −10.088 ns either.** The fitter auto-constrains `clk` to 500 MHz because the design declares no clock constraint; the achievable period is 12,087 ps (82.73 MHz), so at the documented 50 MHz the margin is +7.913 ns. See the timing section of the evidence README.
 
 > [!TIP]
 > **Judge Defence Tip:** "Zero DSP, zero BRAM" is the number that impresses hardware engineers, because it proves the filter is arithmetic trickery rather than brute-force multipliers. Quote it with the mechanism: "running-sum with a bit-shift divide."
@@ -860,7 +862,7 @@ A standalone Win32 GDI application — no Python, no browser, no dependencies. I
 **Q13. "What's the battery / power consumption profile?"**
 
 - **Elevator:** "We haven't measured it on hardware — and I'd rather tell you that than quote a number I can't back."
-- **Technical:** "Architecturally, the FPGA core is small — 342 of 1120 LUT5s (30.54%), 194 FFs, 76/140 CLBs, zero DSP, zero BRAM, and zero PLL — which is a deliberately low-power profile. The dominant consumer will be the ESP32-S3 radio."
+- **Technical:** "Architecturally, the FPGA core is small — 363 of 1120 LUT5s (32.41%), 202 FFs, 75/140 CLBs, zero DSP, zero BRAM, and zero PLL — which is a deliberately low-power profile. The dominant consumer will be the ESP32-S3 radio."
 - **Evidence:** "Synthesis reports confirm the fabric footprint. Honest position: a real power measurement needs a bench supply and a current probe, which is the next step. Treat any mW figure you've seen in our older decks as unverified."
 
 > [!TIP]
@@ -938,7 +940,7 @@ A standalone Win32 GDI application — no Python, no browser, no dependencies. I
 |---|---|
 | **Project** | SIH26181 VALOR (Vital and Atmospheric Logic for Offline Rescue) / ShrikeFi — wearable offline disaster triage |
 | **MCU** | ESP32-S3, Xtensa LX7 dual-core, **160 MHz configured**, FreeRTOS, 2 MB flash |
-| **FPGA** | Renesas ForgeFPGA SLG47910C, 1120 LUT5s, 50 MHz, **342 LUT5s used (30.54%)**, 194 FFs, 76 CLBs, 0 DSP, 0 BRAM, 0 PLL |
+| **FPGA** | Renesas ForgeFPGA SLG47910C, 1120 LUT5s, 50 MHz, **363 LUT5s used (32.41%)**, 202 FFs, 75 CLBs, 0 DSP, 0 BRAM, 0 PLL |
 | **Baseline** | Xilinx Zynq-7000 `xc7z020`, AXI4-Lite, 6/6 tests, 0 DSP/BRAM |
 | **Sensors** | MAX30102 (PPG), BME280 (T/H/P), PMSA003 (PM1/2.5/10), SSD1306 OLED |
 | **Link** | 4-bit parallel nibble link: strobe, dir, din[3:0], dout[3:0], irq_beat |
@@ -963,7 +965,7 @@ A standalone Win32 GDI application — no Python, no browser, no dependencies. I
 |---|---|
 | 6/6 Zynq tests | `hardware/zynq/tb_ppg_system.v` |
 | 5/5 ShrikeFi tests | `hardware/shrikefi/tb_forgefpga_system.v` |
-| 342 / 1120 LUT5s | `hardware/shrikefi/synthesis_evidence/resource_utilization_spi_link.log` |
+| 363 / 1120 LUT5s | `hardware/shrikefi/synthesis_evidence/resource_utilization_spi_link.log` |
 | 185 LUT / +5.603 ns baseline | Tag `v1.0-zynq-SIH` |
 | 198 LUT / 267 FF re-run | `hardware/zynq/synthesis_evidence/ooc_utilization_synth.rpt` |
 | 88.47% validation accuracy | `python3 firmware/core/train_nn_risk_model.py` |

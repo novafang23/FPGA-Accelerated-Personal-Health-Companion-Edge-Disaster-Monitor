@@ -340,7 +340,7 @@ tf_fa = tx_fa.text_frame
 tf_fa.word_wrap = True
 
 add_bullet_p(tf_fa, "Vendor-Agnostic Verilog RTL", "Identical synthesizable core Verilog runs on both AMD Xilinx (6-input LUT) and Renesas ForgeFPGA (5-input LUT) architectures without redesign.", first=True)
-add_bullet_p(tf_fa, "Ultra-Low Silicon Footprint", "Synthesized on Renesas ForgeFPGA requiring 342 / 1120 LUT5s (30.54% logic utilization) with 0 DSP multipliers and 0 Block RAM.", first=False)
+add_bullet_p(tf_fa, "Ultra-Low Silicon Footprint", "Synthesized on Renesas ForgeFPGA requiring 363 / 1120 LUT5s (32.41% logic utilization) with 0 DSP multipliers and 0 Block RAM.", first=False)
 add_bullet_p(tf_fa, "Static Timing Closure (+5.603 ns WNS)", "Baseline Zynq-7000 build, tag v1.0-zynq-SIH: +5.603 ns setup slack, 69.45 MHz Fmax against a 50 MHz target clock.", first=False)
 add_bullet_p(tf_fa, "Economic Viability & Bulk BOM", "\u2022 12 line items: ForgeFPGA, ESP32-S3, 3 sensors, OLED\n\u2022 Projected under $15 at 100k-unit volume (distributor estimates)\n\u2022 No cloud, no subscription, no data plan\n=> Parts list: hardware/shrikefi/pcb/ BOM", first=False)
 

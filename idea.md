@@ -30,8 +30,8 @@ The system splits workload across specialized silicon tiers:
 │             RENESAS FORGEFPGA SLG47910C (50 MHz RTL HARDWARE DSP)      │
 │                     [~40% OF SYSTEM WORKLOAD]                          │
 │                                                                        │
-│   • Resource Utilization: 342 / 1120 CLB LUT5s (30.54%), 194 FFs,      │
-│     76 / 140 CLBs (54.29%), 0 DSP, 0 BRAM, 0 PLL                       │
+│   • Resource Utilization: 363 / 1120 CLB LUT5s (32.41%), 202 FFs,      │
+│     75 / 140 CLBs (53.57%), 0 DSP, 0 BRAM, 0 PLL                       │
 │   • Dual 8-Tap Moving Average Filter: O(1) running-sum, bit-shift (>>3)│
 │   • Cycle-Accurate 20ns Timer: Hardware Inter-Beat Interval (IBI)      │
 │   • 4-State Systolic Crest Detector FSM (ARMED->RISING->PEAK->REF)     │

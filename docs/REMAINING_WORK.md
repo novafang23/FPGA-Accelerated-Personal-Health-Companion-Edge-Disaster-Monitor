@@ -229,10 +229,20 @@ dataset — does it apply to Indian patients?"* ~2 hours.
 
 ---
 
-### T4.4 — Re-fit before quoting any FPGA resource figure
+### T4.4 — Re-fit before quoting any FPGA resource figure — **DONE (2026-09-21)**
 
-The 443-LUT and 222/1120 figures both predate the shared-source refactor and the power-on reset.
-No current figure exists. **Re-fit, then quote.** Do not quote a stale number.
+The 2026-09-21 fit is current: **363 / 1120 LUT5s (32.41%)**, 202 FFs, 75/140 CLBs,
+PLL 0/1. It is the first run to include the H-01 slope gate.
+`resource_utilization_spi_link.log` and every doc that quotes a footprint have
+been updated to it. The older 443 (parallel link), 342 and 222 figures are all
+real measurements of earlier netlists — see
+`hardware/shrikefi/synthesis_evidence/README.md` for the history.
+
+**One caveat carried forward:** the design declares no clock constraint, so the
+fitter auto-constrains `clk` to 500 MHz and reports WNS −10.088 ns, which is
+meaningless. Achievable period is 12,087 ps (82.73 MHz); at 50 MHz the margin is
++7.913 ns. Adding a real constraint to the flow is still open work — until then
+the timing report cannot be cited either way.
 
 ---
 

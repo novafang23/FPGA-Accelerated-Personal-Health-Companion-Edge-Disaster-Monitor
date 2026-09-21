@@ -72,20 +72,25 @@ Latest fitter run of the SPI design (`synthesis_evidence/resource_utilization_sp
 
 | Resource | Usage |
 |---|---|
-| CLB LUT5s | **222 / 1120 (19.82%)** |
-| FFs | **121** (117 CLB + 4 IOB) |
-| CLBs | **40 / 140 (28.57%)** |
+| CLB LUT5s | **363 / 1120 (32.41%)** |
+| FFs | **202** (198 CLB + 4 IOB) |
+| CLBs | **75 / 140 (53.57%)** |
 | Block RAMs | **0 / 8** |
 | PLLs | **0 / 1** (runs from the on-chip oscillator) |
 
 **Do not quote 443 LUT5s / 353 FFs / 85 CLBs.** Those figures are from the
-superseded 4-bit parallel design and roughly double the real usage — see
+superseded 4-bit parallel design and roughly double the earlier SPI usage — see
 [`synthesis_evidence/README.md`](synthesis_evidence/README.md) for the full
-comparison and the port signature that tells the two logs apart.
+comparison, the port signature that tells the two logs apart, and the fit history
+(342 → 363 LUT5s as the H-01 gate was added).
 
-**These numbers are themselves stale.** The RTL was subsequently refactored to
-use the shared DSP modules and to generate its own power-on reset, which changes
-the netlist. Re-run the fitter before quoting a footprint figure.
+**The fitter's timing report needs reading with care.** `PNR_TIMING.log` shows
+WNS −10.088 ns, but that is measured against an auto-generated 2000 ps (500 MHz)
+constraint — the design declares no clock constraint. The same report gives an
+achievable period of 12,087 ps (82.73 MHz), so at the 50 MHz this design runs at
+the margin is **+7.913 ns**. See the timing section of
+[`synthesis_evidence/README.md`](synthesis_evidence/README.md) before quoting any
+timing number.
 
 ## Interconnect
 
@@ -108,18 +113,20 @@ FPGA over **SPI2** at boot using the Vicharak `Web_FPGA_programmer.ino` sequence
 (see the FPGA-delivery note in
 [`firmware/shrikefi/README.md`](../../firmware/shrikefi/README.md)).
 
-> **The embedded bitstream does not match the RTL in `hardware/common/`.** Two
-> changes are ahead of it, and no ForgeFPGA toolchain was available to re-fit:
+> **The embedded bitstream is current.** It was re-fit on 2026-09-21 with the
+> `STATE_ARMED` positive-slope gate included, and
+> `firmware/shrikefi/forgefpga_bitstream.h` was regenerated from that fit —
+> `convert_bitstream.py --check` passes. Two earlier gaps are now closed:
 >
 > 1. The shared-source refactor and the internal power-on reset changed the
->    netlist. The detector logic stayed behaviourally identical — the new part is
->    the reset distribution.
-> 2. The `STATE_ARMED` positive-slope gate, which stops a still-decaying pulse
->    tail from being counted as a second beat. See
->    `hardware/common/ppg_peak_detector.v` and TEST C in
->    `hardware/common/tb_ppg_peak_detector.v`. This **is** a real behaviour
->    change, and it is **not** in the flashed bitstream.
+>    netlist. Detector behaviour was unchanged there; the new part was the reset
+>    distribution.
+> 2. The positive-slope gate, which stops a still-decaying pulse tail from being
+>    counted as a second beat. See `hardware/common/ppg_peak_detector.v` and
+>    TEST C in `hardware/common/tb_ppg_peak_detector.v`. This one is a real
+>    behaviour change, and it **is** in the flashed bitstream as of this fit.
 >
-> Re-run the fitter and regenerate `forgefpga_bitstream.h` before treating the
-> flashed bitstream as corresponding to this RTL. Until then the device runs the
-> pre-gate detector, which can emit a phantom split beat on a wide pulse.
+> Re-fit and re-run `convert_bitstream.py` whenever the RTL under
+> `hardware/common/` changes. `gen_flat_source.py --check` and
+> `convert_bitstream.py --check` both fail loudly if you forget — which is how the
+> previous two gaps went unnoticed for as long as they did.

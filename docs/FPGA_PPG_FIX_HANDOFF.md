@@ -427,6 +427,18 @@ this as a detector bug. It is logged in the report as a recommended RTL change.
 
 ### The RTL
 
+> **Status update (2026-09-21): the bitstream has been re-fitted.** Item 1 below
+> shipped in two parts — a dynamic `crest_fall_min` (proportional for strong
+> signals, fixed floor for weak ones) and the `STATE_ARMED` positive-slope gate
+> that stops a decaying tail being counted as a second beat. Both are in the
+> flashed bitstream as of the 2026-09-21 fit, and both RTL changes are now
+> recorded in `hardware/shrikefi/README.md`. **Item 2 is still open**: the return
+> byte is still `filt_sample[6:0]`, so the reported waveform still wraps at 128.
+>
+> The original text is kept below because it explains why the ordering matters —
+> editing the Verilog without re-fitting silently desynchronises source from
+> silicon, which is exactly what had happened here.
+
 Two changes are recommended but **not applied**, because they require
 re-synthesising the bitstream in the Renesas ForgeFPGA GUI:
 
@@ -540,10 +552,10 @@ the bitstream and the `.v` have diverged, or a pin has moved.
 | Decide whether the RTL crest-confirmation changes are needed | needs evidence | If notch pairs persist after the firmware fix, yes. Firmware cannot recover a crest time measured ~210 ms off, and RMSSD degrades past ~16 ms of beat-picking error (Sheridan 2020) |
 | WiFi never associates | open | Log shows `reason 201: SSID NOT FOUND`. `Airtel_Abhi-506` in `wifi_credentials.h` is either misspelled or a 5 GHz-only AP — the ESP32-S3 has no 5 GHz radio. **The cloud dashboard receives nothing until this is fixed.** |
 | ~~`tb_forgefpga_system.v` does not compile~~ | **fixed** | Rewritten against the SPI top: 8-bit SPI mode 0, MSB first, one transfer per sample. 5 test groups / 10 checks, all passing. The second copy in `forgefpga_project/ffpga/sim/` is no longer hand-maintained — `gen_flat_source.py` syncs it. |
-| Docs claim 443 LUT5s | **fixed** | The tracked evidence log was from the **superseded 4-bit parallel build** (port signature 8 in / 6 out, PLL 1/1), not the SPI design. The SPI fitter run measures **222/1120 (19.82%), 121 FFs, 40/140 CLBs, PLL 0/1**. Corrected across `README.md`, `docs/MIGRATION.md`, `hardware/shrikefi/README.md`, `hardware/shrikefi/synthesis_evidence/`, `docs/MASTER_PROJECT_GUIDE.md`, `docs/theory/THEORY_NOTES.md`, `scripts/generate_sih_presentation.py`, `scripts/generate_sih_official_presentation.py`, and `hardware/shrikefi/presentation.gtkw`. |
+| Docs claim 443 LUT5s | **fixed** | The tracked evidence log was from the **superseded 4-bit parallel build** (port signature 8 in / 6 out, PLL 1/1), not the SPI design. Corrected across `README.md`, `docs/MIGRATION.md`, `hardware/shrikefi/README.md`, `hardware/shrikefi/synthesis_evidence/`, `docs/MASTER_PROJECT_GUIDE.md`, `docs/theory/THEORY_NOTES.md`, `scripts/generate_sih_presentation.py`, `scripts/generate_sih_official_presentation.py`, and `hardware/shrikefi/presentation.gtkw`. The SPI figure has since been re-measured twice; see the footprint row below. |
 | `rst_n` was tied to `1'b1` | **fixed** | Nothing drove PIN_13, so it could not be an input — but tying it high left every register without a defined start state. Simulation started entirely X, which is the deeper reason the testbench could never have passed. Replaced with an internal power-on reset counter; `POR_CYC` is a parameter so a testbench can shorten it. |
-| Bitstream vs RTL | **verified consistent, with one caveat** | `firmware/shrikefi/forgefpga_bitstream.h` was regenerated 16-09 12:54, after the 15-09 14:45 refactor, and its 46,408 bytes match `FPGA_bitstream_MCU.bin` byte-for-byte (checked directly, not assumed). Caveat: byte-identity between header and `.bin` does not by itself prove the `.bin` was fitted from this exact RTL — only a re-fit can prove that. The behavioural evidence supports it: the flashed design reproduces the new FSM in offline replay (376/379 beats). |
-| ForgeFPGA footprint figure now stale | **open** | Even the corrected 222/1120 figure predates the refactor. No ForgeFPGA toolchain was available where this work was done, so no current figure exists. Re-fit before quoting one. |
+| Bitstream vs RTL | **verified consistent** | The RTL was re-fitted in the Renesas tool on 2026-09-21, after the last change to `hardware/common/`, and `firmware/shrikefi/forgefpga_bitstream.h` was regenerated from that fit. The caveat that used to sit here — byte-identity between header and `.bin` does not prove the `.bin` came from this RTL — is now closed by ordering: the flat vendor source was regenerated at 21:16, the place-and-route ran 21:40–21:42, and `convert_bitstream.py --check` and `gen_flat_source.py --check` both pass. The design's configuration bits changed by 41.7% relative to the previous fit, which is what a real re-fit looks like. |
+| ForgeFPGA footprint figure | **fixed — current** | The re-fit measures **363 / 1120 LUT5s (32.41%), 202 FFs (198 CLB + 4 IOB), 75/140 CLBs, PLL 0/1, 0 BRAM**. That is the first run including the H-01 slope gate. Earlier SPI figures (342 and 222) were real measurements of older netlists; `hardware/shrikefi/synthesis_evidence/README.md` tabulates the history. **Do not quote WNS −10.088 ns** — the design declares no clock constraint, so the fitter auto-constrains `clk` to 500 MHz; achievable period is 12,087 ps (82.73 MHz), giving +7.913 ns at 50 MHz. |
 | `ppg_sqi.c`, `ppg_respiratory_rate.c` | **fixed** | Both were written and exercised only in the host harness — neither was in `main/CMakeLists.txt`, so on the device NEWS2 ran with its respiratory rate defaulted to a normal 14 (`clinical_vitals_engine.c:106`) and could not flag tachypnoea or bradypnoea. Both are now compiled into the ESP build, fed from rolling windows of accepted IBIs and raw IR, and `clinical_vitals_assess_full()` is used so RR and SQI actually reach the score. Telemetry now carries `RR=` and `SQI=` (appended, so older dashboard builds still parse). |
 | Flood/hypothermia risk not instrumented | known | No skin-temperature sensor. The engine reports an ambient proxy, capped at `RISK_HIGH`, and labels it `(ambient proxy)` in the log. State this honestly. |
 

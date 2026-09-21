@@ -309,7 +309,7 @@ fp_img = os.path.join(DOCS_IMAGES, "forgefpga_chip_schematic.png")
 if os.path.exists(fp_img):
     s4.shapes.add_picture(fp_img, Inches(1.0), Inches(2.8), Inches(5.3), Inches(2.4))
 
-box1 = add_stat_box(s4, Inches(1.0), Inches(5.35), Inches(1.65), Inches(1.5), "30.5%", "LUT5 Logic Used\n(342 / 1120)", C_TEAL)
+box1 = add_stat_box(s4, Inches(1.0), Inches(5.35), Inches(1.65), Inches(1.5), "32.4%", "LUT5 Logic Used\n(363 / 1120)", C_TEAL)
 box2 = add_stat_box(s4, Inches(2.8), Inches(5.35), Inches(1.7), Inches(1.5), "0 DSP / 0 BRAM", "Pure Logic Gates\n(Lowest Cost BOM)", C_BLUE_ACC)
 box3 = add_stat_box(s4, Inches(4.65), Inches(5.35), Inches(1.65), Inches(1.5), "+5.603 ns", "WNS Timing Slack\n(STA Met at 69 MHz)", C_GREEN)
 
