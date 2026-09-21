@@ -137,7 +137,7 @@ typedef struct {
     const char *heat_advisory;
     const char *pollution_advisory;
     const char *flood_advisory;
-    const char *overall_advisory;
+    char overall_advisory[512];
 } risk_assessment_t;
 
 /* Convert risk level enum to human-readable string */

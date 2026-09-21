@@ -223,19 +223,26 @@ static DWORD WINAPI SerialReaderThread(LPVOID lpParam) {
                         line_buf[line_len] = '\0';
                         
                         float r_hr, r_spo2, r_rmssd, r_temp, r_hum, r_pm;
+                        float r_rr = 0.0f, r_sqi = 0.95f;
+                        int parsed = 0;
                         unsigned long r_ir = 0;
                         
                         // Packet 1: [TELEMETRY] HR=...
-                        if (sscanf(line_buf, "[TELEMETRY] HR=%f,SPO2=%f,RMSSD=%f,TEMP=%f,HUM=%f,PM25=%f",
-                                   &r_hr, &r_spo2, &r_rmssd, &r_temp, &r_hum, &r_pm) == 6) {
+                        if ((parsed = sscanf(line_buf, "[TELEMETRY] HR=%f,SPO2=%f,RMSSD=%f,TEMP=%f,HUM=%f,PM25=%f,RR=%f,SQI=%f",
+                                   &r_hr, &r_spo2, &r_rmssd, &r_temp, &r_hum, &r_pm, &r_rr, &r_sqi)) >= 6) {
                             if (r_hr > 20.0f) g_state.hr = r_hr;
                             if (r_spo2 > 50.0f) g_state.spo2 = r_spo2;
                             if (r_rmssd > 0.0f) g_state.rmssd = r_rmssd;
                             g_state.temp_c = r_temp;
                             g_state.humidity_pct = r_hum;
                             g_state.pm25_raw = r_pm;
+                            if (parsed == 8) {
+                                g_state.derived_rr = r_rr;
+                                g_state.sqi = r_sqi;
+                            } else {
+                                g_state.sqi = 0.95f;
+                            }
                             g_state.is_finger_present = 1;
-                            g_state.sqi = 0.95f;
                             g_state.last_packet_time_ms = GetTickCount();
                         }
                         // Packet 2: [TELEMETRY] NO_FINGER...

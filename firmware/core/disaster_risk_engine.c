@@ -387,15 +387,15 @@ static void finalize_overall_risk(risk_assessment_t *result, const char *normal_
 
     if (have_hazard) {
         result->overall_risk = worst;
-        result->overall_advisory = worst_advisory;
+        snprintf(result->overall_advisory, sizeof(result->overall_advisory), "%s", worst_advisory);
     } else if (have_unknown) {
         result->overall_risk = RISK_UNKNOWN;
-        result->overall_advisory = have_normal
+        snprintf(result->overall_advisory, sizeof(result->overall_advisory), "%s", have_normal
             ? "Active modalities normal; other sensors unmonitored or missing"
-            : "Insufficient sensor data; all evaluated modalities unknown";
+            : "Insufficient sensor data; all evaluated modalities unknown");
     } else {
         result->overall_risk = RISK_NORMAL;
-        result->overall_advisory = normal_advisory ? normal_advisory : "All vitals and environmental conditions normal";
+        snprintf(result->overall_advisory, sizeof(result->overall_advisory), "%s", normal_advisory ? normal_advisory : "All vitals and environmental conditions normal");
     }
 }
 
@@ -417,7 +417,7 @@ void disaster_assess(const hrv_state_t *hrv, float spo2, float bpm, const env_se
         result->pollution_risk = RISK_UNKNOWN;
         result->flood_risk = RISK_UNKNOWN;
         result->overall_risk = RISK_UNKNOWN;
-        result->overall_advisory = "Insufficient HRV data for risk assessment";
+        snprintf(result->overall_advisory, sizeof(result->overall_advisory), "Insufficient HRV data for risk assessment");
         return;
     }
 
@@ -473,7 +473,7 @@ void disaster_assess_nn(const hrv_state_t *hrv, float spo2, float bpm, const env
         result->pollution_risk = RISK_UNKNOWN;
         result->flood_risk = RISK_UNKNOWN;
         result->overall_risk = RISK_UNKNOWN;
-        result->overall_advisory = "Insufficient HRV data for AI risk assessment";
+        snprintf(result->overall_advisory, sizeof(result->overall_advisory), "Insufficient HRV data for AI risk assessment");
         return;
     }
 
@@ -534,7 +534,7 @@ void disaster_assess_nn_int8(const hrv_state_t *hrv, float spo2, float bpm,
         result->pollution_risk = RISK_UNKNOWN;
         result->flood_risk = RISK_UNKNOWN;
         result->overall_risk = RISK_UNKNOWN;
-        result->overall_advisory = "Insufficient HRV data for AI risk assessment (INT8)";
+        snprintf(result->overall_advisory, sizeof(result->overall_advisory), "Insufficient HRV data for AI risk assessment (INT8)");
         if (raw_out != NULL) {
             memset(raw_out, 0, sizeof(nn_output_t));
         }

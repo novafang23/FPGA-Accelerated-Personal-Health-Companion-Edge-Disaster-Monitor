@@ -554,6 +554,9 @@ static void task_ppg_accelerator(void *pvParameters) {
                                      ppg_sample.ir);
             }
 
+            /* Stream raw PPG sample for PC Dashboard oscilloscope */
+            printf("[PPG] %lu\n", (unsigned long)ppg_sample.ir);
+
             /* 2. Stream to ForgeFPGA over 4-bit parallel link */
             shrikefi_write_red_sample(raw_red);
             shrikefi_write_ir_sample(raw_ir);
@@ -756,8 +759,6 @@ static void task_ppg_accelerator(void *pvParameters) {
                     }
                 }
                 sw_prev_sample = ppg_sample.ir;
-                /* Stream raw PPG sample for PC Dashboard oscilloscope */
-                printf("[PPG] %lu\n", (unsigned long)ppg_sample.ir);
 
                 /* Evaluate real-time signal quality */
                 signal_status_t current_status;
@@ -803,6 +804,8 @@ static void task_ppg_accelerator(void *pvParameters) {
                     g_state.hrv_sample_count   = 0;
                     g_state.spo2_valid         = 0;
                     g_state.spo2_percent       = 0.0f;
+                    g_state.respiratory_rate_bpm = 0.0f;
+                    g_state.ppg_sqi            = 0.0f;
                     g_state.signal_status      = SIGNAL_STATUS_NO_FINGER;
                     xSemaphoreGive(s_data_mutex);
                 }

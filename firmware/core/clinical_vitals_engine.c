@@ -113,7 +113,7 @@ void clinical_vitals_assess_full(float hr, float spo2, float rmssd, float rr, fl
     out->spo2  = spo2;
     out->rmssd = (rmssd > 0.0f && isfinite(rmssd)) ? rmssd : 0.0f;
     out->rr    = (float)rr_i;
-    out->sqi   = (sqi > 0.0f && isfinite(sqi)) ? sqi : 0.95f;
+    out->sqi   = (sqi > 0.0f && isfinite(sqi)) ? sqi : 0.0f;
 
     /* 3. Evaluate absolute life-threatening crisis using the exact same canonical integers */
     bool is_absolute_crisis = (spo2_i <= SPO2_CRITICAL_HYPOXIA_MAX) ||
@@ -121,15 +121,21 @@ void clinical_vitals_assess_full(float hr, float spo2, float rmssd, float rr, fl
                               (hr_i <= HR_CRITICAL_BRADY_MAX) ||
                               (rr_i >= 30) || (rr_i <= 6);
 
-    /* 4. Motion artifact rejection check via SQI (Elgendi 2016 / Karlen 2012):
+    /* 4. Motion artifact rejection & Warm-up check (Elgendi 2016 / Karlen 2012):
      * If signal quality is low BUT patient is NOT in life-threatening collapse,
      * hold previous reliable reading to prevent false alarms.
      * BUT if an absolute crisis is detected, DO NOT suppress the emergency! */
-    if (sqi > 0.0f && sqi < 0.70f && !is_absolute_crisis) {
+    if (out->sqi == 0.0f && !is_absolute_crisis) {
+        out->level = CLINICAL_ELEVATED;
+        out->alert_flags = ALERT_SIGNAL_NOISE;
+        snprintf(out->advisory, sizeof(out->advisory),
+                 "SENSOR WARMUP: Calibrating signal baseline, holding triage.");
+        return;
+    } else if (out->sqi < 0.70f && !is_absolute_crisis) {
         out->level = CLINICAL_ELEVATED; /* Mark as elevated uncertainty / holding */
         out->alert_flags = ALERT_SIGNAL_NOISE;
         snprintf(out->advisory, sizeof(out->advisory),
-                 "SENSOR QUALITY LOW (SQI %.2f < 0.70): Motion artifact detected. Stabilize sensor, holding triage.", sqi);
+                 "SENSOR QUALITY LOW (SQI %.2f < 0.70): Motion artifact detected. Stabilize sensor, holding triage.", out->sqi);
         return;
     }
 
@@ -233,8 +239,7 @@ void clinical_vitals_assess(float hr, float spo2, float rmssd, clinical_assessme
     clinical_vitals_assess_full(hr, spo2, rmssd, 14.0f, 0.95f, out);
 }
 
-/* Static buffer for unified advisory string */
-static char s_fused_advisory_buf[512];
+/* clinical_fuse_triage output relies on risk_assessment_t's internal buffer */
 
 void clinical_fuse_triage(const clinical_assessment_t *clinical,
                           const risk_assessment_t *disaster,
@@ -246,7 +251,7 @@ void clinical_fuse_triage(const clinical_assessment_t *clinical,
     if (disaster != NULL) {
         *fused = *disaster;
         disaster_level = disaster->overall_risk;
-        if (disaster->overall_advisory) disaster_adv = disaster->overall_advisory;
+        if (disaster->overall_advisory[0] != '\0') disaster_adv = disaster->overall_advisory;
     } else {
         memset(fused, 0, sizeof(*fused));
     }
@@ -266,20 +271,18 @@ void clinical_fuse_triage(const clinical_assessment_t *clinical,
     if (clin_level > disaster_level) {
         fused->overall_risk = clin_level;
         if (disaster_level > RISK_NORMAL) {
-            snprintf(s_fused_advisory_buf, sizeof(s_fused_advisory_buf), "%s | Environmental: %s",
+            snprintf(fused->overall_advisory, sizeof(fused->overall_advisory), "%.240s | Environmental: %.240s",
                      clinical->advisory, disaster_adv);
         } else {
-            snprintf(s_fused_advisory_buf, sizeof(s_fused_advisory_buf), "%s", clinical->advisory);
+            snprintf(fused->overall_advisory, sizeof(fused->overall_advisory), "%s", clinical->advisory);
         }
     } else {
         fused->overall_risk = disaster_level;
         if (clin_level > RISK_NORMAL) {
-            snprintf(s_fused_advisory_buf, sizeof(s_fused_advisory_buf), "%s | Vitals: %s",
+            snprintf(fused->overall_advisory, sizeof(fused->overall_advisory), "%.240s | Vitals: %.240s",
                      disaster_adv, clinical->advisory);
         } else {
-            snprintf(s_fused_advisory_buf, sizeof(s_fused_advisory_buf), "%s", disaster_adv);
+            snprintf(fused->overall_advisory, sizeof(fused->overall_advisory), "%s", disaster_adv);
         }
     }
-
-    fused->overall_advisory = s_fused_advisory_buf;
 }

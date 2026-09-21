@@ -1,34 +1,37 @@
 menu "ShrikeFi configuration"
 
-    config SHRIKEFI_ENABLE_I2C_BITSTREAM_FLASH
-        bool "Embed the ForgeFPGA bitstream and try to send it over I2C at boot"
+    config SHRIKEFI_ENABLE_SPI2_BITSTREAM_FLASH
+        bool "Embed the ForgeFPGA bitstream and try to send it over SPI2 at boot"
         default n
         help
             Compiles forgefpga_bitstream.h into the firmware image and has
             shrikefi_fpga_flash_init() attempt to deliver it to the ForgeFPGA
-            over I2C at power-up.
+            over SPI2 at power-up.
 
             This costs 46,408 bytes (~45 KiB) of flash. It is OFF by default
             because:
 
-              * The Renesas SLG47910 is an FPGA, not a GreenPAK CMIC, and is not
-                documented to expose a hard I2C configuration port.
-              * This design's pin constraints
-                (hardware/shrikefi/forgefpga_pins.pcf) declare no I2C or SPI
-                configuration interface.
-              * The board's FPGA is therefore expected to configure itself from
+              * The board's FPGA is expected to configure itself from
                 OTP/NVM or from the onboard W25Q32JV QSPI flash at power-up.
-              * The transfer itself cannot be correct for a 46 KB image anyway:
-                esp32_i2c_hal_write() takes an 8-bit register address, so the
-                offset wraps every 256 bytes.
 
-            Enable this ONLY if you have confirmed that a device ACKs at
-            FORGEFPGA_I2C_ADDR (0x08) -- the boot log tells you -- AND you have
-            the Renesas ForgeFPGA I2C programming sequence to hand. Without that
-            sequence the write is a guess.
+            Enable this ONLY if you have confirmed that a device responds at
+            the expected SPI CS and you have the Renesas ForgeFPGA SPI programming
+            sequence to hand.
 
             The 4-bit parallel link is unaffected either way: it is the runtime
             bus and never depends on this option.
+
+    config SHRIKEFI_CLOUD_PUBLISH
+        bool "Enable MQTT cloud publishing of health telemetry"
+        default n
+        help
+            Enables publishing of health data (HR, SpO2, RMSSD, triage status, etc.)
+            to an MQTT broker. This is OFF by default to ensure patient data privacy
+            (Issue S-01).
+
+            When enabled, the device will connect to the broker specified in
+            wifi_mqtt_manager.c and broadcast telemetry. Use with caution.
+
 
     config SHRIKEFI_WIFI_SSID
         string "WiFi SSID (2.4 GHz only; leave empty for offline edge mode)"

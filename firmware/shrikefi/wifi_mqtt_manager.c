@@ -62,6 +62,7 @@
 static const char *TAG = "WIFI_MQTT";
 static esp_mqtt_client_handle_t mqtt_client = NULL;
 static bool s_mqtt_connected = false;
+static bool s_mqtt_started   = false;
 static int  s_wifi_retries   = 0;
 static bool s_scan_dumped    = false;   /* scan diagnostic runs at most once */
 static volatile bool s_scanning = false; /* suppress auto-reconnect during a scan */
@@ -271,9 +272,12 @@ static void wifi_event_handler(void* arg, esp_event_base_t event_base,
         ESP_LOGI(TAG, "Got IP: " IPSTR, IP2STR(&event->ip_info.ip));
         
         // Connect to MQTT broker now that we have WiFi
-        if (mqtt_client != NULL) {
+#ifdef CONFIG_SHRIKEFI_CLOUD_PUBLISH
+        if (mqtt_client != NULL && !s_mqtt_started) {
             esp_mqtt_client_start(mqtt_client);
+            s_mqtt_started = true;
         }
+#endif
     }
 }
 
@@ -344,6 +348,7 @@ void wifi_mqtt_init(void) {
     ESP_ERROR_CHECK(esp_wifi_start());
 
     // Initialize MQTT
+#ifdef CONFIG_SHRIKEFI_CLOUD_PUBLISH
     ESP_LOGI(TAG, "Initializing MQTT Client...");
     esp_mqtt_client_config_t mqtt_cfg = {
         .broker.address.uri = MQTT_BROKER_URI,
@@ -351,6 +356,9 @@ void wifi_mqtt_init(void) {
     
     mqtt_client = esp_mqtt_client_init(&mqtt_cfg);
     esp_mqtt_client_register_event(mqtt_client, ESP_EVENT_ANY_ID, mqtt_event_handler, NULL);
+#else
+    ESP_LOGI(TAG, "Cloud publishing is disabled by config. Patient data stays on the edge.");
+#endif
     
     // Note: mqtt_client_start is called after we get an IP address
 }
@@ -360,6 +368,7 @@ bool mqtt_is_connected(void) {
 }
 
 void cloud_publish_health_data(float hr, float rmssd, float spo2, float temp, float pm25, const char* risk_level) {
+#ifdef CONFIG_SHRIKEFI_CLOUD_PUBLISH
     if (!s_mqtt_connected || mqtt_client == NULL) {
         return;
     }
@@ -371,6 +380,7 @@ void cloud_publish_health_data(float hr, float rmssd, float spo2, float temp, fl
 
     int msg_id = esp_mqtt_client_publish(mqtt_client, MQTT_TOPIC, payload, 0, 1, 0);
     ESP_LOGD(TAG, "Published msg_id=%d: %s", msg_id, payload);
+#endif
 }
 
 #else

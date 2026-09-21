@@ -126,7 +126,9 @@ module ppg_peak_detector #(
         next_state = current_state;
         case (current_state)
             STATE_ARMED: begin
-                if (sample_valid && (sample_in >= dyn_threshold)) begin
+                // Require both threshold crossing and positive slope (rising edge)
+                // to prevent false re-triggering during wide pulse downslope decay.
+                if (sample_valid && (sample_in >= dyn_threshold) && (sample_in > prev_sample)) begin
                     next_state = STATE_RISING;
                 end
             end

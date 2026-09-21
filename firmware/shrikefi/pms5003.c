@@ -7,10 +7,15 @@
 #include "pms5003.h"
 
 #ifdef ESP_PLATFORM
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
 #include "driver/uart.h"
 #include "esp_log.h"
 
 static const char *TAG = "PMS5003";
+static portMUX_TYPE s_pms_mux = portMUX_INITIALIZER_UNLOCKED;
+#define PMS_LOCK()   portENTER_CRITICAL(&s_pms_mux)
+#define PMS_UNLOCK() portEXIT_CRITICAL(&s_pms_mux)
 
 #else
 #include <stdio.h>
@@ -18,6 +23,8 @@ static const char *TAG = "PMS5003";
 #define ESP_LOGE(tag, ...) do {} while(0)
 #define ESP_LOGW(tag, ...) do {} while(0)
 static const char *TAG __attribute__((unused)) = "PMS5003";
+#define PMS_LOCK()
+#define PMS_UNLOCK()
 #endif
 
 /* Internal: Extract 16-bit big-endian value from buffer */
@@ -43,6 +50,7 @@ static int pms5003_parse_frame(pms5003_t *dev) {
         return -1;
     }
 
+    PMS_LOCK();
     dev->last_data.pm1_0_cf1   = extract_u16(buf, 4);
     dev->last_data.pm2_5_cf1   = extract_u16(buf, 6);
     dev->last_data.pm10_cf1    = extract_u16(buf, 8);
@@ -60,6 +68,7 @@ static int pms5003_parse_frame(pms5003_t *dev) {
 
     dev->last_data.valid = 1;
     dev->has_valid_data = 1;
+    PMS_UNLOCK();
 
     return 0;
 }
@@ -94,6 +103,9 @@ int pms5003_feed_byte(pms5003_t *dev, uint8_t byte) {
         if (byte == PMS5003_START_BYTE_2) {
             dev->rx_buf[1] = byte;
             dev->rx_pos = 2;
+        } else if (byte == PMS5003_START_BYTE_1) {
+            dev->rx_buf[0] = byte;
+            dev->rx_pos = 1;
         } else {
             dev->synced = 0;
             dev->rx_pos = 0;
@@ -117,7 +129,9 @@ int pms5003_feed_byte(pms5003_t *dev, uint8_t byte) {
 
 int pms5003_get_data(const pms5003_t *dev, pms5003_data_t *data) {
     if (!dev->has_valid_data || !data) return -1;
+    PMS_LOCK();
     *data = dev->last_data;
+    PMS_UNLOCK();
     return 0;
 }
 
