@@ -56,13 +56,21 @@
 #  endif
 #endif
 
+/* All MQTT broker identity and client state exists only when cloud publishing
+ * is explicitly compiled in. Keeping it behind the same guard as the code that
+ * uses it avoids -Wunused-variable / -Wunused-function on the default build,
+ * where the entire cloud path is removed. See CONFIG_SHRIKEFI_CLOUD_PUBLISH
+ * in main/Kconfig.projbuild -- it defaults to n for patient privacy. */
+#ifdef CONFIG_SHRIKEFI_CLOUD_PUBLISH
 #define MQTT_BROKER_URI "mqtt://broker.hivemq.com"  // Free public test broker
 #define MQTT_TOPIC     "sih26181/shrikefi/health"
 
-static const char *TAG = "WIFI_MQTT";
 static esp_mqtt_client_handle_t mqtt_client = NULL;
-static bool s_mqtt_connected = false;
 static bool s_mqtt_started   = false;
+#endif
+
+static const char *TAG = "WIFI_MQTT";
+static bool s_mqtt_connected = false;
 static int  s_wifi_retries   = 0;
 static bool s_scan_dumped    = false;   /* scan diagnostic runs at most once */
 static volatile bool s_scanning = false; /* suppress auto-reconnect during a scan */
@@ -281,6 +289,7 @@ static void wifi_event_handler(void* arg, esp_event_base_t event_base,
     }
 }
 
+#ifdef CONFIG_SHRIKEFI_CLOUD_PUBLISH
 /* Event handler for MQTT events */
 static void mqtt_event_handler(void *handler_args, esp_event_base_t base, int32_t event_id, void *event_data) {
     esp_mqtt_event_handle_t event = (esp_mqtt_event_handle_t)event_data;
@@ -303,6 +312,7 @@ static void mqtt_event_handler(void *handler_args, esp_event_base_t base, int32_
             break;
     }
 }
+#endif /* CONFIG_SHRIKEFI_CLOUD_PUBLISH */
 
 void wifi_mqtt_init(void) {
     /* Compile-time check: an empty SSID string literal has size 1. */
