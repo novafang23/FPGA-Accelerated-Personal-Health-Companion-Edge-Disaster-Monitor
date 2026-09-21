@@ -336,7 +336,7 @@ shrikefi_err_t shrikefi_fpga_flash_init(void) {
                      (unsigned long)offset, ret);
             free(dma_chunk);
             spi_bus_remove_device(spi);
-            return SHRIKEFI_ERR_I2C_WRITE;
+            return SHRIKEFI_ERR_SPI_WRITE;
         }
 
         offset += chunk_len;

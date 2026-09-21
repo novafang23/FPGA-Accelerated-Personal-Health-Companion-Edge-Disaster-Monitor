@@ -1,25 +1,12 @@
 menu "ShrikeFi configuration"
 
-    config SHRIKEFI_ENABLE_SPI2_BITSTREAM_FLASH
-        bool "Embed the ForgeFPGA bitstream and try to send it over SPI2 at boot"
-        default n
-        help
-            Compiles forgefpga_bitstream.h into the firmware image and has
-            shrikefi_fpga_flash_init() attempt to deliver it to the ForgeFPGA
-            over SPI2 at power-up.
-
-            This costs 46,408 bytes (~45 KiB) of flash. It is OFF by default
-            because:
-
-              * The board's FPGA is expected to configure itself from
-                OTP/NVM or from the onboard W25Q32JV QSPI flash at power-up.
-
-            Enable this ONLY if you have confirmed that a device responds at
-            the expected SPI CS and you have the Renesas ForgeFPGA SPI programming
-            sequence to hand.
-
-            The 4-bit parallel link is unaffected either way: it is the runtime
-            bus and never depends on this option.
+    # NOTE: there is deliberately NO option to disable embedding the ForgeFPGA
+    # bitstream. Programming the FPGA over SPI2 at boot is what makes the 4-bit
+    # runtime link work, and the 46,408-byte image costs 0.6% of the 7 MB app
+    # partition (89% free). An earlier revision made this conditional; because
+    # sdkconfig is gitignored and keeps its own value, that silently turned the
+    # FPGA path off on any checkout whose sdkconfig predated the option - so it
+    # was removed rather than left as a footgun.
 
     config SHRIKEFI_CLOUD_PUBLISH
         bool "Enable MQTT cloud publishing of health telemetry"

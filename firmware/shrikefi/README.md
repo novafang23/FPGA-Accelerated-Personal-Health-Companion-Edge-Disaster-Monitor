@@ -60,10 +60,10 @@ run_dashboard.bat            :: build and launch the Windows GUI dashboard
 
 ShrikeFi has **two USB Type-C ports** (power and programming). You only flash the
 **ESP32-S3** — the FPGA is *not* programmed separately. At boot, `app_main()`
-calls `shrikefi_fpga_flash_init()`, which configures the Renesas ForgeFPGA over
-I2C from the bitstream embedded in `forgefpga_bitstream.h`. On the real ShrikeFi
-board the 4-bit link runs over internal PCB traces, so no jumper wires are needed
-for it.
+calls `shrikefi_fpga_flash_init()`, which programs the Renesas ForgeFPGA over
+**SPI2** from the bitstream embedded in `forgefpga_bitstream.h`. On the real
+ShrikeFi board the 4-bit link runs over internal PCB traces, so no jumper wires
+are needed for it.
 
 1. **The bitstream is up to date.** `forgefpga_bitstream.h` was regenerated from
    `FPGA_bitstream_MCU.bin` (the 2026-09-07 build output) and verified
@@ -107,69 +107,52 @@ output exactly. It was regenerated from `FPGA_bitstream_MCU.bin` (2026-09-07) wi
 `hardware/shrikefi/convert_bitstream.py` and verified byte-for-byte — 46,408
 bytes, 0 differing bytes, `forgefpga_bitstream_length = 46408`.
 
-**The I2C delivery path reports honestly now, but remains unverified.**
-`shrikefi_fpga_flash_init()` previously returned `SHRIKEFI_OK` on *every* path,
-including both failure modes, so a silent no-op was indistinguishable from a
-successful program. It now returns a real code and the boot log says which branch
-ran:
+**Delivery is over SPI2, not I2C.** `shrikefi_fpga_flash_init()` follows the
+Vicharak `Web_FPGA_programmer.ino` sequence:
 
-| Boot log line | Meaning |
-|---|---|
-| `No I2C configuration interface at 0x%02X` → `SHRIKEFI_ERR_FPGA_NOT_DETECTED` | Nothing ACKed. **Expected** — the FPGA configures itself from OTP/NVM or the onboard W25Q32JV QSPI flash. Boot continues normally. |
-| `Device ACKed at I2C 0x%02X` then `ForgeFPGA bitstream transmitted` | Something answered and the write completed. |
-| `Bitstream write failed at offset ...` → `SHRIKEFI_ERR_I2C_WRITE` | Something ACKed but the transfer failed part-way. Worth investigating. |
+1. PWR=0, EN=0, SS=1 → 5 ms
+2. PWR=1, EN=1, SS=0 → 15 ms (boot-mode latch)
+3. SS=1 → 2 ms
+4. Image streamed in 256-byte chunks, SS toggled LOW/HIGH per chunk, SPI mode 0
+   at 16 MHz
+5. 50 ms settle, then the SPI2 device is released so the 4-bit runtime link can
+   take the bus
 
+This is verified on hardware. The boot log reads:
+
+```
+I (502) SHRIKEFI_LINK:   Programming Renesas ForgeFPGA SLG47910 via SPI2
+I (621) SHRIKEFI_LINK: ForgeFPGA SLG47910 configuration COMPLETE! (46408 bytes loaded)
+I (621) SHRIKEFI_MAIN: ForgeFPGA SLG47910 bitstream programmed successfully over SPI!
+I (631) SHRIKEFI_LINK: ForgeFPGA runtime link handshake: probe sent 0x55, received 0x80
+```
+
+The `0x80` reply is the real evidence: the runtime link only answers that probe if
+a configured design is actually running in the FPGA.
+
+### The transfer is open-loop
+
+SPI writes cannot tell us whether a ForgeFPGA is listening, so `SHRIKEFI_OK`
+means "the bytes were clocked out", not "the device confirmed receipt". The
+authoritative end-to-end check is the `0x55` probe afterwards. That is why
 `app_main()` logs the result and **continues in every case** — the 4-bit parallel
-link is the runtime bus between the ESP32-S3 and the FPGA and does not depend on
-this call. A "not detected" result is not a fault.
+link is the runtime bus and does not depend on this call:
 
-### Why the write path is still unverified
+| Result | Meaning |
+|---|---|
+| `SHRIKEFI_OK` | Image clocked out over SPI2. |
+| `SHRIKEFI_ERR_TIMEOUT` | SPI2 bus/device setup, or the DMA chunk alloc, failed. |
+| `SHRIKEFI_ERR_SPI_WRITE` | A chunk failed mid-transfer. |
 
-`esp32_i2c_hal_write()` takes an **8-bit** register address, so
-`(uint8_t)(offset & 0xFF)` wraps every 256 bytes and cannot address a 46,408-byte
-image. Widening it (typically a 16-bit word address sent as two bytes) without the
-Renesas ForgeFPGA I2C programming specification would only move the guess, so the
-transfer is left as-is and labelled accordingly rather than silently "fixed".
+### The image is always embedded
 
-The SLG47910 is an FPGA, not a GreenPAK CMIC, and this design's pin constraints
-(`hardware/shrikefi/forgefpga_pins.pcf`) declare no I2C or SPI configuration
-interface — supporting the view that the part loads itself from OTP/NVM or the
-onboard QSPI flash, and that this routine is a best-effort fallback.
+`forgefpga_bitstream[]` is 46,408 bytes and is **always** compiled in — there is
+no build switch to remove it. It costs 0.6% of the 7 MB app partition (89% free),
+and an earlier revision that made it conditional silently disabled the FPGA
+programming on any checkout whose gitignored `sdkconfig` predated the option. The
+footgun was removed rather than documented.
 
-**How to settle it:** flash once and read the boot log. If the first line in the
-table appears, nothing was transmitted and the FPGA is running whatever was
-programmed into it previously — which is fine.
-
-### The bitstream is not embedded by default (saves 47 KB of flash)
-
-`forgefpga_bitstream[]` (46,408 bytes) is now compiled in **only** when enabled:
-
-```
-idf.py menuconfig  ->  ShrikeFi configuration
-                   ->  Embed the ForgeFPGA bitstream and try to send it over I2C at boot
-```
-
-`CONFIG_SHRIKEFI_ENABLE_I2C_BITSTREAM_FLASH` defaults to **n**. Measured effect on
-the image (compiling `shrikefi_link_driver.c` for ESP32 both ways):
-
-| | `.rdata` | object total |
-|---|---|---|
-| disabled (default) | 240 B | 2,000 B |
-| enabled | 47,040 B | 49,216 B |
-
-**47,216 bytes saved** on the default build — meaningful on the 2 MB flash
-configuration, and it matters more because `sdkconfig` currently selects a debug
-optimization level.
-
-With the flag off, the boot log reads:
-
-```
-ForgeFPGA I2C bitstream delivery is compiled out (CONFIG_SHRIKEFI_ENABLE_I2C_BITSTREAM_FLASH=n, saves 46 KB).
-FPGA is expected to self-configure from OTP/NVM or onboard QSPI flash. The 4-bit link is unaffected.
-```
-
-Nothing else in the project includes `forgefpga_bitstream.h`, so this single
-compile-time switch is sufficient to remove the data. Enable it only if you have
-confirmed a device ACKs at `0x08` **and** you have the Renesas I2C programming
-sequence — without that sequence the write is a guess, and it cannot be correct
-for a 46 KB image regardless because of the 8-bit address field.
+> **Caveat.** `hardware/shrikefi/forgefpga_pins.pcf` declares no configuration
+> interface, so it is possible the FPGA also self-configures from OTP/NVM or the
+> onboard W25Q32JV QSPI flash, and that this transfer is redundant rather than
+> load-bearing. Either way it is harmless, and disabling it is not supported.

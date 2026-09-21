@@ -7,7 +7,7 @@
 [![Static Timing](https://img.shields.io/badge/STA%20Timing-WNS%20%2B5.603ns%20(Met)-success.svg)](docs/HARDWARE_ARCHITECTURE.md)
 [![TinyML Engine](https://img.shields.io/badge/AI%20Engine-TinyML%20(6%E2%86%9224%E2%86%9216%E2%86%923)-purple.svg)](firmware/core/nn_risk_model_int8.c)
 [![Validation Accuracy](https://img.shields.io/badge/AI%20Accuracy-88.47%25%20(INT8)%20on%20synthetic%20val-brightgreen.svg)](firmware/core/nn_risk_model_int8.c)
-[![MIMIC-III Benchmark](https://img.shields.io/badge/Clinical%20Validation-94.11%25%20(MIMIC--III)-blueviolet.svg)](#clinical-triage-accuracy-on-mimic-iii--how-to-reproduce)
+[![MIMIC-III Benchmark](https://img.shields.io/badge/MIMIC--III%20Benchmark-94.11%25%20(demo%20subset)-blueviolet.svg)](#clinical-triage-accuracy-on-mimic-iii--how-to-reproduce)
 [![GUI Dashboard](https://img.shields.io/badge/GUI%20Dashboard-Native%20Win32%20.exe-cyan.svg)](launch_dashboard.bat)
 
 An end-to-end heterogeneous System-on-Chip (SoC) combining **synthesizable Verilog hardware acceleration** and an **on-device TinyML INT8 neural network** to provide real-time, privacy-preserving, cloud-free physiological risk prediction during extreme environmental disasters (heat waves, air pollution smog, and floods).
@@ -17,7 +17,7 @@ An end-to-end heterogeneous System-on-Chip (SoC) combining **synthesizable Veril
 ## 🏷️ Platform Status & Roadmap
 
 * **Verified Baseline:** [Xilinx Zynq-7000 (`xc7z020`)](hardware/zynq/) — Fully verified with 6/6 passing self-checking tests and static timing closed at 69.45 MHz (permanently tagged at `v1.0-zynq-SIH`).
-* **Active Port:** [ShrikeFi (ESP32-S3 + Renesas ForgeFPGA)](hardware/shrikefi/) — Affordable edge hardware platform. Post-synthesis fitter reports **342 / 1120 LUT5s (30.54%)**, 194 FFs and 76/140 CLBs, with 5 passing self-checking link test groups. Raw synthesis logs: [`hardware/shrikefi/synthesis_evidence/`](hardware/shrikefi/synthesis_evidence/) (read its README — an older, superseded build's numbers are also in there). Includes **fully integrated ESP32-S3 firmware** that streams live health telemetry via **USB UART & WiFi/MQTT**. (The firmware also *attempts* to load the FPGA bitstream over I2C at boot — best-effort, and unverified: the FPGA is expected to configure itself from OTP/NVM or onboard QSPI flash. See [`firmware/shrikefi/README.md`](firmware/shrikefi/README.md#fpga-delivery-how-the-bitstream-reaches-the-fpga).)
+* **Active Port:** [ShrikeFi (ESP32-S3 + Renesas ForgeFPGA)](hardware/shrikefi/) — Affordable edge hardware platform. Post-synthesis fitter reports **342 / 1120 LUT5s (30.54%)**, 194 FFs and 76/140 CLBs, with 5 passing self-checking link test groups. Raw synthesis logs: [`hardware/shrikefi/synthesis_evidence/`](hardware/shrikefi/synthesis_evidence/) (read its README — an older, superseded build's numbers are also in there). Includes **fully integrated ESP32-S3 firmware** that streams live health telemetry via **USB UART & WiFi/MQTT**. (The firmware also programs the FPGA over **SPI2** at every boot using the Vicharak `Web_FPGA_programmer.ino` sequence; the boot log reaches `configuration COMPLETE! (46408 bytes loaded)` and the runtime link then answers its `0x55` probe, which is the real proof a configured design is running. See [`firmware/shrikefi/README.md`](firmware/shrikefi/README.md#fpga-delivery-how-the-bitstream-reaches-the-fpga).)
 * **Clinical Intelligence & Biomarkers:** Fuses **mNEWS2 Clinical Triage (Royal College of Physicians)**, **PPG-derived Respiratory Rate (Charlton 2018)**, **Signal Quality Index (Karlen 2012 / Elgendi 2016)**, **Moran's Physiological Strain Index (PSI)**, **AHA PM2.5-HRV Autonomic Strain (Brook 2010)**, and **Neural PM2.5 Humidity Calibration (Si et al. 2019)**.
 * **Interactive Graphical Dashboard:** Standalone Windows desktop GUI (`shrikefi_dashboard.exe`) featuring a 60 FPS real-time optical PPG oscilloscope, live vital displays, and dual-mode operation (Live Hardware streaming + 6 simulated disaster profiles).
 
@@ -534,7 +534,7 @@ For an in-depth mathematical defense, signal processing equations, and clinical 
 │       ├── shrikefi_dashboard.c    # Standalone Win32 GDI real-time GUI dashboard
 │       ├── max30102.c / .h         # Auto-sensing MAX30100 & MAX30102 driver
 │       ├── pmsa003.c / .h          # Plantower laser particulate PM2.5 driver
-│       ├── shrikefi_link_driver.c  # 4-bit parallel link driver & I2C bitstream flasher
+│       ├── shrikefi_link_driver.c  # 4-bit parallel link driver & SPI2 bitstream programmer
 │       ├── wifi_mqtt_manager.c     # ESP-IDF WiFi connectivity & MQTT cloud sync
 │       ├── forgefpga_bitstream.h   # Auto-generated C header of the ForgeFPGA bitstream
 │       ├── CMakeLists.txt          # ESP-IDF component build configuration

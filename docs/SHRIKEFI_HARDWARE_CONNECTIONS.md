@@ -156,10 +156,18 @@ I (1270) I2C_SCAN: Scan complete: 3 device(s) found.
 
 **The line worth looking for is whether `0x08` appears.** `esp32_i2c_hal_scan()` labels 0x08 as `ForgeFPGA` (`esp32_i2c_hal.c:88`), but the Renesas SLG47910 is not documented to expose a hard I2C configuration port, and this design's pin constraints (`hardware/shrikefi/forgefpga_pins.pcf`) declare no I2C or SPI configuration interface.
 
-* **No `0x08` line** → expected. The FPGA configures itself from OTP/NVM or the onboard W25Q32JV QSPI flash at power-up. Nothing is wrong.
-* **`0x08` appears** → something real is answering. `shrikefi_fpga_flash_init()` will then attempt an I2C bitstream write, which is **unverified**: the HAL's 8-bit register address cannot address a 46 KB image correctly.
+* **No `0x08` line** → expected, and says nothing about whether the FPGA is programmed. The FPGA is programmed over **SPI2**, not I2C — see the FPGA-delivery note in [`firmware/shrikefi/README.md`](../firmware/shrikefi/README.md).
+* **`0x08` appears** → something real is answering on the I2C bus. Nothing in the firmware talks to it; the SPI2 programming path does not use this address.
 
-`shrikefi_fpga_flash_init()` logs which case it concluded at boot — look for `No I2C configuration interface at 0x08` or `Device ACKed at I2C 0x08`.
+`0x08` is not used by the bitstream path at all. The boot evidence that actually matters is the SPI2 sequence plus the runtime link probe:
+
+```
+I (502) SHRIKEFI_LINK:   Programming Renesas ForgeFPGA SLG47910 via SPI2
+I (621) SHRIKEFI_LINK: ForgeFPGA SLG47910 configuration COMPLETE! (46408 bytes loaded)
+I (631) SHRIKEFI_LINK: ForgeFPGA runtime link handshake: probe sent 0x55, received 0x80
+```
+
+A defined reply to the `0x55` probe is the only proof that a configured design is running.
 
 ### B. SpO2 Engine Tuning
 The SpO2 calculation uses an **8-second rolling moving-average window** (`SPO2_MA_FILTER_SIZE = 8` in [`firmware/core/spo2_engine.h`](../firmware/core/spo2_engine.h)) with **slew-rate limiting ($\pm 2.5\%$ per second)** to eliminate sensor flicker and finger-motion artifacts while keeping true medical response fast and accurate.

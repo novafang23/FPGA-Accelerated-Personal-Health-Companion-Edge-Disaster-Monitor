@@ -43,44 +43,47 @@ typedef enum {
     SHRIKEFI_OK = 0,
     SHRIKEFI_ERR_INVALID_ARG = -1,
     SHRIKEFI_ERR_TIMEOUT = -2,
-    SHRIKEFI_ERR_FPGA_NOT_DETECTED = -3, /**< No ACK at FORGEFPGA_I2C_ADDR (expected
-                                          *   when the FPGA self-configures from
-                                          *   OTP/NVM or onboard QSPI flash)      */
-    SHRIKEFI_ERR_I2C_WRITE = -4,         /**< A device ACKed but the bitstream
+    SHRIKEFI_ERR_FPGA_NOT_DETECTED = -3, /**< Reserved. Was returned by the retired
+                                          *   I2C probe path; the SPI2 programming
+                                          *   sequence is open-loop and cannot
+                                          *   detect an absent device.            */
+    SHRIKEFI_ERR_SPI_WRITE = -4,         /**< SPI2 came up but the bitstream
                                           *   transfer failed part-way            */
-    SHRIKEFI_ERR_BITSTREAM_DISABLED = -5 /**< The I2C bitstream path was compiled
-                                          *   out (CONFIG_SHRIKEFI_ENABLE_I2C_
-                                          *   BITSTREAM_FLASH is not set). This is
-                                          *   the normal build.                   */
+    SHRIKEFI_ERR_BITSTREAM_DISABLED = -5 /**< Reserved. Returned by the retired
+                                          *   build-time bitstream switch; the
+                                          *   image is now always embedded.      */
 } shrikefi_err_t;
 
 /**
- * @brief Best-effort load of the ForgeFPGA bitstream over I2C at boot.
+ * @brief Deliver the ForgeFPGA bitstream over SPI2 at boot.
  *
- * Compiled out by default to keep 46 KB of bitstream data out of the flash image
- * (see CONFIG_SHRIKEFI_ENABLE_I2C_BITSTREAM_FLASH in main/Kconfig.projbuild).
+ * The image (46,408 bytes) is always embedded and always sent. This is the path
+ * this board is verified to use: the boot log reaches "configuration COMPLETE!
+ * (46408 bytes loaded)" and the runtime link below then answers its 0x55 probe,
+ * which only happens if a configured design is actually running. The image costs
+ * 0.6% of the 7 MB app partition, so there is no build switch to remove it.
  *
- * The SLG47910 is an FPGA, not a GreenPAK CMIC: it is not documented to expose a
- * hard I2C configuration port, and this design's pin constraints
- * (hardware/shrikefi/forgefpga_pins.pcf) declare no I2C or SPI configuration
- * interface. On this board the FPGA most likely self-configures from OTP/NVM or
- * from the onboard W25Q32JV QSPI flash at power-up, which means the probe below
- * is *expected* to find nothing.
+ * The image is streamed in 256-byte chunks after the Vicharak
+ * Web_FPGA_programmer.ino reset sequence (PWR=0/EN=0/SS=1 -> PWR=1/EN=1/SS=0,
+ * SS toggled per chunk at 16 MHz, SPI mode 0).
  *
- * This function therefore reports honestly instead of pretending:
- *   SHRIKEFI_OK                       - a device ACKed and the image was written
- *   SHRIKEFI_ERR_BITSTREAM_DISABLED   - the path is compiled out. Normal build.
- *   SHRIKEFI_ERR_FPGA_NOT_DETECTED    - nothing ACKed at FORGEFPGA_I2C_ADDR.
- *                                       NORMAL on this board. Boot must continue.
- *   SHRIKEFI_ERR_I2C_WRITE            - a device ACKed but the write failed.
+ * The sequence is OPEN-LOOP: SPI writes cannot tell us whether a ForgeFPGA is
+ * actually listening, so SHRIKEFI_OK means "the bytes were clocked out", not
+ * "the device confirmed receipt". The real end-to-end check is the runtime link
+ * probe afterwards - we send 0x55 and expect a defined reply.
+ *
+ * Return values:
+ *   SHRIKEFI_OK            - the image was clocked out over SPI2
+ *   SHRIKEFI_ERR_TIMEOUT   - SPI2 bus/device setup or DMA alloc failed
+ *   SHRIKEFI_ERR_SPI_WRITE - a chunk failed mid-transfer
  *
  * CALLERS MUST NOT TREAT A NON-OK RESULT AS FATAL. The 4-bit parallel link is the
  * runtime bus between the ESP32-S3 and the FPGA and does not depend on this call.
  *
- * When enabled, note the transfer still cannot address a 46 KB image correctly:
- * the HAL takes an 8-bit register address, so the offset wraps every 256 bytes.
- * Widening it without the ForgeFPGA I2C programming specification would only move
- * the guess, so the path is kept as-is and labelled unverified.
+ * The ForgeFPGA pin constraints (hardware/shrikefi/forgefpga_pins.pcf) declare no
+ * configuration interface, so if the FPGA is instead self-configuring from
+ * OTP/NVM or the onboard W25Q32JV QSPI flash, this transfer is redundant rather
+ * than harmful.
  */
 shrikefi_err_t shrikefi_fpga_flash_init(void);
 

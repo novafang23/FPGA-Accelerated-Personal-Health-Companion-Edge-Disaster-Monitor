@@ -49,10 +49,16 @@ CONFIG_ESP_CONSOLE_UART_BAUDRATE=115200
 CONFIG_FREERTOS_HZ=100
 
 # --- ShrikeFi project options (see main/Kconfig.projbuild) --------------------
-# The 46 KB ForgeFPGA bitstream is NOT embedded by default: the FPGA is expected
-# to self-configure from OTP/NVM or the onboard QSPI flash, and the I2C delivery
-# path is unverified. Enable only after confirming a device ACKs at 0x08.
-CONFIG_SHRIKEFI_ENABLE_I2C_BITSTREAM_FLASH=n
+# The 46 KB ForgeFPGA bitstream is always embedded and always sent over SPI2 at
+# boot; there is deliberately no option to compile it out (it is 0.6% of the app
+# partition, and disabling it silently broke the FPGA path on checkouts whose
+# gitignored sdkconfig predated the option).
+#
+# Patient vitals are never published off-device unless the option below is set.
+# The broker in wifi_mqtt_manager.c is HiveMQ's public test broker and is
+# unauthenticated, so enabling this broadcasts real physiological data to
+# anyone subscribed to the topic.
+CONFIG_SHRIKEFI_CLOUD_PUBLISH=n
 
 # --- Compiler -----------------------------------------------------------------
 # NOTE: intentionally reproducing the current DEBUG build (-Og). For a demo,
