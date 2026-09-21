@@ -18,10 +18,19 @@
 //      silently overwriting ibi_cycles with a bogus short interval.
 //
 // TEST A directly reproduces bug #1 with a clean pulse containing one
-// single-sample dip mid-rise. TEST B directly reproduces bug #2 by using
-// a short REFRACTORY_CYC and a pulse whose tail decays slowly relative to
-// it (the same conditions that caused tb_forgefpga_system.v's TEST 4 to
-// silently read back ~134 cycles instead of ~3000 before this fix).
+// single-sample dip mid-rise.
+//
+// Bug #2 needs care to reproduce: TEST B uses a short REFRACTORY_CYC and a
+// slowly-decaying tail, but its post-refractory samples are already below
+// dyn_threshold, so STATE_ARMED never re-triggers and TEST B passes with or
+// without the fix. TEST C is the test that actually discriminates -- it holds
+// a sample above threshold past refractory expiry, which is the condition that
+// made the pre-fix FSM emit a phantom second beat.
+//
+// Note that the RTL fix for bug #2 lives in hardware/common/, but the artifact
+// that runs on the board is the ForgeFPGA bitstream. A change here does not
+// reach hardware until the flat vendor source is regenerated (gen_flat_source.py)
+// AND the design is re-fit in the Renesas tool. See docs/MIGRATION.md.
 //
 module tb_ppg_peak_detector;
     localparam CLK_PERIOD = 20; // 50 MHz
@@ -193,6 +202,67 @@ module tb_ppg_peak_detector;
             tests_passed = tests_passed + 1;
         end else begin
             $display("  FAIL: expected exactly 1 beat_detected pulse, got %0d (refractory likely re-armed mid-decay)", beat_count);
+            tests_failed = tests_failed + 1;
+        end
+
+        // -------------------------------------------------------------
+        // TEST C: same family of bug as TEST B, but with the sample
+        // spacing arranged so a still-above-threshold sample actually
+        // lands in STATE_ARMED *after* the refractory timer has expired.
+        //
+        // TEST B does NOT reach that state: its post-refractory samples
+        // are already below dyn_threshold, so STATE_ARMED stays put and
+        // the test passes with or without the positive-slope gate. It
+        // therefore cannot detect a regression of this bug. TEST C is
+        // the discriminating one -- against the pre-fix FSM it reports
+        // 2 beats (a phantom split beat on the tail of one real pulse).
+        // -------------------------------------------------------------
+        $display("");
+        $display("[TEST C] Above-threshold tail sample after refractory expiry must not re-arm");
+        reset_dut();
+        beat_count = 0;
+
+        // Warm-up pulse to clear first_beat_seen.
+        feed_sample(8'd130);
+        feed_sample(8'd170);
+        feed_sample(8'd150);
+        feed_sample(8'd80);
+        for (i = 0; i < 10; i = i + 1) begin
+            feed_sample(8'd50);
+            repeat (4) @(posedge clk);
+        end
+        beat_count = 0;
+
+        // True pulse. The 200 -> 170 drop of 30 exceeds crest_fall_min(200)=25,
+        // so the crest is committed here and the refractory timer starts.
+        feed_sample(8'd130);
+        feed_sample(8'd160);
+        feed_sample(8'd200);
+        feed_sample(8'd170);
+
+        // Tail decays slowly and is still >= dyn_threshold (120) when the
+        // refractory timer runs out.
+        feed_sample(8'd160);
+        repeat (60) @(posedge clk); // REFRACTORY_CYC=50 fully elapses
+
+        // The first sample after expiry is consumed by REFRACTORY -> ARMED.
+        feed_sample(8'd150);
+        // This one is seen by STATE_ARMED while still above threshold and
+        // still falling. Without the positive-slope gate the FSM enters
+        // STATE_RISING here, seeds peak_val=140, and the 140 -> 90 drop
+        // below confirms a crest that never existed.
+        feed_sample(8'd140);
+        feed_sample(8'd90);
+        for (i = 0; i < 10; i = i + 1) begin
+            feed_sample(8'd50);
+            repeat (4) @(posedge clk);
+        end
+
+        if (beat_count == 1) begin
+            $display("  PASS: exactly one beat_detected pulse (tail sample did not re-arm the FSM)");
+            tests_passed = tests_passed + 1;
+        end else begin
+            $display("  FAIL: expected exactly 1 beat_detected pulse, got %0d (phantom split beat on the pulse tail)", beat_count);
             tests_failed = tests_failed + 1;
         end
 

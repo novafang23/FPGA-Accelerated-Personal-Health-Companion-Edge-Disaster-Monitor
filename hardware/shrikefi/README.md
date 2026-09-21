@@ -103,18 +103,23 @@ rewritten.
 
 `convert_bitstream.py` reads
 `forgefpga_project/ffpga/build/bitstream/FPGA_bitstream_MCU.bin` and writes
-`firmware/shrikefi/forgefpga_bitstream.h`, which the ESP32 firmware attempts to
-flash to the FPGA over I2C at boot.
+`firmware/shrikefi/forgefpga_bitstream.h`, which the ESP32 firmware sends to the
+FPGA over **SPI2** at boot using the Vicharak `Web_FPGA_programmer.ino` sequence
+(see the FPGA-delivery note in
+[`firmware/shrikefi/README.md`](../../firmware/shrikefi/README.md)).
 
-> **The embedded bitstream no longer matches the RTL.** The shared-source
-> refactor and the internal power-on reset changed the netlist, and no ForgeFPGA
-> toolchain was available to re-fit it. Re-run the fitter and regenerate
-> `forgefpga_bitstream.h` before treating the flashed bitstream as
-> corresponding to this RTL. The detector logic it was built from is
-> behaviourally identical to `hardware/common/` (verified by differential
-> simulation) — the new part is the reset distribution.
-
-Also note the firmware's I2C delivery routine may not actually program the part
-at all — see the FPGA-delivery note in
-[`firmware/shrikefi/README.md`](../../firmware/shrikefi/README.md) before relying
-on the auto-flash path.
+> **The embedded bitstream does not match the RTL in `hardware/common/`.** Two
+> changes are ahead of it, and no ForgeFPGA toolchain was available to re-fit:
+>
+> 1. The shared-source refactor and the internal power-on reset changed the
+>    netlist. The detector logic stayed behaviourally identical — the new part is
+>    the reset distribution.
+> 2. The `STATE_ARMED` positive-slope gate, which stops a still-decaying pulse
+>    tail from being counted as a second beat. See
+>    `hardware/common/ppg_peak_detector.v` and TEST C in
+>    `hardware/common/tb_ppg_peak_detector.v`. This **is** a real behaviour
+>    change, and it is **not** in the flashed bitstream.
+>
+> Re-run the fitter and regenerate `forgefpga_bitstream.h` before treating the
+> flashed bitstream as corresponding to this RTL. Until then the device runs the
+> pre-gate detector, which can emit a phantom split beat on a wide pulse.
