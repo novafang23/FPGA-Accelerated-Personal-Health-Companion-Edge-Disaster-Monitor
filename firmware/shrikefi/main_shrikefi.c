@@ -949,11 +949,13 @@ static void task_disaster_monitor(void *pvParameters) {
              * rather than letting it mask the modalities that did run. */
             if (rule_risk.flood_risk == RISK_UNKNOWN && rule_risk.heat_risk != RISK_UNKNOWN) {
                 if (rule_risk.pollution_risk > rule_risk.heat_risk) {
-                    rule_risk.overall_risk     = rule_risk.pollution_risk;
-                    rule_risk.overall_advisory = rule_risk.pollution_advisory;
+                    rule_risk.overall_risk = rule_risk.pollution_risk;
+                    snprintf(rule_risk.overall_advisory, sizeof(rule_risk.overall_advisory), "%s",
+                             rule_risk.pollution_advisory ? rule_risk.pollution_advisory : "");
                 } else {
-                    rule_risk.overall_risk     = rule_risk.heat_risk;
-                    rule_risk.overall_advisory = rule_risk.heat_advisory;
+                    rule_risk.overall_risk = rule_risk.heat_risk;
+                    snprintf(rule_risk.overall_advisory, sizeof(rule_risk.overall_advisory), "%s",
+                             rule_risk.heat_advisory ? rule_risk.heat_advisory : "");
                 }
                 rule_risk.flood_advisory =
                     "Not instrumented: no skin-temperature sensor on this build";
@@ -984,8 +986,9 @@ static void task_disaster_monitor(void *pvParameters) {
             /* 4. Unified Triage: Fuse deterministic bounds, TinyML patterns, and clinical vitals */
             risk_assessment_t env_fused = rule_risk;
             if (nn_risk.overall_risk > env_fused.overall_risk) {
-                env_fused.overall_risk     = nn_risk.overall_risk;
-                env_fused.overall_advisory = nn_risk.overall_advisory;
+                env_fused.overall_risk = nn_risk.overall_risk;
+                snprintf(env_fused.overall_advisory, sizeof(env_fused.overall_advisory), "%s",
+                         nn_risk.overall_advisory);
             }
             clinical_fuse_triage(&clin_assess, &env_fused, &final_risk);
 
@@ -1165,13 +1168,15 @@ void app_main(void) {
     /* Hardware diagnosis: scan and log all connected I2C devices */
     esp32_i2c_hal_scan();
 
-    /* Best-effort ForgeFPGA bitstream delivery over I2C.
-     * On the default build this path is compiled out entirely (46 KB saved) and
-     * returns SHRIKEFI_ERR_BITSTREAM_DISABLED -- entirely normal. The FPGA is
-     * expected to self-configure from OTP/NVM or the onboard QSPI flash. The boot
-     * must continue regardless: the 4-bit link below is the runtime bus and does
-     * not depend on this call. */
-    /* Deliver ForgeFPGA bitstream over SPI2 (official Vicharak sequence) */
+    /* ForgeFPGA bitstream delivery over SPI2, using the Vicharak
+     * Web_FPGA_programmer sequence. This is the path the board actually uses:
+     * on success the boot log reads "configuration COMPLETE! (46408 bytes
+     * loaded)" and the 4-bit runtime link below then answers its 0x55 probe.
+     *
+     * The transfer is open-loop - it cannot confirm the FPGA received anything -
+     * so this result is advisory. Non-OK is NOT fatal: the 4-bit link is the
+     * runtime bus and does not depend on this call, so boot continues either way.
+     * The authoritative check is the link handshake further down. */
     if (shrikefi_fpga_flash_init() == SHRIKEFI_OK) {
         ESP_LOGI(TAG, "ForgeFPGA SLG47910 bitstream programmed successfully over SPI!");
     } else {
@@ -1284,8 +1289,9 @@ int main(void) {
 
     risk_assessment_t final_risk = rule_risk;
     if (nn_risk.overall_risk > final_risk.overall_risk) {
-        final_risk.overall_risk     = nn_risk.overall_risk;
-        final_risk.overall_advisory = nn_risk.overall_advisory;
+        final_risk.overall_risk = nn_risk.overall_risk;
+        snprintf(final_risk.overall_advisory, sizeof(final_risk.overall_advisory), "%s",
+                 nn_risk.overall_advisory);
     }
 
     printf("Host Test - Heat Wave Profile:\n");
