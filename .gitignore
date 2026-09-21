@@ -1,3 +1,12 @@
+# ── Agent / AI-assistant tooling ─────────────────────────────
+# Skills, lockfiles and per-assistant state directories pulled in by coding
+# agents. These are developer-machine artifacts, not part of the submission.
+.claude/
+.agent/
+agent/
+skills-lock.json
+data/skills/
+
 # ============================================================
 # SIH26181 Health Companion — .gitignore
 # ============================================================

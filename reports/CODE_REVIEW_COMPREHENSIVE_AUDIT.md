@@ -11,7 +11,7 @@
 An adversarial code review was conducted across the heterogeneous firmware, hardware RTL, and host application stack. All testbenches and unit gates currently pass:
 - **Zynq AXI Testbench:** 6/6 passing
 - **ShrikeFi SPI Testbench:** 10/10 passing
-- **Common Peak Detector Testbench:** 2/2 passing
+- **Common Peak Detector Testbench:** 3/3 passing (was 2/2 when this review ran; TEST C added afterwards — see H-01 below)
 - **Firmware Unit Engine Test:** PASS
 - **MIMIC-III Accuracy Gate:** 94.11% accuracy, 100% INT8/FP32 tier agreement
 
@@ -209,3 +209,61 @@ However, thorough static analysis and code tracing uncovered **3 BLOCKERS**, **5
    - Clear `respiratory_rate_bpm` and `ppg_sqi` when optical contact is lost.
    - Guard `clinical_vitals_engine.c` against `sqi == 0.0f` false quality assumption.
    - Stream `[PPG]` samples unconditionally.
+
+---
+
+## Resolution status (added after the fixes landed)
+
+| ID | Status | Note |
+|:---|:---|:---|
+| S-01 | **Fixed** | `CONFIG_SHRIKEFI_CLOUD_PUBLISH` added, defaults to `n`; the MQTT client init, start and publish are all compiled out. |
+| C-01 | **Fixed** | Critical section now guards the 28-byte `last_data` copy in `pms5003_parse_frame()` / `pms5003_get_data()`. |
+| L-01 | **Fixed** | `sqi <= 0` now reports 0.0 and holds triage with a SENSOR WARMUP advisory instead of claiming 0.95 quality. |
+| D-01 | **Fixed** | Dashboard `sscanf` extended to 8 fields; `derived_rr` and `sqi` now come from the live stream. |
+| L-02 | **Fixed** | `respiratory_rate_bpm` and `ppg_sqi` are cleared in the no-contact block. |
+| L-03 | **Fixed** | `[PPG]` is printed unconditionally, outside the beat branch. |
+| C-02 | **Fixed** | `overall_advisory` is an embedded `char[512]` in `risk_assessment_t`; the shared static buffer is gone. |
+| C-03 | **Fixed** | `s_mqtt_started` guards the repeat `esp_mqtt_client_start()`. |
+| H-01 | **Fixed in RTL, not yet in the bitstream** | The `STATE_ARMED` positive-slope gate is in `hardware/common/ppg_peak_detector.v`. See caveat below. |
+| B-01 | **Fixed** | Both symbols in `forgefpga_bitstream.h` are now `static const`. |
+| B-02 | **Fixed differently** | The dead Kconfig option was **removed** rather than renamed. See caveat below. |
+| B-03 | **Fixed** | A repeated `0x42` start byte now restarts the frame at `rx_pos = 1` instead of dropping it. |
+
+### Caveat on H-01: the fix is not on the device yet
+
+The RTL fix is correct and is now covered by a test that actually detects its
+absence. TEST B does **not** cover it — its post-refractory samples are already
+below `dyn_threshold`, so it passes with or without the gate. TEST C was added to
+`hardware/common/tb_ppg_peak_detector.v` and does discriminate: against the
+pre-fix FSM it reports 2 beats (a phantom split beat), against the fixed FSM 1.
+
+However, the board runs the **ForgeFPGA bitstream**, not the RTL. The flat vendor
+source has been regenerated so it matches `hardware/common/`, but the design has
+not been re-fit — no ForgeFPGA toolchain was available. Until it is re-fit, the
+device still runs the pre-gate detector. This is documented in
+`hardware/shrikefi/README.md`.
+
+### Caveat on B-02: the option was removed, not renamed
+
+Renaming the Kconfig option to `SHRIKEFI_ENABLE_SPI2_BITSTREAM_FLASH` left a
+symbol that **no C code referenced** — the SPI2 programming had already been made
+unconditional, so the option gated nothing while the README still claimed a
+46 KB saving. Worse, `sdkconfig` is gitignored and carried
+`# CONFIG_SHRIKEFI_ENABLE_SPI2_BITSTREAM_FLASH is not set` from the rename, so
+wiring the option up would have silently disabled FPGA programming on any
+existing checkout.
+
+The option was therefore deleted. The 46 KB is 0.6% of the 7 MB app partition
+(89% free), so there was nothing to gain. Also renamed while in there:
+`SHRIKEFI_ERR_I2C_WRITE` → `SHRIKEFI_ERR_SPI_WRITE` (it is returned by an SPI
+transfer failure), and the `SHRIKEFI_ERR_FPGA_NOT_DETECTED` /
+`SHRIKEFI_ERR_BITSTREAM_DISABLED` enum entries are marked reserved.
+
+### One thing this review did not catch
+
+Applying the C-02 struct change left four `overall_advisory = <pointer>`
+assignments in `firmware/shrikefi/main_shrikefi.c` (lines ~953, ~956, ~988,
+~1288). Assigning to an array member is a compile error, so the firmware did not
+build after the fix commit. Those call sites were converted to `snprintf`. The
+lesson: the audit was static, and nothing in the workflow compiled the ESP32
+target before the commit landed.
