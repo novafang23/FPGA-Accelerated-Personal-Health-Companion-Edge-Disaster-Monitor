@@ -22,6 +22,7 @@ import argparse
 import urllib.request
 import urllib.error
 import ssl
+import re
 
 # Ensure UTF-8 output on Windows consoles to handle unicode characters in model output
 if hasattr(sys.stdout, "reconfigure"):
@@ -31,6 +32,27 @@ if hasattr(sys.stderr, "reconfigure"):
 
 API_URL = "https://api.deepseek.com/chat/completions"
 MODELS_URL = "https://api.deepseek.com/models"
+
+def extract_code_block(text, target_lang=None):
+    """
+    Robust code extraction: parses markdown fenced blocks and selects the
+    block matching target_lang (or the largest complete code block), avoiding
+    fragile string-splitting bugs when preambles or multiple blocks exist.
+    """
+    if not text:
+        return ""
+    pattern = re.compile(r"```(?:([a-zA-Z0-9_\+\-]+)\s*)?\n(.*?)```", re.DOTALL)
+    matches = pattern.findall(text)
+    if not matches:
+        return text.strip()
+    if target_lang:
+        t_low = target_lang.lower()
+        for lang, content in matches:
+            if lang and lang.strip().lower() == t_low:
+                return content.strip()
+    # Fallback to largest code block
+    largest = max(matches, key=lambda m: len(m[1]))
+    return largest[1].strip()
 
 def load_config():
     """Load API key and default model from .env file or environment."""
@@ -316,12 +338,7 @@ def cmd_testbench(args):
     res = call_deepseek(messages, model=model, stream=not bool(args.output))
 
     if args.output:
-        output_text = res
-        if "```verilog" in output_text:
-            output_text = output_text.split("```verilog")[1].split("```")[0].strip()
-        elif "```" in output_text:
-            output_text = output_text.split("```")[1].split("```")[0].strip()
-
+        output_text = extract_code_block(res, "verilog")
         with open(args.output, "w", encoding="utf-8") as f:
             f.write(output_text + "\n")
         print(f"\n[SUCCESS] Testbench written to {args.output}")
@@ -356,12 +373,7 @@ def cmd_driver(args):
     res = call_deepseek(messages, model=model, stream=not bool(args.output))
 
     if args.output:
-        output_text = res
-        if "```c" in output_text:
-            output_text = output_text.split("```c")[1].split("```")[0].strip()
-        elif "```" in output_text:
-            output_text = output_text.split("```")[1].split("```")[0].strip()
-
+        output_text = extract_code_block(res, "c")
         with open(args.output, "w", encoding="utf-8") as f:
             f.write(output_text + "\n")
         print(f"\n[SUCCESS] Driver written to {args.output}")
