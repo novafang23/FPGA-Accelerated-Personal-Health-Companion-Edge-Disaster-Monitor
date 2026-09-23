@@ -41,32 +41,67 @@
 #include "hrv_analysis.h"
 #include "spo2_engine.h"
 
+/* TextOutA with the length measured from the string itself.
+ *
+ * Every call in this file used to pass a hand-counted character count. Several
+ * were wrong, and a wrong count does not fail to compile - it draws the wrong
+ * number of glyphs, so stray characters from neighbouring rodata appear on
+ * screen. Examples found and fixed by measuring rather than counting:
+ *
+ *   "Live MAX30100 Optical"        passed as 22, actually 21  (1 garbage glyph)
+ *   "Red/IR Ratio R: 0.62"         passed as 24, actually 22  (2 garbage glyphs)
+ *   "Comfort Zone: 40-60%"         passed as 25, actually 20  (5 garbage glyphs)
+ */
+#define TEXTOUT(hdc, x, y, s) TextOutA((hdc), (x), (y), (s), (int)strlen(s))
+
 /* Window Dimensions */
 #define WINDOW_WIDTH  1260
 #define WINDOW_HEIGHT 820
 
 /* -------------------------------------------------------------------------- */
+/* Layout grid                                                                 */
+/* -------------------------------------------------------------------------- */
+/* One source of truth for spacing. Before this existed the margins were 18 on
+ * the left and 20 on the right, and gutters were 12 inside row 1 but 10
+ * everywhere else, so nothing quite lined up. Every card position below is
+ * derived from these four numbers rather than typed in by hand. */
+#define UI_MARGIN     20                       /* page margin, both sides */
+#define UI_GUTTER     12                       /* gap between cards and rows */
+#define UI_HEADER_H   60                       /* top header band */
+#define UI_FOOTER_H   34                       /* bottom status band */
+#define UI_CARD_PAD   16                       /* inner padding of a card */
+#define UI_RAIL_W     3                        /* status rail on a card's left edge */
+#define UI_CONTENT_W  (WINDOW_WIDTH - 2 * UI_MARGIN)
+
+/* -------------------------------------------------------------------------- */
 /* Premium Dark Theme Color Palette (Modern Medical / Cyberpunk Aesthetic)    */
 /* -------------------------------------------------------------------------- */
-#define COL_BG              RGB(8, 12, 20)        /* Deep space navy background */
-#define COL_BG_GRAD_TOP     RGB(10, 16, 28)
-#define COL_BG_GRAD_BOT     RGB(6, 9, 16)
-#define COL_CARD_BG         RGB(18, 24, 38)       /* Elevated card surface */
-#define COL_CARD_BG_HI      RGB(24, 32, 50)       /* Card highlight */
-#define COL_CARD_BORDER     RGB(44, 56, 80)       /* Card border */
-#define COL_HEADER_BG       RGB(12, 18, 30)       /* Top header */
+/* Only three page-level surfaces, deliberately close together. The previous
+ * palette drifted across five near-black values (0x081018, 0x000810, 0x001008,
+ * 0x080818, 0x080810), which reads as muddy rather than deep. */
+#define COL_BG              RGB(9, 12, 20)        /* Page background */
+#define COL_BG_GRAD_TOP     RGB(11, 15, 25)
+#define COL_BG_GRAD_BOT     RGB(7, 10, 17)
+#define COL_CARD_BG         RGB(17, 22, 34)       /* Card surface */
+#define COL_CARD_BG_HI      RGB(24, 31, 46)       /* Inset / raised surface */
+#define COL_CARD_BORDER     RGB(38, 48, 68)       /* Card border */
+#define COL_CARD_EDGE_HI    RGB(58, 72, 98)       /* 1px top highlight */
+#define COL_HEADER_BG       RGB(11, 15, 25)       /* Top header */
+#define COL_FOOTER_BG       RGB(11, 15, 25)       /* Bottom status band */
 #define COL_TEXT_MAIN       RGB(238, 244, 255)    /* Bright white */
-#define COL_TEXT_MUTED      RGB(148, 160, 184)    /* Soft gray */
+#define COL_TEXT_MUTED      RGB(150, 163, 188)    /* Soft gray - 6.9:1 on card */
 #define COL_GREEN           RGB(46, 180, 90)      /* Normal status green */
-#define COL_GREEN_BRT       RGB(0, 255, 170)      /* Glowing neon green */
+#define COL_GREEN_BRT       RGB(0, 235, 160)      /* Glowing neon green */
 #define COL_AMBER           RGB(255, 176, 48)     /* Warning amber */
-#define COL_RED             RGB(255, 90, 90)      /* Alarm red */
-#define COL_CYAN            RGB(0, 225, 255)      /* Accent cyan */
-#define COL_PURPLE          RGB(190, 130, 255)    /* AI accent purple */
+#define COL_RED             RGB(255, 96, 96)      /* Alarm red */
+#define COL_CYAN            RGB(56, 200, 235)     /* Accent cyan */
+#define COL_PURPLE          RGB(178, 132, 245)    /* AI accent purple */
 #define COL_PINK            RGB(255, 92, 168)     /* Secondary accent pink */
 #define COL_BLUE            RGB(64, 140, 255)     /* Secondary accent blue */
-#define COL_GRID            RGB(30, 52, 66)       /* Oscilloscope grid */
-#define COL_GRID_SUB        RGB(18, 34, 44)       /* Oscilloscope sub-grid */
+#define COL_GRID            RGB(28, 46, 58)       /* Oscilloscope grid */
+#define COL_GRID_SUB        RGB(18, 32, 42)       /* Oscilloscope sub-grid */
+#define COL_SCOPE_BG        RGB(9, 14, 20)        /* Oscilloscope screen */
+#define COL_SCOPE_EDGE      RGB(24, 40, 34)       /* Oscilloscope screen border */
 
 /* Control IDs */
 #define IDC_BTN_SCENARIO_1  101
@@ -371,6 +406,10 @@ static void ConnectSerialPort(const char *port_name) {
     g_state.h_serial_thread = CreateThread(NULL, 0, SerialReaderThread, NULL, 0, NULL);
     g_state.is_serial_connected = 1;
     strncpy(g_state.com_port_str, port_name, sizeof(g_state.com_port_str) - 1);
+    /* strncpy does not terminate when it truncates. These structs are
+     * zero-initialised statics so it happened to work, but it stops working the
+     * moment the field is written twice with a longer value. */
+    g_state.com_port_str[sizeof(g_state.com_port_str) - 1] = '\0';
     snprintf(g_state.status_bar_text, sizeof(g_state.status_bar_text),
              "ONLINE: Streaming LIVE physical sensor data from %s @ 115200 baud.", port_name);
     SetWindowTextA(g_hwnd_btn_connect, "Disconnect");
@@ -444,6 +483,7 @@ static void UpdateTelemetryStep(void) {
     g_state.news2_level = (risk_level_t)clin_out.level;
     g_state.alert_flags = clin_out.alert_flags;
     strncpy(g_state.news2_advisory, clin_out.advisory, sizeof(g_state.news2_advisory) - 1);
+    g_state.news2_advisory[sizeof(g_state.news2_advisory) - 1] = '\0';
     
     /* 4. TinyML INT8 Neural Network Inference (6 -> 24 -> 16 -> 3) */
     hrv_state_t hrv_snap;
@@ -543,18 +583,10 @@ static void DrawGradientRect(HDC hdc, int x, int y, int w, int h, COLORREF top, 
     }
 }
 
-/* Draw a subtle drop shadow behind a card */
-static void DrawCardShadow(HDC hdc, int x, int y, int w, int h) {
-    HPEN hShadowPen = CreatePen(PS_SOLID, 1, RGB(0, 0, 0));
-    SelectObject(hdc, hShadowPen);
-    for (int offset = 6; offset > 0; offset--) {
-        HPEN hDimPen = CreatePen(PS_SOLID, 1, RGB(0, 0, 0));
-        SelectObject(hdc, hDimPen);
-        RoundRect(hdc, x + offset, y + offset, x + w + offset, y + h + offset, 10, 10);
-        DeleteObject(hDimPen);
-    }
-    DeleteObject(hShadowPen);
-}
+/* DrawCardShadow() was removed. It drew six identical solid-black rounded
+ * rectangles behind every card onto a near-black page, so it was invisible
+ * while costing 12 GDI pens per card per frame. Card/page separation is now
+ * carried by the border and the surface colours instead. */
 
 /* Draw a glowing line effect (for waveforms) */
 static void DrawGlowLine(HDC hdc, int x1, int y1, int x2, int y2, COLORREF col, int thickness) {
@@ -575,7 +607,7 @@ static void DrawScanLine(HDC hdc, int x, int y, int w, int frame_count) {
     float scan_pos = (float)(frame_count % 600) / 600.0f;
     int sy = y + (int)(scan_pos * (w));
     if (sy > x && sy < x + w) {
-        HPEN hScanPen = CreatePen(PS_SOLID, 1, RGB(0, 255, 170));
+        HPEN hScanPen = CreatePen(PS_SOLID, 1, COL_GREEN_BRT);
         SelectObject(hdc, hScanPen);
         SetROP2(hdc, R2_XORPEN);
         MoveToEx(hdc, x, sy, NULL);
@@ -585,45 +617,50 @@ static void DrawScanLine(HDC hdc, int x, int y, int w, int frame_count) {
     }
 }
 
-/* Improved card drawing with gradient fill and accent bar */
+/* Card: flat surface, hairline border, status rail on the left edge.
+ *
+ * This replaced a two-stop gradient fill, a two-pass top accent line, an inner
+ * highlight and the shadow above. The accent now sits on one left rail, which
+ * leaves the card surface neutral so a card's readout is the only saturated
+ * thing in it. That is the single biggest change to how busy the layout reads. */
 static void DrawDarkCard(HDC hdc, int x, int y, int w, int h, const char *title, COLORREF accent_col) {
-    /* Shadow */
-    DrawCardShadow(hdc, x, y, w, h);
+    /* Flat surface + hairline border */
+    HBRUSH hCard = CreateSolidBrush(COL_CARD_BG);
+    HPEN   hEdge = CreatePen(PS_SOLID, 1, COL_CARD_BORDER);
+    HBRUSH oldB  = (HBRUSH)SelectObject(hdc, hCard);
+    HPEN   oldP  = (HPEN)SelectObject(hdc, hEdge);
+    RoundRect(hdc, x, y, x + w, y + h, 8, 8);
+    SelectObject(hdc, oldB);
+    SelectObject(hdc, oldP);
+    DeleteObject(hCard);
+    DeleteObject(hEdge);
     
-    /* Card background gradient */
-    DrawGradientRect(hdc, x + 1, y + 1, w - 2, h - 2, COL_CARD_BG, RGB(14, 18, 28));
-    
-    /* Border */
-    HPEN hborder = CreatePen(PS_SOLID, 1, COL_CARD_BORDER);
-    SelectObject(hdc, hborder);
-    RoundRect(hdc, x, y, x + w, y + h, 10, 10);
-    DeleteObject(hborder);
-    
-    /* Top accent line (gradient) */
-    for (int i = 0; i < 2; i++) {
-        int r = GetRValue(accent_col);
-        int g = GetGValue(accent_col);
-        int b = GetBValue(accent_col);
-        HPEN hAccPen = CreatePen(PS_SOLID, 2, RGB(r, g, b));
-        SelectObject(hdc, hAccPen);
-        MoveToEx(hdc, x + 8, y + 2 + i, NULL);
-        LineTo(hdc, x + w - 8, y + 2 + i);
-        DeleteObject(hAccPen);
-    }
-    
-    /* Subtle inner highlight at top */
-    HPEN hHiPen = CreatePen(PS_SOLID, 1, RGB(80, 96, 120));
+    /* 1px inner top highlight - a lit edge without a gradient */
+    HPEN hHiPen = CreatePen(PS_SOLID, 1, COL_CARD_EDGE_HI);
     SelectObject(hdc, hHiPen);
     MoveToEx(hdc, x + 10, y + 1, NULL);
     LineTo(hdc, x + w - 10, y + 1);
     DeleteObject(hHiPen);
+
+    /* Status rail down the left edge, inset so it reads as an accent rather
+     * than as a thicker piece of border. */
+    HBRUSH hRail    = CreateSolidBrush(accent_col);
+    HPEN   hRailPen = CreatePen(PS_SOLID, 1, accent_col);
+    SelectObject(hdc, hRail);
+    SelectObject(hdc, hRailPen);
+    RoundRect(hdc, x + 1, y + 10, x + 1 + UI_RAIL_W, y + h - 10, 3, 3);
+    DeleteObject(hRail);
+    DeleteObject(hRailPen);
     
     if (title && title[0]) {
         SelectObject(hdc, g_font_label);
         SetTextColor(hdc, COL_TEXT_MUTED);
         SetBkMode(hdc, TRANSPARENT);
-        RECT r = { x + 14, y + 10, x + w - 14, y + 28 };
-        DrawTextA(hdc, title, -1, &r, DT_LEFT | DT_SINGLELINE);
+        /* DT_END_ELLIPSIS: several titles are wider than their card at 14pt
+         * ("PM2.5 AIR QUALITY (NEURAL CALIBRATED)" in 320px). Without it they
+         * simply ran past the card edge. */
+        RECT r = { x + UI_CARD_PAD, y + 10, x + w - UI_CARD_PAD, y + 28 };
+        DrawTextA(hdc, title, -1, &r, DT_LEFT | DT_SINGLELINE | DT_END_ELLIPSIS);
     }
 }
 
@@ -707,7 +744,7 @@ static void RenderDashboard(HDC hdcMem, int width, int height) {
     DrawGradientRect(hdcMem, 0, 0, width, height, COL_BG_GRAD_TOP, COL_BG_GRAD_BOT);
     
     /* Decorative header with gradient and accent line */
-    RECT rcHeader = { 0, 0, width, 58 };
+    RECT rcHeader = { 0, 0, width, UI_HEADER_H };
     HBRUSH hhdrBrush = CreateSolidBrush(COL_HEADER_BG);
     FillRect(hdcMem, &rcHeader, hhdrBrush);
     DeleteObject(hhdrBrush);
@@ -715,24 +752,30 @@ static void RenderDashboard(HDC hdcMem, int width, int height) {
     /* Header accent line */
     HPEN hHeaderLine = CreatePen(PS_SOLID, 1, COL_CYAN);
     SelectObject(hdcMem, hHeaderLine);
-    MoveToEx(hdcMem, 0, 58, NULL);
-    LineTo(hdcMem, width, 58);
+    MoveToEx(hdcMem, 0, UI_HEADER_H, NULL);
+    LineTo(hdcMem, width, UI_HEADER_H);
     DeleteObject(hHeaderLine);
     
     COLORREF pulseCol = (g_state.pulse_anim > 0.3f) ? COL_GREEN_BRT : COL_GREEN;
-        DrawPulseDot(hdcMem, 28, 28, 8, pulseCol, (float)(g_state.frame_count % 200) / 100.0f);
+        DrawPulseDot(hdcMem, UI_MARGIN + 8, 30, 8, pulseCol, (float)(g_state.frame_count % 200) / 100.0f);
     
     SelectObject(hdcMem, g_font_header);
     SetBkMode(hdcMem, TRANSPARENT);
     SetTextColor(hdcMem, COL_CYAN);
-    TextOutA(hdcMem, 42, 12, "VALOR", 5);
+    TEXTOUT(hdcMem, UI_MARGIN + 24, 12, "VALOR");
     
     SelectObject(hdcMem, g_font_label);
     SetTextColor(hdcMem, COL_TEXT_MUTED);
-    TextOutA(hdcMem, 42, 34, "FPGA-Accelerated Edge Health Companion & Disaster Triage System (SIH26181)", 74);
+    {
+        const char *szSub = "FPGA-Accelerated Edge Health Companion & Disaster Triage System (SIH26181)";
+        TextOutA(hdcMem, UI_MARGIN + 24, 34, szSub, (int)strlen(szSub));
+    }
     
-    // Header Status Badges (Right side)
-    char badgeBuf[128];
+    /* Header status badges, right-aligned by measured text width.
+     * These used to sit at fixed offsets (width-580, width-420) tuned to one
+     * particular string, so any change to the badge text silently shifted them
+     * off the edge or into the middle of the header. */
+    char badgeBuf[160];
     SelectObject(hdcMem, g_font_small);
     if (g_state.is_serial_connected) {
         SetTextColor(hdcMem, COL_GREEN_BRT);
@@ -741,24 +784,36 @@ static void RenderDashboard(HDC hdcMem, int width, int height) {
         SetTextColor(hdcMem, COL_AMBER);
         snprintf(badgeBuf, sizeof(badgeBuf), "[MODE: SIMULATION DEMO]  [FPGA: Renesas Forge]  [TinyML: INT8 91.0%%]");
     }
-    TextOutA(hdcMem, width - 580, 16, badgeBuf, strlen(badgeBuf));
+    {
+        SIZE szB;
+        GetTextExtentPoint32A(hdcMem, badgeBuf, (int)strlen(badgeBuf), &szB);
+        TextOutA(hdcMem, width - UI_MARGIN - szB.cx, 14, badgeBuf, (int)strlen(badgeBuf));
+    }
     
     SetTextColor(hdcMem, COL_TEXT_MUTED);
     snprintf(badgeBuf, sizeof(badgeBuf), "%s | FPS: ~30 | TICK: %u",
              g_state.is_serial_connected ? (g_state.is_finger_present ? "FINGER DETECTED (LOCKED)" : "TOUCH MAX30100 SENSOR...") : "SCENARIO SIMULATOR",
              g_state.frame_count);
-    TextOutA(hdcMem, width - 420, 34, badgeBuf, strlen(badgeBuf));
-    
+    {
+        SIZE szB;
+        GetTextExtentPoint32A(hdcMem, badgeBuf, (int)strlen(badgeBuf), &szB);
+        TextOutA(hdcMem, width - UI_MARGIN - szB.cx, 34, badgeBuf, (int)strlen(badgeBuf));
+    }
+
 // ROW 1: Oscilloscope & NEWS2 Triage
-    int osc_x = 18, osc_y = 68, osc_w = 830, osc_h = 220;
+    int osc_y = UI_HEADER_H + UI_GUTTER, osc_h = 220;
+    int news_w = 380, news_h = osc_h;
+    int osc_w = UI_CONTENT_W - UI_GUTTER - news_w;
+    int osc_x = UI_MARGIN;
+    int news_x = osc_x + osc_w + UI_GUTTER, news_y = osc_y;
     const char *oscHeader = g_state.is_serial_connected ? 
         "REAL-TIME OPTICAL PPG OSCILLOSCOPE (PHYSICAL MAX30100/MAX30102 AC WAVEFORM)" :
         "REAL-TIME PPG OPTICAL OSCILLOSCOPE (MAX30102 AC/DC SIMULATION EXTRACTION)";
     DrawDarkCard(hdcMem, osc_x, osc_y, osc_w, osc_h, oscHeader, COL_CYAN);
     
     int scr_x = osc_x + 14, scr_y = osc_y + 30, scr_w = osc_w - 28, scr_h = osc_h - 42;
-    HBRUSH hScrBg = CreateSolidBrush(RGB(7, 18, 15));
-    HPEN hScrBorder = CreatePen(PS_SOLID, 1, RGB(18, 48, 38));
+    HBRUSH hScrBg = CreateSolidBrush(COL_SCOPE_BG);
+    HPEN hScrBorder = CreatePen(PS_SOLID, 1, COL_SCOPE_EDGE);
     SelectObject(hdcMem, hScrBg);
     SelectObject(hdcMem, hScrBorder);
     Rectangle(hdcMem, scr_x, scr_y, scr_x + scr_w, scr_y + scr_h);
@@ -843,7 +898,7 @@ static void RenderDashboard(HDC hdcMem, int width, int height) {
     }
     TextOutA(hdcMem, scr_x + 10, scr_y + 8, oscInfo, strlen(oscInfo));
     
-    int news_x = 860, news_y = 68, news_w = 380, news_h = 220;
+    /* news_x / news_y / news_w / news_h are derived with the rest of row 1 above */
     COLORREF triageCol = (g_state.news2_level == RISK_CRITICAL || g_state.news2_score >= 7) ? COL_RED :
                          (g_state.news2_level == RISK_HIGH || g_state.news2_score >= 5) ? COL_AMBER : COL_GREEN;
     DrawDarkCard(hdcMem, news_x, news_y, news_w, news_h, "ROYAL COLLEGE OF PHYSICIANS mNEWS2 TRIAGE", triageCol);
@@ -868,7 +923,7 @@ static void RenderDashboard(HDC hdcMem, int width, int height) {
     
     SelectObject(hdcMem, g_font_small);
     SetTextColor(hdcMem, COL_TEXT_MUTED);
-    TextOutA(hdcMem, news_x + 150, news_y + 66, "National Early Warning Score (mNEWS2)", 37);
+    TEXTOUT(hdcMem, news_x + 150, news_y + 66, "National Early Warning Score (mNEWS2)");
     
     char subBreakdown[96];
     snprintf(subBreakdown, sizeof(subBreakdown), "HR Pt: +%d | SpO2 Pt: +%d | RR Pt: +%d",
@@ -892,10 +947,11 @@ static void RenderDashboard(HDC hdcMem, int width, int height) {
     DrawTextA(hdcMem, g_state.news2_advisory, -1, &rcText, DT_WORDBREAK);
     
     // ROW 2: Primary Vitals
-    int r2_y = 300, r2_h = 130;
+    /* Five cards fill UI_CONTENT_W exactly: 4 x 234 + 236 + 4 gutters = 1220. */
+    int r2_y = osc_y + osc_h + UI_GUTTER, r2_h = 130;
     
     // Card 1: Heart Rate
-    int c1_x = 18, c1_w = 236;
+    int c1_x = UI_MARGIN, c1_w = 234;
     COLORREF hrCol = (g_state.hr > 120.0f || g_state.hr < 45.0f) ? COL_RED :
                      (g_state.hr > 100.0f || g_state.hr < 55.0f) ? COL_AMBER : COL_GREEN_BRT;
     DrawDarkCard(hdcMem, c1_x, r2_y, c1_w, r2_h, "HEART RATE", hrCol);
@@ -912,14 +968,14 @@ static void RenderDashboard(HDC hdcMem, int width, int height) {
     
     SelectObject(hdcMem, g_font_title);
     SetTextColor(hdcMem, COL_TEXT_MUTED);
-    TextOutA(hdcMem, c1_x + 115, r2_y + 48, "BPM", 3);
+    TEXTOUT(hdcMem, c1_x + 115, r2_y + 48, "BPM");
     
     SelectObject(hdcMem, g_font_small);
     SetTextColor(hdcMem, COL_TEXT_MUTED);
-    TextOutA(hdcMem, c1_x + 18, r2_y + 96, g_state.is_serial_connected ? "Live MAX30100 Optical" : "Resting Target: 60-100", 22);
+    TEXTOUT(hdcMem, c1_x + 18, r2_y + 96, g_state.is_serial_connected ? "Live MAX30100 Optical" : "Resting Target: 60-100");
     
     // Card 2: SpO2
-    int c2_x = 264, c2_w = 236;
+    int c2_x = 266, c2_w = 234;
     COLORREF spo2Col = (g_state.spo2 < 90.0f) ? COL_RED : (g_state.spo2 < 95.0f) ? COL_AMBER : COL_CYAN;
     DrawDarkCard(hdcMem, c2_x, r2_y, c2_w, r2_h, "BLOOD OXYGEN (SpO2)", spo2Col);
     
@@ -934,14 +990,14 @@ static void RenderDashboard(HDC hdcMem, int width, int height) {
     
     SelectObject(hdcMem, g_font_title);
     SetTextColor(hdcMem, COL_TEXT_MUTED);
-    TextOutA(hdcMem, c2_x + 130, r2_y + 48, "%", 1);
+    TEXTOUT(hdcMem, c2_x + 130, r2_y + 48, "%");
     
     SelectObject(hdcMem, g_font_small);
     SetTextColor(hdcMem, COL_TEXT_MUTED);
-    TextOutA(hdcMem, c2_x + 18, r2_y + 96, g_state.is_serial_connected ? "Red/IR Ratio Calibration" : "Red/IR Ratio R: 0.62", 24);
+    TEXTOUT(hdcMem, c2_x + 18, r2_y + 96, g_state.is_serial_connected ? "Red/IR Ratio Calibration" : "Red/IR Ratio R: 0.62");
     
     // Card 3: HRV RMSSD
-    int c3_x = 510, c3_w = 236;
+    int c3_x = 512, c3_w = 234;
     COLORREF hrvCol = (g_state.rmssd < 15.0f) ? COL_RED : (g_state.rmssd < 25.0f) ? COL_AMBER : COL_GREEN_BRT;
     DrawDarkCard(hdcMem, c3_x, r2_y, c3_w, r2_h, "HRV (RMSSD)", hrvCol);
     
@@ -956,14 +1012,14 @@ static void RenderDashboard(HDC hdcMem, int width, int height) {
     
     SelectObject(hdcMem, g_font_title);
     SetTextColor(hdcMem, COL_TEXT_MUTED);
-    TextOutA(hdcMem, c3_x + 125, r2_y + 48, "ms", 2);
+    TEXTOUT(hdcMem, c3_x + 125, r2_y + 48, "ms");
     
     SelectObject(hdcMem, g_font_small);
     SetTextColor(hdcMem, COL_TEXT_MUTED);
-    TextOutA(hdcMem, c3_x + 18, r2_y + 96, "Vagal Autonomic Reserve", 23);
+    TEXTOUT(hdcMem, c3_x + 18, r2_y + 96, "Vagal Autonomic Reserve");
     
     // Card 4: Derived Resp Rate
-    int c4_x = 756, c4_w = 236;
+    int c4_x = 758, c4_w = 234;
     COLORREF rrCol = (g_state.derived_rr > 26.0f || g_state.derived_rr < 9.0f) ? COL_RED :
                     (g_state.derived_rr > 21.0f || g_state.derived_rr < 11.0f) ? COL_AMBER : COL_CYAN;
     DrawDarkCard(hdcMem, c4_x, r2_y, c4_w, r2_h, "RESPIRATORY RATE (PPG-RR)", rrCol);
@@ -975,14 +1031,14 @@ static void RenderDashboard(HDC hdcMem, int width, int height) {
     
     SelectObject(hdcMem, g_font_title);
     SetTextColor(hdcMem, COL_TEXT_MUTED);
-    TextOutA(hdcMem, c4_x + 105, r2_y + 48, "Br/m", 4);
+    TEXTOUT(hdcMem, c4_x + 105, r2_y + 48, "Br/m");
     
     SelectObject(hdcMem, g_font_small);
     SetTextColor(hdcMem, COL_TEXT_MUTED);
-    TextOutA(hdcMem, c4_x + 18, r2_y + 96, "RSA Modulated Extraction", 24);
+    TEXTOUT(hdcMem, c4_x + 18, r2_y + 96, "RSA Modulated Extraction");
     
     // Card 5: SQI
-    int c5_x = 1002, c5_w = 238;
+    int c5_x = 1004, c5_w = 236;
     COLORREF sqiCol = (g_state.sqi < 0.50f) ? COL_RED : (g_state.sqi < 0.75f) ? COL_AMBER : COL_GREEN_BRT;
     DrawDarkCard(hdcMem, c5_x, r2_y, c5_w, r2_h, "SIGNAL QUALITY (SQI)", sqiCol);
     
@@ -995,13 +1051,13 @@ static void RenderDashboard(HDC hdcMem, int width, int height) {
     
     SelectObject(hdcMem, g_font_small);
     SetTextColor(hdcMem, COL_TEXT_MUTED);
-    TextOutA(hdcMem, c5_x + 18, r2_y + 104, (g_state.sqi >= 0.65f) ? "Artifact Filter: PASSED" : "ARTIFACT DETECTED (GATED)",
-             (g_state.sqi >= 0.65f) ? 23 : 25);
+    TEXTOUT(hdcMem, c5_x + 18, r2_y + 104, (g_state.sqi >= 0.65f) ? "Artifact Filter: PASSED" : "ARTIFACT DETECTED (GATED)");
     
     // ROW 3: Environment & Stress Indices
-    int r3_y = 440, r3_h = 135;
+    /* Four cards fill UI_CONTENT_W: 298 + 258 + 318 + 310 + 3 gutters = 1220. */
+    int r3_y = r2_y + r2_h + UI_GUTTER, r3_h = 135;
     
-    int e1_x = 18, e1_w = 300;
+    int e1_x = UI_MARGIN, e1_w = 298;
     COLORREF tempCol = (g_state.temp_c > 40.0f || g_state.temp_c < 12.0f) ? COL_RED :
                        (g_state.temp_c > 35.0f || g_state.temp_c < 18.0f) ? COL_AMBER : COL_GREEN_BRT;
     DrawDarkCard(hdcMem, e1_x, r3_y, e1_w, r3_h, "AMBIENT TEMPERATURE", tempCol);
@@ -1026,7 +1082,7 @@ static void RenderDashboard(HDC hdcMem, int width, int height) {
                              (g_state.temp_c < 18.0f) ? "COOL" : "NOMINAL RANGE";
     TextOutA(hdcMem, e1_x + 18, r3_y + 98, szTempBand, strlen(szTempBand));
     
-    int e2_x = 328, e2_w = 260;
+    int e2_x = 330, e2_w = 258;
     DrawDarkCard(hdcMem, e2_x, r3_y, e2_w, r3_h, "RELATIVE HUMIDITY (SHT31/BME280)", COL_CYAN);
     
     snprintf(szVal, sizeof(szVal), "%.1f %%", g_state.humidity_pct);
@@ -1038,9 +1094,9 @@ static void RenderDashboard(HDC hdcMem, int width, int height) {
     
     SelectObject(hdcMem, g_font_small);
     SetTextColor(hdcMem, COL_TEXT_MUTED);
-    TextOutA(hdcMem, e2_x + 18, r3_y + 98, (g_state.humidity_pct > 80.0f) ? "Hygroscopic Growth Active" : "Comfort Zone: 40-60%", 25);
+    TEXTOUT(hdcMem, e2_x + 18, r3_y + 98, (g_state.humidity_pct > 80.0f) ? "Hygroscopic Growth Active" : "Comfort Zone: 40-60%");
     
-    int e3_x = 598, e3_w = 320;
+    int e3_x = 600, e3_w = 318;
     COLORREF pmCol = (g_state.pm25_calibrated > 150.0f) ? COL_RED : (g_state.pm25_calibrated > 60.0f) ? COL_AMBER : COL_GREEN_BRT;
     DrawDarkCard(hdcMem, e3_x, r3_y, e3_w, r3_h, "PM2.5 AIR QUALITY (NEURAL CALIBRATED)", pmCol);
     
@@ -1061,12 +1117,12 @@ static void RenderDashboard(HDC hdcMem, int width, int height) {
     SetTextColor(hdcMem, pmCol);
     TextOutA(hdcMem, e3_x + 18, r3_y + 98, szAqi, strlen(szAqi));
     
-    int e4_x = 928, e4_w = 312;
+    int e4_x = 930, e4_w = 310;
     DrawDarkCard(hdcMem, e4_x, r3_y, e4_w, r3_h, "PEER-REVIEWED PHYSIOLOGICAL STRESS", COL_PURPLE);
     
     SelectObject(hdcMem, g_font_small);
     SetTextColor(hdcMem, COL_TEXT_MUTED);
-    TextOutA(hdcMem, e4_x + 18, r3_y + 30, "Moran's Physiological Strain (PSI 0-10):", 40);
+    TEXTOUT(hdcMem, e4_x + 18, r3_y + 30, "Moran's Physiological Strain (PSI 0-10):");
     
     char szPsi[48];
     COLORREF psiCol = (g_state.moran_psi >= 7.0f) ? COL_RED : (g_state.moran_psi >= 4.0f) ? COL_AMBER : COL_GREEN_BRT;
@@ -1077,7 +1133,7 @@ static void RenderDashboard(HDC hdcMem, int width, int height) {
     DrawProgressBar(hdcMem, e4_x + 18, r3_y + 68, e4_w - 36, 8, g_state.moran_psi * 10.0f, psiCol);
     
     SetTextColor(hdcMem, COL_TEXT_MUTED);
-    TextOutA(hdcMem, e4_x + 18, r3_y + 82, "AHA (Brook 2010) PM2.5-HRV Autonomic Strain:", 44);
+    TEXTOUT(hdcMem, e4_x + 18, r3_y + 82, "AHA (Brook 2010) PM2.5-HRV Autonomic Strain:");
     
     char szAha[48];
     COLORREF ahaCol = (g_state.aha_autonomic_strain >= 0.70f) ? COL_RED : (g_state.aha_autonomic_strain >= 0.40f) ? COL_AMBER : COL_CYAN;
@@ -1088,12 +1144,13 @@ static void RenderDashboard(HDC hdcMem, int width, int height) {
     DrawProgressBar(hdcMem, e4_x + 18, r3_y + 116, e4_w - 36, 8, g_state.aha_autonomic_strain * 100.0f, ahaCol);
     
     // ROW 4: TinyML INT8 Inference
-    int r4_y = 585, r4_h = 100, r4_w = 1222;
-    DrawDarkCard(hdcMem, 18, r4_y, r4_w, r4_h, "ON-DEVICE TinyML INT8 MULTI-HAZARD INFERENCE (6 -> 24 -> 16 -> 3 | 619 PARAMS)", COL_PURPLE);
+    int r4_y = r3_y + r3_h + UI_GUTTER, r4_h = 110, r4_w = UI_CONTENT_W;
+    DrawDarkCard(hdcMem, UI_MARGIN, r4_y, r4_w, r4_h, "ON-DEVICE TinyML INT8 MULTI-HAZARD INFERENCE (6 -> 24 -> 16 -> 3 | 619 PARAMS)", COL_PURPLE);
     
-    int meter_w = 340, meter_h = 14;
+    /* Three meters evenly fill the card: 3 x 356 + 2 x 60 gaps = 1188 inner. */
+    int meter_w = 356, meter_h = 14;
     
-    int ax1_x = 36, ax1_y = r4_y + 36;
+    int ax1_x = UI_MARGIN + UI_CARD_PAD, ax1_y = r4_y + 36;
     SelectObject(hdcMem, g_font_small);
     SetTextColor(hdcMem, COL_TEXT_MAIN);
     char szRisk1[64];
@@ -1103,7 +1160,7 @@ static void RenderDashboard(HDC hdcMem, int width, int height) {
     TextOutA(hdcMem, ax1_x, ax1_y, szRisk1, strlen(szRisk1));
     DrawProgressBar(hdcMem, ax1_x, ax1_y + 20, meter_w, meter_h, g_state.heat_risk_pct, cR1);
     
-    int ax2_x = 420, ax2_y = r4_y + 36;
+    int ax2_x = 452, ax2_y = r4_y + 36;
     COLORREF cR2 = (g_state.pollution_risk_pct > 70.0f) ? COL_RED : (g_state.pollution_risk_pct > 35.0f) ? COL_AMBER : COL_GREEN_BRT;
     char szRisk2[64];
     snprintf(szRisk2, sizeof(szRisk2), "POLLUTION / SMOG RISK: %.1f%% (%s)", g_state.pollution_risk_pct,
@@ -1111,7 +1168,7 @@ static void RenderDashboard(HDC hdcMem, int width, int height) {
     TextOutA(hdcMem, ax2_x, ax2_y, szRisk2, strlen(szRisk2));
     DrawProgressBar(hdcMem, ax2_x, ax2_y + 20, meter_w, meter_h, g_state.pollution_risk_pct, cR2);
     
-    int ax3_x = 804, ax3_y = r4_y + 36;
+    int ax3_x = 868, ax3_y = r4_y + 36;
     COLORREF cR3 = (g_state.flood_risk_pct > 70.0f) ? COL_RED : (g_state.flood_risk_pct > 35.0f) ? COL_AMBER : COL_GREEN_BRT;
     char szRisk3[64];
     snprintf(szRisk3, sizeof(szRisk3), "FLOOD / COLD SHOCK: %.1f%% (%s)", g_state.flood_risk_pct,
@@ -1121,15 +1178,32 @@ static void RenderDashboard(HDC hdcMem, int width, int height) {
     
     SelectObject(hdcMem, g_font_small);
     SetTextColor(hdcMem, COL_TEXT_MUTED);
-    TextOutA(hdcMem, 36, r4_y + 78, "MIMIC-III triage 94.11% (16,387 recs) | Val 88.47% | INT8 weights 619 B | Dequantized-float core", 96);
+    TEXTOUT(hdcMem, 36, r4_y + 78, "MIMIC-III triage 94.11% (16,387 recs) | Val 88.47% | INT8 weights 619 B | Dequantized-float core");
     
-    // ROW 5: Status Line
-    int st_y = height - 26;
+    /* ROW 5: bottom status band.
+     *
+     * This used to be one line of text floating at height-26 with roughly 100px
+     * of empty page above it, which read as the layout having run out rather
+     * than having finished. It is now an anchored footer strip that closes the
+     * composition. */
+    int ft_y = height - UI_FOOTER_H;
+    RECT rcFooter = { 0, ft_y, width, height };
+    HBRUSH hFtBrush = CreateSolidBrush(COL_FOOTER_BG);
+    FillRect(hdcMem, &rcFooter, hFtBrush);
+    DeleteObject(hFtBrush);
+
+    HPEN hFtLine = CreatePen(PS_SOLID, 1, COL_CARD_BORDER);
+    SelectObject(hdcMem, hFtLine);
+    MoveToEx(hdcMem, 0, ft_y, NULL);
+    LineTo(hdcMem, width, ft_y);
+    DeleteObject(hFtLine);
+
+    int st_y = ft_y + 10;
     SelectObject(hdcMem, g_font_small);
     SetTextColor(hdcMem, COL_CYAN);
-    TextOutA(hdcMem, 18, st_y, "SYSTEM STATUS:", 14);
+    TEXTOUT(hdcMem, UI_MARGIN, st_y, "SYSTEM STATUS:");
     SetTextColor(hdcMem, COL_TEXT_MUTED);
-    TextOutA(hdcMem, 120, st_y, g_state.status_bar_text, strlen(g_state.status_bar_text));
+    TextOutA(hdcMem, UI_MARGIN + 102, st_y, g_state.status_bar_text, (int)strlen(g_state.status_bar_text));
 }
 
 /* -------------------------------------------------------------------------- */
