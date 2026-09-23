@@ -872,9 +872,9 @@ static void RenderDashboard(HDC hdcMem, int width, int height) {
     
     char subBreakdown[96];
     snprintf(subBreakdown, sizeof(subBreakdown), "HR Pt: +%d | SpO2 Pt: +%d | RR Pt: +%d",
-             (g_state.hr > 130 || g_state.hr < 40) ? 3 : (g_state.hr > 110 || g_state.hr <= 50) ? 1 : 0,
+             (g_state.hr <= 40 || g_state.hr > 130) ? 3 : (g_state.hr > 110) ? 2 : (g_state.hr <= 50 || g_state.hr > 90) ? 1 : 0,
              (g_state.spo2 <= 91) ? 3 : (g_state.spo2 <= 93) ? 2 : (g_state.spo2 <= 95) ? 1 : 0,
-             (g_state.derived_rr >= 25 || g_state.derived_rr <= 8) ? 3 : (g_state.derived_rr >= 21) ? 2 : 0);
+             (g_state.derived_rr <= 8 || g_state.derived_rr >= 25) ? 3 : (g_state.derived_rr >= 21) ? 2 : (g_state.derived_rr <= 11) ? 1 : 0);
     TextOutA(hdcMem, news_x + 150, news_y + 88, subBreakdown, strlen(subBreakdown));
     
     RECT rcAdv = { news_x + 18, news_y + 128, news_x + news_w - 18, news_y + 205 };
