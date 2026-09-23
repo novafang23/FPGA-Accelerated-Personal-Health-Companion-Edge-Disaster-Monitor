@@ -350,6 +350,13 @@ int bme280_read_normal(bme280_t *dev, bme280_data_t *data) {
     int32_t adc_P = ((int32_t)buf[0] << 12) | ((int32_t)buf[1] << 4) | (buf[2] >> 4);
     int32_t adc_T = ((int32_t)buf[3] << 12) | ((int32_t)buf[4] << 4) | (buf[5] >> 4);
 
+    /* Guard against unmeasured reset value (0x80000) or bus disconnect (0x00000) */
+    if (adc_T == 0x80000 || adc_T == 0) {
+        bme280_i2c_write_reg(dev, BME280_REG_CTRL_MEAS,
+            (BME280_OS_1X << 5) | (BME280_OS_1X << 2) | BME280_MODE_NORMAL);
+        return -1;
+    }
+
     data->temperature_c = bme280_compensate_temperature(dev, adc_T);
     data->pressure_hpa  = bme280_compensate_pressure(dev, adc_P);
 

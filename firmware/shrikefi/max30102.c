@@ -70,7 +70,7 @@ int max30102_reset(max30102_t *dev) {
         if (!(val & MAX30102_MODE_RESET)) break;
         max30102_delay_ms(1);
     }
-    return (timeout > 0) ? 0 : -1;
+    return (timeout >= 0) ? 0 : -1;
 }
 
 int max30102_init(max30102_t *dev, esp32_i2c_handle_t *i2c) {

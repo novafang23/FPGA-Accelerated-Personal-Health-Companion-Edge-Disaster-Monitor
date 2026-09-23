@@ -334,7 +334,7 @@ shrikefi_err_t shrikefi_fpga_flash_init(void) {
         if (ret != ESP_OK) {
             ESP_LOGE(LINK_TAG, "Bitstream transmission failed at offset %lu (err %d)",
                      (unsigned long)offset, ret);
-            free(dma_chunk);
+            heap_caps_free(dma_chunk);
             spi_bus_remove_device(spi);
             return SHRIKEFI_ERR_SPI_WRITE;
         }
@@ -343,7 +343,7 @@ shrikefi_err_t shrikefi_fpga_flash_init(void) {
     }
 
     /* 5. Allow FPGA to start User Mode */
-    free(dma_chunk);
+    heap_caps_free(dma_chunk);
     vTaskDelay(pdMS_TO_TICKS(50));
 
     ESP_LOGI(LINK_TAG, "ForgeFPGA SLG47910 configuration COMPLETE! (%lu bytes loaded)",
