@@ -209,6 +209,7 @@ static HFONT g_font_value_small = NULL; /* Value sub-labels - 11pt bold */
 /* High-Speed Robust Line-Buffered Serial Reader Thread                       */
 /* -------------------------------------------------------------------------- */
 static DWORD WINAPI SerialReaderThread(LPVOID lpParam) {
+    (void)lpParam;
     char chunk[256];
     char line_buf[512];
     int line_len = 0;
@@ -545,7 +546,6 @@ static void DrawCardShadow(HDC hdc, int x, int y, int w, int h) {
     HPEN hShadowPen = CreatePen(PS_SOLID, 1, RGB(0, 0, 0));
     SelectObject(hdc, hShadowPen);
     for (int offset = 6; offset > 0; offset--) {
-        BYTE alpha = (BYTE)(offset * 8);
         HPEN hDimPen = CreatePen(PS_SOLID, 1, RGB(0, 0, 0));
         SelectObject(hdc, hDimPen);
         RoundRect(hdc, x + offset, y + offset, x + w + offset, y + h + offset, 10, 10);
@@ -560,8 +560,6 @@ static void DrawGlowLine(HDC hdc, int x1, int y1, int x2, int y2, COLORREF col, 
         int r = GetRValue(col);
         int g = GetGValue(col);
         int b = GetBValue(col);
-        BYTE fade = (BYTE)((t / (float)thickness) * 180);
-        if (fade > 255) fade = 255;
         HPEN hPen = CreatePen(PS_SOLID, t, RGB(r, g, b));
         SelectObject(hdc, hPen);
         MoveToEx(hdc, x1, y1, NULL);
@@ -702,7 +700,6 @@ static void DrawPulseDot(HDC hdc, int cx, int cy, int radius, COLORREF col, floa
 /* Main UI Rendering Routine (Double Buffered)                                */
 /* -------------------------------------------------------------------------- */
 static void RenderDashboard(HDC hdcMem, int width, int height) {
-    RECT rcCanvas = { 0, 0, width, height };
     
     /* Premium gradient background with subtle vignette */
     DrawGradientRect(hdcMem, 0, 0, width, height, COL_BG_GRAD_TOP, COL_BG_GRAD_BOT);
@@ -1325,6 +1322,8 @@ static LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lPara
 /* WinMain Application Entry Point                                            */
 /* -------------------------------------------------------------------------- */
 int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine, int nCmdShow) {
+    (void)hPrevInstance;
+    (void)lpCmdLine;
     InitCommonControls();
     srand((unsigned int)time(NULL));
     
