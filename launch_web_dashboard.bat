@@ -17,16 +17,21 @@ if not exist "%HTML%" (
     exit /b 1
 )
 
-:: file:// URLs need forward slashes; ?sim=1 skips the connect gate so the
-:: dashboard is live on screen immediately. Pass "live" as an argument to open
-:: it without the flag, which shows the Connect button instead.
-set "QUERY=?sim=1&full=1"
-if /i "%~1"=="live" set "QUERY="
+:: Usage:
+::   launch_web_dashboard.bat           open the page; choose Connect or Simulation
+::   launch_web_dashboard.bat sim       start straight in the simulation
+::   launch_web_dashboard.bat full      simulation, profile buttons hidden (kiosk)
+::
+:: There is intentionally no "connect automatically" option: Web Serial requires
+:: a user gesture before it will grant port access, so the port picker cannot be
+:: triggered by a script.
+if /i "%~1"=="sim"  set "QUERY=?sim=1"
+if /i "%~1"=="full" set "QUERY=?sim=1&full=1"
 set "URL=file:///%HTML:\=/%"
 if defined QUERY set "URL=%URL%%QUERY%"
 
 :: Web Serial needs a Chromium browser. Find one, but do not fail if neither is
-:: present - simulation mode works in anything.
+:: present - the page itself explains the limitation.
 set "BROWSER="
 if not defined BROWSER if exist "%ProgramFiles%\Google\Chrome\Application\chrome.exe" set "BROWSER=%ProgramFiles%\Google\Chrome\Application\chrome.exe"
 if not defined BROWSER if exist "%ProgramFiles(x86)%\Google\Chrome\Application\chrome.exe" set "BROWSER=%ProgramFiles(x86)%\Google\Chrome\Application\chrome.exe"
@@ -45,9 +50,9 @@ if defined BROWSER (
 )
 
 echo.
-echo   Simulation profiles: click any of the six buttons in the header.
-echo   Live hardware:       run this script with  live  as the argument
-echo                        (or click Connect in the page), then pick the
-echo                        board's COM port.
+echo   To read the board:   close idf.py monitor / PuTTY / the Win32 dashboard
+echo                        first - only one program can hold a COM port - then
+echo                        press "Connect to device" and pick the port.
+echo   No hardware?         press "Simulation" for the six clinical profiles.
 echo.
 exit /b 0

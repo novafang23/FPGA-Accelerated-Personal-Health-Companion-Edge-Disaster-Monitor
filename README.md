@@ -597,6 +597,13 @@ Double-click **`launch_web_dashboard.bat`**, or open
 `firmware/shrikefi/dashboard/valor_dashboard.html` yourself.
 See [`firmware/shrikefi/dashboard/README.md`](firmware/shrikefi/dashboard/README.md).
 
+**Nothing is shown until you choose.** The dashboard opens in an *idle* state — every
+readout blank — and fills in only once you connect a device or explicitly start a
+simulation. An unconnected dashboard showing a plausible heart rate would be worse
+than one showing nothing.
+
+![VALOR web dashboard, first run](docs/images/valor_dashboard_idle.png)
+
 | Normal baseline | Heat wave & dehydration | Cardiopulmonary ICU emergency |
 |---|---|---|
 | ![Normal](docs/images/valor_dashboard_normal.png) | ![Heat wave](docs/images/valor_dashboard_heatwave.png) | ![ICU](docs/images/valor_dashboard_icu.png) |

@@ -8,18 +8,53 @@ valor_dashboard.html      the whole dashboard (one file)
 
 ## Using it
 
+The page has **three explicit states**, and it shows nothing until you pick one:
+
+| State | How to get there | What is on screen |
+|---|---|---|
+| **idle** *(default)* | just open the file | every readout is `--`, scope shows *NO SIGNAL*. No invented data. |
+| **live** | *Connect to device* → pick the COM port | real values from the board |
+| **sim** | *Simulation*, then pick a profile | the six clinical profiles, labelled as a simulation |
+
 **Live, from the board** — plug the ESP32-S3 in over USB, open the file in
-**Chrome or Edge**, click *Connect to device*, and pick the COM port. It opens
-the port at 115200 and streams.
+**Chrome or Edge**, press *Connect to device*, and pick the COM port. It opens at
+115200 and streams.
 
-**With no hardware** — click *Run simulation*, or open it with `?sim=1`. Six
-clinical profiles drive the whole dashboard, so a demo never depends on the
-board being present or working.
+**With no hardware** — press *Simulation*. Six profiles drive the whole
+dashboard, so a demo never depends on the board working.
 
-**Unattended display** — `?sim=1&full=1` skips the gate and hides the profile
-buttons. That is what `launch_web_dashboard.bat` uses.
+**Nothing until you choose** — the idle state exists on purpose. An unconnected
+dashboard showing a plausible heart rate is worse than one showing nothing, so
+values stay blank until a device is connected or a simulation is explicitly
+started.
 
-Open a profile directly with `?sim=1&profile=Heat%20Wave`.
+### Command line / automated
+
+```
+launch_web_dashboard.bat              open idle; you choose Connect or Simulation
+launch_web_dashboard.bat sim          start straight in the simulation
+launch_web_dashboard.bat full         simulation, profile buttons hidden (kiosk)
+
+?sim=1                                skip the gate, run the simulation
+?sim=1&full=1                         ...and hide the six profile buttons
+?sim=1&profile=Heat%20Wave%20%26%20Dehydration
+```
+
+> `?full=1` hides only the six profile buttons. It used to hide the whole
+> controls container, which also hid **Connect** — so launching the kiosk preset
+> left no way to attach the board. Connect now lives outside that container.
+
+### Connecting: the thing that will trip you up first
+
+**Only one program can hold a COM port.** Close `idf.py monitor`, PuTTY, the
+Win32 dashboard, and the Arduino IDE before pressing Connect. If the port is
+busy, `requestPort()` fails or the page sits at *NO DATA*.
+
+Also: **put a finger on the sensor.** Until contact the device sends `NO_FINGER`
+or `ACQUIRING`, and the dashboard correctly shows `--` rather than a stale value.
+
+If nothing appears, check in this order: firmware flashed → port free → right
+port → finger on the sensor.
 
 > **Firefox and Safari have no Web Serial API**, so live mode is Chrome/Edge
 > only. Simulation works in every browser. The page detects this and says so

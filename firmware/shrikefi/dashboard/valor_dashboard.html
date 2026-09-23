@@ -109,14 +109,17 @@
   .status-pill.live   { background: rgba(0,255,170,0.07); border: 1px solid rgba(0,255,170,0.22); }
   .status-pill.sim    { background: rgba(245,158,11,0.07); border: 1px solid rgba(245,158,11,0.22); }
   .status-pill.err    { background: rgba(239,68,68,0.07); border: 1px solid rgba(239,68,68,0.25); }
+  .status-pill.idle   { background: rgba(100,116,139,0.07); border: 1px solid rgba(100,116,139,0.25); }
   .status-dot { width: 6px; height: 6px; border-radius: 50%; }
   .status-pill.live .status-dot { background: var(--emerald); box-shadow: 0 0 7px var(--emerald); animation: pulse-dot 1.4s ease-in-out infinite; }
   .status-pill.sim  .status-dot { background: var(--amber);   box-shadow: 0 0 7px var(--amber); }
   .status-pill.err  .status-dot { background: var(--crimson); box-shadow: 0 0 7px var(--crimson); }
+  .status-pill.idle .status-dot { background: var(--text-mid); }
   .status-pill span { font-family: var(--mono); font-size: 10px; }
   .status-pill.live span { color: var(--emerald); }
   .status-pill.sim  span { color: var(--amber); }
   .status-pill.err  span { color: var(--crimson); }
+  .status-pill.idle span { color: var(--text-mid); }
 
   @keyframes pulse-dot {
     0%, 100% { opacity: 1;   transform: scale(1); }
@@ -244,11 +247,13 @@
     </p>
     <p>
       Connect the ShrikeFi board over USB to stream live vitals, or run one of the
-      six clinical profiles with no hardware attached.
+      six clinical profiles with no hardware attached. Nothing is displayed until
+      you choose one &mdash; the panels stay empty rather than showing invented data.
     </p>
     <div class="gate-actions">
       <button class="primary" id="gate-connect">Connect to device</button>
       <button id="gate-sim">Run simulation</button>
+      <button id="gate-empty">Open without data</button>
     </div>
     <div class="gate-note" id="gate-note"></div>
   </div>
@@ -260,14 +265,18 @@
     <div class="brand">
       <span class="brand-name">VALOR</span>
       <span class="brand-sub">Edge Health &amp; Disaster Triage</span>
-      <div class="status-pill sim" id="status-pill">
+      <div class="status-pill idle" id="status-pill">
         <div class="status-dot"></div>
-        <span id="status-text">SIMULATION &middot; profile data</span>
+        <span id="status-text">NOT CONNECTED &middot; no data</span>
       </div>
     </div>
     <div class="board-sub">ShrikeFi ESP32-S3 + Renesas ForgeFPGA SLG47910</div>
   </div>
-  <div class="controls" id="profile-buttons"></div>
+  <div class="controls">
+    <button id="btn-connect" class="primary">Connect to device</button>
+    <button id="btn-sim">Simulation</button>
+    <div id="profile-buttons" style="display:none"></div>
+  </div>
 </header>
 
 <!-- â”€â”€ Row 1: PPG scope + NEWS2 â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ -->
@@ -281,7 +290,7 @@
       <div style="display:flex;gap:8px;align-items:center">
         <span class="mono" style="font-size:11px" id="scope-sqi">SQI --</span>
         <span class="chip" id="scope-rate">-- Hz</span>
-        <span class="chip" id="scope-src">SIM</span>
+        <span class="chip" id="scope-src">--</span>
       </div>
     </div>
     <div class="scope-frame"><canvas id="ppg"></canvas></div>
@@ -513,14 +522,20 @@ const C = {
 
 /* Live state. In simulation it is driven by the profile; in live mode it is
    overwritten by parsed serial lines. `connected` decides which. */
-const V = Object.assign({}, PROFILES['Normal Baseline'], {
-  pi: 2.4, level: 0, flags: 0, risk: 'NORMAL',
-  rHeat: 'NORMAL', rPoll: 'NORMAL', rFlood: 'UNKNOWN',
+/* Deliberately empty. An idle dashboard must not be able to show a plausible
+   looking number, so every field starts at zero and render() prints "--" for it
+   until a device connects or a simulation is explicitly started. */
+const V = {
+  hr: 0, spo2: 0, hrv: 0, rr: 0, sqi: 0,
+  temp: 0, hum: 0, pmRaw: 0, pmCal: 0,
+  psi: 0, aha: 0, heat: 0, poll: 0, flood: 0, news2: 0,
+  pi: 0, level: 0, flags: 0, risk: 'UNKNOWN',
+  rHeat: 'UNKNOWN', rPoll: 'UNKNOWN', rFlood: 'UNKNOWN',
   nnHeat: null, nnPoll: null, nnFlood: null,
-});
+};
 
-let mode = 'sim';          // 'sim' | 'live'
-let profile = 'Normal';
+let mode = 'idle';         // 'idle' | 'sim' | 'live'
+let profile = 'Normal Baseline';
 let sampleRate = 0;
 let lastSerialLine = 0;
 
@@ -618,6 +633,21 @@ function makePPG() {
     lo = lo < 0 ? mn - pad : lo * 0.9 + (mn - pad) * 0.1;
     hi = hi < 0 ? mx + pad : hi * 0.9 + (mx + pad) * 0.1;
     const span = Math.max(1e-6, hi - lo);
+
+    if (mode === 'idle') {
+      /* Flat trace with a reason, rather than an unexplained dead line. */
+      ctx.strokeStyle = 'rgba(100,116,139,0.35)';
+      ctx.lineWidth = 1;
+      ctx.setLineDash([6, 6]);
+      ctx.beginPath(); ctx.moveTo(0, h / 2); ctx.lineTo(w, h / 2); ctx.stroke();
+      ctx.setLineDash([]);
+      ctx.fillStyle = 'rgba(100,116,139,0.85)';
+      ctx.font = '12px ' + getComputedStyle(document.body).fontFamily;
+      ctx.textAlign = 'center';
+      ctx.fillText('NO SIGNAL \u2014 connect a device or start a simulation', w / 2, h / 2 - 12);
+      ctx.textAlign = 'left';
+      return;
+    }
 
     const bad = V.sqi < 50;
     const color = bad ? C.crimson : C.cyan;
@@ -772,7 +802,72 @@ function setStatus(kind, text) {
   $('status-text').textContent = text;
 }
 
+/* Everything the dashboard knows how to show, blanked. */
+function renderIdle() {
+  const D = '\u2014';
+  $('scope-sqi').textContent = 'SQI --';
+  $('scope-sqi').style.color = '';
+  $('scope-rate').textContent = '-- Hz';
+  $('scope-src').textContent = 'NONE';
+  $('scope-sub').textContent = 'no device connected';
+
+  ['m-pi', 'm-rr', 'm-hrv', 'm-sqi'].forEach((id) => { $(id).textContent = '--'; });
+
+  const sc = $('n2-score');
+  sc.textContent = D;
+  sc.style.color = 'var(--text-faint)';
+  sc.style.textShadow = 'none';
+  $('n2-label').textContent = 'No data';
+  $('n2-label').style.color = 'var(--text-faint)';
+  $('n2-sub').textContent = 'Connect a device or start a simulation to score.';
+  $('n2-grid').innerHTML = ['RR', 'SpO2', 'HR', 'SBP', 'Temp', 'Consc']
+    .map((k) => '<div class="subscore na"><div class="k">' + k + '</div><div class="v">--</div></div>')
+    .join('');
+  $('n2-note').textContent = '';
+
+  $('v-hr').textContent = D;   $('v-hr').style.color = 'var(--text-faint)'; $('v-hr').style.textShadow = 'none';
+  $('hr-note').textContent = '';
+  $('v-spo2').textContent = D; $('v-spo2').style.color = 'var(--text-faint)';
+  $('spo2-note').textContent = '';
+  $('v-hrv').textContent = D;  $('v-hrv').style.color = 'var(--text-faint)';
+  $('bar-hrv').style.width = '0%';
+  $('hrv-note').textContent = '';
+  $('v-rr').textContent = D;   $('v-rr').style.color = 'var(--text-faint)';
+  $('v-sqi').textContent = D;  $('v-sqi').style.color = 'var(--text-faint)';
+  const sp = $('sqi-pill');
+  sp.textContent = 'waiting for signal';
+  sp.className = 'pill';
+
+  $('v-temp').textContent = D; $('v-temp').style.color = 'var(--text-faint)';
+  [...$('temp-band').children].forEach((b) => { b.className = ''; });
+  $('v-hum').textContent = D;  $('v-hum').style.color = 'var(--text-faint)';
+  $('bar-hum').style.width = '0%';
+  $('v-pm').textContent = D;   $('v-pm').style.color = 'var(--text-faint)';
+  $('pm-raw').textContent = 'raw --';
+  $('pm-label').textContent = '';
+  $('pm-label').style.color = '';
+
+  $('psi-val').innerHTML = D + '<span style="font-size:10px;color:var(--text-faint)">/10</span>';
+  $('psi-val').style.color = 'var(--text-faint)';
+  $('bar-psi').style.width = '0%';
+  $('aha-val').innerHTML = D + '<span style="font-size:10px;color:var(--text-faint)">/1.0</span>';
+  $('aha-val').style.color = 'var(--text-faint)';
+  $('bar-aha').style.width = '0%';
+
+  const gv = { heat: 'var(--crimson)', poll: 'var(--amber)', flood: 'var(--sky)' };
+  for (const k of ['heat', 'poll', 'flood']) {
+    $('g-' + k + '-val').textContent = D;
+    $('g-' + k + '-val').style.color = 'var(--text-faint)';
+    $('g-' + k).style.width = '0%';
+    $('g-' + k + '-sub').textContent = '';
+  }
+}
+
 function render() {
+  /* Idle draws placeholders and returns. Nothing here should ever invent a
+     number: an unconnected dashboard showing a plausible heart rate is worse
+     than one showing nothing. */
+  if (mode === 'idle') { renderIdle(); return; }
   /* â”€â”€ PPG card header + derived metrics â”€â”€ */
   const sqiPct = Math.round(V.sqi);
   $('scope-sqi').textContent = 'SQI ' + sqiPct + '%';
@@ -1118,69 +1213,119 @@ async function disconnect() {
    7. Boot
    ========================================================================== */
 
-function buildProfileButtons() {
+/* Three explicit states, and the dashboard shows nothing until one is picked.
+ *
+ *   idle  - the default. Every readout is "--"; no invented data on screen.
+ *   live  - serial port open, values come from the device.
+ *   sim   - one of the six profiles, clearly labelled as a simulation.
+ *
+ * Connect lives OUTSIDE #profile-buttons on purpose. It used to be inside, and
+ * the ?full=1 kiosk flag hid that whole container - so launching the demo hid
+ * the only way to connect to the board. */
+function buildControls() {
   const wrap = $('profile-buttons');
   wrap.innerHTML = '';
   Object.keys(PROFILES).forEach((name) => {
     const b = document.createElement('button');
     b.textContent = name;
     b.dataset.p = name;
-    b.onclick = () => { mode = 'sim'; applyProfile(name); };
+    b.onclick = () => { mode = 'sim'; applyProfile(name); refreshChrome(); };
     wrap.appendChild(b);
   });
 
-  const disc = document.createElement('button');
-  disc.textContent = 'Connect';
-  disc.className = 'primary';
-  disc.id = 'btn-connect';
-  disc.onclick = async () => {
-    if (mode === 'live') {
-      await disconnect();
-      mode = 'sim';
-      applyProfile(profile);
-      setStatus('sim', 'SIMULATION Â· profile data');
-      $('foot-note').textContent = 'simulation mode';
-      $('btn-connect').textContent = 'Connect';
-    } else {
-      await connect();
-      if (mode === 'live') $('btn-connect').textContent = 'Disconnect';
-    }
+  $('btn-connect').onclick = async () => {
+    if (mode === 'live') { await disconnect(); enterIdle(); return; }
+    const ok = await connect();
+    refreshChrome();
+    if (!ok) enterIdle();
   };
-  wrap.appendChild(disc);
+
+  $('btn-sim').onclick = () => {
+    if (mode === 'sim') { enterIdle(); return; }
+    mode = 'sim';
+    applyProfile(profile);
+    refreshChrome();
+  };
+}
+
+/* Idle: no data, nothing claimed. */
+function enterIdle() {
+  if (port) disconnect();
+  mode = 'idle';
+  Object.assign(V, {
+    hr: 0, spo2: 0, hrv: 0, rr: 0, sqi: 0,
+    temp: 0, hum: 0, pmRaw: 0, pmCal: 0,
+    psi: 0, aha: 0, heat: 0, poll: 0, flood: 0, news2: 0,
+    pi: 0, level: 0, flags: 0, risk: 'UNKNOWN',
+    rHeat: 'UNKNOWN', rPoll: 'UNKNOWN', rFlood: 'UNKNOWN',
+    nnHeat: null, nnPoll: null, nnFlood: null,
+  });
+  setStatus('idle', 'NOT CONNECTED \u00b7 no data');
+  $('foot-note').textContent = 'no data \u2014 connect a device or start a simulation';
+}
+
+/* Keep the buttons and the status pill consistent with `mode`. */
+function refreshChrome() {
+  const sim = (mode === 'sim');
+  $('profile-buttons').style.display = sim ? 'flex' : 'none';
+  $('btn-sim').classList.toggle('active', sim);
+  $('btn-connect').textContent = (mode === 'live') ? 'Disconnect' : 'Connect to device';
+  $('btn-connect').classList.toggle('active', mode === 'live');
+
+  if (mode === 'live') {
+    setStatus('live', 'LIVE \u00b7 USB SERIAL \u00b7 115200');
+    $('foot-note').textContent = 'live device stream over USB serial';
+  } else if (mode === 'sim') {
+    setStatus('sim', 'SIMULATION \u00b7 profile data');
+    $('foot-note').textContent = 'simulation mode \u2014 profile data, no device';
+  } else {
+    setStatus('idle', 'NOT CONNECTED \u00b7 no data');
+    $('foot-note').textContent = 'no data \u2014 connect a device or start a simulation';
+  }
 }
 
 $('gate-connect').onclick = async () => {
   const ok = await connect();
-  if (ok) $('btn-connect').textContent = 'Disconnect';
-  else { mode = 'sim'; applyProfile('Normal Baseline'); $('gate').classList.add('hidden'); }
+  $('gate').classList.add('hidden');
+  if (ok) refreshChrome(); else enterIdle();
 };
 $('gate-sim').onclick = () => {
   mode = 'sim';
   applyProfile('Normal Baseline');
   $('gate').classList.add('hidden');
+  refreshChrome();
+};
+$('gate-empty').onclick = () => {
+  enterIdle();
+  $('gate').classList.add('hidden');
 };
 
+/* No Web Serial (Firefox/Safari): say so plainly. */
 if (!('serial' in navigator)) {
   $('gate-note').textContent =
-    'No Web Serial in this browser â€” Chrome or Edge 89+ needed for live mode. Simulation works everywhere.';
+    'This browser has no Web Serial API, so live mode is unavailable here. ' +
+    'Chrome or Edge 89+ is required. The simulation works everywhere.';
 }
 
-buildProfileButtons();
-applyProfile('Normal Baseline');
+buildControls();
+enterIdle();
 
 /* Kiosk / automated start.
  *
- *   ?sim=1   skip the gate and go straight to the simulation
- *   ?full=1  same, and hide the profile buttons for an unattended display
+ *   ?sim=1     skip the gate and run the simulation
+ *   ?full=1    imply ?sim=1 and hide the six profile buttons for an unattended display
+ *   ?profile=X start on a named profile (URL-encode spaces and '&')
  *
- * Without this the page always needs a click, because Web Serial requires a
- * user gesture - so the gate cannot be removed entirely, but it can be skipped
- * when no live connection is intended. */
+ * ?full=1 deliberately does NOT hide Connect any more: only the profile buttons
+ * are hidden, so a display left running can still be brought online by hand.
+ * With no parameters the page opens idle and shows no data. */
 const qs = new URLSearchParams(location.search);
 if (qs.has('sim') || qs.has('full')) {
   mode = 'sim';
   applyProfile(qs.get('profile') && PROFILES[qs.get('profile')] ? qs.get('profile') : 'Normal Baseline');
   $('gate').classList.add('hidden');
+  $('btn-sim').style.display = 'none';
+  refreshChrome();
   if (qs.has('full')) $('profile-buttons').style.display = 'none';
 }
 
