@@ -777,7 +777,7 @@ function render() {
   const sqiPct = Math.round(V.sqi);
   $('scope-sqi').textContent = 'SQI ' + sqiPct + '%';
   $('scope-sqi').style.color = V.sqi < 50 ? C.crimson : C.mid;
-  $('scope-rate').textContent = (mode === 'live' ? (sampleRate || '--') : '100') + ' Hz';
+  $('scope-rate').textContent = (mode === 'live' ? (sampleRate || '--') : '50') + ' Hz';
   $('scope-src').textContent = mode === 'live' ? 'LIVE' : 'SIM';
   $('scope-sub').textContent = mode === 'live'
     ? 'AC-coupled reflectance Â· live MAX30102 Â· auto-ranged'
@@ -1010,7 +1010,7 @@ function handleLine(line) {
 
   if (line.startsWith('[PPG]')) {
     const v = parseFloat(line.slice(5));
-    if (isFinite(v)) { PPG.push(v); sampleRate = sampleRate || 100; }
+    if (isFinite(v)) { PPG.push(v); ppgCount++; }
     return;
   }
 
@@ -1198,11 +1198,35 @@ PPG.draw(); ECG.draw(); RRC.draw(); drawArc();
 render();
 
 let last = performance.now();
+let simAccum = 0;          /* simulated vitals update accumulator */
+let ppgCount = 0;          /* live PPG samples seen this second */
+let ppgWindow = last;
+
 function frame(ts) {
   const dt = Math.min(ts - last, 60);
   last = ts;
 
-  if (mode === 'sim') { simStep(); simPPG(dt); }
+  if (mode === 'sim') {
+    /* Numeric vitals tick at 1 Hz, NOT once per animation frame.
+     *
+     * The device paces its assessment task with vTaskDelay(pdMS_TO_TICKS(1000))
+     * in main_shrikefi.c, so [TELEMETRY] and [TRIAGE] arrive once a second.
+     * Jittering the readouts at 60 Hz made the simulation look nothing like the
+     * hardware - a flickering blur instead of a patient monitor. The waveforms
+     * below still animate every frame, because a scrolling trace is not a
+     * number. */
+    simAccum += dt;
+    while (simAccum >= 1000) { simAccum -= 1000; simStep(); }
+    simPPG(dt);
+  }
+
+  /* Measure the live sample rate rather than asserting one. The PPG task runs
+   * at 50 Hz (vTaskDelay(20 ms)), not the 100 Hz the design mock-up claimed. */
+  if (mode === 'live' && lastSerialLine && ts - ppgWindow >= 1000) {
+    sampleRate = ppgCount;
+    ppgCount = 0;
+    ppgWindow = ts;
+  }
 
   /* Live mode with no data for 3s means the board stopped emitting; say so
      rather than freezing on stale numbers. */
