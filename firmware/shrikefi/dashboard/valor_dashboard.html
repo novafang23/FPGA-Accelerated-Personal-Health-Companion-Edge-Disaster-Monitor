@@ -1,0 +1,1228 @@
+﻿<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>VALOR â€” Edge Health &amp; Disaster Triage</title>
+<!--
+  VALOR dashboard â€” single self-contained file.
+
+  No CDN, no build step, no install. Open it in Chrome or Edge and press
+  Connect. Web Serial talks to the ESP32-S3 directly over USB; if the browser
+  has no Web Serial (Firefox/Safari) or no board is attached, it runs the six
+  clinical profiles instead so a demo never depends on hardware.
+
+  All styling is inline in this file on purpose: a hackathon demo may have no
+  internet, and a Google Fonts or Tailwind CDN reference would silently degrade
+  to unstyled HTML the moment the venue Wi-Fi dies. Font fallback goes
+  Inter -> system UI, and JetBrains Mono -> the platform monospace.
+
+  DATA HONESTY
+  ------------
+  This is a port of a Figma mock-up, and the mock-up contained several numbers
+  the device cannot produce. They are deliberately NOT here; each is listed in
+  firmware/shrikefi/dashboard/README.md with what replaced it. In short:
+  no blood-pressure estimate, no PTT, no faked NEWS2 sub-scores for parameters
+  that are not instrumented, and the AHA strain is shown on its real 0-1 scale
+  rather than the mock-up's 0-10.
+-->
+<style>
+  :root {
+    --bg:          #080c14;
+    --card:        rgba(11, 17, 32, 0.85);
+    --card-solid:  #0b1120;
+    --inset:       #0a1022;
+    --border:      #1a2540;
+    --border-soft: #131f35;
+    --text:        #e2e8f0;
+    --text-title:  #cbd5e1;
+    --text-mid:    #64748b;
+    --text-dim:    #4a5568;
+    --text-faint:  #2d3f5c;
+    --emerald:     #00FFAA;
+    --cyan:        #00E5FF;
+    --amber:       #F59E0B;
+    --crimson:     #EF4444;
+    --purple:      #A855F7;
+    --sky:         #38bdf8;
+    --violet:      #a78bfa;
+    --mono: ui-monospace, "JetBrains Mono", "Cascadia Mono", Consolas, monospace;
+    --sans: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  }
+
+  * { box-sizing: border-box; }
+
+  html, body {
+    margin: 0; padding: 0;
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--sans);
+    -webkit-font-smoothing: antialiased;
+  }
+
+  body {
+    padding: 14px 18px 20px;
+    min-height: 100vh;
+  }
+
+  /* Faint 24px engineering grid, matching the design's background texture. */
+  body::before {
+    content: "";
+    position: fixed; inset: 0; pointer-events: none; z-index: 0;
+    background-image:
+      linear-gradient(rgba(30,41,59,0.16) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(30,41,59,0.16) 1px, transparent 1px);
+    background-size: 24px 24px;
+  }
+  body > * { position: relative; z-index: 1; }
+
+  .card {
+    background: var(--card);
+    -webkit-backdrop-filter: blur(16px);
+    backdrop-filter: blur(16px);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+  }
+
+  .mono { font-family: var(--mono); }
+  .dim  { font-size: 11px; color: var(--text-dim); }
+  .faint{ font-size: 10px; color: var(--text-faint); font-family: var(--mono); }
+
+  /* â”€â”€ Header â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
+  header {
+    display: flex; align-items: center; justify-content: space-between;
+    flex-wrap: wrap; gap: 10px; margin-bottom: 14px;
+  }
+  .brand { display: flex; align-items: center; gap: 10px; }
+  .brand-name {
+    font-weight: 800; font-size: 20px; letter-spacing: -0.03em; color: #f1f5f9;
+  }
+  .brand-sub { font-size: 13px; color: #475569; }
+  .board-sub {
+    margin-top: 3px; font-size: 11px; color: var(--text-faint); font-family: var(--mono);
+  }
+
+  .status-pill {
+    display: flex; align-items: center; gap: 6px; margin-left: 6px;
+    padding: 3px 10px; border-radius: 20px;
+  }
+  .status-pill.live   { background: rgba(0,255,170,0.07); border: 1px solid rgba(0,255,170,0.22); }
+  .status-pill.sim    { background: rgba(245,158,11,0.07); border: 1px solid rgba(245,158,11,0.22); }
+  .status-pill.err    { background: rgba(239,68,68,0.07); border: 1px solid rgba(239,68,68,0.25); }
+  .status-dot { width: 6px; height: 6px; border-radius: 50%; }
+  .status-pill.live .status-dot { background: var(--emerald); box-shadow: 0 0 7px var(--emerald); animation: pulse-dot 1.4s ease-in-out infinite; }
+  .status-pill.sim  .status-dot { background: var(--amber);   box-shadow: 0 0 7px var(--amber); }
+  .status-pill.err  .status-dot { background: var(--crimson); box-shadow: 0 0 7px var(--crimson); }
+  .status-pill span { font-family: var(--mono); font-size: 10px; }
+  .status-pill.live span { color: var(--emerald); }
+  .status-pill.sim  span { color: var(--amber); }
+  .status-pill.err  span { color: var(--crimson); }
+
+  @keyframes pulse-dot {
+    0%, 100% { opacity: 1;   transform: scale(1); }
+    50%      { opacity: 0.4; transform: scale(0.75); }
+  }
+
+  .controls { display: flex; gap: 4px; flex-wrap: wrap; align-items: center; }
+
+  button {
+    font-family: var(--sans); font-size: 11px; font-weight: 400;
+    padding: 5px 12px; border-radius: 8px; border: 1px solid var(--border);
+    background: transparent; color: var(--text-dim);
+    cursor: pointer; transition: all 0.15s;
+  }
+  button:hover { color: var(--text-mid); border-color: #26375a; }
+  button.active {
+    font-weight: 600; border-color: #334b70; background: #0f1e38; color: #93c5fd;
+  }
+  button.primary { border-color: rgba(0,255,170,0.35); color: var(--emerald); }
+  button.primary:hover { background: rgba(0,255,170,0.08); }
+  button:disabled { opacity: 0.45; cursor: default; }
+
+  /* â”€â”€ Rows â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
+  .row { display: grid; gap: 12px; margin-bottom: 12px; }
+  .row-1 { grid-template-columns: 1fr 340px; }
+  .row-2 { grid-template-columns: 1fr 1fr 1fr 1fr 180px; }
+  .row-3 { grid-template-columns: 1fr 1fr 1fr 1fr; }
+  .row-4 { grid-template-columns: 1fr 1fr 1fr; gap: 32px; }
+
+  .card-pad { padding: 18px 20px; }
+
+  .card-head { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 12px; }
+  .card-title { font-size: 13px; font-weight: 600; color: var(--text-title); margin-bottom: 2px; }
+
+  .chip {
+    font-size: 10px; color: var(--text-faint); background: var(--inset);
+    border: 1px solid var(--border); border-radius: 4px; padding: 2px 7px;
+    font-family: var(--mono);
+  }
+
+  .scope-frame {
+    height: 200px; border-radius: 8px; overflow: hidden;
+    border: 1px solid #111c33; background: #05080f; position: relative;
+  }
+  canvas { display: block; width: 100%; height: 100%; }
+
+  .metric-row { display: flex; gap: 24px; margin-top: 12px; flex-wrap: wrap; }
+  .metric { }
+  .metric .k { font-size: 10px; color: var(--text-faint); margin-bottom: 2px; font-family: var(--mono); }
+  .metric .v { font-size: 13px; color: var(--text-mid); font-family: var(--mono); font-weight: 500; }
+
+  .big { font-family: var(--mono); font-weight: 800; line-height: 1; }
+  .unit { font-size: 13px; color: #334155; margin-left: 4px; }
+
+  /* â”€â”€ NEWS2 â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
+  .news2-score { font-family: var(--mono); font-size: 72px; font-weight: 900; line-height: 1; }
+  .news2-label { margin-top: 8px; font-size: 15px; font-weight: 700; letter-spacing: 0.02em; }
+  .news2-sub   { margin-top: 6px; font-size: 11px; color: var(--text-mid); line-height: 1.6; padding: 0 8px; }
+  .divider     { border-top: 1px solid var(--border); padding-top: 14px; }
+
+  .subscore-grid { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 6px; }
+  .subscore {
+    text-align: center; padding: 6px 4px; border-radius: 6px;
+    background: var(--inset); border: 1px solid var(--border-soft);
+  }
+  .subscore.hot { background: rgba(245,158,11,0.1); border-color: #4a3010; }
+  .subscore.na  { opacity: 0.4; }
+  .subscore .k { font-family: var(--mono); font-size: 10px; color: var(--text-faint); }
+  .subscore.hot .k { color: var(--amber); }
+  .subscore .v { font-family: var(--mono); font-size: 15px; font-weight: 700; color: #1e2d47; margin-top: 2px; }
+  .subscore.hot .v { color: #fbbf24; }
+
+  /* â”€â”€ Bars â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
+  .bar { height: 6px; border-radius: 3px; background: #0d1526; overflow: hidden; }
+  .bar > i { display: block; height: 100%; border-radius: 3px; transition: width 0.25s ease, background 0.4s; }
+
+  .band { display: flex; gap: 3px; height: 6px; align-items: stretch; }
+  .band > i { height: 100%; border-radius: 2px; opacity: 0.15; transition: opacity 0.5s; }
+  .band > i.on { opacity: 1; }
+
+  .gauge-label { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 8px; }
+  .gauge-label .name { font-size: 13px; font-weight: 600; color: var(--text-title); }
+  .gauge-label .val  { font-family: var(--mono); font-size: 20px; font-weight: 700; }
+
+  .pill {
+    padding: 5px 8px; border-radius: 6px; margin-top: 4px;
+    background: var(--inset); border: 1px solid var(--border-soft);
+    font-size: 10px; font-family: var(--mono); color: #334155;
+  }
+  .pill.bad { background: rgba(239,68,68,0.1); border-color: #5a1d1d; color: var(--crimson); }
+
+  /* â”€â”€ Splash / helper overlay â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
+  #gate {
+    position: fixed; inset: 0; z-index: 50;
+    background: rgba(8,12,20,0.94);
+    -webkit-backdrop-filter: blur(6px); backdrop-filter: blur(6px);
+    display: flex; align-items: center; justify-content: center; padding: 24px;
+  }
+  #gate.hidden { display: none; }
+  .gate-box { max-width: 560px; text-align: center; }
+  .gate-box h1 { font-size: 30px; margin: 0 0 6px; letter-spacing: -0.03em; color: #f1f5f9; }
+  .gate-box p  { color: var(--text-mid); font-size: 13px; line-height: 1.7; }
+  .gate-actions { display: flex; gap: 10px; justify-content: center; margin-top: 22px; flex-wrap: wrap; }
+  .gate-actions button { padding: 10px 18px; font-size: 13px; }
+  .gate-note { margin-top: 18px; font-size: 11px; color: var(--text-faint); font-family: var(--mono); }
+
+  @media (max-width: 1180px) {
+    .row-1 { grid-template-columns: 1fr; }
+    .row-2 { grid-template-columns: 1fr 1fr 1fr; }
+    .row-3 { grid-template-columns: 1fr 1fr; }
+  }
+</style>
+</head>
+<body>
+
+<!-- â”€â”€ Entry gate â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+     Not decoration: Web Serial requires a user gesture to grant port
+     access, and a judge opening the file cold needs to be told that the
+     simulation mode exists. -->
+<div id="gate">
+  <div class="gate-box">
+    <h1>VALOR</h1>
+    <p style="font-family:var(--mono);font-size:11px;color:#475569;margin:0 0 18px">
+      Vital &amp; Atmospheric Logic for Offline Rescue &middot; SIH26181
+    </p>
+    <p>
+      Connect the ShrikeFi board over USB to stream live vitals, or run one of the
+      six clinical profiles with no hardware attached.
+    </p>
+    <div class="gate-actions">
+      <button class="primary" id="gate-connect">Connect to device</button>
+      <button id="gate-sim">Run simulation</button>
+    </div>
+    <div class="gate-note" id="gate-note"></div>
+  </div>
+</div>
+
+<!-- â”€â”€ Header â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ -->
+<header>
+  <div>
+    <div class="brand">
+      <span class="brand-name">VALOR</span>
+      <span class="brand-sub">Edge Health &amp; Disaster Triage</span>
+      <div class="status-pill sim" id="status-pill">
+        <div class="status-dot"></div>
+        <span id="status-text">SIMULATION &middot; profile data</span>
+      </div>
+    </div>
+    <div class="board-sub">ShrikeFi ESP32-S3 + Renesas ForgeFPGA SLG47910</div>
+  </div>
+  <div class="controls" id="profile-buttons"></div>
+</header>
+
+<!-- â”€â”€ Row 1: PPG scope + NEWS2 â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ -->
+<div class="row row-1">
+  <div class="card card-pad">
+    <div class="card-head">
+      <div>
+        <div class="card-title">Optical PPG &middot; Real-Time</div>
+        <div class="dim" id="scope-sub">AC-coupled reflectance &middot; ring buffer &middot; auto-ranged</div>
+      </div>
+      <div style="display:flex;gap:8px;align-items:center">
+        <span class="mono" style="font-size:11px" id="scope-sqi">SQI --</span>
+        <span class="chip" id="scope-rate">-- Hz</span>
+        <span class="chip" id="scope-src">SIM</span>
+      </div>
+    </div>
+    <div class="scope-frame"><canvas id="ppg"></canvas></div>
+    <!-- Real derived quantities only. The mock-up showed Systolic/Diastolic
+         estimates and PTT here; this build measures none of those, so they are
+         replaced with values the device actually produces. -->
+    <div class="metric-row">
+      <div class="metric"><div class="k">Perfusion index</div><div class="v" id="m-pi">--</div></div>
+      <div class="metric"><div class="k">Resp. rate</div><div class="v" id="m-rr">--</div></div>
+      <div class="metric"><div class="k">RMSSD</div><div class="v" id="m-hrv">--</div></div>
+      <div class="metric"><div class="k">Signal quality</div><div class="v" id="m-sqi">--</div></div>
+    </div>
+  </div>
+
+  <div class="card" style="padding:20px;display:flex;flex-direction:column;gap:16px">
+    <div>
+      <div class="faint" style="margin-bottom:4px">mNEWS2 &middot; RCP Clinical Triage</div>
+      <div style="font-size:15px;font-weight:700;color:var(--text);letter-spacing:-0.015em">Deterioration Score</div>
+    </div>
+    <div style="text-align:center;padding:20px 0 16px">
+      <div class="news2-score" id="n2-score">0</div>
+      <div class="news2-label" id="n2-label">Stable</div>
+      <div class="news2-sub" id="n2-sub"></div>
+    </div>
+    <div class="divider">
+      <div class="faint" style="margin-bottom:10px">sub-scores</div>
+      <div class="subscore-grid" id="n2-grid"></div>
+      <div class="dim" style="margin-top:10px;line-height:1.5" id="n2-note"></div>
+    </div>
+  </div>
+</div>
+
+<!-- â”€â”€ Row 2: Vitals â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ -->
+<div class="row row-2">
+  <div class="card card-pad">
+    <div class="dim" style="margin-bottom:10px">Heart Rate</div>
+    <div style="display:flex;align-items:flex-end;justify-content:space-between">
+      <div>
+        <span class="big" id="v-hr" style="font-size:44px">--</span>
+        <span class="unit" style="font-size:14px;margin-left:5px">bpm</span>
+      </div>
+    </div>
+    <div style="margin:12px 0 4px;height:38px"><canvas id="ecg"></canvas></div>
+    <div style="font-size:11px;color:#334155" id="hr-note">&nbsp;</div>
+  </div>
+
+  <div class="card card-pad">
+    <div class="dim" style="margin-bottom:10px">SpO&#8322;</div>
+    <div style="display:flex;align-items:center;gap:12px">
+      <canvas id="spo2-arc" width="112" height="112" style="width:56px;height:56px;flex:none"></canvas>
+      <div>
+        <span class="big" id="v-spo2" style="font-size:36px">--</span>
+        <span class="unit">%</span>
+        <div style="font-size:11px;color:#334155;margin-top:4px" id="spo2-note">&nbsp;</div>
+      </div>
+    </div>
+    <div style="margin-top:12px" class="dim" id="spo2-src">Plethysmographic &middot; red/IR ratio</div>
+  </div>
+
+  <div class="card card-pad">
+    <div class="dim" style="margin-bottom:10px">HRV &mdash; RMSSD</div>
+    <div style="margin-bottom:14px">
+      <span class="big" id="v-hrv" style="font-size:36px">--</span>
+      <span class="unit">ms</span>
+    </div>
+    <div class="bar"><i id="bar-hrv" style="width:0%"></i></div>
+    <div style="margin-top:8px;font-size:11px;color:#334155" id="hrv-note">&nbsp;</div>
+  </div>
+
+  <div class="card card-pad">
+    <div class="dim" style="margin-bottom:10px">Resp. Rate</div>
+    <div style="margin-bottom:10px">
+      <span class="big" id="v-rr" style="font-size:36px">--</span>
+      <span class="unit">br/min</span>
+    </div>
+    <div style="height:44px"><canvas id="rr"></canvas></div>
+    <div style="margin-top:6px" class="dim">PPG-derived &middot; RSA modulation</div>
+  </div>
+
+  <div class="card" style="padding:18px 16px">
+    <div class="dim" style="margin-bottom:10px">Signal Quality</div>
+    <div style="margin-bottom:8px">
+      <span class="big" id="v-sqi" style="font-size:36px">--</span>
+      <span class="unit">%</span>
+    </div>
+    <div class="pill" id="sqi-pill">--</div>
+    <div style="margin-top:10px" class="dim">Karlen SQI</div>
+  </div>
+</div>
+
+<!-- â”€â”€ Row 3: Environment â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ -->
+<div class="row row-3">
+  <div class="card card-pad">
+    <div class="dim" style="margin-bottom:10px">Ambient Temp</div>
+    <div style="margin-bottom:12px">
+      <span class="big" id="v-temp" style="font-size:38px;font-weight:700">--</span>
+      <span class="unit" style="font-size:14px">&deg;C</span>
+    </div>
+    <div class="band" id="temp-band">
+      <i style="flex:1;background:#3b82f6"></i>
+      <i style="flex:3;background:#00FFAA"></i>
+      <i style="flex:1;background:#F59E0B"></i>
+      <i style="flex:1;background:#EF4444"></i>
+    </div>
+    <div style="margin-top:6px" class="dim">BME280 &middot; ambient, not skin</div>
+  </div>
+
+  <div class="card card-pad">
+    <div class="dim" style="margin-bottom:10px">Humidity</div>
+    <div style="margin-bottom:12px">
+      <span class="big" id="v-hum" style="font-size:38px;font-weight:700">--</span>
+      <span class="unit" style="font-size:14px">% RH</span>
+    </div>
+    <div class="bar"><i id="bar-hum" style="width:0%"></i></div>
+    <div style="margin-top:6px" class="dim">comfort 40&ndash;60%</div>
+  </div>
+
+  <div class="card card-pad">
+    <div class="dim" style="margin-bottom:10px">PM2.5</div>
+    <div style="display:flex;align-items:baseline;gap:10px;margin-bottom:8px">
+      <div>
+        <span class="big" id="v-pm" style="font-size:38px;font-weight:700">--</span>
+        <span class="unit">&micro;g/m&sup3;</span>
+      </div>
+    </div>
+    <div style="display:flex;align-items:center;justify-content:space-between">
+      <div class="faint" id="pm-raw">raw --</div>
+      <div class="mono" style="font-size:11px;font-weight:600" id="pm-label">--</div>
+    </div>
+    <div style="margin-top:8px" class="dim">PMS5003 &middot; INT8 humidity calibration</div>
+  </div>
+
+  <div class="card card-pad">
+    <div class="dim" style="margin-bottom:14px">Physiological Stress</div>
+    <div style="margin-bottom:12px">
+      <div class="gauge-label">
+        <span style="font-size:11px;color:var(--text-dim)">Moran PSI</span>
+        <span class="mono" style="font-size:18px;font-weight:700" id="psi-val">--<span style="font-size:10px;color:var(--text-faint)">/10</span></span>
+      </div>
+      <div class="bar"><i id="bar-psi" style="width:0%"></i></div>
+    </div>
+    <div>
+      <div class="gauge-label">
+        <span style="font-size:11px;color:var(--text-dim)">AHA Autonomic</span>
+        <span class="mono" style="font-size:18px;font-weight:700" id="aha-val">--<span style="font-size:10px;color:var(--text-faint)">/1.0</span></span>
+      </div>
+      <div class="bar"><i id="bar-aha" style="width:0%"></i></div>
+    </div>
+  </div>
+</div>
+
+<!-- â”€â”€ Row 4: TinyML â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ -->
+<div class="card" style="padding:20px 24px">
+  <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:20px;flex-wrap:wrap;gap:8px">
+    <div>
+      <div class="card-title" style="margin-bottom:3px">Multi-Hazard Risk Inference</div>
+      <div class="dim">On-device TinyML &middot; INT8 &middot; 6&rarr;24&rarr;16&rarr;3, 619 B weights &middot; no cloud</div>
+    </div>
+    <div class="faint" id="ml-note">MIMIC-III triage 94.11% &middot; synthetic-val 88.47% &middot; rule-vs-NN agreement 100%</div>
+  </div>
+  <div class="row row-4" style="margin-bottom:0">
+    <div>
+      <div class="gauge-label">
+        <span class="name">Heat Stroke</span>
+        <span class="val" id="g-heat-val" style="color:var(--crimson)">--</span>
+      </div>
+      <div class="bar" style="height:8px"><i id="g-heat" style="width:0%;background:var(--crimson)"></i></div>
+      <div class="dim" style="margin-top:8px" id="g-heat-sub">heat index + core temp model</div>
+    </div>
+    <div>
+      <div class="gauge-label">
+        <span class="name">Pollution / Smog</span>
+        <span class="val" id="g-poll-val" style="color:var(--amber)">--</span>
+      </div>
+      <div class="bar" style="height:8px"><i id="g-poll" style="width:0%;background:var(--amber)"></i></div>
+      <div class="dim" style="margin-top:8px" id="g-poll-sub">PM2.5 burden</div>
+    </div>
+    <div>
+      <div class="gauge-label">
+        <span class="name">Flood / Cold Shock</span>
+        <span class="val" id="g-flood-val" style="color:var(--sky)">--</span>
+      </div>
+      <div class="bar" style="height:8px"><i id="g-flood" style="width:0%;background:var(--sky)"></i></div>
+      <div class="dim" style="margin-top:8px" id="g-flood-sub">ambient cold-stress proxy</div>
+    </div>
+  </div>
+</div>
+
+<div class="faint" style="margin-top:14px;line-height:1.7">
+  VALOR &middot; SIH26181 &middot; <span id="foot-note">simulation mode</span>
+</div>
+
+<script>
+"use strict";
+
+/* ==========================================================================
+   1. Clinical profiles
+   ==========================================================================
+   Values and names are transcribed from g_scenarios[] in
+   firmware/shrikefi/shrikefi_dashboard.c, so the web simulation and the
+   on-device simulation present the same patient. The Figma mock-up had its own
+   set of numbers under different names, which would have meant two simulations
+   that disagreed.
+
+   psi / aha / heat / poll / flood are illustrative: in a real run they come
+   from the device (see the [TRIAGE] line). NEWS2 is not stored here - it is
+   computed from the vitals using the same tables as the on-device engine. */
+
+const PROFILES = {
+  'Normal Baseline':
+    { hr: 72,  spo2: 98.5, hrv: 38, rr: 15, sqi: 96, temp: 24.5, hum: 48, pmRaw: 12,  pmCal: 12,  psi: 1.2, aha: 0.00, heat: 4,  poll: 6,  flood: 2 },
+  'Heat Wave & Dehydration':
+    { hr: 138, spo2: 96.0, hrv: 12, rr: 24, sqi: 94, temp: 43.5, hum: 65, pmRaw: 45,  pmCal: 45,  psi: 9.5, aha: 0.74, heat: 94, poll: 22, flood: 2 },
+  'Severe Smog / PM2.5 Crisis':
+    { hr: 108, spo2: 92.5, hrv: 14, rr: 22, sqi: 91, temp: 29.0, hum: 82, pmRaw: 340, pmCal: 340, psi: 4.0, aha: 1.00, heat: 12, poll: 97, flood: 6 },
+  'Flash Flood / Hypothermia':
+    { hr: 42,  spo2: 93.0, hrv: 65, rr: 9,  sqi: 90, temp: 11.2, hum: 98, pmRaw: 8,   pmCal: 8,   psi: 2.4, aha: 0.00, heat: 3,  poll: 4,  flood: 91 },
+  'Cardiopulmonary ICU Emergency':
+    { hr: 146, spo2: 83.0, hrv: 7,  rr: 32, sqi: 88, temp: 38.8, hum: 50, pmRaw: 20,  pmCal: 20,  psi: 8.6, aha: 0.74, heat: 30, poll: 14, flood: 3 },
+  'Motion Artifact / Noise Test':
+    { hr: 95,  spo2: 96.0, hrv: 25, rr: 18, sqi: 32, temp: 26.0, hum: 55, pmRaw: 25,  pmCal: 25,  psi: 3.1, aha: 0.20, heat: 9,  poll: 11, flood: 4 },
+};
+
+const C = {
+  emerald: '#00FFAA', cyan: '#00E5FF', amber: '#F59E0B',
+  crimson: '#EF4444', purple: '#A855F7', sky: '#38bdf8',
+  violet: '#a78bfa', mid: '#64748b', faint: '#2d3f5c',
+};
+
+/* Live state. In simulation it is driven by the profile; in live mode it is
+   overwritten by parsed serial lines. `connected` decides which. */
+const V = Object.assign({}, PROFILES['Normal Baseline'], {
+  pi: 2.4, level: 0, flags: 0, risk: 'NORMAL',
+  rHeat: 'NORMAL', rPoll: 'NORMAL', rFlood: 'UNKNOWN',
+  nnHeat: null, nnPoll: null, nnFlood: null,
+});
+
+let mode = 'sim';          // 'sim' | 'live'
+let profile = 'Normal';
+let sampleRate = 0;
+let lastSerialLine = 0;
+
+/* ==========================================================================
+   2. Helpers
+   ========================================================================== */
+
+const $ = (id) => document.getElementById(id);
+const clamp = (x, a, b) => Math.min(b, Math.max(a, x));
+const pct = (x, max) => clamp((x / max) * 100, 0, 100);
+const esc = (s) => String(s).replace(/[&<>"]/g, (c) =>
+  ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+
+/* NEWS2 point tables, transcribed from firmware/core/clinical_vitals_engine.c
+   (news2_hr_score / news2_spo2_score / news2_rr_score). Kept identical to the
+   on-device engine on purpose: if these drift, the screen disagrees with the
+   device. The Figma mock-up had approximate versions of these that were wrong
+   at several boundaries. */
+const n2hr = (hr) =>
+  hr <= 40 ? 3 : hr <= 50 ? 1 : hr <= 90 ? 0 : hr <= 110 ? 1 : hr <= 130 ? 2 : 3;
+const n2spo2 = (s) =>
+  s >= 96 ? 0 : s >= 94 ? 1 : s >= 92 ? 2 : 3;
+const n2rr = (rr) =>
+  rr <= 8 ? 3 : rr <= 11 ? 1 : rr <= 20 ? 0 : rr <= 24 ? 2 : 3;
+
+const NEWS2_BANDS = [
+  { max: 0, label: 'Stable',    color: C.emerald, sub: 'Routine monitoring â€” no action required.' },
+  { max: 2, label: 'Low Risk',  color: C.cyan,    sub: 'Increased monitoring. Ward assessment.' },
+  { max: 4, label: 'Medium Risk', color: C.amber, sub: 'Urgent review within 30 minutes.' },
+  { max: 6, label: 'High Risk', color: C.crimson, sub: 'Emergency. Activate MET team now.' },
+  { max: 99, label: 'Critical', color: C.purple,  sub: 'Imminent deterioration. ICU transfer.' },
+];
+const news2Band = (s) => NEWS2_BANDS.find((b) => s <= b.max) || NEWS2_BANDS[NEWS2_BANDS.length - 1];
+
+function aqiBand(pm) {
+  if (pm < 12)    return { label: 'Good',             color: C.emerald };
+  if (pm < 35.4)  return { label: 'Moderate',         color: C.amber };
+  if (pm < 55.4)  return { label: 'Sensitive Groups', color: '#F97316' };
+  if (pm < 150)   return { label: 'Unhealthy',        color: C.crimson };
+  return { label: 'Hazardous', color: C.purple };
+}
+
+/* ==========================================================================
+   3. Canvases
+   ==========================================================================
+   All three share a device-pixel-ratio backing store so they stay crisp on
+   scaled displays, and a ResizeObserver so they survive a window resize. */
+
+function fitCanvas(cv) {
+  const dpr = window.devicePixelRatio || 1;
+  const r = cv.getBoundingClientRect();
+  const w = Math.max(1, Math.round(r.width)), h = Math.max(1, Math.round(r.height));
+  if (cv.width !== w * dpr || cv.height !== h * dpr) {
+    cv.width = w * dpr; cv.height = h * dpr;
+  }
+  const ctx = cv.getContext('2d');
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  return { ctx, w, h };
+}
+
+/* PPG: 700-sample ring buffer.
+   Live samples are raw IR counts with a large DC offset, so the trace is
+   AC-coupled against a slow running mean and auto-ranged. That shows the real
+   waveform shape without inventing an amplitude scale. */
+function makePPG() {
+  const N = 700;
+  const buf = new Float32Array(N);
+  let head = 0, dc = 0, dcInit = false, lo = -1, hi = 1;
+
+  function push(v) {
+    if (!dcInit) { dc = v; dcInit = true; }
+    dc = dc * 0.995 + v * 0.005;
+    buf[head % N] = v - dc;
+    head++;
+  }
+
+  function draw() {
+    const cv = $('ppg');
+    const { ctx, w, h } = fitCanvas(cv);
+
+    ctx.fillStyle = '#05080f';
+    ctx.fillRect(0, 0, w, h);
+
+    ctx.strokeStyle = 'rgba(30,41,59,0.5)';
+    ctx.lineWidth = 0.5;
+    for (let y = 0; y <= h; y += 24) { ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(w, y); ctx.stroke(); }
+    ctx.strokeStyle = 'rgba(30,41,59,0.25)';
+    for (let x = 0; x <= w; x += 60) { ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, h); ctx.stroke(); }
+
+    /* auto-range over what is on screen */
+    let mn = Infinity, mx = -Infinity;
+    for (let i = 0; i < N; i++) { const v = buf[i]; if (v < mn) mn = v; if (v > mx) mx = v; }
+    if (!isFinite(mn) || mx - mn < 1e-6) { mn = -1; mx = 1; }
+    const pad = (mx - mn) * 0.12;
+    lo = lo < 0 ? mn - pad : lo * 0.9 + (mn - pad) * 0.1;
+    hi = hi < 0 ? mx + pad : hi * 0.9 + (mx + pad) * 0.1;
+    const span = Math.max(1e-6, hi - lo);
+
+    const bad = V.sqi < 50;
+    const color = bad ? C.crimson : C.cyan;
+    const yAt = (i) => {
+      const idx = (head - N + i + N * 2) % N;
+      return h - ((buf[idx] - lo) / span) * h * 0.76 - h * 0.12;
+    };
+
+    /* area fill */
+    ctx.beginPath();
+    for (let i = 0; i < N; i++) { const x = (i / N) * w, y = yAt(i); i ? ctx.lineTo(x, y) : ctx.moveTo(x, y); }
+    ctx.lineTo(w, h); ctx.lineTo(0, h); ctx.closePath();
+    const g = ctx.createLinearGradient(0, 0, 0, h);
+    g.addColorStop(0, bad ? 'rgba(239,68,68,0.14)' : 'rgba(0,229,255,0.14)');
+    g.addColorStop(1, 'transparent');
+    ctx.fillStyle = g; ctx.fill();
+
+    /* waveform, with glow */
+    ctx.beginPath();
+    ctx.strokeStyle = color; ctx.lineWidth = 1.6;
+    ctx.shadowColor = color; ctx.shadowBlur = 9;
+    for (let i = 0; i < N; i++) { const x = (i / N) * w, y = yAt(i); i ? ctx.lineTo(x, y) : ctx.moveTo(x, y); }
+    ctx.stroke();
+    ctx.shadowBlur = 0;
+
+    /* sweep */
+    const sx = ((head % N) / N) * w;
+    const sg = ctx.createLinearGradient(sx - 32, 0, sx + 2, 0);
+    sg.addColorStop(0, 'transparent'); sg.addColorStop(1, color + 'B3');
+    ctx.fillStyle = sg; ctx.fillRect(sx - 32, 0, 34, h);
+  }
+
+  return { push, draw };
+}
+
+/* ECG sparkline â€” a stylised trace, not a measurement. It is decorative and
+   labelled as such; no clinical value is read from it. */
+function makeECG() {
+  const N = 320;
+  const buf = new Float32Array(N);
+  let head = 0, phase = 0;
+
+  function beat(p) {
+    if (p < 0.04) return p / 0.04 * 0.07;
+    if (p < 0.08) return 0.07 - (p - 0.04) / 0.04 * 0.05;
+    if (p < 0.10) return 0.02 - (p - 0.08) / 0.02 * 0.14;
+    if (p < 0.13) return -0.12 + (p - 0.10) / 0.03 * 1.09;
+    if (p < 0.16) return 0.97 - (p - 0.13) / 0.03 * 1.18;
+    if (p < 0.20) return -0.21 + (p - 0.16) / 0.04 * 0.29;
+    if (p < 0.35) return 0.08 + Math.sin(Math.PI * (p - 0.20) / 0.15) * 0.20;
+    return 0;
+  }
+
+  function tick(dt) {
+    const steps = Math.max(1, Math.round(dt * 0.30));
+    for (let i = 0; i < steps; i++) {
+      phase = (phase + (V.hr / 60) / N * 1.6) % 1;
+      buf[head % N] = beat(phase) + (Math.random() - 0.5) * 0.03;
+      head++;
+    }
+  }
+
+  function draw() {
+    const cv = $('ecg');
+    const { ctx, w, h } = fitCanvas(cv);
+    ctx.clearRect(0, 0, w, h);
+    const color = V.hr > 100 ? C.crimson : C.emerald;
+    ctx.beginPath();
+    ctx.strokeStyle = color; ctx.lineWidth = 1.4;
+    ctx.shadowColor = color; ctx.shadowBlur = 6;
+    for (let i = 0; i < N; i++) {
+      const idx = (head - N + i + N * 2) % N;
+      const x = (i / N) * w;
+      const y = h * 0.78 - buf[idx] * h * 0.62;
+      i ? ctx.lineTo(x, y) : ctx.moveTo(x, y);
+    }
+    ctx.stroke(); ctx.shadowBlur = 0;
+  }
+
+  return { tick, draw };
+}
+
+/* Respiratory sinus arrhythmia trace â€” modulation envelope, not a raw signal. */
+function makeRR() {
+  const N = 240;
+  const buf = new Float32Array(N).fill(0.5);
+  let head = 0, phase = 0;
+
+  function tick(dt) {
+    const steps = Math.max(1, Math.round(dt * 0.25));
+    for (let i = 0; i < steps; i++) {
+      phase = (phase + (V.rr / 60) / N * 2.6) % 1;
+      buf[head % N] = 0.5 + Math.sin(phase * Math.PI * 2) * 0.34;
+      head++;
+    }
+  }
+
+  function draw() {
+    const cv = $('rr');
+    const { ctx, w, h } = fitCanvas(cv);
+    ctx.clearRect(0, 0, w, h);
+    const color = (V.rr > 24 || V.rr < 10) ? C.crimson : C.cyan;
+    ctx.beginPath();
+    ctx.strokeStyle = color; ctx.lineWidth = 1.4;
+    for (let i = 0; i < N; i++) {
+      const idx = (head - N + i + N * 2) % N;
+      const x = (i / N) * w;
+      const y = h - buf[idx] * h * 0.8 - h * 0.1;
+      i ? ctx.lineTo(x, y) : ctx.moveTo(x, y);
+    }
+    ctx.stroke();
+  }
+
+  return { tick, draw };
+}
+
+/* SpO2 radial arc */
+function drawArc() {
+  const cv = $('spo2-arc');
+  const dpr = window.devicePixelRatio || 1;
+  const s = 56;
+  if (cv.width !== s * dpr) { cv.width = s * dpr; cv.height = s * dpr; }
+  const ctx = cv.getContext('2d');
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  ctx.clearRect(0, 0, s, s);
+
+  const cx = s / 2, cy = s / 2, r = s / 2 - 6;
+  const color = V.spo2 < 90 ? C.crimson : V.spo2 < 95 ? C.amber : C.cyan;
+
+  ctx.beginPath();
+  ctx.arc(cx, cy, r, -Math.PI * 0.5, Math.PI * 1.5);
+  ctx.strokeStyle = '#131f35'; ctx.lineWidth = 4; ctx.stroke();
+
+  const frac = clamp(V.spo2 / 100, 0, 1);
+  ctx.beginPath();
+  ctx.arc(cx, cy, r, -Math.PI * 0.5, -Math.PI * 0.5 + Math.PI * 2 * frac);
+  ctx.strokeStyle = color; ctx.lineWidth = 4; ctx.lineCap = 'round';
+  ctx.shadowColor = color; ctx.shadowBlur = 8;
+  ctx.stroke();
+  ctx.shadowBlur = 0;
+}
+
+/* ==========================================================================
+   4. UI update
+   ========================================================================== */
+
+const PPG = makePPG(), ECG = makeECG(), RRC = makeRR();
+
+function setStatus(kind, text) {
+  const pill = $('status-pill');
+  pill.className = 'status-pill ' + kind;
+  $('status-text').textContent = text;
+}
+
+function render() {
+  /* â”€â”€ PPG card header + derived metrics â”€â”€ */
+  const sqiPct = Math.round(V.sqi);
+  $('scope-sqi').textContent = 'SQI ' + sqiPct + '%';
+  $('scope-sqi').style.color = V.sqi < 50 ? C.crimson : C.mid;
+  $('scope-rate').textContent = (mode === 'live' ? (sampleRate || '--') : '100') + ' Hz';
+  $('scope-src').textContent = mode === 'live' ? 'LIVE' : 'SIM';
+  $('scope-sub').textContent = mode === 'live'
+    ? 'AC-coupled reflectance Â· live MAX30102 Â· auto-ranged'
+    : 'AC-coupled reflectance Â· ring buffer Â· auto-ranged';
+
+  $('m-pi').textContent  = V.pi > 0 ? V.pi.toFixed(2) + ' %' : '--';
+  $('m-rr').textContent  = V.rr > 0 ? V.rr.toFixed(1) + ' br/min' : '--';
+  $('m-hrv').textContent = V.hrv > 0 ? V.hrv.toFixed(1) + ' ms' : '--';
+  $('m-sqi').textContent = sqiPct + ' %';
+
+  /* â”€â”€ NEWS2 â”€â”€ */
+  const band = news2Band(V.news2);
+  const sc = $('n2-score');
+  sc.textContent = V.news2;
+  sc.style.color = band.color;
+  sc.style.textShadow = '0 0 40px ' + band.color + '44';
+  $('n2-label').textContent = band.label;
+  $('n2-label').style.color = band.color;
+  $('n2-sub').textContent = band.sub;
+
+  /* Only RR, SpO2 and HR feed the on-device NEWS2 score. The other three
+     parameters in the RCP table are simply not instrumented on this build, so
+     they are shown as n/a rather than as a plausible-looking "+0". */
+  const tiles = [
+    { k: 'RR',   pts: n2rr(V.rr),   live: true },
+    { k: 'SpO2', pts: n2spo2(V.spo2), live: true },
+    { k: 'HR',   pts: n2hr(V.hr),   live: true },
+    { k: 'SBP',  pts: null },
+    { k: 'Temp', pts: null },
+    { k: 'Consc', pts: null },
+  ];
+  $('n2-grid').innerHTML = tiles.map((t) => {
+    if (!t.live) return '<div class="subscore na"><div class="k">' + t.k +
+      '</div><div class="v">n/a</div></div>';
+    const hot = t.pts > 0 ? ' hot' : '';
+    return '<div class="subscore' + hot + '"><div class="k">' + t.k +
+      '</div><div class="v">+' + t.pts + '</div></div>';
+  }).join('');
+  $('n2-note').textContent =
+    'Score is HR + SpOâ‚‚ + RR only. SBP and consciousness need inputs this build ' +
+    'does not have (no cuff, no GCS entry), so they are excluded rather than assumed normal.';
+
+  /* â”€â”€ Vitals â”€â”€ */
+  const hrColor = (V.hr > 100 || V.hr < 50) ? C.crimson : C.emerald;
+  $('v-hr').textContent = V.hr > 0 ? V.hr.toFixed(0) : '--';
+  $('v-hr').style.color = hrColor;
+  $('v-hr').style.textShadow = '0 0 24px ' + hrColor + '44';
+  $('hr-note').textContent = V.hr > 100 ? 'â†‘ tachycardia' : V.hr < 60 ? 'â†“ bradycardia' : 'normal sinus rhythm';
+  $('hr-note').style.color = V.hr > 100 ? C.crimson : '#334155';
+
+  const spo2Color = V.spo2 < 90 ? C.crimson : V.spo2 < 95 ? C.amber : C.cyan;
+  $('v-spo2').textContent = V.spo2 > 0 ? V.spo2.toFixed(1) : '--';
+  $('v-spo2').style.color = spo2Color;
+  $('spo2-note').textContent = V.spo2 < 90 ? 'âš  hypoxia' : V.spo2 < 95 ? 'borderline' : 'normal';
+  $('spo2-note').style.color = V.spo2 < 90 ? C.crimson : '#334155';
+
+  const hrvColor = V.hrv < 20 ? C.crimson : V.hrv < 30 ? C.amber : C.violet;
+  $('v-hrv').textContent = V.hrv > 0 ? V.hrv.toFixed(1) : '--';
+  $('v-hrv').style.color = hrvColor;
+  const bHrv = $('bar-hrv');
+  bHrv.style.width = pct(V.hrv, 60) + '%';
+  bHrv.style.background = hrvColor;
+  $('hrv-note').textContent = V.hrv < 20 ? 'Low vagal reserve' : V.hrv < 30 ? 'Reduced' : 'Adequate reserve';
+
+  $('v-rr').textContent = V.rr > 0 ? V.rr.toFixed(0) : '--';
+  $('v-rr').style.color = (V.rr > 24 || V.rr < 10) ? C.crimson : C.text;
+
+  const sqiColor = V.sqi < 50 ? C.crimson : V.sqi < 75 ? C.amber : C.mid;
+  $('v-sqi').textContent = sqiPct;
+  $('v-sqi').style.color = sqiColor;
+  const pill = $('sqi-pill');
+  pill.textContent = V.sqi < 50 ? 'artifact detected â€” triage held' : 'clean signal';
+  pill.className = 'pill' + (V.sqi < 50 ? ' bad' : '');
+
+  /* â”€â”€ Environment â”€â”€ */
+  const tempColor = V.temp > 38 ? C.crimson : V.temp > 35 ? C.amber : '#e2e8f0';
+  $('v-temp').textContent = V.temp.toFixed(1);
+  $('v-temp').style.color = tempColor;
+  const bands = $('temp-band').children;
+  bands[0].className = V.temp < 10 ? 'on' : '';
+  bands[1].className = (V.temp >= 10 && V.temp <= 35) ? 'on' : '';
+  bands[2].className = (V.temp > 35 && V.temp <= 40) ? 'on' : '';
+  bands[3].className = V.temp > 40 ? 'on' : '';
+
+  $('v-hum').textContent = V.hum.toFixed(0);
+  $('v-hum').style.color = V.hum > 90 ? C.crimson : '#e2e8f0';
+  const bHum = $('bar-hum');
+  bHum.style.width = pct(V.hum, 100) + '%';
+  bHum.style.background = V.hum > 90 ? C.crimson : V.hum > 70 ? C.amber : C.cyan;
+
+  const aqi = aqiBand(V.pmCal);
+  $('v-pm').textContent = V.pmCal.toFixed(1);
+  $('v-pm').style.color = aqi.color;
+  $('pm-raw').textContent = 'raw ' + V.pmRaw.toFixed(1);
+  $('pm-label').textContent = aqi.label;
+  $('pm-label').style.color = aqi.color;
+
+  const psiColor = V.psi > 7 ? C.crimson : V.psi > 4 ? C.amber : C.mid;
+  $('psi-val').innerHTML = V.psi.toFixed(1) +
+    '<span style="font-size:10px;color:var(--text-faint)">/10</span>';
+  $('psi-val').style.color = psiColor;
+  const bPsi = $('bar-psi');
+  bPsi.style.width = pct(V.psi, 10) + '%';
+  bPsi.style.background = V.psi > 7 ? C.crimson : V.psi > 4 ? C.amber : C.cyan;
+
+  /* AHA strain is defined by the engine as [0.0, 1.0] - the mock-up showed it
+     on a 0-10 scale, which would have overstated it tenfold. */
+  const ahaColor = V.aha > 0.7 ? C.crimson : V.aha > 0.4 ? C.amber : C.mid;
+  $('aha-val').innerHTML = V.aha.toFixed(2) +
+    '<span style="font-size:10px;color:var(--text-faint)">/1.0</span>';
+  $('aha-val').style.color = ahaColor;
+  const bAha = $('bar-aha');
+  bAha.style.width = pct(V.aha, 1) + '%';
+  bAha.style.background = V.aha > 0.7 ? C.crimson : V.aha > 0.4 ? C.amber : C.violet;
+
+  /* â”€â”€ TinyML gauges â”€â”€
+     Live mode uses the NN outputs the device streams. Simulation uses the
+     profile values. Either way the number shown is a risk in 0-100%. */
+  const heat = V.nnHeat != null ? V.nnHeat * 100 : V.heat;
+  const poll = V.nnPoll != null ? V.nnPoll * 100 : V.poll;
+  const flood = V.nnFlood != null ? V.nnFlood * 100 : V.flood;
+
+  setGauge('heat', heat, C.crimson, V.rHeat);
+  setGauge('poll', poll, C.amber, V.rPoll);
+  setGauge('flood', flood, C.sky, V.rFlood);
+}
+
+function setGauge(id, value, color, ruleRisk) {
+  const pctVal = clamp(value, 0, 100);
+  $('g-' + id + '-val').textContent = pctVal.toFixed(1) + '%';
+  $('g-' + id + '-val').style.color = color;
+  const bar = $('g-' + id);
+  bar.style.width = pctVal + '%';
+  bar.style.background = color;
+  if (ruleRisk && ruleRisk !== 'UNKNOWN') {
+    $('g-' + id + '-sub').textContent = 'rule engine: ' + ruleRisk.toLowerCase();
+  }
+}
+
+/* ==========================================================================
+   5. Simulation
+   ========================================================================== */
+
+function applyProfile(name) {
+  profile = name;
+  const base = PROFILES[name];
+  Object.assign(V, {
+    hr: base.hr, spo2: base.spo2, hrv: base.hrv, rr: base.rr, sqi: base.sqi,
+    temp: base.temp, hum: base.hum, pmRaw: base.pmRaw, pmCal: base.pmCal,
+    psi: base.psi, aha: base.aha, heat: base.heat, poll: base.poll,
+    flood: base.flood,
+    news2: n2hr(base.hr) + n2spo2(base.spo2) + n2rr(base.rr),
+    nnHeat: null, nnPoll: null, nnFlood: null,
+    rHeat: 'NORMAL', rPoll: 'NORMAL', rFlood: 'UNKNOWN',
+  });
+  [...$('profile-buttons').children].forEach((b) =>
+    b.classList.toggle('active', b.dataset.p === name));
+}
+
+let simTick = 0;
+function simStep() {
+  if (mode !== 'sim') return;
+  simTick++;
+  const b = PROFILES[profile];
+  const j = (a) => (Math.random() - 0.5) * a;
+  V.hr   = b.hr   + j(2.8);
+  V.spo2 = Math.min(100, b.spo2 + j(0.35));
+  V.hrv  = Math.max(0, b.hrv + j(1.4));
+  V.rr   = Math.max(0, b.rr + j(0.5));
+  V.temp = b.temp + j(0.12);
+  V.hum  = b.hum + j(0.4);
+  V.pmRaw = b.pmRaw + j(0.7);
+  V.pmCal = b.pmCal + j(0.55);
+  V.psi  = Math.max(0, b.psi + j(0.12));
+  V.aha  = clamp(b.aha + j(0.10), 0, 1);
+  V.heat = clamp(b.heat + j(1.2), 0, 100);
+  V.poll = clamp(b.poll + j(1.2), 0, 100);
+  V.flood = clamp(b.flood + j(1.2), 0, 100);
+  /* In simulation the score is computed from the jittered vitals, so it moves
+     the way the real one does. In live mode it is whatever the device sent -
+     the device also applies its own SQI gating, which this does not. */
+  V.news2 = n2hr(V.hr) + n2spo2(V.spo2) + n2rr(V.rr);
+}
+
+/* Synthetic PPG for simulation. In live mode real samples arrive from the
+   device instead, so this is skipped entirely. */
+function simPPG(dt) {
+  if (mode !== 'sim') return;
+  const steps = Math.max(1, Math.round(dt * 28));
+  for (let i = 0; i < steps; i++) {
+    const p = (performance.now() / 1000 * (V.hr / 60)) % 1;
+    /* systolic upstroke, dicrotic notch, exponential decay */
+    let v;
+    if (p < 0.12) v = Math.sin(Math.PI * p / 0.12);
+    else if (p < 0.22) v = 1 - (p - 0.12) / 0.10 * 0.52;
+    else if (p < 0.32) v = 0.48 + Math.sin(Math.PI * (p - 0.22) / 0.10) * 0.20;
+    else v = Math.max(0, 0.48 * Math.exp(-(p - 0.32) * 7));
+    v += (Math.random() - 0.5) * (1 - V.sqi / 100) * 0.12;
+    PPG.push(v * 1000);
+  }
+  /* perfusion index follows SQI plausibly in simulation */
+  V.pi = clamp(2.4 * (V.sqi / 96), 0.2, 12);
+}
+
+/* ==========================================================================
+   6. Web Serial
+   ==========================================================================
+   The device prints:
+     [TELEMETRY] HR=..,SPO2=..,RMSSD=..,TEMP=..,HUM=..,PM25=..,RR=..,SQI=..
+     [TELEMETRY] NO_FINGER,TEMP=..,HUM=..,PM25=..
+     [TELEMETRY] ACQUIRING,HR=..,...
+     [TRIAGE]    NEWS2=..,LEVEL=..,FLAGS=0x..,RISK=..,NNHEAT=..,...
+     [PPG] <raw IR counts>
+   The TRIAGE line is what makes this page a pure view: NEWS2, the hazard risks
+   and the TinyML scores are computed on the ESP32 and merely displayed here. */
+
+const num = (s) => { const v = parseFloat(s); return isFinite(v) ? v : 0; };
+
+function parseKV(line) {
+  const out = {};
+  for (const part of line.split(',')) {
+    const i = part.indexOf('=');
+    if (i > 0) out[part.slice(0, i).trim()] = part.slice(i + 1).trim();
+  }
+  return out;
+}
+
+function handleLine(line) {
+  lastSerialLine = performance.now();
+
+  if (line.startsWith('[PPG]')) {
+    const v = parseFloat(line.slice(5));
+    if (isFinite(v)) { PPG.push(v); sampleRate = sampleRate || 100; }
+    return;
+  }
+
+  if (line.startsWith('[TELEMETRY]')) {
+    if (line.indexOf('NO_FINGER') >= 0) {
+      V.hr = 0; V.spo2 = 0; V.hrv = 0; V.rr = 0; V.sqi = 0; V.pi = 0;
+      const k = parseKV(line.replace('[TELEMETRY]', ''));
+      if (k.TEMP) V.temp = num(k.TEMP);
+      if (k.HUM)  V.hum  = num(k.HUM);
+      if (k.PM25) { V.pmCal = num(k.PM25); V.pmRaw = num(k.PM25); }
+      return;
+    }
+    const k = parseKV(line.replace('[TELEMETRY]', ''));
+    if (k.HR)    V.hr   = num(k.HR);
+    if (k.SPO2)  V.spo2 = num(k.SPO2);
+    if (k.RMSSD) V.hrv  = num(k.RMSSD);
+    if (k.RR)    V.rr   = num(k.RR);
+    if (k.SQI)   V.sqi  = num(k.SQI) * 100;
+    if (k.TEMP)  V.temp = num(k.TEMP);
+    if (k.HUM)   V.hum  = num(k.HUM);
+    if (k.PM25)  { V.pmCal = num(k.PM25); V.pmRaw = num(k.PM25); }
+    return;
+  }
+
+  if (line.startsWith('[TRIAGE]')) {
+    const k = parseKV(line.replace('[TRIAGE]', ''));
+    if (k.NEWS2)  V.news2  = parseInt(k.NEWS2, 10) || 0;
+    if (k.LEVEL)  V.level  = parseInt(k.LEVEL, 10) || 0;
+    if (k.FLAGS)  V.flags  = parseInt(k.FLAGS, 16) || 0;
+    if (k.RISK)   V.risk   = k.RISK;
+    if (k.NNHEAT)  V.nnHeat  = num(k.NNHEAT);
+    if (k.NNPOLL)  V.nnPoll  = num(k.NNPOLL);
+    if (k.NNFLOOD) V.nnFlood = num(k.NNFLOOD);
+    if (k.RHEAT)  V.rHeat  = k.RHEAT;
+    if (k.RPOLL)  V.rPoll  = k.RPOLL;
+    if (k.RFLOOD) V.rFlood = k.RFLOOD;
+    if (k.PSI)    V.psi    = num(k.PSI);
+    if (k.AHA)    V.aha    = num(k.AHA);
+    return;
+  }
+}
+
+let port = null, reader = null, keepReading = false;
+
+async function connect() {
+  if (!('serial' in navigator)) {
+    setStatus('err', 'NO WEB SERIAL â€” use Chrome or Edge');
+    $('gate-note').textContent =
+      'This browser has no Web Serial API. Chrome or Edge 89+ required. Running simulation instead.';
+    return false;
+  }
+  try {
+    port = await navigator.serial.requestPort();
+    await port.open({ baudRate: 115200 });
+    mode = 'live';
+    keepReading = true;
+    $('gate').classList.add('hidden');
+    $('foot-note').textContent = 'live device stream over USB serial';
+    [...$('profile-buttons').children].forEach((b) => b.classList.remove('active'));
+    setStatus('live', 'LIVE Â· USB SERIAL Â· 115200');
+    readLoop();
+    return true;
+  } catch (e) {
+    setStatus('err', 'CONNECT CANCELLED');
+    return false;
+  }
+}
+
+async function readLoop() {
+  const decoder = new TextDecoder();
+  let buffered = '';
+  try {
+    while (port.readable && keepReading) {
+      reader = port.readable.getReader();
+      try {
+        for (;;) {
+          const { value, done } = await reader.read();
+          if (done) break;
+          buffered += decoder.decode(value, { stream: true });
+          let nl;
+          while ((nl = buffered.indexOf('\n')) >= 0) {
+            const line = buffered.slice(0, nl).replace(/\r$/, '');
+            buffered = buffered.slice(nl + 1);
+            if (line) handleLine(line);
+          }
+          if (buffered.length > 4096) buffered = '';
+        }
+      } finally {
+        reader.releaseLock();
+      }
+    }
+  } catch (e) {
+    setStatus('err', 'SERIAL ERROR â€” check the cable');
+  }
+}
+
+async function disconnect() {
+  keepReading = false;
+  try { if (reader) await reader.cancel(); } catch (e) {}
+  try { if (port) await port.close(); } catch (e) {}
+  port = null; reader = null;
+}
+
+/* ==========================================================================
+   7. Boot
+   ========================================================================== */
+
+function buildProfileButtons() {
+  const wrap = $('profile-buttons');
+  wrap.innerHTML = '';
+  Object.keys(PROFILES).forEach((name) => {
+    const b = document.createElement('button');
+    b.textContent = name;
+    b.dataset.p = name;
+    b.onclick = () => { mode = 'sim'; applyProfile(name); };
+    wrap.appendChild(b);
+  });
+
+  const disc = document.createElement('button');
+  disc.textContent = 'Connect';
+  disc.className = 'primary';
+  disc.id = 'btn-connect';
+  disc.onclick = async () => {
+    if (mode === 'live') {
+      await disconnect();
+      mode = 'sim';
+      applyProfile(profile);
+      setStatus('sim', 'SIMULATION Â· profile data');
+      $('foot-note').textContent = 'simulation mode';
+      $('btn-connect').textContent = 'Connect';
+    } else {
+      await connect();
+      if (mode === 'live') $('btn-connect').textContent = 'Disconnect';
+    }
+  };
+  wrap.appendChild(disc);
+}
+
+$('gate-connect').onclick = async () => {
+  const ok = await connect();
+  if (ok) $('btn-connect').textContent = 'Disconnect';
+  else { mode = 'sim'; applyProfile('Normal Baseline'); $('gate').classList.add('hidden'); }
+};
+$('gate-sim').onclick = () => {
+  mode = 'sim';
+  applyProfile('Normal Baseline');
+  $('gate').classList.add('hidden');
+};
+
+if (!('serial' in navigator)) {
+  $('gate-note').textContent =
+    'No Web Serial in this browser â€” Chrome or Edge 89+ needed for live mode. Simulation works everywhere.';
+}
+
+buildProfileButtons();
+applyProfile('Normal Baseline');
+
+/* Kiosk / automated start.
+ *
+ *   ?sim=1   skip the gate and go straight to the simulation
+ *   ?full=1  same, and hide the profile buttons for an unattended display
+ *
+ * Without this the page always needs a click, because Web Serial requires a
+ * user gesture - so the gate cannot be removed entirely, but it can be skipped
+ * when no live connection is intended. */
+const qs = new URLSearchParams(location.search);
+if (qs.has('sim') || qs.has('full')) {
+  mode = 'sim';
+  applyProfile(qs.get('profile') && PROFILES[qs.get('profile')] ? qs.get('profile') : 'Normal Baseline');
+  $('gate').classList.add('hidden');
+  if (qs.has('full')) $('profile-buttons').style.display = 'none';
+}
+
+/* Render once synchronously before starting the animation loop.
+ *
+ * Two reasons. It removes the frame of "--" placeholders on load, and it makes
+ * the page's first paint deterministic: requestAnimationFrame is not guaranteed
+ * to have fired by the time an automated capture (Chrome --dump-dom, a
+ * screenshot at a virtual-time budget) snapshots the DOM, which made headless
+ * verification flaky. */
+simStep();
+simPPG(16);
+ECG.tick(16); RRC.tick(16);
+PPG.draw(); ECG.draw(); RRC.draw(); drawArc();
+render();
+
+let last = performance.now();
+function frame(ts) {
+  const dt = Math.min(ts - last, 60);
+  last = ts;
+
+  if (mode === 'sim') { simStep(); simPPG(dt); }
+
+  /* Live mode with no data for 3s means the board stopped emitting; say so
+     rather than freezing on stale numbers. */
+  if (mode === 'live' && lastSerialLine && ts - lastSerialLine > 3000) {
+    setStatus('err', 'NO DATA â€” board connected, no telemetry');
+  }
+
+  ECG.tick(dt);
+  RRC.tick(dt);
+  PPG.draw();
+  ECG.draw();
+  RRC.draw();
+  drawArc();
+  render();
+
+  requestAnimationFrame(frame);
+}
+requestAnimationFrame(frame);
+
+window.addEventListener('resize', () => { /* canvases re-fit each frame */ });
+</script>
+</body>
+</html>

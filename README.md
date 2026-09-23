@@ -584,7 +584,41 @@ For an in-depth mathematical defense, signal processing equations, and clinical 
 
 ---
 
-## 🖥️ Standalone Graphical Dashboard (GUI)
+## 🖥️ Dashboards
+
+### VALOR Web Dashboard (recommended for demos)
+
+A single self-contained HTML file: **no install, no build step, no server, no CDN.**
+Open it in Chrome or Edge and press *Connect* — Web Serial talks to the ESP32-S3
+over USB directly. With no board attached it runs the six clinical profiles, so a
+demo never depends on hardware.
+
+Double-click **`launch_web_dashboard.bat`**, or open
+`firmware/shrikefi/dashboard/valor_dashboard.html` yourself.
+See [`firmware/shrikefi/dashboard/README.md`](firmware/shrikefi/dashboard/README.md).
+
+| Normal baseline | Heat wave & dehydration | Cardiopulmonary ICU emergency |
+|---|---|---|
+| ![Normal](docs/images/valor_dashboard_normal.png) | ![Heat wave](docs/images/valor_dashboard_heatwave.png) | ![ICU](docs/images/valor_dashboard_icu.png) |
+
+*Live optical PPG scope with sweep and glow, mNEWS2 triage, per-vital cards, environmental panel, and the INT8 multi-hazard gauges.*
+
+> **Why it exists alongside the native app:** the design language is web-native —
+> glass cards, neon glow, gradient area fills, canvas animation. GDI has no
+> equivalent, so this is additive rather than a rewrite. The `.exe` below still
+> builds and still works.
+
+> **Honest by construction.** The web dashboard computes **no clinical logic** — it
+> renders what the device sends as `[TRIAGE]`, so the ESP32 stays the single
+> source of truth. Several plausible-looking numbers from the original design
+> mock-up were removed rather than shipped: no blood-pressure estimate, no PTT,
+> NEWS2 sub-scores for parameters this build does not instrument are shown as
+> `n/a` rather than `+0`, and the AHA strain is shown on its real 0–1 scale. The
+> full list is in the dashboard README.
+
+---
+
+### Native Win32 Dashboard (alternative)
 
 The companion includes a high-performance, native Windows desktop GUI application (`shrikefi_dashboard.exe`) written in pure C using Win32 GDI graphics (0 external runtime dependencies, 60 FPS refresh rate):
 
@@ -593,10 +627,10 @@ The companion includes a high-performance, native Windows desktop GUI applicatio
 ### Key Dashboard Capabilities:
 * **Dual-Mode Operation:**
   * **LIVE HARDWARE STREAMING (COM Port):** Auto-detects and connects to the ESP32-S3 USB COM port at 115,200 baud, plotting live optical PPG waveforms, heart rate, SpO2, and PM2.5 in real-time.
-  * **OFFLINE DISASTER SIMULATOR:** Built-in multi-hazard simulation generator cycling across 6 clinical/disaster scenarios (Normal Baseline, Heatwave Exertion, Severe Delhi Smog, Flood Immersion Hypothermia, High-Altitude Hypoxia, Cardiac Arrhythmia).
+  * **OFFLINE DISASTER SIMULATOR:** Built-in multi-hazard simulation generator cycling across 6 clinical/disaster scenarios (Normal Baseline, Heat Wave & Dehydration, Severe Smog / PM2.5 Crisis, Flash Flood / Hypothermia, Cardiopulmonary ICU Emergency, Motion Artifact / Noise Test). The same six profiles drive the web dashboard, so both simulations present the same patient.
 * **Real-Time Visual Oscilloscope:** 60 FPS scrolling sweep of filtered PPG systolic pulses with beat-to-beat cadence.
 * **Full Biomarker Telemetry Panel:** Real-time digital readouts for Heart Rate, SpO2, Respiratory Rate, RMSSD HRV, Ambient Temperature, Relative Humidity, PM2.5, and Signal Quality Index (Karlen SQI).
-* **Clinical Triage & Hazard Meters:** Live color-coded gauges for **Royal College of Physicians mNEWS2 Triage** (Low / Med / High) alongside the **91% INT8 TinyML Hazard Inference Engine** (Heatstroke, Smog, Hypothermia).
+* **Clinical Triage & Hazard Meters:** Live color-coded gauges for **Royal College of Physicians mNEWS2 Triage** (Stable / Low / Medium / High / Critical) alongside the **INT8 TinyML Hazard Inference Engine** (Heatstroke, Smog, Hypothermia).
 * **Instant Launch:** Simply double-click `launch_dashboard.bat` from the root directory.
 
 ---

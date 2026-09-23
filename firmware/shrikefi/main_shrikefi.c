@@ -1023,6 +1023,43 @@ static void task_disaster_monitor(void *pvParameters) {
             ESP_LOGI(TAG, "[Unified Triage] Final Condition: %s | %s",
                      risk_level_to_string(final_risk.overall_risk), final_risk.overall_advisory);
 
+            /* Structured verdict line for any dashboard that is not this device.
+             *
+             * [TELEMETRY] above carries raw vitals only. That meant a dashboard
+             * had to re-derive NEWS2, the three hazard risks and the TinyML
+             * scores from the raw numbers - a second implementation of the
+             * clinical logic, running on the PC, in a project whose whole claim
+             * is edge-first. This line publishes what the device already
+             * computed, so a dashboard is a pure view and the device stays the
+             * single source of truth.
+             *
+             * LEVEL is the clinical_risk_level_t ordinal (0 normal, 1 elevated,
+             * 2 high, 3 critical) and FLAGS is the clinical_alert_flags_t
+             * bitmask - both are enum mirrors, not derived logic, so a consumer
+             * does not have to interpret anything.
+             *
+             * Moran PSI and the AHA autonomic strain were previously computed
+             * only inside the host test harness and never on the live path, so
+             * the device had no value for them at all. Both are cited indices
+             * (Moran 1998; Brook et al., AHA 2010) and the functions were
+             * already linked in, so they are now computed for real. */
+            float moran_psi   = disaster_calculate_moran_psi(hr, env.ambient_temp_c, env.humidity_pct);
+            float aha_strain  = disaster_calculate_aha_autonomic_strain(env.pm25, hrv_snapshot.rmssd);
+
+            printf("[TRIAGE] NEWS2=%u,LEVEL=%u,FLAGS=0x%02X,RISK=%s,"
+                   "NNHEAT=%.3f,NNPOLL=%.3f,NNFLOOD=%.3f,"
+                   "RHEAT=%s,RPOLL=%s,RFLOOD=%s,PSI=%.2f,AHA=%.2f\n",
+                   (unsigned)clin_assess.news2_score,
+                   (unsigned)clin_assess.level,
+                   (unsigned)clin_assess.alert_flags,
+                   risk_level_to_string(final_risk.overall_risk),
+                   nn_out.heat_score, nn_out.pollution_score, nn_out.flood_score,
+                   risk_level_to_string(rule_risk.heat_risk),
+                   risk_level_to_string(rule_risk.pollution_risk),
+                   risk_level_to_string(rule_risk.flood_risk),
+                   moran_psi, aha_strain);
+            fflush(stdout);
+
             /* Thread-safe state update for telemetry & system monitoring */
             if (xSemaphoreTake(s_data_mutex, pdMS_TO_TICKS(20)) == pdTRUE) {
                 g_state.risk_result      = final_risk;

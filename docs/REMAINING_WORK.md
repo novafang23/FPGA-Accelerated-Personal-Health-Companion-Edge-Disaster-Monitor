@@ -89,11 +89,19 @@ limitations section already says so. ~5 minutes.
 
 ---
 
-### T1.7 — Add the dashboard images to the README
+### T1.7 — Dashboard images in the README  ✅ **DONE**
 
-All 16 existing references resolve. New screenshots go in the
-`## 🖥️ Standalone Graphical Dashboard (GUI)` section (README L587). PNG for UI, JPG for renders.
-**Blocked on: images from the user.**
+The web dashboard can be rendered headlessly, so the screenshots no longer need
+to be taken by hand. `docs/images/valor_dashboard_{normal,heatwave,icu}.png` are
+generated from the page itself at `--window-size=1440x1105`, and the README's
+dashboard section shows them. No longer blocked on anyone supplying images.
+
+Regenerate with:
+
+```
+chrome --headless=new --window-size=1440,1105 --virtual-time-budget=8000 \
+       --screenshot=out.png "file:///.../valor_dashboard.html?sim=1&full=1&profile=Heat%20Wave%20%26%20Dehydration"
+```
 
 ---
 
