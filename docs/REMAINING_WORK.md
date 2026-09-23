@@ -185,15 +185,37 @@ but noisy. Gate the handover log, or suppress beats while `!optical_contact`. ~3
 ### T4.1 — Validate against a reference device
 
 **The last real gap.** Everything so far is internally consistent; nothing is verified against
-ground truth. One afternoon with a chest strap (Polar H10 or similar) converts:
+ground truth. It converts *"our RMSSD reads 38 ms"* into *"our RMSSD agrees with ECG-derived RMSSD
+to within X ms."*
 
-> "our RMSSD reads 38 ms"
+**A Polar H10 (~₹8,000) is the textbook answer and the wrong buy here.** It is a one-time check
+for a hackathon, and the same result is reachable for well under ₹1,000. Options, cheapest first:
 
-into
+| Option | Cost | What it gives | Catch |
+|---|---|---|---|
+| **Physiological plausibility tests** | ₹0 | RMSSD responds correctly to supine→standing (drops) and 6/min paced breathing (rises, RSA). Robust, well-documented effects. | Not absolute calibration — but it *is* evidence the metric tracks autonomic state. |
+| **Samsung Watch (already owned)** | ₹0 | Continuous HR agreement; **ECG mode is raw 500 Hz** if you write the Wear OS app | ECG is on-demand, ~30 s, single-lead, needs Samsung app verification |
+| **AD8232 ECG module** | **~₹700** | **Real single-lead ECG** — an independent modality, which is the actual scientific requirement | Needs careful analog work; good at rest, mains hum and motion are real |
+| Borrow a chest strap | ₹0 | Same as H10 | Ask the college BME/EE lab, a gym, or a classmate |
+| Fingertip oximeter | ~₹1,500 | Independent HR **and SpO₂** — your two headline vitals | No HRV |
+| Polar H10 | ~₹8,000 | Gold-standard convenience, raw RR over BLE HRS | Overkill for one validation |
 
-> "our RMSSD agrees with ECG-derived RMSSD to within X ms across N subjects."
+**Recommended stack: AD8232 (~₹700) + fingertip oximeter (~₹1,500).** Under ₹2,200 total, it
+covers HRV (ECG, independent modality) and SpO₂ (independent device), and the AD8232 stays useful
+as a demo component — *"we built our own ECG reference"* is a better story than *"we bought a
+Polar."* A borrowed strap costs nothing and is strictly better if one is going.
 
-That single sentence is worth more than every other item on this page.
+**Do not use the watch's PPG-derived HRV number as ground truth.** That is wrist PPG validated
+against finger PPG — the same sensor technology agreeing with itself, with shared failure modes.
+
+**Method matters more than the device** (see [Sarhaddi et al., *PLOS ONE* 2022](https://journals.plos.org/plosone/article?id=10.1371/journal.pone.0268361) for a worked comparison):
+simultaneous recording, resting supine 5 minutes, compare RMSSD/SDNN/mean HR, and report
+**Bland–Altman limits of agreement — not just correlation.** A high *r* with wide LoA is worthless.
+Disclose the artefact-removal rate, since the reference does not remove anything.
+
+> **If none of this happens, do not claim validation.** State it as a limitation — the README
+> already does. A scoped honest claim is worth more than a weak validation, and a judge will
+> respect it more.
 
 ---
 
