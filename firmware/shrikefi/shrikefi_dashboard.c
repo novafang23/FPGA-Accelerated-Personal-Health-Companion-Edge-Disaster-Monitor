@@ -19,7 +19,9 @@
  *  - Interactive Scenario Switcher buttons (6 clinical/disaster profiles)
  */
 
+#ifndef WIN32_LEAN_AND_MEAN
 #define WIN32_LEAN_AND_MEAN
+#endif
 #include <windows.h>
 #include <windowsx.h>
 #include <commctrl.h>
