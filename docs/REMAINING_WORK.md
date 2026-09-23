@@ -8,23 +8,18 @@
 
 ## Tier 1 — No hardware. Do these first.
 
-### T1.1 — Stop publishing health data to a public broker  ⚠️ do this first
+### T1.1 — Stop publishing health data to a public broker  ✅ **DONE (2026-09-21)**
 
-`firmware/shrikefi/wifi_mqtt_manager.c` publishes a 256-byte payload — **HR, SpO₂, RMSSD,
-temperature, PM2.5, risk level** — to `mqtt://broker.hivemq.com` on topic
-`sih26181/shrikefi/health`, once per second.
+`CONFIG_SHRIKEFI_CLOUD_PUBLISH` added to `main/Kconfig.projbuild`, **default `n`**. The MQTT
+client config, `esp_mqtt_client_start()` and `cloud_publish_health_data()` are all compiled out;
+the broker URI and topic only exist inside the same `#ifdef`. Default build logs
+*"Cloud publishing is disabled by config. Patient data stays on the edge."*
 
-`broker.hivemq.com` is a **free public test broker**. Anyone on the internet can subscribe to
-that topic and read a patient's vitals. The problem statement's requirement 5 is *"minimize
-transmission of sensitive personal information"*, and this is the exact opposite of it. A judge
-on a privacy-focused track will open this file.
+**Requirement 5 is now true instead of contradicted.**
 
-**Do:**
-- Add `CONFIG_SHRIKEFI_CLOUD_PUBLISH` to `main/Kconfig.projbuild`, **default `n`**.
-- Guard `cloud_publish_health_data()` and the MQTT start on that flag.
-- Default broker stays configurable, but nothing is sent unless the user turns it on.
-
-**Effect:** requirement 5 becomes true instead of contradicted. ~30 minutes.
+Also removed in the same pass: `scripts/typesafe_triage.py`, which POSTed patient vitals
+(HR, SpO2, RMSSD, RR, SQI) to `https://api.typesafe.ai/v1/systemone` — the same pattern the
+MQTT blocker was raised for, just on the host side.
 
 ---
 
@@ -86,14 +81,11 @@ Without this the claim is unverified. ~30 minutes including a 3-minute capture.
 
 ---
 
-### T1.6 — Fix the README badge
+### T1.6 — Fix the README badge  ✅ **DONE**
 
-```
-Clinical Validation-94.11% (MIMIC-III)      ← overreach
-MIMIC-III Accuracy-94.11%                   ← accurate
-```
-It is an accuracy figure, not a validation, and the same model's sensitivity is 58.18%. One
-line. ~5 minutes.
+Now reads `MIMIC-III Benchmark 94.11% (demo subset)`. It is an accuracy figure on a 98-subject
+demo subset, not clinical validation, and the same model's sensitivity is 58.18% — the
+limitations section already says so. ~5 minutes.
 
 ---
 
@@ -246,6 +238,26 @@ the timing report cannot be cited either way.
 
 ---
 
+### T4.5 — Give the FPGA flow a real clock constraint
+
+Split out of T4.4 because the re-fit is done but this is not. `forgefpga_pins.pcf` declares only
+`set_io` lines, so the fitter auto-constrains `clk` to 2000 ps (500 MHz) and every register in the
+design "fails". The reported WNS of −10.088 ns is therefore unusable in either direction — it is
+not evidence that timing fails, and not evidence that it closes.
+
+The design's achievable period is 12,087 ps (82.73 MHz), so at the documented 50 MHz the margin is
++7.913 ns. That is a good sign, not a result.
+
+**Do:** find whether the Renesas flow accepts a frequency constraint (an SDC, or a `set_frequency`
+in the PCF — the repo's reference docs under `docs/reference/shrike_board/` do not say), apply
+50 MHz, and re-run. Until that exists, quote the achievable period and state that the constraint
+is missing rather than quoting WNS.
+
+Do **not** invent a constraint syntax and commit it without re-running the fitter — a wrong
+constraint is worse than none, because it produces a confident number.
+
+---
+
 ## Out of scope — and why
 
 | Item | Why not |
@@ -260,39 +272,41 @@ the timing report cannot be cited either way.
 
 ## Requirement coverage
 
-| # | Requirement | Now | After Tier 1 | After Tier 2 |
-|---|---|---|---|---|
-| 1 | Continuous monitoring | HR, SpO₂ | + RR, SQI | **+ body temp, activity, sleep** |
-| 2 | AI anomaly detection | Strong | + real RR in NEWS2 | + fall detection |
-| 3 | Disaster alerts | Heat, air quality | — | + cyclone pressure trend |
-| 4 | Environmental awareness | **Strong** | — | — |
-| 5 | Privacy-preserving edge AI | **Contradicted** | **Fixed** | — |
-| 6 | Emergency assistance | **Missing** | **SOS card + SoftAP + location** | + button, buzzer, falls |
-| 7 | Wellness dashboard | Live only | — | + history (T3.2) |
-| 8 | Scalable deployment | Roadmap only | — | — |
+| # | Requirement | State today | What still closes it |
+|---|---|---|---|
+| 1 | Continuous monitoring | HR, SpO₂, RR, SQI — **body temperature not measured** | **T2.1** (MAX30205, ~₹200); activity + sleep need T2.3 |
+| 2 | AI anomaly detection | **Strong** — real RR in NEWS2, SQI gating, INT8 TinyML head | fall detection via T2.3 |
+| 3 | Disaster alerts | Heat + air quality good; **flood/cyclone not instrumented** | **T3.1** — free, BME280 pressure trend |
+| 4 | Environmental awareness | **Strong** | — |
+| 5 | Privacy-preserving edge AI | **Satisfied** — cloud publishing off by default | — |
+| 6 | Emergency assistance | **MISSING — nothing implemented at all** | **T1.2 + T1.3 + T1.4** — no parts needed |
+| 7 | Wellness dashboard | Live only, no history or trends | T3.2 |
+| 8 | Scalable deployment | Roadmap only | — |
 
 ---
 
 ## Suggested order
 
 ```
-Today, no parts:
-  1. T1.1  MQTT privacy fix            <- removes the one finding that can cost the round
-  2. T1.5  Verify RR on hardware       <- closes an unverified claim
-  3. T1.2  SOS state machine + OLED card
-  4. T1.3  SoftAP + status page        <- the demo a judge can hold
-  5. T1.4  Stored location
-  6. T1.6  Badge fix
-  7. T1.7  README images (when supplied)
+DONE (2026-09-21):  T1.1 MQTT privacy · T1.6 badge · T4.4 re-fit
 
-With parts:
-  8. T2.1  MAX30205 skin temperature   <- highest-value part on this list
+Still open, no parts needed — in this order:
+  1. T1.5  Verify RR/SQI on hardware    <- only needs a flash + 3-min capture
+  2. T1.2  SOS state machine + OLED card <- requirement 6 is currently EMPTY
+  3. T1.3  SoftAP + status page          <- the demo a judge can hold, no router
+  4. T1.4  Stored location in NVS
+  5. T3.1  BME280 pressure trend         <- free cyclone advisory
+  6. T3.3  Handover log spam (~30 min)
+  7. T1.7  README images (blocked on images from the user)
+
+With parts (roughly ₹450 total):
+  8. T2.1  MAX30205 skin temperature     <- highest-value part on this list
   9. T2.2  SOS button + buzzer
- 10. T2.3  IMU
+ 10. T2.3  IMU (activity + sleep + falls)
 
 Before submission:
- 11. T4.1  Chest-strap validation      <- the only thing that changes what you can claim
- 12. T4.2  Indian normative range
+ 11. T4.1  Chest-strap validation        <- the only thing that changes what you can claim
+ 12. T4.2  Indian normative HRV range
  13. T4.3  India-specific threshold sourcing
- 14. T4.4  Re-fit before quoting LUTs
+ 14. T4.5  Real clock constraint for the FPGA flow (see T4.4 caveat)
 ```
