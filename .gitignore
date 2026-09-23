@@ -6,6 +6,16 @@
 agent/
 skills-lock.json
 data/skills/
+.planning/
+
+# ── Code-graph / review tooling output ───────────────────────
+# graphify emits a multi-MB self-contained graph.html; the TypeSafe/Jev bridge
+# posts source and telemetry to an external API. Both are useful on a dev
+# machine and neither belongs in the submission, so the whole category is
+# ignored rather than deleted - the files stay on disk.
+graphify-out/
+scripts/typesafe_code_review.py
+reports/JEV_CODE_REVIEW.md
 
 # ============================================================
 # SIH26181 Health Companion — .gitignore
