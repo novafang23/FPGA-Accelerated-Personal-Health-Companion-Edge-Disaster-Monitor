@@ -395,14 +395,42 @@ unavailable"; it did not. The band is now applied to the interpolated peak as a
 verdict rather than as a search filter, so 8 br/min correctly reports unavailable and
 10 and 12 still publish accurately (`test_rr_band_edges` asserts both directions).
 
-**The band floor itself is still 9.0, and that remains a live trade.** It now refuses
-out-of-band rates cleanly instead of misreporting them, which is what it was always
-supposed to do. But because it refuses rather than reports, genuine 6-9 br/min
-breathing is silent, and NEWS2 scores <=8 as +3. The decisive test is a **breath
-hold**: respiratory sinus arrhythmia disappears during apnoea while a
-baroreflex-driven Mayer wave does not, so ~40 s of breath-holding with the floor
-temporarily at 6 would show which of the two the estimator is following. Until that
-is run, 9.0 stands.
+**The breath-hold test: there is no Mayer wave, but the floor stays at 9.0 anyway.**
+
+Run 2026-09-28 with the floor temporarily at 6.0 - necessary, because at 9 the estimator
+refuses the band and the test could not tell a Mayer wave from nothing. Rationale:
+respiratory sinus arrhythmia is driven by breathing and vanishes during apnoea, while a
+baroreflex Mayer wave does not.
+
+| phase | frames | RR>0 | RR p50 | depth p50 | conf p50 | HR p50 |
+|---|---|---|---|---|---|---|
+| A settle | 10 | 0 | - | 135.5 | 0.50 | 66.0 |
+| **B HOLD** | 14 | 10 | **27.4** | 273.5 | 0.66 | **82.0** |
+| C recover | 14 | 0 | - | 134.1 | 0.50 | 69.1 |
+
+**The 6-7 br/min reading did not reappear.** During 40 s of genuine apnoea the estimator
+published no slow rhythm at all, so there is no Mayer wave and the floor was guarding
+against nothing. The original 158 ms observation was almost certainly the octave error
+since fixed.
+
+**But the same hold produced a reliable 27.4 br/min** - an emergency-grade tachypnoea -
+while the subject was not breathing at all. HR rose 66 -> 82 (straining to hold), and
+the estimator locked onto a 3-beat rhythm in the inter-beat series: 27.4 br/min at an
+82 bpm heart rate is a 2.2 s period, three beats. The depth term was saturated at
+273 ms, so the published confidence of 0.66 rested mostly on amplitude rather than on
+periodicity. The failure mode is therefore **not confined to the slow end** - this
+estimator will report a non-respiratory rhythm confidently at either end of the band.
+
+So 9.0 stands, but for a different and better reason than the one it was set for: not
+"avoid the Mayer band" but "this estimator will believe a rhythm that is not
+breathing, so keep the band narrow, and NEWS2 scores <=8 as +3 so a false bradypnoea is
+expensive." The band gate is now a clean refusal rather than a snap to the nearest lag,
+so 7 br/min reports unavailable rather than as a confident 9.
+
+**Still open, and the more serious of the two findings:** the floor does not guard the
+fast end, so a strain can produce a false severe alarm. Reproducing it needs the raw
+inter-beat intervals, which the firmware does not currently print - that is the next
+step, not another paced run.
 
 **How the mitigation was arrived at (and why its premise is now doubtful).**
 
@@ -474,12 +502,13 @@ The old test could not see either bug: it used 15 br/min at an 800 ms IBI, which
 adjacent lags - worst case by construction - at two IBIs; against the pre-fix
 estimator it fails 4 of 10, worst 11.16 br/min.
 
-**The band floor stays at 9.0 for now** - the breath-hold test in the resolved section
-above is what decides it. Note that defect 2 also undermines the *original*
-justification: at session C's 880 ms IBI, 6.8 br/min is lag 10, which is the second
-harmonic of a genuine 13.6 br/min respiratory rate, and lag 10 was admissible while the
-floor was 6.0. Session C's reading is therefore equally consistent with an octave error
-on normal breathing as with a Mayer wave.
+**The band floor stays at 9.0** - but not for the reason below. The breath-hold test in
+the resolved section above showed there is no Mayer wave, and found something else
+instead. Note that defect 2 also undermines the *original* justification: at session C's
+880 ms IBI, 6.8 br/min is lag 10, which is the second harmonic of a genuine 13.6 br/min
+respiratory rate, and lag 10 was admissible while the floor was 6.0. Session C's reading
+is therefore equally consistent with an octave error on normal breathing as with a Mayer
+wave.
 
 **What the captures showed**
 
