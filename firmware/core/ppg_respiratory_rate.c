@@ -160,38 +160,29 @@ void ppg_estimate_respiratory_rate(
         r_lag[1] = cross / var_sum;
     }
 
-    /* Search lags corresponding to 6 to 36 breaths/min.
-     * With mean_ibi in ms, lag k beats corresponds to period = k * mean_ibi / 1000 sec.
-     * RR = 60 / period = 60000 / (k * mean_ibi).
-     * So k = 60000 / (RR * mean_ibi).
-     */
+    /* Search every lag up to max_lag, then let the band decide afterwards.
+     *
+     * The band used to gate the search, which was wrong in a way that mattered.
+     * Excluding out-of-band lags does not make the estimator refuse a rate
+     * outside the band - it makes it snap to the nearest admissible one and
+     * report that. A genuine 8 br/min at a 880 ms IBI peaks at lag 8.5, which
+     * was excluded, so the winner became lag 7 (9.74 br/min) and the parabola
+     * clamped to +0.5, publishing 9.09 as a RELIABLE measurement. NEWS2 scores
+     * <=8 as +3 and 9-11 as +1, so that is a severe bradypnoea reported as a
+     * mild one - and 9.09 sits just inside the band, so the `clipped` guard
+     * below never fired. The header claimed "below 9 br/min this now reports
+     * unavailable"; it actually reported a confident wrong number, which is the
+     * one outcome this file argues against everywhere else.
+     *
+     * Finding the real peak first and testing the band afterwards makes the
+     * existing `clipped` check do what it was written to do. */
     for (size_t k = 2; k <= max_lag; k++) {
-        /* Reject a lag whose implied rate is outside the physiological band
-         * BEFORE it can win the search.
-         *
-         * The band was previously applied after the winner was chosen, and to
-         * the breath *period*, which is far too permissive. Lag 2 at a 770 ms
-         * mean IBI is a 1.54 s period - inside the accepted 1.2-12 s window -
-         * but it is 38.96 br/min, above PPG_RR_MAX_BPM. clamp_rr() then pinned
-         * that to exactly 36.00 and the result was published as reliable, so a
-         * healthy resting subject with no respiratory modulation could be
-         * reported as breathing at the tachypnoea ceiling, which sets
-         * is_absolute_crisis and bypasses the SQI hold on the way to a CRITICAL
-         * triage. A rate that only exists because we clamped it is not a rate
-         * we measured. */
-        float rr_k = 60000.0f / ((float)k * mean_ibi);
-
         float cross = 0.0f;
         for (size_t i = 0; i < N - k; i++) {
             cross += y[i] * y[i + k];
         }
         float r = cross / var_sum;
-        r_lag[k] = r;   /* stored before the band gate: a neighbour is still a neighbour */
-
-        /* A lag outside the physiological band cannot win the search. */
-        if (rr_k < PPG_RR_MIN_BPM || rr_k > PPG_RR_MAX_BPM) {
-            continue;
-        }
+        r_lag[k] = r;
 
         if (r > best_r) {
             best_r = r;
@@ -212,8 +203,6 @@ void ppg_estimate_respiratory_rate(
     if (best_lag > 0) {
         float frac_r = PPG_RR_HARMONIC_FRAC * best_r;
         for (size_t k = 2; k <= max_lag; k++) {
-            float rr_k = 60000.0f / ((float)k * mean_ibi);
-            if (rr_k < PPG_RR_MIN_BPM || rr_k > PPG_RR_MAX_BPM) continue;
             if (r_lag[k] < frac_r) continue;
             bool local_max = (r_lag[k] >= r_lag[k - 1]) &&
                              (k + 1 > max_lag || r_lag[k] >= r_lag[k + 1]);
@@ -271,11 +260,6 @@ void ppg_estimate_respiratory_rate(
                 float r = cross / amp_var;
                 ar_lag[k] = r;
 
-                /* Same band rejection as the FM search above. */
-                float rr_k = 60000.0f / ((float)k * mean_ibi);
-                if (rr_k < PPG_RR_MIN_BPM || rr_k > PPG_RR_MAX_BPM) {
-                    continue;
-                }
                 if (r > best_am_r) {
                     best_am_r = r;
                     best_am_lag = (int)k;
@@ -292,8 +276,6 @@ void ppg_estimate_respiratory_rate(
             if (best_am_lag > 0) {
                 float frac_am = PPG_RR_HARMONIC_FRAC * best_am_r;
                 for (size_t k = 2; k <= max_lag; k++) {
-                    float rr_k = 60000.0f / ((float)k * mean_ibi);
-                    if (rr_k < PPG_RR_MIN_BPM || rr_k > PPG_RR_MAX_BPM) continue;
                     if (ar_lag[k] < frac_am) continue;
                     bool am_local_max = (ar_lag[k] >= ar_lag[k - 1]) &&
                                         (k + 1 > max_lag || ar_lag[k] >= ar_lag[k + 1]);

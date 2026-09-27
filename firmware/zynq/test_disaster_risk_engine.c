@@ -1138,6 +1138,46 @@ static void test_rr_resolution(void) {
     printf("test_rr_resolution: PASS (off-grid rates resolved to better than %.1f br/min)\n", tol);
 }
 
+/* Band edges.
+ *
+ * PPG_RR_MIN_BPM is documented as "below 9 br/min this now reports unavailable".
+ * Gating the autocorrelation SEARCH by the band did not do that: excluding the
+ * out-of-band lags made the estimator snap to the nearest admissible one and
+ * report it. A genuine 8 br/min at an 880 ms IBI peaks at lag 8.5; with that
+ * excluded the winner was lag 7 (9.74 br/min), the parabola clamped at +0.5, and
+ * 9.09 was published as RELIABLE. NEWS2 scores <=8 as +3 and 9-11 as +1, so a
+ * severe bradypnoea was reported as a mild one - and because 9.09 is just inside
+ * the band, the `clipped` guard never fired.
+ *
+ * Both directions are asserted here. Refusing to publish 8 is only correct if
+ * 10 still publishes: an instrument that refuses real physiology just inside its
+ * own floor would be trading one silent failure for another. */
+static void test_rr_band_edges(void) {
+    ppg_respiratory_result_t rr;
+    const float mean_ibi = 880.0f;
+    const float depth    = 60.0f;
+    const size_t N       = 60;
+
+    float est = rr_synth(8.0f, mean_ibi, depth, N, &rr);
+    printf("  RR band floor : true  8.0 -> est %5.2f  conf %.2f  reliable %d (must be unavailable)\n",
+           est, rr.confidence, (int)rr.is_reliable);
+    assert(!rr.is_reliable);
+
+    est = rr_synth(10.0f, mean_ibi, depth, N, &rr);
+    printf("  RR band floor : true 10.0 -> est %5.2f  conf %.2f  reliable %d (must publish)\n",
+           est, rr.confidence, (int)rr.is_reliable);
+    assert(rr.is_reliable);
+    assert(fabsf(est - 10.0f) < 1.0f);
+
+    est = rr_synth(12.0f, mean_ibi, depth, N, &rr);
+    printf("  RR band floor : true 12.0 -> est %5.2f  conf %.2f  reliable %d\n",
+           est, rr.confidence, (int)rr.is_reliable);
+    assert(rr.is_reliable);
+    assert(fabsf(est - 12.0f) < 1.0f);
+
+    printf("test_rr_band_edges: PASS (out-of-band refused, not snapped to the edge)\n");
+}
+
 int main() {
     /* Unbuffered, because a failing assert calls abort() and abort() does not
      * flush stdio. With the default block buffering the diagnostic printed
@@ -1162,6 +1202,7 @@ int main() {
     test_rr_confidence();
     test_rr_tracker();
     test_rr_resolution();
+    test_rr_band_edges();
     printf("ALL TESTS PASSED.\n");
     return 0;
 }
