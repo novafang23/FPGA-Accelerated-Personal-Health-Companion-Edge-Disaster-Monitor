@@ -257,41 +257,36 @@ but noisy. Gate the handover log, or suppress beats while `!optical_contact`. ~3
 
 ---
 
-### T3.4 — Rewrite the documents that still describe the retired 4-bit parallel link
+### T3.4 — Rewrite the documents that still describe the retired 4-bit parallel link  DONE (2026-09-28)
 
-The FPGA↔MCU link is 4-wire SPI (mode 0, SPI2_HOST), which is what
-`firmware/shrikefi/shrikefi_link_driver.c` implements and what
-`hardware/shrikefi/forgefpga_ppg_top.v` declares (`i_ss_n`, `i_sck`, `i_mosi`,
-`o_miso`, `o_miso_oe`). Several documents still specify a synchronous 4-bit
-parallel nibble bus with a strobe, a direction line, a command map and a
-dedicated `irq_beat` pin. That design was retired before it was ever built.
+**DONE (2026-09-28).** Every document listed above has been corrected, and the two
+source-level artefacts with it: `shrikefi_link_driver.h` no longer carries a
+`SHRIKEFI_CMD_*` codebook or a `shrikefi_pins_t` describing a strobe and a
+direction line (neither was referenced anywhere), and `run_vivado_synth.tcl` now
+reads the shared RTL from `../common/`, which it had silently failed to find since
+the platform split - the script could not run at all.
 
-`firmware/shrikefi/shrikefi_pinmap.h` has been corrected and its eight dead
-parallel-bus aliases removed. The prose has not:
+Two things worth recording, because they are the reason this took a rewrite rather
+than a find-and-replace:
 
-| File | What is wrong |
-|---|---|
-| `docs/SHRIKEFI_LINK_PROTOCOL.md` | Stale end to end (lines 4-109). Invented `CMD_*` command map, wrong pins for every signal, wrong timing section. Its pin numbers **collide** with the real SPI pins, so it is worse than merely old. |
-| `docs/SHRIKEFI_HARDWARE_CONNECTIONS.md` | §1 pin table (lines 14-21) and §4 (127-138). GPIO 11 is listed as `rst_n` when it is actually MOSI — actively dangerous in a wiring guide. |
-| `README.md` | Lines 288-294 (pin table), 300-306, 89, 537, 573, 703. Also 293-294 swap I²C and UART1. |
-| `docs/MASTER_PROJECT_GUIDE.md` | Lines 111-138, 168, 184, 351, 805-807, 946. The headline is line 115/806: *"There is no AXI bus, no SPI controller, no I2C"* — in the judge-defence guide, for a link that **is** SPI. Line 807 then claims a command map is verified by the testbench; there is no command decode in the RTL and no `SHRIKEFI_CMD_*` use in the driver. |
-| `docs/theory/THEORY_NOTES.md` | Lines 65, 91-115, 159, 180-184, 244-288, 304-306, 410-411. |
-| `idea.md`, `ROADMAP.md` | Phase-2 text predates the ShrikeFi port. |
+- **The `.pcf` comment trap.** `forgefpga_pins.pcf` annotates its pads as
+  `spi_sck PIN_16 # ... (F_SP_CLK) -> GPIO3_IN`. The `-> GPIO3_IN` suffix is an
+  FPGA-side port designator, not an ESP32 GPIO number. Reading it as one is almost
+  certainly where the wrong pin tables came from, and it is called out in the
+  protocol document so the next person does not repeat it.
+- **The figures could not be verified.** `shrikefi_pinout.png` and
+  `shrikefi_waveform.png` were produced for the retired design, and their contents
+  cannot be checked from the repository - the pinout SVG carries an embedded raster,
+  so its labels are not searchable text. Rather than guess, the references were
+  removed and the tables in `SHRIKEFI_LINK_PROTOCOL.md` are declared authoritative;
+  both figures need regenerating from those tables before reuse.
 
-Correct pin table (from `hardware/shrikefi/forgefpga_pins.pcf` and
-`shrikefi_pinmap.h`): ESP32 GPIO10→FPGA PIN_17 (CS), GPIO11→PIN_18 (MOSI),
-GPIO12→PIN_16 (SCK), GPIO13→PIN_19 (MISO); GPIO8 = EN, GPIO9 = PWR. There is no
-reset pin — the RTL resets from an internal power-on counter. The beat is bit 7
-of the MISO byte, not an interrupt line. Note that the `.pcf` inline comments
-append FPGA-side port designators (`-> GPIO3_IN` etc.) which are **not** ESP32
-GPIO numbers; that collision is the likely origin of the wrong tables.
-
-Also worth fixing while in here: `docs/MASTER_PROJECT_GUIDE.md:390` gives the IBI
-conversion as `ibi_cycles / 50` when 1 tick = 20 ns makes it `/ 50,000` — the
-same file prints it correctly at line 385, and the worked examples at 396-406
-are physically impossible as a result (a 3,281-tick interval is 65.62 **µs**, not
-65.62 ms). Its flash figures (744-745, 942) also still say 1 MB / 2 MB against
-the real 7 MB app partition and 8 MB device.
+**Still stale, deliberately untouched:** the point-in-time reports under `reports/`
+(`CODE_REVIEW_COMPREHENSIVE_AUDIT.md`, `FPGA_PPG_WAVEFORM_ANALYSIS.md`) quote
+superseded figures, and the Zynq-side `irq_beat` references in `README.md` and
+`THEORY_NOTES.md` are correct for the Zynq accelerator, which genuinely has that
+interrupt - do not "fix" those. `AGENTS.md` was also corrected but is gitignored,
+so that fix is local to this checkout.
 
 ---
 
@@ -460,19 +455,18 @@ constraint is worse than none, because it produces a confident number.
 ```
 DONE (2026-09-21):  T1.1 MQTT privacy · T1.6 badge · T4.4 re-fit
 DONE (2026-09-28):  T1.2 SOS card · T1.3 SoftAP status page · T1.4 stored location
-                    T1.5 RR/SQI verified on hardware
+                    T1.5 RR/SQI verified · T3.4 documentation corrected
 
 Still open, no parts needed — in this order:
   1. T3.1  BME280 pressure trend         <- free cyclone advisory
-  2. T3.4  Correct the docs that still describe the retired 4-bit parallel link
-  3. T3.5  Give the respiratory rate a confidence measure that works on real data
-  4. T3.3  Handover log spam (~30 min)
-  5. T1.7  README images (blocked on images from the user)
+  2. T3.5  Give the respiratory rate a confidence measure that works on real data
+  3. T3.3  Handover log spam (~30 min)
+  4. T1.7  README images (blocked on images from the user)
 
 With parts (roughly ₹450 total):
-  6. T2.1  MAX30205 skin temperature     <- highest-value part on this list
-  7. T2.2  SOS button + buzzer           <- also unlocks the phone POST trigger
-  8. T2.3  IMU (activity + sleep + falls)
+  5. T2.1  MAX30205 skin temperature     <- highest-value part on this list
+  6. T2.2  SOS button + buzzer           <- also unlocks the phone POST trigger
+  7. T2.3  IMU (activity + sleep + falls)
 
 Before submission:
  11. T4.1  Chest-strap validation        <- the only thing that changes what you can claim
