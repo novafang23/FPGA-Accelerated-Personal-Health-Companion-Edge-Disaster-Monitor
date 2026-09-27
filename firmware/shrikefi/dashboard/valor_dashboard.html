@@ -1,4 +1,4 @@
-﻿<!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="UTF-8">
@@ -802,6 +802,12 @@ function drawArc() {
   ctx.arc(cx, cy, r, -Math.PI * 0.5, Math.PI * 1.5);
   ctx.strokeStyle = '#131f35'; ctx.lineWidth = 4; ctx.stroke();
 
+  /* An unmeasured SpO2 is not a low SpO2. With V.spo2 at 0 the threshold chain
+     above picks crimson and the fraction below picks zero, so the arc would
+     render as a red ring around an empty value - a hypoxia alarm for a number
+     that was never taken. While the reading is absent, leave the empty track. */
+  if (V.spo2 <= 0) return;
+
   const frac = clamp(V.spo2 / 100, 0, 1);
   ctx.beginPath();
   ctx.arc(cx, cy, r, -Math.PI * 0.5, -Math.PI * 0.5 + Math.PI * 2 * frac);
@@ -918,16 +924,24 @@ function render() {
      parameters in the RCP table are simply not instrumented on this build, so
      they are shown as n/a rather than as a plausible-looking "+0". */
   const tiles = [
-    { k: 'RR',   pts: n2rr(V.rr),   live: true },
-    { k: 'SpO2', pts: n2spo2(V.spo2), live: true },
-    { k: 'HR',   pts: n2hr(V.hr),   live: true },
+    { k: 'RR',   v: V.rr,   pts: n2rr(V.rr) },
+    { k: 'SpO2', v: V.spo2, pts: n2spo2(V.spo2) },
+    { k: 'HR',   v: V.hr,   pts: n2hr(V.hr) },
     { k: 'SBP',  pts: null },
     { k: 'Temp', pts: null },
     { k: 'Consc', pts: null },
   ];
+  /* A third state exists between "measured" and "not on this build": the
+     parameter is instrumented but has not yielded a reading yet. The point
+     tables treat 0 as the worst category (n2rr(0) = n2spo2(0) = n2hr(0) = 3),
+     so passing an absent reading through would light all three tiles "+3 hot"
+     during acquisition while the device's own NEWS2 total is still 0 - the
+     screen contradicting the board. Show it as awaiting instead. */
   $('n2-grid').innerHTML = tiles.map((t) => {
-    if (!t.live) return '<div class="subscore na"><div class="k">' + t.k +
+    if (t.pts === null) return '<div class="subscore na"><div class="k">' + t.k +
       '</div><div class="v">n/a</div></div>';
+    if (!(t.v > 0)) return '<div class="subscore na"><div class="k">' + t.k +
+      '</div><div class="v">--</div></div>';
     const hot = t.pts > 0 ? ' hot' : '';
     return '<div class="subscore' + hot + '"><div class="k">' + t.k +
       '</div><div class="v">+' + t.pts + '</div></div>';
@@ -937,29 +951,42 @@ function render() {
     'does not have (no cuff, no GCS entry), so they are excluded rather than assumed normal.';
 
   /* â”€â”€ Vitals â”€â”€ */
-  const hrColor = (V.hr > 100 || V.hr < 50) ? C.crimson : C.emerald;
+  const hrOn = V.hr > 0;
+  /* An absent reading is not a dangerous one. With V.hr at 0 every one of
+     these threshold chains picks its lowest bucket and paints the card
+     crimson with a clinical-sounding note, so the first seconds of every
+     contact - and every genuine dropout - showed a false alarm. Guard on
+     presence first and let the note say the reading is still coming. */
+  const hrColor = !hrOn ? C.text : (V.hr > 100 || V.hr < 50) ? C.crimson : C.emerald;
   $('v-hr').textContent = V.hr > 0 ? V.hr.toFixed(0) : '--';
   $('v-hr').style.color = hrColor;
   $('v-hr').style.textShadow = '0 0 24px ' + hrColor + '44';
-  $('hr-note').textContent = V.hr > 100 ? 'â†‘ tachycardia' : V.hr < 60 ? 'â†“ bradycardia' : 'normal sinus rhythm';
-  $('hr-note').style.color = V.hr > 100 ? C.crimson : '#334155';
+  $('hr-note').textContent = !hrOn ? 'acquiring'
+    : V.hr > 100 ? '↑ tachycardia' : V.hr < 60 ? '↓ bradycardia' : 'normal sinus rhythm';
+  $('hr-note').style.color = (hrOn && V.hr > 100) ? C.crimson : '#334155';
 
-  const spo2Color = V.spo2 < 90 ? C.crimson : V.spo2 < 95 ? C.amber : C.cyan;
+  const spo2On = V.spo2 > 0;
+  const spo2Color = !spo2On ? C.text
+    : V.spo2 < 90 ? C.crimson : V.spo2 < 95 ? C.amber : C.cyan;
   $('v-spo2').textContent = V.spo2 > 0 ? V.spo2.toFixed(1) : '--';
   $('v-spo2').style.color = spo2Color;
-  $('spo2-note').textContent = V.spo2 < 90 ? 'âš  hypoxia' : V.spo2 < 95 ? 'borderline' : 'normal';
-  $('spo2-note').style.color = V.spo2 < 90 ? C.crimson : '#334155';
+  $('spo2-note').textContent = !spo2On ? 'calibrating'
+    : V.spo2 < 90 ? '⚠  hypoxia' : V.spo2 < 95 ? 'borderline' : 'normal';
+  $('spo2-note').style.color = (spo2On && V.spo2 < 90) ? C.crimson : '#334155';
 
-  const hrvColor = V.hrv < 20 ? C.crimson : V.hrv < 30 ? C.amber : C.violet;
+  const hrvOn = V.hrv > 0;
+  const hrvColor = !hrvOn ? C.text : V.hrv < 20 ? C.crimson : V.hrv < 30 ? C.amber : C.violet;
   $('v-hrv').textContent = V.hrv > 0 ? V.hrv.toFixed(1) : '--';
   $('v-hrv').style.color = hrvColor;
   const bHrv = $('bar-hrv');
   bHrv.style.width = pct(V.hrv, 60) + '%';
   bHrv.style.background = hrvColor;
-  $('hrv-note').textContent = V.hrv < 20 ? 'Low vagal reserve' : V.hrv < 30 ? 'Reduced' : 'Adequate reserve';
+  $('hrv-note').textContent = !hrvOn ? 'needs 10 beats'
+    : V.hrv < 20 ? 'Low vagal reserve' : V.hrv < 30 ? 'Reduced' : 'Adequate reserve';
 
   $('v-rr').textContent = V.rr > 0 ? V.rr.toFixed(0) : '--';
-  $('v-rr').style.color = (V.rr > 24 || V.rr < 10) ? C.crimson : C.text;
+  $('v-rr').style.color = !(V.rr > 0) ? C.text
+    : (V.rr > 24 || V.rr < 10) ? C.crimson : C.text;
 
   const sqiColor = V.sqi < 50 ? C.crimson : V.sqi < 75 ? C.amber : C.mid;
   $('v-sqi').textContent = sqiPct;

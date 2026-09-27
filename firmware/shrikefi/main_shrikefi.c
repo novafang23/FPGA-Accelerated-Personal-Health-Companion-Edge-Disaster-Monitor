@@ -937,7 +937,15 @@ static void task_disaster_monitor(void *pvParameters) {
             hrv_snapshot.sdnn = g_state.hrv_sdnn;
             hrv_snapshot.count = g_state.hrv_sample_count;
             sig_stat = g_state.signal_status;
-            vitals_ready = (hrv_snapshot.count >= 10 && hr > 30.0f);
+            /* SpO2 belongs in the gate, not just in the payload. All three
+             * engines below are handed the same saturation and the triage line
+             * publishes what they scored, so scoring a session whose SpO2 has
+             * not latched yet means feeding the rule engine, the TinyML model
+             * and NEWS2 a normal-looking oxygen saturation that was never
+             * measured - a reassuring verdict printed beside "--" on screen.
+             * The SpO2 engine latches after ~17 s of steady contact; until then
+             * the ACQUIRING line reports the true state and nothing is scored. */
+            vitals_ready = (hrv_snapshot.count >= 10 && hr > 30.0f && spo2 > 0.0f);
             xSemaphoreGive(s_data_mutex);
         }
 
@@ -958,8 +966,12 @@ static void task_disaster_monitor(void *pvParameters) {
         final_risk.overall_risk = RISK_UNKNOWN;
 
         if (vitals_ready) {
-            /* Unify SpO2 fallback so both engines see the same data: if calibrating, use neutral 96.0f */
-            float engine_spo2 = (spo2 > 0.0f) ? spo2 : 96.0f;
+            /* vitals_ready guarantees spo2 > 0, so every engine here scores a
+             * measured saturation. This line was previously a "neutral 96.0f"
+             * fallback for the calibrating case - but that is precisely the case
+             * the gate above now excludes, and a fabricated normal SpO2 is not a
+             * neutral input to a triage score, it is an optimistic one. */
+            const float engine_spo2 = spo2;
 
             /* 1. Execute Clinical Deterministic Rule Engine */
             disaster_assess(&hrv_snapshot, engine_spo2, hr, &env, &rule_risk);
