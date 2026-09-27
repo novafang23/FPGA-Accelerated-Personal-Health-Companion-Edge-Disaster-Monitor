@@ -42,11 +42,19 @@ typedef struct {
     float    hum;
     float    pm25;
 
+    /* Barometric pressure and its fitted trend (T3.1). The trend is the useful
+     * number: absolute pressure varies with altitude and season, so the page
+     * shows the rate of change alongside it and labels which one drives the
+     * storm advisory. */
+    float    pressure_hpa;
+    float    pressure_trend_hpa_per_hr;
+
     unsigned news2;
     unsigned level;      /* clinical_risk_level_t ordinal */
     unsigned flags;      /* clinical_alert_flags_t bitmask */
 
     const char *risk;    /* fused triage verdict, e.g. "NORMAL" */
+    const char *storm;   /* cyclone risk level, from the pressure trend */
     const char *sos;     /* sos_state_name() */
     const char *trigger; /* sos_trigger_name() */
     const char *loc;     /* stored location, "UNSET" until T1.4 */

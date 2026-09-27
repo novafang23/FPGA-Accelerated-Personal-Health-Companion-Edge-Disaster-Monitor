@@ -349,8 +349,8 @@ static risk_level_t assess_flood_risk(float bpm, const env_sensors_t *env, float
  * - Only when all evaluated modalities are verified non-hazardous does it return RISK_NORMAL.
  */
 static void finalize_overall_risk(risk_assessment_t *result, const char *normal_advisory) {
-    risk_level_t levels[3];
-    const char *advisories[3];
+    risk_level_t levels[4];
+    const char *advisories[4];
     risk_level_t worst = RISK_NORMAL;
     const char *worst_advisory = NULL;
     int have_hazard = 0;
@@ -361,14 +361,23 @@ static void finalize_overall_risk(risk_assessment_t *result, const char *normal_
     levels[0] = result->heat_risk;
     levels[1] = result->pollution_risk;
     levels[2] = result->flood_risk;
+    levels[3] = result->cyclone_risk;
 
     advisories[0] = result->heat_advisory;
     advisories[1] = result->pollution_advisory;
     advisories[2] = result->flood_advisory;
+    advisories[3] = result->cyclone_advisory;
 
-    for (i = 0; i < 3; ++i) {
+    for (i = 0; i < 4; ++i) {
         if (levels[i] == RISK_UNKNOWN) {
-            have_unknown = 1;
+            /* Tally UNKNOWN only for the three CORE modalities. The cyclone
+             * trend (index 3) is an additional hazard, so its UNKNOWN means
+             * "no pressure history yet" rather than "a sensor is missing".
+             * Counting it would make every device report "other sensors
+             * unmonitored or missing" for the first half hour after boot, and
+             * would flip an all-normal verdict to UNKNOWN whenever the
+             * barometer had not been watched long enough. */
+            if (i < 3) have_unknown = 1;
             continue;
         }
 
@@ -410,6 +419,15 @@ void disaster_assess(const hrv_state_t *hrv, float spo2, float bpm, const env_se
     }
 
     memset(result, 0, sizeof(risk_assessment_t));
+
+    /* The cyclone/storm hazard comes from a pressure TREND, which these
+     * functions do not compute, so it must be marked unavailable EXPLICITLY.
+     * A memset leaves it at zero, and zero is RISK_NORMAL - an all-clear
+     * reported for a hazard nobody evaluated, which is the exact failure this
+     * codebase keeps having to remove. assess_cyclone_risk() overwrites this
+     * when the caller has a trend worth judging. */
+    result->cyclone_risk = RISK_UNKNOWN;
+    result->cyclone_advisory = "Storm risk not evaluated: no pressure trend";
 
     /* Require valid HRV data (minimum samples) and a valid env pointer */
     if (hrv == NULL || env == NULL || !hrv_is_ready(hrv)) {
@@ -466,6 +484,15 @@ void disaster_assess_nn(const hrv_state_t *hrv, float spo2, float bpm, const env
     }
 
     memset(result, 0, sizeof(risk_assessment_t));
+
+    /* The cyclone/storm hazard comes from a pressure TREND, which these
+     * functions do not compute, so it must be marked unavailable EXPLICITLY.
+     * A memset leaves it at zero, and zero is RISK_NORMAL - an all-clear
+     * reported for a hazard nobody evaluated, which is the exact failure this
+     * codebase keeps having to remove. assess_cyclone_risk() overwrites this
+     * when the caller has a trend worth judging. */
+    result->cyclone_risk = RISK_UNKNOWN;
+    result->cyclone_advisory = "Storm risk not evaluated: no pressure trend";
 
     /* Require valid HRV data and a valid env pointer */
     if (hrv == NULL || env == NULL || !hrv_is_ready(hrv)) {
@@ -527,6 +554,15 @@ void disaster_assess_nn_int8(const hrv_state_t *hrv, float spo2, float bpm,
     }
 
     memset(result, 0, sizeof(risk_assessment_t));
+
+    /* The cyclone/storm hazard comes from a pressure TREND, which these
+     * functions do not compute, so it must be marked unavailable EXPLICITLY.
+     * A memset leaves it at zero, and zero is RISK_NORMAL - an all-clear
+     * reported for a hazard nobody evaluated, which is the exact failure this
+     * codebase keeps having to remove. assess_cyclone_risk() overwrites this
+     * when the caller has a trend worth judging. */
+    result->cyclone_risk = RISK_UNKNOWN;
+    result->cyclone_advisory = "Storm risk not evaluated: no pressure trend";
 
     /* Require valid HRV data and a valid env pointer */
     if (hrv == NULL || env == NULL || !hrv_is_ready(hrv)) {
@@ -647,5 +683,52 @@ float disaster_calculate_aha_autonomic_strain(float pm25, float rmssd) {
     if (strain > 1.0f) strain = 1.0f;
     if (strain < 0.0f) strain = 0.0f;
     return strain;
+}
+
+/* Barometric pressure trend -> cyclone / storm risk (T3.1).
+ *
+ * Reads the RATE OF FALL, not the absolute pressure: sea-level pressure varies
+ * by tens of hPa with altitude and season, so a fixed threshold would fire in
+ * the hills and stay silent on the coast. Thresholds and their meteorological
+ * basis are in disaster_risk_engine.h.
+ *
+ * A trend that is not yet usable yields RISK_UNKNOWN, never RISK_NORMAL. The
+ * distinction matters: RISK_NORMAL is a statement that the barometer is steady,
+ * and claiming that before the window is long enough to know would be inventing
+ * an observation. */
+void assess_cyclone_risk(const pressure_trend_result_t *trend,
+                         risk_level_t *risk, const char **advisory) {
+    if (!risk || !advisory) return;
+
+    if (!trend || !trend->valid) {
+        *risk = RISK_UNKNOWN;
+        *advisory = "Storm risk not evaluated: pressure trend window too short";
+        return;
+    }
+
+    float slope = trend->slope_hpa_per_hr;
+    float drop  = trend->drop_hpa;
+
+    /* Require BOTH a rate and an absolute fall. The rate alone can be reached by
+     * a fraction of a hPa of sensor drift across a short window, and the drop
+     * alone says nothing about how fast it happened. */
+    bool falling_enough = (drop >= CYCLONE_MIN_DROP_HPA);
+
+    if (falling_enough && slope <= CYCLONE_FALL_CRITICAL_HPA_PER_HR) {
+        *risk = RISK_CRITICAL;
+        *advisory = "Rapidly falling barometer - cyclone precursor. Secure the "
+                    "site and move to shelter inland; do not wait for a warning.";
+    } else if (falling_enough && slope <= CYCLONE_FALL_HIGH_HPA_PER_HR) {
+        *risk = RISK_HIGH;
+        *advisory = "Barometer falling fast - storm developing. Expect high wind "
+                    "and heavy rain; secure loose equipment and seek shelter.";
+    } else if (falling_enough && slope <= CYCLONE_FALL_MODERATE_HPA_PER_HR) {
+        *risk = RISK_MODERATE;
+        *advisory = "Barometer falling - a low is developing. Wind and rain likely "
+                    "within hours; plan for deteriorating weather.";
+    } else {
+        *risk = RISK_NORMAL;
+        *advisory = "Barometric pressure steady - no storm signature in the trend.";
+    }
 }
 

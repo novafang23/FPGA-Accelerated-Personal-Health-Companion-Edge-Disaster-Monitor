@@ -57,13 +57,16 @@ size_t web_status_json(const valor_status_t *s, char *buf, size_t cap) {
         buf, cap,
         "{\"hr\":%.1f,\"spo2\":%.1f,\"rr\":%.1f,\"sqi\":%.2f,\"rmssd\":%.1f,"
         "\"temp\":%.1f,\"hum\":%.1f,\"pm25\":%.1f,"
+        "\"pressure\":%.1f,\"ptrend\":%.2f,"
         "\"news2\":%u,\"level\":%u,\"flags\":%u,"
-        "\"risk\":\"%s\",\"sos\":\"%s\",\"trigger\":\"%s\",\"loc\":\"%s\","
+        "\"risk\":\"%s\",\"storm\":\"%s\",\"sos\":\"%s\",\"trigger\":\"%s\",\"loc\":\"%s\","
         "\"contact\":%s,\"up\":%lu}",
         (double)s->hr, (double)s->spo2, (double)s->rr, (double)s->sqi,
         (double)s->rmssd, (double)s->temp, (double)s->hum, (double)s->pm25,
+        (double)s->pressure_hpa, (double)s->pressure_trend_hpa_per_hr,
         s->news2, s->level, s->flags,
         s->risk ? s->risk : "UNKNOWN",
+        s->storm ? s->storm : "UNKNOWN",
         s->sos ? s->sos : "IDLE",
         s->trigger ? s->trigger : "none",
         s->loc ? s->loc : "UNSET",
@@ -150,6 +153,9 @@ static const char PAGE_HTML[] =
 "<div class='card'><div class='k'>Temp</div><div class='v'><span id='temp'>--</span></div></div>"
 "<div class='card'><div class='k'>Humidity</div><div class='v'><span id='hum'>--</span></div></div>"
 "<div class='card'><div class='k'>PM2.5</div><div class='v'><span id='pm'>--</span></div></div>"
+"<div class='card wide'><div class='k'>Storm watch &middot; barometric trend</div>"
+"<div class='v' style='font-size:19px'><span id='storm'>--</span></div>"
+"<div id='pnote'>&nbsp;</div></div>"
 "</div>"
 "<div class='foot'>"
 "<span><span class='dot'></span><span id='link'>live</span></span>"
@@ -169,6 +175,11 @@ static const char PAGE_HTML[] =
 "t('hr',num(s.hr,0));t('spo2',num(s.spo2,1));t('rmssd',num(s.rmssd,1));"
 "t('rr',num(s.rr,0));t('sqi',s.sqi>0?(s.sqi*100).toFixed(0):D);"
 "t('temp',num(s.temp,1));t('hum',num(s.hum,0));t('pm',num(s.pm25,0));"
+"t('storm',s.storm);"
+/* The trend is the number that carries the signal; the absolute pressure is
+   shown beside it only so a reader can see the barometer they are reading. */
+"t('pnote','Pressure '+(s.pressure>0?s.pressure.toFixed(1):D)+' hPa, trend '"
+"+((s.ptrend<0?'':'+')+s.ptrend.toFixed(2))+' hPa/hr');"
 "t('news2','NEWS2 '+s.news2);t('loc','LOC '+s.loc);"
 "t('link',s.contact?'finger detected':'no finger');"
 /* Seed the location box once. Doing it on every poll would overwrite whatever

@@ -10,6 +10,7 @@
 #include "hrv_analysis.h"
 #include "nn_risk_model.h"
 #include "nn_risk_model_int8.h"
+#include "pressure_trend.h"
 
 /* --- Heat Risk Thresholds --- */
 #define HEAT_TEMP_BASE_C        27.0f
@@ -106,6 +107,29 @@
 #define COLD_HUMIDITY_HIGH_PCT    70.0f
 #define COLD_HUMIDITY_MOD_PCT     55.0f
 
+/* --- Cyclone / storm thresholds, from the barometric pressure TREND (T3.1) ---
+ *
+ * Absolute pressure is not usable here: sea-level pressure varies by tens of hPa
+ * with altitude and season, so a fixed threshold would fire in the hills and stay
+ * silent on the coast. The RATE OF FALL over hours is what carries the signal.
+ *
+ * Thresholds follow the standard reading of a barograph:
+ *   ~1 hPa/hr    a developing low; wind and rain likely
+ *   ~3 hPa/3h    a storm warning in the shipping forecasts
+ *   >=5 hPa/3h   a rapidly deepening system, i.e. a cyclone precursor
+ *
+ * Expressed below as a rate, which is what the fit actually measures, and paired
+ * with a minimum absolute drop so that noise over a short window cannot reach a
+ * threshold on its own. The BME280 resolves about 0.01 hPa, but its absolute
+ * accuracy drifts with temperature, so the drop floor sits well above that.
+ *
+ * A RISE is deliberately not scored: falling pressure precedes a storm, but
+ * rising pressure does not precede a hazard a wearable can act on. */
+#define CYCLONE_FALL_CRITICAL_HPA_PER_HR (-2.0f)
+#define CYCLONE_FALL_HIGH_HPA_PER_HR     (-1.0f)
+#define CYCLONE_FALL_MODERATE_HPA_PER_HR (-0.5f)
+#define CYCLONE_MIN_DROP_HPA              ( 0.5f)
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -132,11 +156,13 @@ typedef struct {
     risk_level_t heat_risk;
     risk_level_t pollution_risk;
     risk_level_t flood_risk;
+    risk_level_t cyclone_risk;   /* from the pressure TREND, not a reading */
     risk_level_t overall_risk;
 
     const char *heat_advisory;
     const char *pollution_advisory;
     const char *flood_advisory;
+    const char *cyclone_advisory;
     char overall_advisory[512];
 } risk_assessment_t;
 
@@ -165,6 +191,19 @@ void disaster_assess_nn(
     const env_sensors_t *env,
     risk_assessment_t   *result
 );
+
+/*
+ * Barometric pressure trend -> cyclone / storm risk (T3.1).
+ *
+ * Kept out of disaster_assess() because it is STATEFUL: a trend needs a history,
+ * and disaster_assess() is a pure function of one instant. The caller owns a
+ * pressure_trend_t and feeds this the evaluated result.
+ *
+ * A trend that is not yet `valid` (too short a span) yields RISK_UNKNOWN, never a
+ * guess - the same rule the other hazards follow for missing inputs.
+ */
+void assess_cyclone_risk(const pressure_trend_result_t *trend,
+                         risk_level_t *risk, const char **advisory);
 
 /* Run AI-powered neural network disaster risk assessment (INT8 quantized).
  * raw_out: optional pointer to receive raw model activations (pass NULL if unneeded). */

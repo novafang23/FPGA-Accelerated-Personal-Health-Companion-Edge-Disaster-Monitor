@@ -226,14 +226,63 @@ Cost ~₹200. Effort ~4 hours. **Closes requirement 1 (activity, sleep) and requ
 
 ## Tier 3 — Software, no hardware
 
-### T3.1 — Barometric pressure trend → cyclone advisory
+### T3.1 - Barometric pressure trend -> cyclone advisory  DONE (2026-09-28)
 
-Free: the BME280 already measures pressure and the code does not use it for anything.
+Free: the BME280 was already measuring pressure and the firmware read it on every
+poll and discarded it. `firmware/core/pressure_trend.{h,c}` keeps a window of the
+last three hours (one stored sample a minute, 180 samples, 1.4 KB) and fits a
+least-squares slope to it; `assess_cyclone_risk()` turns that rate into a hazard
+level alongside heat, pollution and flood. Closes the cyclone half of requirement
+3's last gap.
 
-A falling barometric pressure is a cyclone precursor. A 3-hour pressure trend gives a genuine,
-physically-grounded storm advisory with **zero new hardware**. ~1 hour.
+**Why the trend and not the reading.** Absolute pressure is nearly useless for a
+weather advisory - sea-level pressure varies by tens of hPa with altitude and
+season, so any fixed threshold fires in the hills and stays silent on the coast.
+The rate of fall is the signal, which is why this keeps a history at all.
 
-Closes part of requirement 3 (flood/cyclone advisories), which is currently not instrumented.
+**Thresholds**, from the standard reading of a barograph: about 1 hPa/hr is a
+developing low, 3 hPa in 3 h is a shipping-forecast storm warning, and 5 hPa in
+3 h is a rapidly deepening system. Expressed as a rate because that is what the
+fit measures, and paired with a **0.5 hPa minimum drop** so noise cannot reach a
+threshold on its own.
+
+**That drop floor is load-bearing, and the hardware proved it.** With the window
+temporarily shortened to 2 s samples to exercise the path end to end, the fitted
+rate swung between **-5.99 and +3.25 hPa/hr** on a barometer that was visibly
+steady to one decimal place - a 2 s cadence resolves the BME280's own jitter into
+an alarming slope. Rate alone at -5.99 hPa/hr is past the -2.0 critical threshold
+and would have raised a cyclone warning. The actual fall over the window was
+about 0.05 hPa, far below the 0.5 hPa floor, and the classification correctly
+stayed NORMAL throughout. A rate-only implementation would be crying cyclone on a
+calm day.
+
+**A design flaw the hardware also caught.** The assessment was first placed inside
+the `vitals_ready` branch, which requires ten accepted beats. On the bench the
+fitted trend was visibly moving while the published level stayed UNKNOWN forever -
+because nobody had a finger on the sensor. Weather does not need a finger, and an
+untouched device is exactly when a storm warning matters. It is now evaluated and
+assessed every second, outside that branch, and only folded into the fused risk
+when an assessment runs.
+
+Also: `disaster_assess()` marks `cyclone_risk` UNKNOWN explicitly rather than
+leaving the memset's zero, because zero is RISK_NORMAL and that would be an
+all-clear for a hazard nobody evaluated. The overall fusion tallies UNKNOWN only
+for the three core modalities - the storm trend is additional, so its UNKNOWN
+means "no history yet", not "sensor missing", and counting it would have flipped
+every all-normal verdict to UNKNOWN for the first half hour after boot.
+
+**Verified:** `test_pressure_trend()` covers the slope sign convention, the
+minimum-span gate, rejection of implausible readings (0, NaN, 5000 hPa), rejection
+of a timestamp that would fold the window backwards, ring wrap keeping the newest
+span, and the one-sample-a-minute pacing. `test_cyclone_risk()` covers the
+threshold ladder, the drop floor, and that a rise is not scored. The page's storm
+row was rendered against a stubbed endpoint in headless Chrome, including that a
+falling trend renders with a minus sign and an unfilled window reads UNKNOWN
+rather than a reassuring NORMAL.
+
+On hardware: the trend computes from live BME280 data, the JSON carries
+`pressure`/`ptrend`/`storm`, and with the shipping 30-minute window the advisory
+correctly reads UNKNOWN until the window is long enough to mean anything.
 
 ---
 
@@ -441,7 +490,7 @@ constraint is worse than none, because it produces a confident number.
 |---|---|---|---|
 | 1 | Continuous monitoring | HR, SpO₂, RR, SQI — **body temperature not measured** | **T2.1** (MAX30205, ~₹200); activity + sleep need T2.3 |
 | 2 | AI anomaly detection | **Strong** — real RR in NEWS2, SQI gating, INT8 TinyML head | fall detection via T2.3 |
-| 3 | Disaster alerts | Heat + air quality good; **flood/cyclone not instrumented** | **T3.1** — free, BME280 pressure trend |
+| 3 | Disaster alerts | Heat + air quality good; **cyclone done via the pressure trend (T3.1)**; flood still not instrumented | a water sensor; the flood path still runs on an ambient cold-stress proxy |
 | 4 | Environmental awareness | **Strong** | — |
 | 5 | Privacy-preserving edge AI | **Satisfied** — cloud publishing off by default | — |
 | 6 | Emergency assistance | **Partial — SOS latch + OLED emergency card + local status page + stored location shipped (T1.2-T1.4)** | a POST SOS trigger endpoint, and a button (T2.2) |
@@ -458,15 +507,14 @@ DONE (2026-09-28):  T1.2 SOS card · T1.3 SoftAP status page · T1.4 stored loca
                     T1.5 RR/SQI verified · T3.4 documentation corrected
 
 Still open, no parts needed — in this order:
-  1. T3.1  BME280 pressure trend         <- free cyclone advisory
-  2. T3.5  Give the respiratory rate a confidence measure that works on real data
-  3. T3.3  Handover log spam (~30 min)
-  4. T1.7  README images (blocked on images from the user)
+  1. T3.5  Give the respiratory rate a confidence measure that works on real data
+  2. T3.3  Handover log spam (~30 min)
+  3. T1.7  README images (blocked on images from the user)
 
 With parts (roughly ₹450 total):
-  5. T2.1  MAX30205 skin temperature     <- highest-value part on this list
-  6. T2.2  SOS button + buzzer           <- also unlocks the phone POST trigger
-  7. T2.3  IMU (activity + sleep + falls)
+  4. T2.1  MAX30205 skin temperature     <- highest-value part on this list
+  5. T2.2  SOS button + buzzer           <- also unlocks the phone POST trigger
+  6. T2.3  IMU (activity + sleep + falls)
 
 Before submission:
  11. T4.1  Chest-strap validation        <- the only thing that changes what you can claim

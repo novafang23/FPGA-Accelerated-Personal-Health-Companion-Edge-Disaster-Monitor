@@ -616,6 +616,7 @@ static void test_web_status_json(void) {
     s.news2 = 0; s.level = 0; s.flags = 0;
     s.risk = "NORMAL"; s.sos = "IDLE"; s.trigger = "none"; s.loc = "UNSET";
     s.uptime_s = 123; s.contact = true;
+    s.pressure_hpa = 1013.2f; s.pressure_trend_hpa_per_hr = -1.25f; s.storm = "HIGH";
 
     char buf[512];
     size_t n = web_status_json(&s, buf, sizeof(buf));
@@ -632,6 +633,11 @@ static void test_web_status_json(void) {
     assert(strstr(buf, "\"loc\":\"UNSET\"")  != NULL);
     assert(strstr(buf, "\"contact\":true")   != NULL);
     assert(strstr(buf, "\"up\":123")         != NULL);
+    /* The storm advisory and the trend that drives it (T3.1). A negative trend
+     * is a FALLING barometer, which is the direction that precedes a storm. */
+    assert(strstr(buf, "\"pressure\":1013.2")    != NULL);
+    assert(strstr(buf, "\"ptrend\":-1.25")       != NULL);
+    assert(strstr(buf, "\"storm\":\"HIGH\"")     != NULL);
 
     /* An active emergency must be distinguishable, since the page turns red on
      * exactly this field. */
@@ -734,6 +740,146 @@ static void test_location_store(void) {
     printf("test_location_store: PASS (stored '%s')\n", location_get());
 }
 
+/* Barometric pressure trend and the cyclone advisory (T3.1). */
+static void test_pressure_trend(void) {
+    pressure_trend_t t;
+    pressure_trend_result_t r;
+
+    /* Nothing to fit. */
+    pressure_trend_init(&t);
+    pressure_trend_evaluate(&t, &r);
+    assert(!r.valid);
+
+    /* A two-minute span is not a weather trend. */
+    pressure_trend_add(&t, 0, 1013.0f);
+    pressure_trend_add(&t, 60000, 1012.5f);
+    pressure_trend_evaluate(&t, &r);
+    assert(!r.valid);
+    assert(r.samples == 2);
+
+    /* Steady over an hour -> valid, flat. */
+    pressure_trend_init(&t);
+    for (int i = 0; i <= 60; i++) {
+        pressure_trend_add(&t, (uint32_t)i * 60000u, 1013.0f);
+    }
+    pressure_trend_evaluate(&t, &r);
+    assert(r.valid);
+    assert(fabsf(r.slope_hpa_per_hr) < 0.01f);
+    assert(fabsf(r.drop_hpa) < 0.01f);
+    assert(r.span_ms == 60u * 60000u);
+
+    /* Falling 1 hPa per hour. Sign convention: negative slope = falling, and
+     * positive drop = the barometer went DOWN. */
+    pressure_trend_init(&t);
+    for (int i = 0; i <= 60; i++) {
+        pressure_trend_add(&t, (uint32_t)i * 60000u, 1013.0f - (float)i / 60.0f);
+    }
+    pressure_trend_evaluate(&t, &r);
+    assert(r.valid);
+    assert(fabsf(r.slope_hpa_per_hr + 1.0f) < 0.01f);
+    assert(fabsf(r.drop_hpa - 1.0f) < 0.01f);
+
+    /* Rising is the other sign. */
+    pressure_trend_init(&t);
+    for (int i = 0; i <= 60; i++) {
+        pressure_trend_add(&t, (uint32_t)i * 60000u, 1013.0f + (float)i / 60.0f);
+    }
+    pressure_trend_evaluate(&t, &r);
+    assert(r.valid);
+    assert(r.slope_hpa_per_hr > 0.5f);
+
+    /* Implausible readings must never enter the fit - one bad compensation read
+     * would otherwise move the slope by hundreds of hPa/hr. */
+    pressure_trend_init(&t);
+    pressure_trend_add(&t, 0, 1013.0f);
+    pressure_trend_add(&t, 60000, 0.0f);
+    pressure_trend_add(&t, 120000, NAN);
+    pressure_trend_add(&t, 180000, 5000.0f);
+    pressure_trend_add(&t, 240000, 1012.9f);
+    pressure_trend_evaluate(&t, &r);
+    assert(r.samples == 2);
+
+    /* A timestamp that would fold the window backwards is dropped. */
+    pressure_trend_init(&t);
+    pressure_trend_add(&t, 120000, 1013.0f);
+    pressure_trend_add(&t, 60000, 1010.0f);
+    pressure_trend_evaluate(&t, &r);
+    assert(r.samples == 1);
+    assert(r.pressure_hpa == 1013.0f);
+
+    /* Ring wrap: past capacity the window holds the NEWEST span, and the fit
+     * walks it oldest-first from the right slot. */
+    pressure_trend_init(&t);
+    for (int i = 0; i < 200; i++) {
+        pressure_trend_add(&t, (uint32_t)i * 60000u, 1000.0f + (float)i * 0.1f);
+    }
+    pressure_trend_evaluate(&t, &r);
+    assert(r.samples == PRESSURE_TREND_CAPACITY);
+    assert(r.span_ms == (uint32_t)(PRESSURE_TREND_CAPACITY - 1) * 60000u);
+    assert(fabsf(r.pressure_hpa - (1000.0f + 199.0f * 0.1f)) < 1e-3f);
+    /* samples 20..199 at +0.1 each -> +0.1 hPa per minute -> +6 hPa/hr */
+    assert(fabsf(r.slope_hpa_per_hr - 6.0f) < 0.05f);
+
+    /* Paced add: called at 1 Hz it stores once a minute. */
+    pressure_trend_init(&t);
+    uint32_t due = 0;
+    for (int s = 0; s <= 180; s++) {
+        pressure_trend_add_paced(&t, (uint32_t)s * 1000u, 1013.0f, &due);
+    }
+    assert(t.count == 4);   /* s = 0, 60, 120, 180 */
+
+    printf("test_pressure_trend: PASS (slope sign, window, wrap and pacing)\n");
+}
+
+static void test_cyclone_risk(void) {
+    pressure_trend_result_t r;
+    risk_level_t risk;
+    const char *adv;
+
+    /* No usable trend -> UNKNOWN. Never RISK_NORMAL: NORMAL is a claim that the
+     * barometer is steady, and that cannot be said before the window is long
+     * enough to know. */
+    memset(&r, 0, sizeof(r));
+    r.valid = false;
+    assess_cyclone_risk(&r, &risk, &adv);
+    assert(risk == RISK_UNKNOWN);
+    assert(adv != NULL);
+
+    assess_cyclone_risk(NULL, &risk, &adv);
+    assert(risk == RISK_UNKNOWN);
+
+    /* Steady -> NORMAL. */
+    r.valid = true; r.slope_hpa_per_hr = 0.05f; r.drop_hpa = 0.1f;
+    assess_cyclone_risk(&r, &risk, &adv);
+    assert(risk == RISK_NORMAL);
+
+    r.slope_hpa_per_hr = -0.6f; r.drop_hpa = 0.8f;
+    assess_cyclone_risk(&r, &risk, &adv);
+    assert(risk == RISK_MODERATE);
+
+    r.slope_hpa_per_hr = -1.2f; r.drop_hpa = 1.6f;
+    assess_cyclone_risk(&r, &risk, &adv);
+    assert(risk == RISK_HIGH);
+
+    r.slope_hpa_per_hr = -2.5f; r.drop_hpa = 3.0f;
+    assess_cyclone_risk(&r, &risk, &adv);
+    assert(risk == RISK_CRITICAL);
+
+    /* A steep RATE with almost no actual fall must not score. This is the case
+     * the absolute-drop floor exists for: a fraction of a hPa of sensor drift
+     * across a short window produces a dramatic-looking slope and no storm. */
+    r.slope_hpa_per_hr = -3.0f; r.drop_hpa = 0.2f;
+    assess_cyclone_risk(&r, &risk, &adv);
+    assert(risk == RISK_NORMAL);
+
+    /* A rise is not a hazard this device acts on. */
+    r.slope_hpa_per_hr = 2.0f; r.drop_hpa = -2.0f;
+    assess_cyclone_risk(&r, &risk, &adv);
+    assert(risk == RISK_NORMAL);
+
+    printf("test_cyclone_risk: PASS (thresholds, drop floor, rise ignored)\n");
+}
+
 int main() {
     printf("Running unit tests for disaster_risk_engine...\n");
     test_heat_risk();
@@ -748,6 +894,8 @@ int main() {
     test_sos_state_machine();
     test_web_status_json();
     test_location_store();
+    test_pressure_trend();
+    test_cyclone_risk();
     printf("ALL TESTS PASSED.\n");
     return 0;
 }

@@ -30,7 +30,8 @@ SRCS_CORE := \
     $(CORE_DIR)/spo2_engine.c \
     $(CORE_DIR)/disaster_risk_engine.c \
     $(CORE_DIR)/nn_risk_model.c \
-    $(CORE_DIR)/nn_risk_model_int8.c
+    $(CORE_DIR)/nn_risk_model_int8.c \
+    $(CORE_DIR)/pressure_trend.c
 
 SRCS_DRIVERS := \
     i2c_hal.c \

@@ -81,6 +81,17 @@ static bme280_t s_bme280;
 static pms5003_t s_pms5003;
 static ssd1306_t s_ssd1306;
 
+/* Barometric pressure history for the storm advisory (T3.1).
+ *
+ * File scope rather than function-local because it is device state with a
+ * lifetime longer than one task iteration: the BME280 reports pressure and this
+ * firmware used to read it and discard it, and a falling-barometer signature
+ * needs three hours of it. One sample is stored per minute (see pressure_trend.h
+ * for the window sizing), so it fills slowly and reports UNKNOWN until it has
+ * enough span to mean anything. */
+static pressure_trend_t s_pressure_trend;
+static uint32_t         s_pressure_next_due_ms = 0;
+
 /* ---------------------------------------------------------------------------
  * IBI acceptance pipeline - the single door every heartbeat interval passes
  * through, whichever detector measured it.
@@ -1023,6 +1034,11 @@ static void task_disaster_monitor(void *pvParameters) {
                 s_last_temp = bme_data.temperature_c;
                 s_last_hum  = bme_data.humidity_pct;
             }
+            /* Pressure is independent of the temperature sanity gate above, so
+             * it is fed even when the temperature reading is rejected. */
+            pressure_trend_add_paced(&s_pressure_trend,
+                                     (uint32_t)(esp_timer_get_time() / 1000),
+                                     bme_data.pressure_hpa, &s_pressure_next_due_ms);
         }
         env.ambient_temp_c = s_last_temp;
         env.humidity_pct   = s_last_hum;
@@ -1110,6 +1126,23 @@ static void task_disaster_monitor(void *pvParameters) {
         unsigned clin_news2 = 0;
         unsigned clin_flags = 0;
 
+        /* Barometric trend, evaluated and ASSESSED every second, deliberately
+         * outside the assessment branch below.
+         *
+         * The weather does not need a finger on the sensor, and the window has to
+         * keep filling while the device sits idle. Putting the assessment inside
+         * the vitals_ready branch (which requires ten accepted beats) made the
+         * storm advisory read UNKNOWN forever on an untouched device - verified
+         * on hardware, where the fitted trend was visibly moving while the
+         * published level stayed UNKNOWN - and an untouched device is exactly
+         * the case where a storm warning matters. */
+        pressure_trend_result_t pressure_trend;
+        pressure_trend_evaluate(&s_pressure_trend, &pressure_trend);
+
+        risk_level_t storm_risk = RISK_UNKNOWN;
+        const char *storm_advisory = NULL;
+        assess_cyclone_risk(&pressure_trend, &storm_risk, &storm_advisory);
+
         risk_assessment_t final_risk;
         memset(&final_risk, 0, sizeof(final_risk));
         final_risk.overall_risk = RISK_UNKNOWN;
@@ -1124,6 +1157,23 @@ static void task_disaster_monitor(void *pvParameters) {
 
             /* 1. Execute Clinical Deterministic Rule Engine */
             disaster_assess(&hrv_snapshot, engine_spo2, hr, &env, &rule_risk);
+
+            /* Fold in the cyclone/storm advisory, already assessed above every
+             * second so that it does not depend on a finger being present.
+             *
+             * It cannot come from disaster_assess() because that is a pure
+             * function of one instant and a trend needs a history. It is applied
+             * here, before env_fused is built, so the fusion sees it. It may only
+             * ever RAISE the verdict: a steady barometer is not evidence that
+             * anything else is fine, so RISK_NORMAL and RISK_UNKNOWN from the
+             * trend change nothing. */
+            rule_risk.cyclone_risk = storm_risk;
+            rule_risk.cyclone_advisory = storm_advisory;
+            if (storm_risk > RISK_NORMAL && storm_risk > rule_risk.overall_risk) {
+                rule_risk.overall_risk = storm_risk;
+                snprintf(rule_risk.overall_advisory, sizeof(rule_risk.overall_advisory), "%s",
+                         storm_advisory ? storm_advisory : "");
+            }
 
             /* This build has no skin-temperature sensor: the BME280 measures
              * ambient air, so env.skin_temp_c is 0 and assess_flood_risk() uses
@@ -1198,10 +1248,12 @@ static void task_disaster_monitor(void *pvParameters) {
             snprintf(flood_str, sizeof(flood_str), "%s%s",
                      risk_level_to_string(rule_risk.flood_risk),
                      (env.skin_temp_c > 0.0f) ? "" : " (ambient proxy)");
-            ESP_LOGI(TAG, "[RuleEngine] Heat: %s | Poll: %s | Flood: %s => Overall: %s",
+            ESP_LOGI(TAG, "[RuleEngine] Heat: %s | Poll: %s | Flood: %s | Storm: %s (%.2f hPa/hr) => Overall: %s",
                      risk_level_to_string(rule_risk.heat_risk),
                      risk_level_to_string(rule_risk.pollution_risk),
                      flood_str,
+                     risk_level_to_string(rule_risk.cyclone_risk),
+                     (double)pressure_trend.slope_hpa_per_hr,
                      risk_level_to_string(rule_risk.overall_risk));
             ESP_LOGI(TAG, "[TinyML INT8] Heat: %.3f (%s) | Poll: %.3f (%s) | Flood: %.3f (%s) => AI Overall: %s",
                      nn_out.heat_score, risk_level_to_string(nn_risk.heat_risk),
@@ -1236,7 +1288,11 @@ static void task_disaster_monitor(void *pvParameters) {
 
             printf("[TRIAGE] NEWS2=%u,LEVEL=%u,FLAGS=0x%02X,RISK=%s,"
                    "NNHEAT=%.3f,NNPOLL=%.3f,NNFLOOD=%.3f,"
-                   "RHEAT=%s,RPOLL=%s,RFLOOD=%s,PSI=%.2f,AHA=%.2f\n",
+                   "RHEAT=%s,RPOLL=%s,RFLOOD=%s,PSI=%.2f,AHA=%.2f,"
+                   /* CYCLONE is the storm level from the barometer TREND and
+                    * PTREND is the fitted rate in hPa/hr (negative = falling).
+                    * Appended, not inserted, so existing parsers keep working. */
+                   "CYCLONE=%s,PTREND=%.2f\n",
                    (unsigned)clin_assess.news2_score,
                    (unsigned)clin_assess.level,
                    (unsigned)clin_assess.alert_flags,
@@ -1245,7 +1301,9 @@ static void task_disaster_monitor(void *pvParameters) {
                    risk_level_to_string(rule_risk.heat_risk),
                    risk_level_to_string(rule_risk.pollution_risk),
                    risk_level_to_string(rule_risk.flood_risk),
-                   moran_psi, aha_strain);
+                   moran_psi, aha_strain,
+                   risk_level_to_string(rule_risk.cyclone_risk),
+                   (double)pressure_trend.slope_hpa_per_hr);
             fflush(stdout);
 
             /* Thread-safe state update for telemetry & system monitoring */
@@ -1330,7 +1388,10 @@ static void task_disaster_monitor(void *pvParameters) {
             st.temp     = env.ambient_temp_c;
             st.hum      = env.humidity_pct;
             st.pm25     = env.pm25;
+            st.pressure_hpa = pressure_trend.pressure_hpa;
+            st.pressure_trend_hpa_per_hr = pressure_trend.slope_hpa_per_hr;
             st.news2    = clin_news2;
+            st.storm    = risk_level_to_string(storm_risk);
             st.level    = (triage_level > 0) ? (unsigned)triage_level : 0u;
             st.flags    = clin_flags;
             st.risk     = risk_level_to_string(final_risk.overall_risk);
@@ -1520,6 +1581,10 @@ void app_main(void) {
     /* Load the deployed location before anything can display it, so the card
      * and the page never briefly show UNSET on a device that has one stored. */
     location_init();
+    /* The pressure window starts empty and fills at one sample a minute, so the
+     * storm advisory reports UNKNOWN for the first half hour rather than
+     * inventing a trend from two readings. */
+    pressure_trend_init(&s_pressure_trend);
     ESP_LOGI(TAG, "Emergency assist ready (state: %s), location '%s'",
              sos_state_name(sos_get_state()), location_get());
 
