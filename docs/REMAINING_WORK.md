@@ -143,10 +143,10 @@ Verified on the device. `SQI=` appears in the telemetry line and reads a plausib
 ("unavailable") rather than the fixed normal 14, so NEWS2 is no longer scoring a
 defaulted respiratory term. Run with a finger on for 90 s: 84–94 intervals accepted.
 
-**The verification produced a finding rather than a pass.** RR never resolves to a
-value at all on real data - see **T3.5**, which is the follow-on: the estimator runs
-(it has far more than the 30 intervals it needs) but its confidence measure, the raw
-autocorrelation peak, does not reach the reliability bar on real finger PPG.
+**The verification produced a finding rather than a pass.** At the time RR never
+resolved to a value at all on real data - see **T3.5**, which is now resolved: three
+estimator defects were found and fixed, and a paced staircase subsequently confirmed
+that the estimator tracks respiration (cued 10 and 24 br/min reported 11.3 and 26.9).
 
 ---
 
@@ -339,22 +339,82 @@ so that fix is local to this checkout.
 
 ---
 
-### T3.5 - Respiratory-rate confidence  REOPENED (2026-09-28): two estimator defects found
+### T3.5 - Respiratory-rate confidence  RESOLVED (2026-09-28): the estimator tracks respiration
 
-The paced-breathing test was completed on 2026-09-28 and it did not settle the
-Mayer-wave question - it found something more fundamental first. Two defects in
-`ppg_estimate_respiratory_rate()` made the estimator unable to resolve the
-comparison at all, and one of them (octave errors) may be the origin of the
-evidence the band-floor mitigation was built on. Both are now fixed and
-unit-verified; the Mayer-wave question itself is still open.
+**The question is answered: respiration-from-IBI works on this hardware.** A paced
+staircase run - 50 s settle, then 10 br/min for 65 s, then 24 br/min for 65 s, all in
+ONE run so the subject's own drifting baseline appears in neither clean window -
+produced this from the fully-established windows:
 
-Three captures with a finger on the sensor, then the band floor was raised as a
-conservative mitigation. The paced-breathing test that would have settled it could
-not be completed at the time - two attempts produced zero accepted beats in 100 s and
-then no finger at all - so the mitigation is a judgement from the depth evidence,
-not a measurement, and it is reversible in one line.
+| phase | cued | reported p50 | frames published | conf p50 |
+|---|---|---|---|---|
+| A settle | - | never published | 0 of 14 | 0.50 |
+| **P1** | **10 br/min** | **11.3** | 19 of 27 | 0.70 |
+| **P2** | **24 br/min** | **26.9** | 14 of 27 | 0.61 |
 
-**The paced-breathing run (2026-09-28), and why it was inconclusive**
+A 14 br/min change in the cue produced a **15.6 br/min change in the estimate**. It
+tracks. The ~0.1 Hz Mayer-wave reading that the earlier mitigation was built on is
+refuted, and the whole A-B-A approach that preceded this was the problem - see below.
+
+**Why the earlier runs could not answer it.** Three A-B-A runs (settle / paced /
+recover) all failed, for reasons that had nothing to do with the estimator:
+
+- The subject's un-paced rate is not stable between runs: **14.1 br/min** in one
+  capture, **22.9** twenty minutes later. Comparing "paced" against "recovery"
+  therefore compares two different things every time, and a paced rate that lands on
+  the day's baseline is indistinguishable from no tracking - which is what happened
+  when 15 br/min was used against a resting 14.1.
+- 24 br/min for 70 s is hyperventilation. It drove the measured HR from 70 to 93, so
+  the recovery window that followed was still perturbed and could not serve as a
+  baseline.
+- Telemetry runs at **0.89 Hz, not 1 Hz** (125 frames over 140 s). Reading the
+  capture by frame index rather than elapsed time put the phase boundaries ~13 s out
+  and made a warm-up artefact look like a measurement. The capture script now records
+  elapsed time per row and writes a CSV.
+
+The fix is structural: put two very different paced rates in one run. Whatever the
+subject's own rate is, it is in neither clean window.
+
+**A remaining ~+12% high reading, not an estimator bias.** P1 read 11.3 for a cued 10
+and P2 read 26.9 for a cued 24 - both about 12% high. A synthetic probe at the same
+rates, depths and beat-to-beat noise (`.capture/bias_probe.c`) reproduces **nothing**
+of the sort: with adequate RSA depth the estimator is accurate to **under 1 br/min**
+from 8 to 24 br/min, typically under 0.5. So the offset is most likely the subject
+anticipating the cue, or a real-RSA waveform shape the sinusoid model does not
+capture. Separating those needs an independent measurement of actual breathing, i.e.
+**T4.1** - it cannot be settled by more paced runs.
+
+**Band edges were broken, and are fixed** (`2164704`). Gating the autocorrelation
+*search* by the band did not make the estimator refuse out-of-band rates; it made it
+snap to the nearest admissible lag and report that. A genuine 8 br/min peaks at lag
+8.5; with that excluded the winner was lag 7 (9.74), the parabola clamped, and
+**9.09 was published as RELIABLE** - severe bradypnoea (NEWS2 +3) reported as mild
+(+1), with the `clipped` guard never firing because 9.09 is just inside the band. The
+header had claimed since the mitigation that "below 9 br/min this now reports
+unavailable"; it did not. The band is now applied to the interpolated peak as a
+verdict rather than as a search filter, so 8 br/min correctly reports unavailable and
+10 and 12 still publish accurately (`test_rr_band_edges` asserts both directions).
+
+**The band floor itself is still 9.0, and that remains a live trade.** It now refuses
+out-of-band rates cleanly instead of misreporting them, which is what it was always
+supposed to do. But because it refuses rather than reports, genuine 6-9 br/min
+breathing is silent, and NEWS2 scores <=8 as +3. The decisive test is a **breath
+hold**: respiratory sinus arrhythmia disappears during apnoea while a
+baroreflex-driven Mayer wave does not, so ~40 s of breath-holding with the floor
+temporarily at 6 would show which of the two the estimator is following. Until that
+is run, 9.0 stands.
+
+**How the mitigation was arrived at (and why its premise is now doubtful).**
+
+Three captures with a finger on the sensor, taken before the estimator had been tested
+against pacing at all. The paced-breathing test that would have settled it could not be
+completed at the time - two attempts produced zero accepted beats in 100 s and then no
+finger at all - so the mitigation below is a judgement from the depth evidence, not a
+measurement, and it is reversible in one line.
+
+**The first paced attempt (2026-09-28), and the two defects it exposed.** Superseded by
+the staircase result at the top of this section, but the defects it found are the reason
+that result was possible.
 
 Run at 15 br/min with audible cues, 138 telemetry frames. It produced `RR = 16.9`
 in the only three frames that published - but those three landed in the *recovery*
@@ -414,11 +474,12 @@ The old test could not see either bug: it used 15 br/min at an 800 ms IBI, which
 adjacent lags - worst case by construction - at two IBIs; against the pre-fix
 estimator it fails 4 of 10, worst 11.16 br/min.
 
-**The band floor is deliberately left at 9.0.** The mitigation's premise is now
-doubtful, but reverting a clinical threshold on inference rather than measurement is
-how this file got into trouble. The re-run below decides it: with the estimator
-resolving properly, a 15 br/min paced run is now a real test, and if RR follows to 15
-the floor can go back to 6.
+**The band floor stays at 9.0 for now** - the breath-hold test in the resolved section
+above is what decides it. Note that defect 2 also undermines the *original*
+justification: at session C's 880 ms IBI, 6.8 br/min is lag 10, which is the second
+harmonic of a genuine 13.6 br/min respiratory rate, and lag 10 was admissible while the
+floor was 6.0. Session C's reading is therefore equally consistent with an octave error
+on normal breathing as with a Mayer wave.
 
 **What the captures showed**
 
@@ -462,17 +523,12 @@ line reverses it.
 publishing 7.2 br/min in 77% of frames drove NEWS2 to +3 bradypnoea. Silent is better
 than confidently wrong.
 
-**The decisive test, re-run.** Breathe at 15/min (2 s in, 2 s out) for 60 s: if RR
-follows to ~15 the estimator tracks respiration and the floor can go back to 6; if it
-stays near 7 it is Mayer waves and 9 is right. `.capture/paced_cue.ps1` drives the
-cues itself - the subject only has to breathe with the beeps and hold still - and
-`.capture/lock_check.ps1` checks for a working beat lock first, because the earlier
-failures were all finger contact, not firmware. Run the lock check first.
-
-With defect 1 fixed, 15 against a spontaneous 17 is now a resolvable difference
-(0.27 br/min worst case rather than 3.1). If it is still ambiguous, the next variant
-is to pace at 24 br/min instead: it is six lags away from spontaneous rather than
-one, and `paced_cue.ps1 -PacedBpm 24` needs no other change.
+**The test that settled it.** A staircase - settle, then 10 br/min, then 24 br/min, all
+in ONE 180 s run - rather than the A-B-A pacing tried first. See the resolved section at
+the top of T3.5 for the result and for why the A-B-A design could not work.
+`.capture/paced_cue.ps1` drives the cues itself (measured accurate to <20 ms) and
+`.capture/lock_check.ps1` checks for a working beat lock first, because the earliest
+failures were all finger contact, not firmware.
 
 **Also unresolved: the depth threshold is saturated.** Depth runs 73-179 ms against a
 10-35 ms scoring window, so the depth term always contributes its maximum and
@@ -646,8 +702,9 @@ DONE (2026-09-28):  T1.2 SOS card · T1.3 SoftAP status page · T1.4 stored loca
                     T1.5 RR/SQI verified · T3.4 documentation corrected
 
 Still open, no parts needed — in this order:
-  1. T3.5  Re-run paced breathing now that the estimator resolves properly, then
-           decide the band floor (the 9.0 floor's premise is now doubtful - see T3.5)
+  1. T3.5  Breath-hold test with the floor temporarily at 6, to decide whether the
+           estimator follows respiration or a Mayer wave below 9 br/min. Tracking is
+           already proven; this is the last open question in the RR path.
   2. T3.3  Handover log spam (~30 min)
   3. T1.7  README images (blocked on images from the user)
 
