@@ -641,19 +641,28 @@ static void task_ppg_accelerator(void *pvParameters) {
                 /* Hardware beat detected by ForgeFPGA on GPIO 10 */
                 uint32_t ibi_cycles = shrikefi_read_ibi_cycles();
                 shrikefi_clear_irq();
-                /* Liveness is deliberately NOT latched here - see the accepted
-                 * branch below. Latching it from the raw beat flag meant a
-                 * single spurious bit 7 declared the FPGA alive for the rest of
-                 * the contact session and permanently suppressed the software
-                 * fallback, which is the only other detector. A floating MISO
-                 * produces that bit roughly half the time, and
-                 * shrikefi_link_init() leaves MISO floating on purpose when the
-                 * FPGA is not driving it. Every noise "interval" is then
-                 * rejected as implausible, so hrv_state.count never reaches 10,
-                 * the risk engines never run, and the operator is told
-                 * "LOW PERFUSION (PRESS FIRMER)" - pointing at the finger
-                 * instead of at the link. Removing and replacing the finger was
-                 * the only way out. */
+                /* Latch liveness from the RAW beat flag, here, before the
+                 * plausibility pipeline runs.
+                 *
+                 * This must NOT be moved inside the ibi_pipeline_submit() block
+                 * below, however much more careful that looks. It was tried, and
+                 * it livelocks: submit() returns false for every "prime"
+                 * interval, priming needs IBI_PRIME_N consecutive plausible
+                 * beats, and the first interval after any handover resets
+                 * prime_count to 0. So liveness would never latch, the software
+                 * fallback would keep running for want of it, and every software
+                 * beat would hand the source back and flush the window - which
+                 * resets priming again.
+                 *
+                 * Measured on hardware in that state: the two detectors
+                 * alternated on every single beat, "IBI detector handover" fired
+                 * several times a second, hrv_state.count stayed pinned at 0
+                 * forever, and the device sat on ACQUIRING with a perfect signal
+                 * (raw IR ~110000, Red ~130000, crests every second) and never
+                 * published an HR, an SpO2 or a triage. The gate below depends on
+                 * liveness being sticky for the whole contact session, so a
+                 * spurious beat flag is the far lesser risk. */
+                s_last_fpga_beat_ms = now_ms;
 
                 float ibi_ms = (float)ibi_cycles * (20.0f / 1000000.0f); // 50 MHz clock
 
@@ -685,12 +694,6 @@ static void task_ppg_accelerator(void *pvParameters) {
                  * this guard removes the symptom, and ibi_pipeline_submit()
                  * removes the residual one-in-N split with a median filter. */
                 if (ibi_pipeline_submit(&ibi_pipe, &hrv_state, IBI_SRC_FPGA, ibi_ms)) {
-                    /* An interval that passed the plausibility pipeline is the
-                     * only evidence that the FPGA is genuinely detecting
-                     * beats, so that - not the raw flag - is what latches
-                     * liveness. A spurious beat now simply fails validation and
-                     * leaves the software detector running. */
-                    s_last_fpga_beat_ms = now_ms;
                     float inst_hr = 60000.0f / ibi_ms;
                     if (xSemaphoreTake(s_data_mutex, pdMS_TO_TICKS(10)) == pdTRUE) {
                         g_state.r_peak_interval_ms = ibi_ms;

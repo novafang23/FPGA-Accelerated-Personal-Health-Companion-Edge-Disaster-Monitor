@@ -226,6 +226,39 @@ the real 7 MB app partition and 8 MB device.
 
 ---
 
+### T3.5 — The respiratory rate no longer publishes at all on real data
+
+The RR rail fix (54d9a27) stopped the estimator publishing a clamped
+36.00 br/min as a reliable measurement — it could report the tachypnoea ceiling
+for a healthy resting subject with **no** respiratory modulation. The fix rejects
+lags whose implied rate falls outside [6, 36] br/min before they can win the
+autocorrelation search, and refuses to certify any value `clamp_rr()` had to move.
+
+The measured consequence: RR now publishes **0.0** (unavailable) on a good
+contact. In a 90 s finger-on capture the HRV window reached 94 accepted intervals
+— comfortably past the 30 the estimator needs — so it ran, but returned
+`is_reliable = false` because confidence stayed under the 0.60 bar. The most
+sensitive term in NEWS2 is therefore currently always absent.
+
+That is safe and honest, but not useful. `conf_fm = best_r`, the raw
+autocorrelation coefficient at the winning lag, is a weak confidence measure on
+real PPG, where RSA depth is small. Options, cheapest first:
+
+1. Earn confidence from RSA depth rather than from the ACF peak.
+   `rsa_depth_ms` is already computed: a subject with under ~15 ms of
+   respiratory modulation should report unavailable, and one with clear
+   modulation should not be held back by a modest `best_r`.
+2. Treat the FM and AM estimates as corroborating evidence — when both
+   independently agree within a few br/min, that is worth more than either
+   coefficient alone.
+3. Validate against paced breathing at 6/min and 15/min **before** tuning any
+   threshold. Without that, any change here is curve-fitting.
+
+Do not simply lower the 0.60 threshold: that reinstates exactly the class of bug
+54d9a27 removed.
+
+---
+
 ## Tier 4 — Validation and evidence
 
 ### T4.1 — Validate against a reference device
