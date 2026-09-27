@@ -1044,6 +1044,17 @@ static void task_disaster_monitor(void *pvParameters) {
         signal_status_t sig_stat = SIGNAL_STATUS_NO_FINGER;
         bool vitals_ready = false;
 
+        /* Respiration/SQI are computed every second from the beat history, which
+         * exists long before the SpO2 gate opens. They used to be printed only on
+         * the triage line, so a paced-breathing run that spent 95 s in ACQUIRING
+         * showed 92 frames of HR and not one RR value - the estimator had been
+         * producing them the whole time and the capture simply could not see it.
+         * Snapshotted here so the ACQUIRING line can carry them. */
+        float rr_pub      = 0.0f;
+        float sqi_pub     = 0.0f;
+        float rrdepth_pub = 0.0f;
+        float rrconf_pub  = 0.0f;
+
         /* Persistent environmental sensor state (prevents collapse to 0.0C on momentary packet drops) */
         static float s_last_temp = 25.0f;
         static float s_last_hum  = 50.0f;
@@ -1120,6 +1131,10 @@ static void task_disaster_monitor(void *pvParameters) {
              * The SpO2 engine latches after ~17 s of steady contact; until then
              * the ACQUIRING line reports the true state and nothing is scored. */
             vitals_ready = (hrv_snapshot.count >= 10 && hr > 30.0f && spo2 > 0.0f);
+            rr_pub      = g_state.respiratory_rate_bpm;
+            sqi_pub     = g_state.ppg_sqi;
+            rrdepth_pub = g_state.rr_rsa_depth_ms;
+            rrconf_pub  = g_state.rr_confidence;
             xSemaphoreGive(s_data_mutex);
         }
 
@@ -1380,9 +1395,10 @@ static void task_disaster_monitor(void *pvParameters) {
                 printf("[TELEMETRY] NO_FINGER,TEMP=%.1f,HUM=%.1f,PM25=%.1f\n",
                        env.ambient_temp_c, env.humidity_pct, env.pm25);
             } else {
-                printf("[TELEMETRY] ACQUIRING,HR=%.1f,SPO2=%.1f,RMSSD=%.1f,TEMP=%.1f,HUM=%.1f,PM25=%.1f\n",
+                printf("[TELEMETRY] ACQUIRING,HR=%.1f,SPO2=%.1f,RMSSD=%.1f,TEMP=%.1f,HUM=%.1f,PM25=%.1f,RR=%.1f,SQI=%.2f,RRDEPTH=%.1f,RRCONF=%.2f\n",
                        hr, spo2, hrv_snapshot.rmssd,
-                       env.ambient_temp_c, env.humidity_pct, env.pm25);
+                       env.ambient_temp_c, env.humidity_pct, env.pm25,
+                       rr_pub, sqi_pub, rrdepth_pub, rrconf_pub);
             }
             fflush(stdout);
         }
