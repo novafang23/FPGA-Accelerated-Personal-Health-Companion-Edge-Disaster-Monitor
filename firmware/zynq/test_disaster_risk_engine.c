@@ -952,7 +952,25 @@ static void test_rr_confidence(void) {
            reliable_count, worst_conf);
     assert(reliable_count == 0);
 
-    printf("test_rr_confidence: PASS (real modulation published, jitter rejected)\n");
+    /* A 7 br/min oscillation must NOT be published: that is the Mayer-wave band.
+     * Measured on hardware as 6.6-7.3 br/min with 158 ms of apparent RSA, three
+     * to five times real respiratory RSA. See PPG_RR_MIN_BPM for the reasoning
+     * and for the cost - genuine 6-9 br/min breathing is no longer reported. */
+    const float rr_slow  = 7.0f;
+    const float per_slow = 60.0f / rr_slow;
+    t = 0.0f;
+    for (size_t i = 0; i < N; i++) {
+        float phase = 2.0f * 3.14159265f * (t / per_slow);
+        ibi[i] = mean_ibi + 0.5f * 80.0f * sinf(phase);   /* 80 ms peak-to-peak */
+        t += ibi[i] / 1000.0f;
+    }
+    memset(&rr, 0, sizeof(rr));
+    ppg_estimate_respiratory_rate(ibi, NULL, N, &rr);
+    printf("  RR 7/min Mayer band : rr=%5.1f  conf=%.2f  reliable=%d\n",
+           rr.respiratory_rate_bpm, rr.confidence, (int)rr.is_reliable);
+    assert(!rr.is_reliable);
+
+    printf("test_rr_confidence: PASS (real modulation published, jitter and the Mayer band rejected)\n");
 }
 
 /* Published-rate stabilisation (T3.5 follow-on).

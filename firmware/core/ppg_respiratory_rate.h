@@ -16,7 +16,35 @@
 extern "C" {
 #endif
 
-#define PPG_RR_MIN_BPM       6.0f    /* Physiological floor: severe bradypnea */
+/* Physiological floor. RAISED from 6.0 to 9.0 on measured evidence - see the
+ * note below. Rates below this are now rejected outright, and because a value
+ * that clamp_rr() has to move is never certified, they publish as unavailable
+ * rather than as a bradypnoea finding.
+ *
+ * WHY 9 AND NOT 6
+ * A capture with a finger on the sensor published 6.6-7.3 br/min with a median
+ * RSA depth of 158 ms peak-to-peak. Adult RESPIRATORY RSA is 20-60 ms. Three to
+ * five times that, with the rate pinned at the very bottom of the band, is the
+ * signature of the ~0.1 Hz MAYER WAVE - a genuine, strong, periodic
+ * blood-pressure oscillation in the inter-beat interval that is not breathing.
+ * A floor of 6 put Mayer waves inside the accepted range instead of outside it.
+ *
+ * The floor is set at 9 rather than tuned to the observation because 9 is where
+ * NEWS2's respiratory term stops being the severe band (<=8 scores +3, 9-11
+ * scores +1). The device cannot distinguish slow breathing from a vasomotor
+ * oscillation using the inter-beat interval alone - that is a known limitation of
+ * respiration-from-IBI, and it is worst at exactly the rates where the clinical
+ * penalty is largest. So the rule is: do not score in the band where you cannot
+ * discriminate. Below 9 br/min this now reports "unavailable", and NEWS2 holds
+ * the respiratory term neutral rather than claiming bradypnoea.
+ *
+ * THE COST, STATED PLAINLY: genuine breathing at 6-9 br/min will no longer be
+ * reported. That was not confirmed by paced breathing - the one test that would
+ * settle it (15/min for 60 s, to see whether the rate follows) could not be
+ * completed, because repeated captures failed on finger contact. This is a
+ * judgement from the depth evidence, not a measurement, and it is reversible in
+ * one line if paced breathing later shows the estimator does track respiration. */
+#define PPG_RR_MIN_BPM       9.0f    /* Physiological floor, above the Mayer band */
 #define PPG_RR_MAX_BPM       36.0f   /* Physiological ceiling: severe tachypnea */
 #define PPG_RR_DEFAULT_BPM   14.0f   /* Normal resting adult breathing rate */
 
