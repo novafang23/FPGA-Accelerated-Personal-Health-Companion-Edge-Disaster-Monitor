@@ -69,6 +69,13 @@ typedef struct {
     float pm25_ugm3;
     float respiratory_rate_bpm; /* PPG-derived (Charlton 2018 RSA); 0 = unavailable */
     float ppg_sqi;              /* composite signal quality index [0,1]        */
+    /* The estimator's own inputs for the respiratory rate, published so the
+     * thresholds can be set from measurements of real data rather than from
+     * first principles. On hardware RR published in 4 of 118 frames in one
+     * sitting and 0 of 84 in the next, and there is no way to tell from the
+     * published rate alone whether that is little RSA or a bar set too high. */
+    float rr_confidence;        /* estimator confidence [0,1]                  */
+    float rr_rsa_depth_ms;      /* equivalent sinusoid RSA peak-to-peak (ms)   */
     risk_assessment_t risk_result;
     nn_output_t nn_scores;
 } health_system_state_t;
@@ -317,6 +324,10 @@ static void ppg_update_respiration_and_sqi(void) {
          * sensitive term in the score. */
         g_state.respiratory_rate_bpm = rr.is_reliable ? rr.respiratory_rate_bpm : 0.0f;
         g_state.ppg_sqi               = sqi.overall_sqi;
+        /* Published even when unreliable, so the gate can be judged against what
+         * the estimator actually saw. */
+        g_state.rr_confidence         = rr.confidence;
+        g_state.rr_rsa_depth_ms       = rr.rsa_depth_ms;
         xSemaphoreGive(s_data_mutex);
     }
 }
@@ -1133,6 +1144,9 @@ static void task_disaster_monitor(void *pvParameters) {
          * to be drawable whatever state the assessment is in. */
         float rr_for_news2 = 0.0f;
         float sqi_for_news2 = 0.0f;
+        /* The estimator's raw inputs, for judging the gate against real data. */
+        float rr_conf_dbg = 0.0f;
+        float rr_depth_dbg = 0.0f;
         /* Also hoisted for the same reason: the status page shows the triage
          * the device actually produced, not a re-derivation of it. */
         unsigned clin_news2 = 0;
@@ -1225,6 +1239,8 @@ static void task_disaster_monitor(void *pvParameters) {
             if (xSemaphoreTake(s_data_mutex, pdMS_TO_TICKS(10)) == pdTRUE) {
                 rr_for_news2  = g_state.respiratory_rate_bpm;
                 sqi_for_news2 = g_state.ppg_sqi;
+                rr_conf_dbg   = g_state.rr_confidence;
+                rr_depth_dbg  = g_state.rr_rsa_depth_ms;
                 xSemaphoreGive(s_data_mutex);
             }
             clinical_vitals_assess_full(hr, engine_spo2, hrv_snapshot.rmssd,
@@ -1250,9 +1266,15 @@ static void task_disaster_monitor(void *pvParameters) {
              * matches the six original fields and returns on the last one, so
              * trailing additions stay backward compatible with older builds of
              * the dashboard binary. */
-            printf("[TELEMETRY] HR=%.1f,SPO2=%.1f,RMSSD=%.1f,TEMP=%.1f,HUM=%.1f,PM25=%.1f,RR=%.1f,SQI=%.2f\n",
+            printf("[TELEMETRY] HR=%.1f,SPO2=%.1f,RMSSD=%.1f,TEMP=%.1f,HUM=%.1f,PM25=%.1f,RR=%.1f,SQI=%.2f,"
+                   /* RRDEPTH and RRCONF are the estimator's own inputs, appended
+                    * so the existing parsers are unaffected. They are published
+                    * whether or not RR is, because the question they answer is
+                    * why the gate did or did not open. */
+                   "RRDEPTH=%.1f,RRCONF=%.2f\n",
                    hr, engine_spo2, hrv_snapshot.rmssd, env.ambient_temp_c,
-                   env.humidity_pct, env.pm25, rr_for_news2, sqi_for_news2);
+                   env.humidity_pct, env.pm25, rr_for_news2, sqi_for_news2,
+                   (double)rr_depth_dbg, (double)rr_conf_dbg);
             fflush(stdout);
             /* Label which cold-risk path produced the flood figure, so the
              * ambient proxy is never mistaken for a measured skin temperature. */

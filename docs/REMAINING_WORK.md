@@ -339,77 +339,93 @@ so that fix is local to this checkout.
 
 ---
 
-### T3.5 - Respiratory-rate confidence  PARTIAL (2026-09-28): publishes now, but flickers
+### T3.5 - Respiratory-rate confidence  OPEN: stabilised, but probably measuring the wrong oscillation
 
-**Confirmed on hardware.** A 180 s capture with a finger on the sensor finally ran
-the triage branch (167 telemetry frames: 1 NO_FINGER, 48 ACQUIRING, 118 triage).
-The engine was healthy throughout - HR 70-83 bpm, SpO2 96.4-98.0%, RMSSD 46-50 ms,
-SQI 0.80-0.94 - and **RR published 7.6 br/min**, where before this change it had
-never published anything on real data at all. The core question the unit tests
-could not answer - whether real finger PPG produces enough RSA depth and enough
-autocorrelation to clear the gate - is answered yes.
+Three captures with a finger on the sensor, and the third one settles it.
 
-**But it flickered: 4 of 118 frames.** Everything else was `RR=0.0`. That means
-confidence hovers right at the 0.60 bar, crossing it occasionally rather than
-settling. And because it lands at 7.6 br/min, which is at the low edge of the
-band, the consequence is disproportionate:
+| session | triage frames | RR published | behaviour |
+|---|---|---|---|
+| A | 118 | 4 frames, 7.6 br/min | flickering |
+| B | 84 | 0 frames | silent |
+| C | 62 | 48 frames, 6.6-7.3 br/min | stable |
+
+**The flicker fix works.** Session C published in 48 of 62 frames across only three
+distinct values (6.6, 7.2, 7.3). The hysteresis and median hold are doing exactly
+what they were added for.
+
+**But the value is almost certainly not respiration.** Session C also recorded the
+estimator's own inputs, and they are damning:
 
 ```
-[TELEMETRY] ...RR=7.6,SQI=0.90
-[TRIAGE]    NEWS2=3,LEVEL=1,FLAGS=0x20,RISK=MODERATE,...   <- +3 for bradypnoea
-[TELEMETRY] ...RR=0.0,SQI=0.85
-[TRIAGE]    NEWS2=0,LEVEL=0,FLAGS=0x00,RISK=NORMAL,...
+RSA depth (equivalent sinusoid peak-to-peak):  p50 = 157.9 ms   min 73  max 179
+published rate:                                6.6 - 7.3 br/min
 ```
 
-So a marginal, intermittent estimate produces the **maximum** respiratory penalty
-and flips the whole triage between NORMAL and MODERATE, frame to frame. The NEWS2
-respiratory table is steep at its edges (<=8 scores 3), so an uncertain value near
-a boundary does the most damage exactly where it is least certain. This is
-demo-visible flicker and, clinically, a bradypnoea claim the device cannot support.
+Adult respiratory RSA is typically **20-60 ms** peak-to-peak. 158 ms is three to
+five times that, and the rate sits pinned at the very bottom of the accepted band.
+The most likely explanation is **Mayer waves** - the ~0.1 Hz (6/min) blood-pressure
+oscillation, which is a genuine, strong, periodic signal in the inter-beat interval
+and is emphatically not breathing. This is a well-known confound in
+respiration-from-IBI estimation, and the accepted band floor of 6 br/min puts
+Mayer waves *inside* the band rather than outside it.
 
-**Next steps for this task, in order:**
+Every observation fits: the large amplitude, the rate pinned at the floor, and the
+high confidence - because the estimator is correctly detecting a real oscillation,
+just the wrong one.
 
-1. **Stop the flicker before trusting the value.** Either median-filter the
-   published RR over the last few estimates, or add hysteresis to `is_reliable`
-   (once published, stay published until confidence falls well below the bar,
-   rather than re-deciding on every 1 Hz tick). A rate that appears one second and
-   vanishes the next is worse than no rate.
-2. **Do not let a marginal estimate reach the NEWS2 extremes.** A value whose
-   confidence is barely above the bar should not score the maximum +3. Either
-   require more confidence near the band edges, or cap the respiratory points when
-   confidence is marginal.
-3. **Validate with paced breathing.** Breathe at 6/min for 60 s, then 15/min for
-   60 s, against a phone timer, and check the estimate lands within 1-2 br/min.
-   Until that is done, the thresholds are first principles and the RSA literature
-   (adult resting RSA is typically 20-60 ms peak-to-peak) rather than measurements,
-   and the 7.6 br/min here is unconfirmed as either a real slow breathing rate or a
-   low-rate artefact of a short window.
+**The decisive test, which has not been run.** Breathe at **15/min** (2 s in, 2 s
+out) for 60 s against a phone timer:
 
-**What was implemented and unit-verified** (commit fb8deb9):
+- if RR follows to ~15 br/min, the estimator tracks respiration and the 7.2 in
+  session C was simply this subject breathing slowly;
+- if RR stays at ~7, it is locked onto Mayer waves and the band floor has to move.
 
-- Confidence now scores two separate questions instead of using one coefficient for
-  both: is the series periodic at the winning lag (autocorrelation, rescaled so
-  0.25 maps to 0 and 0.60 to 1), and is the modulation big enough to be respiratory
-  (RSA depth). FM/AM agreement within 3 br/min is credited on top. The 0.60 bar is
+That is one minute of work and it separates the two possibilities
+unambiguously. Until it is run, the rate must not be trusted - and note that at
+7.2 br/min NEWS2 scores the respiratory term as +3 bradypnoea, so an untrusted
+value is currently producing the maximum clinical penalty.
+
+**Likely fix once confirmed:** raise the search band floor from 6 to about 9-10
+br/min so Mayer waves fall below it. That trades away genuinely slow breathing
+(6-9 br/min) for not reporting a vasomotor oscillation as respiration, which is the
+right trade for a triage device - but it is a clinical judgement and should follow
+the test, not precede it. A second, independent lever is the FM/AM cross-check:
+Mayer waves drive the inter-beat interval strongly and PPG pulse amplitude much
+less, so requiring the two paths to agree should discriminate between them.
+
+**Also still true:** the thresholds were calibrated against the estimator's own
+outputs, not against a reference. They are no longer pure first principles - session
+C shows depth running 73-179 ms against a 10-35 ms scoring window, i.e. the depth
+term is saturated and contributes nothing discriminative - but "saturated" is not
+"correct", and the depth window needs re-scaling from paced-breathing data too.
+
+**What was implemented and unit-verified** (commits fb8deb9, 13a5361):
+
+- Confidence scores two separate questions instead of using one coefficient for
+  both: is the series periodic at the winning lag (autocorrelation rescaled so 0.25
+  maps to 0 and 0.60 to 1), and is the modulation big enough to be respiratory (RSA
+  depth). FM/AM agreement within 3 br/min is credited on top. The 0.60 bar is
   unchanged - lowering it would reinstate the railed-36 bug that 54d9a27 removed.
-- RSA depth is `2*sqrt(2)*sigma` over the detrended series, not `max-min`. A range
-  is set by the single worst pair of beats and grows with sample count, so thirty
-  beats of jitter read as "30 ms of RSA". For a true sinusoid the estimator
-  recovers the peak-to-peak exactly (40 ms injected, 39.9 ms measured).
+- RSA depth is `2*sqrt(2)*sigma` over the detrended series, not `max-min`, because a
+  range is set by the single worst pair of beats and grows with sample count.
 - **A worse bug the change exposed:** with the depth term added, the drift
   reproduction - a healthy subject with 55 ms of slow drift and no respiratory
-  modulation - reported **26 br/min at 0.97 confidence**. The old code reported an
-  unreliable 36 for the same input; the new code reported a confident wrong number,
-  which is worse because NEWS2 acts on it. Root cause: the estimator removed only
-  the MEAN, so slow drift won the autocorrelation search. It now removes the
-  best-fit line first. Same input now gives `conf=0.51, reliable=0`.
+  modulation - reported **26 br/min at 0.97 confidence**. The estimator removed only
+  the MEAN, so slow drift won the autocorrelation search; it now removes the best-fit
+  line first. Same input now gives `conf=0.51, reliable=0`.
+- `ppg_rr_tracker_t` holds the published rate until confidence falls decisively below
+  the bar (0.45 rather than 0.60) and publishes the median of recent accepted
+  estimates. The hold is BOUNDED at 10 frames, because an unbounded one would be a
+  stale value published as current - the defect removed from the SpO2 engine earlier.
 
 | unit case | result |
 |---|---|
-| real RSA, 15 br/min, 40 ms modulation | `rr=15.0` (true 15), `conf=1.00`, published |
-| the drift reproduction (no modulation) | `conf=0.51`, not published (was 26.05 @ 0.97) |
+| real RSA, 15 br/min, 40 ms modulation | rr=15.0 (true 15), conf=1.00, published |
+| the drift reproduction (no modulation) | conf=0.51, not published (was 26.05 @ 0.97) |
 | white jitter, 8 seeds | 0 of 8 published, worst confidence 0.48 |
 | the old rail reproduction | no longer rails, and correctly refuses to publish |
+| tracker: sub-bar dip | held, value unchanged, confidence invariant preserved |
+| tracker: sustained dip | retracts within PPG_RR_HOLD_MAX |
 
 ---
 
