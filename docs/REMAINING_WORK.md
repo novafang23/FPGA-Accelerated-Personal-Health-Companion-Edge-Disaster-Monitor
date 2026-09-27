@@ -96,29 +96,57 @@ need a POST endpoint (a natural pairing with T2.2's button). T1.4 supplies the l
 
 ---
 
-### T1.4 — Stored location in NVS
+### T1.4 - Stored location in NVS  DONE (2026-09-28)
 
-Requirement 6 bullet 3, with no GPS.
+Requirement 6 bullet 3, with no GPS. `firmware/shrikefi/location.{h,c}` stores one short
+location string in NVS and shows it on both the emergency card and the local status page.
 
-- A short location string ("Village / Block / District"), set once by the caregiver over the
-  AP page or a serial command, stored in NVS.
-- Shown on the SOS card and the AP page.
+- **Set from a phone.** The status page carries a form that POSTs to `/location`; the body is
+  decoded as `application/x-www-form-urlencoded`, so a keyboard's `Village Hulimavu, Kolar`
+  arrives intact through `+` and `%XX`. A phone on the access point is the only input device
+  this system has - there is no keypad, and a serial console would reintroduce the laptop and
+  cable the local page exists to remove.
+- **Sanitised, not trusted.** Leading and trailing whitespace is trimmed, interior whitespace
+  collapses to one space (dropping it outright would weld `Ward 3 Kolar` into `Ward3Kolar`),
+  and anything outside printable ASCII is discarded - a control byte from a terminal, or a
+  UTF-8 continuation byte whose lead byte was dropped, would otherwise corrupt the display or
+  split a glyph. Text that sanitises to nothing is **rejected with HTTP 400** and the stored
+  value is left alone, rather than silently wiping a location already in use.
+- **Persisted in spirit as well as in fact.** The in-memory value is updated before the NVS
+  write, so a location set during an emergency is still visible this session even if the flash
+  write fails; the failure is logged rather than swallowed.
+- **Card and page differ on purpose.** The 128 px card has 16 usable columns after its `LOC: `
+  prefix and the page has room for anything, so `location_card_text()` shortens for the panel
+  and marks it with `...` rather than cutting a district name in half with no indication. A
+  reader who sees the marker knows to check the phone page for the full string.
 
-For rural disaster response this is arguably better than a satellite fix — village and block
-names are how people actually describe where they are, and it survives being under debris or
-indoors, where GPS does not. ~1 hour.
+**Verified:** `test_location_store()` covers trimming, whitespace collapsing, control-byte
+rejection, buffer-bounded truncation, `+`/`%XX` decoding, the field-boundary rule (`bloc=` is
+not `loc=`), the card-shortening rule at 16 and 17 characters, and that a value sanitising to
+nothing does not clear what is stored. That test immediately caught a real bug: the field
+search used a key length of 5 for `"loc="`, so `strncmp` compared the value's first byte as
+well and the setter silently never matched anything.
+
+On hardware, end to end: a fresh device reported `loc = UNSET`; `POST /location` with
+`loc=Village+Hulimavu%2C+Kolar` returned **303** and the page then reported
+`Village Hulimavu, Kolar`; a whitespace-only POST returned **400** and left the value unchanged;
+and after a **reboot** the page still reported `Village Hulimavu, Kolar`. The emergency card was
+then re-checked pixel by pixel against the real font with that location stored - `EXACT MATCH`,
+`LOC: Village Hulim...` filling exactly 21 columns with no clipping.
 
 ---
 
-### T1.5 — Verify the respiratory-rate wiring on hardware
+### T1.5 — Verify the respiratory-rate wiring on hardware  ✅ **DONE (2026-09-28)**
 
-`ppg_respiratory_rate.c` and `ppg_sqi.c` were wired into the build but **have never run on the
-device**. Flash and confirm:
-- `RR=` and `SQI=` appear in the telemetry line
-- RR lands in a plausible 10–20 br/min at rest
-- NEWS2 no longer scores RR as a fixed normal 14
+Verified on the device. `SQI=` appears in the telemetry line and reads a plausible
+0.86–0.92 with a good contact; `RR=` appears and is correctly published as `0.0`
+("unavailable") rather than the fixed normal 14, so NEWS2 is no longer scoring a
+defaulted respiratory term. Run with a finger on for 90 s: 84–94 intervals accepted.
 
-Without this the claim is unverified. ~30 minutes including a 3-minute capture.
+**The verification produced a finding rather than a pass.** RR never resolves to a
+value at all on real data - see **T3.5**, which is the follow-on: the estimator runs
+(it has far more than the 30 intervals it needs) but its confidence measure, the raw
+autocorrelation peak, does not reach the reliability bar on real finger PPG.
 
 ---
 
@@ -421,7 +449,7 @@ constraint is worse than none, because it produces a confident number.
 | 3 | Disaster alerts | Heat + air quality good; **flood/cyclone not instrumented** | **T3.1** — free, BME280 pressure trend |
 | 4 | Environmental awareness | **Strong** | — |
 | 5 | Privacy-preserving edge AI | **Satisfied** — cloud publishing off by default | — |
-| 6 | Emergency assistance | **Partial — SOS latch + OLED emergency card + local status page shipped (T1.2, T1.3)** | **T1.4** (stored location), a POST trigger endpoint, and a button (T2.2) |
+| 6 | Emergency assistance | **Partial — SOS latch + OLED emergency card + local status page + stored location shipped (T1.2-T1.4)** | a POST SOS trigger endpoint, and a button (T2.2) |
 | 7 | Wellness dashboard | Live only, no history or trends | T3.2 |
 | 8 | Scalable deployment | Roadmap only | — |
 
@@ -431,21 +459,20 @@ constraint is worse than none, because it produces a confident number.
 
 ```
 DONE (2026-09-21):  T1.1 MQTT privacy · T1.6 badge · T4.4 re-fit
-DONE (2026-09-28):  T1.2 SOS state machine + OLED card · T1.3 SoftAP status page
+DONE (2026-09-28):  T1.2 SOS card · T1.3 SoftAP status page · T1.4 stored location
                     T1.5 RR/SQI verified on hardware
 
 Still open, no parts needed — in this order:
-  1. T1.4  Stored location in NVS
-  2. T3.1  BME280 pressure trend         <- free cyclone advisory
-  3. T3.4  Correct the docs that still describe the retired 4-bit parallel link
-  4. T3.5  Give the respiratory rate a confidence measure that works on real data
-  5. T3.3  Handover log spam (~30 min)
-  6. T1.7  README images (blocked on images from the user)
+  1. T3.1  BME280 pressure trend         <- free cyclone advisory
+  2. T3.4  Correct the docs that still describe the retired 4-bit parallel link
+  3. T3.5  Give the respiratory rate a confidence measure that works on real data
+  4. T3.3  Handover log spam (~30 min)
+  5. T1.7  README images (blocked on images from the user)
 
 With parts (roughly ₹450 total):
-  7. T2.1  MAX30205 skin temperature     <- highest-value part on this list
-  8. T2.2  SOS button + buzzer           <- also unlocks the phone POST trigger
-  9. T2.3  IMU (activity + sleep + falls)
+  6. T2.1  MAX30205 skin temperature     <- highest-value part on this list
+  7. T2.2  SOS button + buzzer           <- also unlocks the phone POST trigger
+  8. T2.3  IMU (activity + sleep + falls)
 
 Before submission:
  11. T4.1  Chest-strap validation        <- the only thing that changes what you can claim

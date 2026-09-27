@@ -16,6 +16,10 @@
  * ESP-IDF (the SoftAP and HTTP handlers are behind ESP_PLATFORM), so the exact
  * bytes the phone receives are checked here rather than by curling a board. */
 #include "web_status.h"
+/* Deployment location (T1.4). Everything that decides what is stored or shown
+ * is pure, so the trimming, decoding and card-shortening rules are all checked
+ * here rather than on a 0.96" panel. */
+#include "location.h"
 
 /* ---------------------------------------------------------------------------
  * Compile-time contract: the INT8 model struct must exactly match the
@@ -661,6 +665,75 @@ static void test_web_status_json(void) {
            (unsigned)strlen(buf));
 }
 
+/* Deployment location: what actually gets stored and shown (T1.4). */
+static void test_location_store(void) {
+    char buf[LOCATION_MAX_LEN];
+
+    /* Trimming and interior whitespace collapsing. */
+    assert(location_sanitize("   Kolar   ", buf, sizeof(buf)));
+    assert(strcmp(buf, "Kolar") == 0);
+    assert(location_sanitize("Ward 3\tKolar", buf, sizeof(buf)));
+    assert(strcmp(buf, "Ward 3 Kolar") == 0);   /* not "Ward3Kolar" */
+    assert(location_sanitize("  a   b  ", buf, sizeof(buf)));
+    assert(strcmp(buf, "a b") == 0);
+
+    /* Control bytes are dropped, not stored. */
+    assert(location_sanitize("A\x01\x02" "B", buf, sizeof(buf)));
+    assert(strcmp(buf, "AB") == 0);
+
+    /* Nothing usable must report failure rather than storing "". */
+    assert(!location_sanitize("", buf, sizeof(buf)));
+    assert(!location_sanitize("   \t\r\n ", buf, sizeof(buf)));
+    assert(!location_sanitize("\x01\x02", buf, sizeof(buf)));
+    assert(!location_sanitize(NULL, buf, sizeof(buf)));
+    assert(buf[0] == '\0');
+
+    /* Truncation is bounded by the buffer, not by the input. */
+    char long_in[80];
+    memset(long_in, 'X', sizeof(long_in) - 1);
+    long_in[sizeof(long_in) - 1] = '\0';
+    assert(location_sanitize(long_in, buf, sizeof(buf)));
+    assert(strlen(buf) == LOCATION_MAX_LEN - 1);
+
+    /* Form decoding: what a phone keyboard actually submits. */
+    assert(location_parse_form("loc=Ward+3%2C+Kolar", buf, sizeof(buf)));
+    assert(strcmp(buf, "Ward 3, Kolar") == 0);
+    assert(location_parse_form("x=1&loc=Village%20Hulimavu&y=2", buf, sizeof(buf)));
+    assert(strcmp(buf, "Village Hulimavu") == 0);   /* not first, and not last */
+    /* The key must match a whole field: "bloc=" is not "loc=". */
+    assert(!location_parse_form("bloc=Kolar", buf, sizeof(buf)));
+    assert(!location_parse_form("x=1&y=2", buf, sizeof(buf)));
+    assert(!location_parse_form("loc=", buf, sizeof(buf)));
+    assert(!location_parse_form("loc=%00%01", buf, sizeof(buf)));
+    assert(!location_parse_form(NULL, buf, sizeof(buf)));
+
+    /* Card rendering: verbatim when it fits, marked when it does not. A
+     * shortened district name with no indication would be worse than a short
+     * one. */
+    char card[LOCATION_MAX_LEN];
+    location_card_text("Kolar", card, sizeof(card));
+    assert(strcmp(card, "Kolar") == 0);
+    location_card_text("1234567890123456", card, sizeof(card));    /* exactly 16 */
+    assert(strcmp(card, "1234567890123456") == 0);
+    location_card_text("12345678901234567", card, sizeof(card));   /* 17 */
+    assert(strcmp(card, "1234567890123...") == 0);
+    assert(strlen(card) == LOCATION_CARD_COLS);
+
+    /* Round trip through the store. */
+    location_init();
+    assert(!location_is_set());
+    assert(strcmp(location_get(), "UNSET") == 0);   /* never NULL, never blank */
+    assert(location_set("  Ward 3, Kolar  "));
+    assert(location_is_set());
+    assert(strcmp(location_get(), "Ward 3, Kolar") == 0);
+    /* Text that sanitises to nothing must leave the stored value alone
+     * rather than wiping a location that is already in use. */
+    assert(!location_set("   "));
+    assert(strcmp(location_get(), "Ward 3, Kolar") == 0);
+
+    printf("test_location_store: PASS (stored '%s')\n", location_get());
+}
+
 int main() {
     printf("Running unit tests for disaster_risk_engine...\n");
     test_heat_risk();
@@ -674,6 +747,7 @@ int main() {
     test_sqi_requires_beat_intervals();
     test_sos_state_machine();
     test_web_status_json();
+    test_location_store();
     printf("ALL TESTS PASSED.\n");
     return 0;
 }

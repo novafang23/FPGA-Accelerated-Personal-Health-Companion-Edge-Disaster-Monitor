@@ -7,6 +7,7 @@
  */
 
 #include "web_status.h"
+#include "location.h"
 
 #include <stdio.h>
 #include <string.h>
@@ -117,6 +118,12 @@ static const char PAGE_HTML[] =
 ".sos #banner{background:#2A0A12;border-color:var(--crimson)}"
 ".sos h1{color:var(--crimson)}"
 ".sos .dot{background:var(--crimson)}"
+"form.setloc{display:flex;gap:8px;margin-top:7px}"
+"form.setloc input{flex:1;min-width:0;background:#0A1120;border:1px solid var(--line);"
+"color:var(--text);border-radius:8px;padding:9px 10px;font-size:14px}"
+"form.setloc button{background:var(--cyan);color:#04121A;border:0;border-radius:8px;"
+"padding:9px 13px;font-weight:700;font-size:13px}"
+"#locnote{font-size:11.5px;color:var(--dim);margin-top:6px}"
 "</style></head><body>"
 "<h1>VALOR</h1>"
 "<div class='sub'>Vital and Atmospheric Logic for Offline Rescue</div>"
@@ -133,6 +140,11 @@ static const char PAGE_HTML[] =
 "<div class='v'><span id='rr'>--</span><span class='u'>/min</span></div></div>"
 "<div class='card wide'><div class='k'>Signal quality</div>"
 "<div class='v'><span id='sqi'>--</span><span class='u'>%</span></div></div>"
+"<div class='card wide'><div class='k'>Deployment location</div>"
+"<form class='setloc' method='post' action='/location'>"
+"<input id='locin' name='loc' maxlength='31' placeholder='Village / Block / District'>"
+"<button type='submit'>Save</button></form>"
+"<div id='locnote'>Stored on the device and shown on the emergency card.</div></div>"
 "</div>"
 "<div class='env'>"
 "<div class='card'><div class='k'>Temp</div><div class='v'><span id='temp'>--</span></div></div>"
@@ -144,7 +156,7 @@ static const char PAGE_HTML[] =
 "<span id='loc'>LOC --</span><span id='news2'>NEWS2 --</span>"
 "</div>"
 "<script>"
-"var D='--';"
+"var D='--';var locFilled=false;"
 "function t(i,v){document.getElementById(i).textContent=v}"
 "function num(v,d){return v>0?v.toFixed(d):D}"
 "function poll(){"
@@ -159,6 +171,10 @@ static const char PAGE_HTML[] =
 "t('temp',num(s.temp,1));t('hum',num(s.hum,0));t('pm',num(s.pm25,0));"
 "t('news2','NEWS2 '+s.news2);t('loc','LOC '+s.loc);"
 "t('link',s.contact?'finger detected':'no finger');"
+/* Seed the location box once. Doing it on every poll would overwrite whatever
+   the caregiver is halfway through typing. */
+"if(!locFilled){var el=document.getElementById('locin');"
+"if(el&&s.loc!=='UNSET'){el.value=s.loc}locFilled=true}"
 "}).catch(function(){t('link','reconnecting')});"
 "}"
 "poll();setInterval(poll,1000);"
@@ -207,8 +223,43 @@ static esp_err_t h_json(httpd_req_t *req) {
     return httpd_resp_send(req, buf, (ssize_t)n);
 }
 
-static esp_err_t h_404(httpd_req_t *req, httpd_err_code_t err) {
-    (void)err;
+/* POST /location — the caregiver records where this device is deployed.
+ *
+ * A phone on the access point is the only input device this system has. There
+ * is no keypad, and a serial console needs a laptop and a cable, which is the
+ * exact dependency the local page exists to remove. */
+static esp_err_t h_set_location(httpd_req_t *req) {
+    char body[160];
+    int total = req->content_len;
+
+    /* Reading the whole body is required, not optional: httpd will otherwise
+     * leave the remainder in the socket and the next request on that connection
+     * parses garbage. */
+    if (total <= 0 || total >= (int)sizeof(body)) {
+        return httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "body missing or too long");
+    }
+    int got = 0;
+    while (got < total) {
+        int r = httpd_req_recv(req, body + got, total - got);
+        if (r <= 0) return ESP_FAIL;
+        got += r;
+    }
+    body[got] = '\0';
+
+    char clean[LOCATION_MAX_LEN];
+    if (!location_parse_form(body, clean, sizeof(clean)) || !location_set(clean)) {
+        return httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST,
+                                   "location must contain printable text");
+    }
+
+    /* 303 so the browser re-fetches / with a GET. Answering the POST directly
+     * would leave a refresh re-submitting the form. */
+    httpd_resp_set_status(req, "303 See Other");
+    httpd_resp_set_hdr(req, "Location", "/");
+    return httpd_resp_send(req, NULL, 0);
+}
+
+static esp_err_t h_404(httpd_req_t *req, httpd_err_code_t err) {    (void)err;
     httpd_resp_set_status(req, "404 Not Found");
     httpd_resp_set_type(req, "text/plain");
     return httpd_resp_send(req, "not found\n", HTTPD_RESP_USE_STRLEN);
@@ -281,7 +332,7 @@ esp_err_t web_status_start(void) {
 
     httpd_config_t hcfg = HTTPD_DEFAULT_CONFIG();
     hcfg.lru_purge_enable = true;
-    hcfg.max_uri_handlers = 4;
+    hcfg.max_uri_handlers = 6;
     err = httpd_start(&s_server, &hcfg);
     if (err != ESP_OK) {
         ESP_LOGE(TAG, "httpd_start failed (%s); AP is up but has no page", esp_err_to_name(err));
@@ -291,8 +342,10 @@ esp_err_t web_status_start(void) {
 
     httpd_uri_t uri_root = { .uri = "/",            .method = HTTP_GET, .handler = h_root };
     httpd_uri_t uri_json = { .uri = "/status.json", .method = HTTP_GET, .handler = h_json };
+    httpd_uri_t uri_loc  = { .uri = "/location",    .method = HTTP_POST, .handler = h_set_location };
     httpd_register_uri_handler(s_server, &uri_root);
     httpd_register_uri_handler(s_server, &uri_json);
+    httpd_register_uri_handler(s_server, &uri_loc);
     httpd_register_err_handler(s_server, HTTPD_404_NOT_FOUND, h_404);
 
     s_ap_active = true;

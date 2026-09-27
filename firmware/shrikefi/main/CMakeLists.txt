@@ -61,6 +61,9 @@ idf_component_register(
         # SoftAP + local status page (T1.3). The JSON formatter inside it is
         # ESP-free so the host test suite can check the wire format.
         "${SHRIKEFI_DIR}/web_status.c"
+        # Deployment location in NVS (T1.4). The sanitising and form decoding are
+        # ESP-free so the host suite can check what actually gets stored.
+        "${SHRIKEFI_DIR}/location.c"
     INCLUDE_DIRS 
         "${SHRIKEFI_DIR}"
         "${CORE_DIR}"

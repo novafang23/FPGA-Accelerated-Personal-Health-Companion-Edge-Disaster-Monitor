@@ -47,7 +47,7 @@ SRCS_COMPARE := compare_harness.c
 # sos.c is the emergency state machine from the ShrikeFi side. It is deliberately
 # free of hardware and FreeRTOS, so its confirm timers, cancel hold and recovery
 # stand-down are all exercised by the host test suite rather than on the bench.
-SRCS_TEST := test_disaster_risk_engine.c $(SHRIKEFI_DIR)/sos.c $(SHRIKEFI_DIR)/web_status.c
+SRCS_TEST := test_disaster_risk_engine.c $(SHRIKEFI_DIR)/sos.c $(SHRIKEFI_DIR)/web_status.c $(SHRIKEFI_DIR)/location.c
 
 # Targets
 TARGETS := health_demo compare_harness test_engine

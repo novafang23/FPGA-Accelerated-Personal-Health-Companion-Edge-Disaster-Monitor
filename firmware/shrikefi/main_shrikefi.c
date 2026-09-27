@@ -33,6 +33,7 @@
 #include "wifi_mqtt_manager.h"
 #include "sos.h"
 #include "web_status.h"
+#include "location.h"
 
 #ifdef ESP_PLATFORM
 #include "freertos/FreeRTOS.h"
@@ -908,12 +909,8 @@ static void task_ppg_accelerator(void *pvParameters) {
  * Emergency assist (requirement 6)
  * ------------------------------------------------------------------------ */
 
-/* Where the patient is, for the emergency card.
- *
- * T1.4 loads this from NVS at boot (a fixed installation site, or the last known
- * position). Until then it says so, rather than showing a plausible-looking
- * coordinate this device never measured. */
-static char s_sos_location[20] = "UNSET";
+/* Where the patient is, for the emergency card. Held in NVS and set once by the
+ * caregiver from the local status page - see location.h. */
 
 /* Render the framebuffer as ASCII, so the card can be verified by reading the
  * log instead of by looking at the panel.
@@ -989,7 +986,11 @@ static void sos_render_card(ssd1306_t *d, uint32_t now_ms,
     snprintf(line, sizeof(line), "CONDITION: %s", condition);
     ssd1306_draw_string(d, 0, 36, line);
 
-    snprintf(line, sizeof(line), "LOC: %s", s_sos_location);
+    /* Shortened for the panel if it does not fit, with a marker so a reader
+     * knows to check the phone page for the full string. */
+    char loc[LOCATION_MAX_LEN];
+    location_card_text(location_get(), loc, sizeof(loc));
+    snprintf(line, sizeof(line), "LOC: %s", loc);
     ssd1306_draw_string(d, 0, 45, line);
 
     ssd1306_draw_string(d, 0, 54, "CALL 108 DO NOT MOVE");
@@ -1335,7 +1336,7 @@ static void task_disaster_monitor(void *pvParameters) {
             st.risk     = risk_level_to_string(final_risk.overall_risk);
             st.sos      = sos_state_name(sos_get_state());
             st.trigger  = sos_trigger_name(sos_get_trigger());
-            st.loc      = s_sos_location;
+            st.loc      = location_get();
             st.uptime_s = sos_now_ms / 1000u;
             st.contact  = contact_present;
             web_status_publish(&st);
@@ -1511,7 +1512,11 @@ void app_main(void) {
      * because the finger leaves this device constantly in normal use. See sos.h
      * for why each of those is the value it is. */
     sos_init(NULL);
-    ESP_LOGI(TAG, "Emergency assist ready (state: %s)", sos_state_name(sos_get_state()));
+    /* Load the deployed location before anything can display it, so the card
+     * and the page never briefly show UNSET on a device that has one stored. */
+    location_init();
+    ESP_LOGI(TAG, "Emergency assist ready (state: %s), location '%s'",
+             sos_state_name(sos_get_state()), location_get());
 
     /* Initialize MAX30102 (PPG sensor) */
     if (max30102_init(&s_max30102, esp32_i2c_hal_get_handle()) != 0) {
