@@ -92,6 +92,7 @@ void ppg_calculate_sqi(
     }
 
     /* 2. Beat-to-Beat Interval Regularity */
+    bool reg_measured = false;
     if (ibi_ms && ibi_count >= 3) {
         float ibi_sum = 0.0f;
         for (size_t i = 0; i < ibi_count; i++) {
@@ -117,12 +118,33 @@ void ppg_calculate_sqi(
                 /* Excessive jitter > 0.25 strongly indicates motion artifact */
                 reg_score = clamp01(0.6f - (cv - 0.25f) * 2.0f);
             }
+            result->interval_regularity = reg_score;
+            reg_measured = true;
         }
-        result->interval_regularity = reg_score;
     }
 
-    /* 3. Weighted Composite SQI */
+    /* 3. Weighted Composite SQI
+     *
+     * reg_score starts at 0.50 and is only overwritten above, so when no
+     * beat-to-beat intervals have been accepted that initialiser used to be
+     * mixed in at its full 40% weight. A clean-looking waveform with NO
+     * detected beats therefore scored 0.35*1.0 + 0.40*0.50 + 0.25*1.0 = 0.80
+     * and cleared the 0.70 gate that certifies a pulse for triage. That state
+     * is reachable: the FPGA crest detector can fall silent while the optics
+     * stay healthy, and the software fallback is suppressed while the FPGA is
+     * considered alive - so the device reported hospital-grade signal quality
+     * with zero beats behind it.
+     *
+     * A neutral substitute is not a measurement. Waveform shape alone cannot
+     * certify a pulsatile signal: regularity is the component that separates a
+     * pulse train from a plausible-looking curve. If it never ran, hold the
+     * composite below the validity threshold instead of inventing it. This does
+     * not affect normal operation - four accepted beats are enough to measure
+     * it, and the triage gate needs ten. */
     float composite = 0.35f * pi_score + 0.40f * reg_score + 0.25f * skew_score;
+    if (!reg_measured && composite >= PPG_SQI_THRESHOLD_VALID) {
+        composite = PPG_SQI_THRESHOLD_VALID - 0.01f;
+    }
     result->overall_sqi = clamp01(composite);
     result->is_motion_artifact = (result->overall_sqi < PPG_SQI_THRESHOLD_VALID);
 }

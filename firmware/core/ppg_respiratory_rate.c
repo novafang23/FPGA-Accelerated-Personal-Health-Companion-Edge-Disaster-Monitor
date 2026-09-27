@@ -77,6 +77,24 @@ void ppg_estimate_respiratory_rate(
      * So k = 60000 / (RR * mean_ibi).
      */
     for (size_t k = 2; k <= max_lag; k++) {
+        /* Reject a lag whose implied rate is outside the physiological band
+         * BEFORE it can win the search.
+         *
+         * The band was previously applied after the winner was chosen, and to
+         * the breath *period*, which is far too permissive. Lag 2 at a 770 ms
+         * mean IBI is a 1.54 s period - inside the accepted 1.2-12 s window -
+         * but it is 38.96 br/min, above PPG_RR_MAX_BPM. clamp_rr() then pinned
+         * that to exactly 36.00 and the result was published as reliable, so a
+         * healthy resting subject with no respiratory modulation could be
+         * reported as breathing at the tachypnoea ceiling, which sets
+         * is_absolute_crisis and bypasses the SQI hold on the way to a CRITICAL
+         * triage. A rate that only exists because we clamped it is not a rate
+         * we measured. */
+        float rr_k = 60000.0f / ((float)k * mean_ibi);
+        if (rr_k < PPG_RR_MIN_BPM || rr_k > PPG_RR_MAX_BPM) {
+            continue;
+        }
+
         float cross = 0.0f;
         for (size_t i = 0; i < N - k; i++) {
             cross += y[i] * y[i + k];
@@ -121,6 +139,11 @@ void ppg_estimate_respiratory_rate(
             int best_am_lag = -1;
             float best_am_r = -1.0f;
             for (size_t k = 2; k <= max_lag; k++) {
+                /* Same band rejection as the FM search above. */
+                float rr_k = 60000.0f / ((float)k * mean_ibi);
+                if (rr_k < PPG_RR_MIN_BPM || rr_k > PPG_RR_MAX_BPM) {
+                    continue;
+                }
                 float cross = 0.0f;
                 for (size_t i = 0; i < N - k; i++) {
                     cross += amp_y[i] * amp_y[i + k];
@@ -168,7 +191,11 @@ void ppg_estimate_respiratory_rate(
 
     if (final_conf > 1.0f) final_conf = 1.0f;
 
+    /* Belt and braces: the AM path and the FM/AM fusion can still land outside
+     * the band, so refuse to certify any value clamp_rr() had to move. */
+    bool clipped = (final_rr < PPG_RR_MIN_BPM || final_rr > PPG_RR_MAX_BPM);
+
     result->respiratory_rate_bpm = clamp_rr(final_rr);
     result->confidence = final_conf;
-    result->is_reliable = (final_conf >= 0.60f);
+    result->is_reliable = (final_conf >= 0.60f) && !clipped;
 }

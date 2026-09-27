@@ -6,6 +6,8 @@
 #include "spo2_engine.h"
 #include "nn_risk_model.h"
 #include "nn_risk_model_int8.h"
+#include "ppg_respiratory_rate.h"
+#include "ppg_sqi.h"
 
 /* ---------------------------------------------------------------------------
  * Compile-time contract: the INT8 model struct must exactly match the
@@ -384,6 +386,88 @@ static void test_spo2_clinical_rejection() {
     printf("test_spo2_clinical_rejection: PASS\n");
 }
 
+/* Regression: a clamped respiratory rate must never be published as reliable.
+ *
+ * Every interval below is physiologically normal (HR 74-82 BPM) and there is no
+ * respiratory modulation at all. The lag search started at k=2 and accepted any
+ * lag whose breath *period* fell in [1.2, 12] s - and 2 beats at a ~770 ms mean
+ * is 1.54 s, which passes. So it picked lag 2, computed 60000/(2*770) = 38.96
+ * br/min, clamp_rr() pinned that to exactly 36.00, and is_reliable came out
+ * TRUE because best_r (0.646) cleared the 0.60 confidence bar.
+ *
+ * 36 br/min is the tachypnoea ceiling: it sets is_absolute_crisis in the
+ * clinical engine, which bypasses the SQI hold and lands on CLINICAL_CRITICAL.
+ * This sequence is the measured reproduction of that on a healthy subject. */
+static void test_rr_estimate_rejects_clamped_value() {
+    const float ibi[] = {
+        743.9f, 739.1f, 763.4f, 741.9f, 734.4f, 733.6f, 736.7f, 751.9f,
+        764.9f, 752.0f, 747.1f, 771.4f, 750.8f, 752.1f, 750.0f, 764.8f,
+        769.0f, 779.0f, 774.4f, 769.1f, 788.9f, 777.7f, 771.8f, 779.1f,
+        797.5f, 806.7f, 791.7f, 811.2f, 808.6f, 810.4f
+    };
+    ppg_respiratory_result_t rr;
+    memset(&rr, 0, sizeof(rr));
+    ppg_estimate_respiratory_rate(ibi, NULL, sizeof(ibi) / sizeof(ibi[0]), &rr);
+
+    printf("  RR regression: rr=%.2f conf=%.2f reliable=%d\n",
+           rr.respiratory_rate_bpm, rr.confidence, (int)rr.is_reliable);
+
+    /* The invariant: a value that had to be clamped was never measured, so it
+     * can never be certified. */
+    if (rr.is_reliable) {
+        assert(rr.respiratory_rate_bpm > PPG_RR_MIN_BPM);
+        assert(rr.respiratory_rate_bpm < PPG_RR_MAX_BPM);
+    }
+    /* Specifically, nothing in this record is tachypnoeic, so the ceiling must
+     * not be reported as a finding. */
+    assert(!(rr.is_reliable && rr.respiratory_rate_bpm >= PPG_RR_MAX_BPM));
+
+    printf("test_rr_estimate_rejects_clamped_value: PASS\n");
+}
+
+/* Regression: SQI must not certify a pulse when no beats were ever detected.
+ *
+ * interval_regularity carries 40% of the composite weight but is only computed
+ * once three beat-to-beat intervals exist. With none it kept its 0.50
+ * initialiser, so a clean, positively-skewed waveform scored
+ * 0.35*1.0 + 0.40*0.50 + 0.25*1.0 = 0.80 and cleared the 0.70 gate - the device
+ * reported hospital-grade quality with zero beats behind it. That state is
+ * reachable: the FPGA crest detector can fall silent while the optics stay
+ * healthy, and the software fallback is suppressed while the FPGA is believed
+ * alive. */
+static void test_sqi_requires_beat_intervals() {
+    uint32_t raw[64];
+    for (int i = 0; i < 64; i++) {
+        float ph = fmodf((float)i * 0.6f, 6.2831853f) / 6.2831853f;
+        /* Fast systolic rise, slow diastolic runoff: positive skewness, which
+         * is what a real PPG looks like and what scores well on shape alone. */
+        float pulse = (ph < 0.15f) ? (ph / 0.15f) : expf(-(ph - 0.15f) * 4.0f);
+        raw[i] = (uint32_t)(100000.0f + 4000.0f * pulse);
+    }
+
+    ppg_sqi_result_t no_beats;
+    memset(&no_beats, 0, sizeof(no_beats));
+    ppg_calculate_sqi(raw, 64, NULL, 0, &no_beats);
+
+    float ibi[10];
+    for (int i = 0; i < 10; i++) ibi[i] = 800.0f + (float)((i % 3) - 1) * 8.0f;
+    ppg_sqi_result_t with_beats;
+    memset(&with_beats, 0, sizeof(with_beats));
+    ppg_calculate_sqi(raw, 64, ibi, 10, &with_beats);
+
+    printf("  SQI regression: shape-only=%.3f  with-beats=%.3f  (gate %.2f)\n",
+           no_beats.overall_sqi, with_beats.overall_sqi, PPG_SQI_THRESHOLD_VALID);
+
+    /* Shape alone must never certify a pulsatile signal. */
+    assert(no_beats.overall_sqi < PPG_SQI_THRESHOLD_VALID);
+    assert(no_beats.is_motion_artifact == true);
+    /* And the same waveform, once it has a regular beat train behind it, must
+     * score strictly better - otherwise the cap is masking a real signal. */
+    assert(with_beats.overall_sqi > no_beats.overall_sqi);
+
+    printf("test_sqi_requires_beat_intervals: PASS\n");
+}
+
 int main() {
     printf("Running unit tests for disaster_risk_engine...\n");
     test_heat_risk();
@@ -393,6 +477,8 @@ int main() {
     test_null_env();
     test_flood_ambient_proxy();    test_int8_matches_float_nn();
     test_spo2_clinical_rejection();
+    test_rr_estimate_rejects_clamped_value();
+    test_sqi_requires_beat_intervals();
     printf("ALL TESTS PASSED.\n");
     return 0;
 }
