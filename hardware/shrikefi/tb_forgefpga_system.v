@@ -46,14 +46,18 @@ module tb_forgefpga_system;
 
     // 250 ms of blanking at 50 MHz, expressed against this bench's transfer
     // period: one transfer is ~2900 ns, so 1800 core clocks is ~12.4 transfers
-    // -- the same ratio the shipping 50 Hz sample rate gives (250 ms / 20 ms).
+    // -- the same ratio the shipping ~100 Hz sample rate gives (250 ms / 10 ms).
     localparam REFRACTORY_CYC = 1800;
 
     // -------------------------------------------------------------------------
     // Synthetic PPG waveform (transaction space = one sample per transfer)
     // -------------------------------------------------------------------------
     localparam PULSE_SAMPLES   = 14;     // rise + systolic decay
-    localparam CYCLE_SAMPLES   = 50;     // 0.6 s at the shipping 50 Hz rate
+    // NOTE: this bench steps one sample per transfer, so the cycle length below
+    // is in TRANSFERS, not seconds. 50 transfers is 0.6 s only if the sample
+    // rate were ~83 Hz; the shipping rate is ~100 Hz (measured ~105 samples/s),
+    // which this bench does not model. It drives the logic, not the wall clock.
+    localparam CYCLE_SAMPLES   = 50;
     localparam N_CYCLES        = 6;
     localparam BASE_LEVEL      = 8'd65;  // diastolic baseline, below threshold
     localparam PEAK_THRESHOLD  = 8'd120; // dyn_threshold strapped in the top

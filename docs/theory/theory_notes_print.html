@@ -35,10 +35,10 @@
 <h3>4. How are we different? (The "Tick in the Ass" Defense)</h3>
 <p>If asked why this isn't just another Arduino/Raspberry Pi project, use these 4 core differentiators:</p>
 <ol>
-<li><strong>Custom Silicon vs. Software Loops:</strong> Normal smartwatches read sensors using a C <code>while()</code> loop, suffering 5–20 ms of OS scheduling jitter that ruins Heart Rate Variability (HRV). We wrote <strong>custom Verilog RTL</strong> to move signal filtering and systolic peak detection directly into physical FPGA hardware. This gives us <strong>20-nanosecond deterministic accuracy</strong>, zeroing out OS jitter entirely.</li>
-<li><strong>Edge AI (TinyML) vs. Lazy Cloud AI:</strong> Most projects send data to AWS to run AI models—terrible for battery, privacy, and useless in a disaster zone. We compressed our Neural Network to <strong>123 bytes (INT8 Quantization)</strong> to run entirely <em>on the physical device</em> in under <strong>1 microsecond</strong>, with zero cloud dependency.</li>
-<li><strong>Predictive vs. Reactive:</strong> Most monitors beep <em>after</em> a heat stroke. By fusing physiological data (HRV, SpO2) with environmental data (Temp, Humidity, PM2.5) in our TinyML model, we detect <strong>Cardiovascular Drift</strong> (heart rate rising while stroke volume drops) to provide a <strong>15 to 30-minute advance warning</strong> <em>before</em> a heat stroke physically occurs.</li>
-<li><strong>Real-World Manufacturing Economics:</strong> We didn't just build a prototype on an expensive $200 Zynq board. We engineered a custom 4-bit parallel protocol to port the exact same hardware logic to the ultra-cheap ShrikeFi board ($5 ESP32 + $1 Renesas ForgeFPGA), proving our medical-grade architecture can be mass-manufactured for pennies.</li>
+<li><strong>Custom Silicon vs. Software Loops:</strong> Normal smartwatches read sensors using a C <code>while()</code> loop, suffering 5–20 ms of OS scheduling jitter that ruins Heart Rate Variability (HRV). We wrote <strong>custom Verilog RTL</strong> to move signal filtering and systolic peak detection directly into physical FPGA hardware. The crest is located to a <strong>20-nanosecond clock edge</strong> in synchronous logic, with no operating system in the loop — so the <em>detection</em> has no OS jitter at all. (Be precise about the next step: the interval between those hardware-detected beats is then timed by the ESP32's <strong>1 µs</strong> hardware timer, because the FPGA does not transmit a cycle count over the link. Detection: 20 ns, jitter-free. Interval timing: 1 µs, still 10,000× finer than the RTOS tick.)</li>
+<li><strong>Edge AI (TinyML) vs. Lazy Cloud AI:</strong> Most projects send data to AWS to run AI models—terrible for battery, privacy, and useless in a disaster zone. We compressed our Neural Network to <strong>619 INT8 parameters (619 bytes of storage, 576 multiply-accumulates per inference)</strong> to run entirely <em>on the physical device</em> — measured at <strong>0.44 µs per inference on an x86-64 host</strong>; the ESP32-S3 figure has not been measured — with zero cloud dependency.</li>
+<li><strong>Predictive vs. Reactive:</strong> Most monitors beep <em>after</em> a heat stroke. By fusing physiological data (HRV, SpO2) with environmental data (Temp, Humidity, PM2.5) in our TinyML model, we detect <strong>Cardiovascular Drift</strong> (heart rate rising while stroke volume drops) with the <em>intent</em> of warning ahead of a heat stroke. <strong>Be precise here:</strong> the 15–30-minute advance-warning window is a <strong>hypothesis we have not yet validated</strong> — <code>ROADMAP.md</code> lists thermal-chamber testing to validate it as future work. Present it as a design goal, not a delivered capability.</li>
+<li><strong>Real-World Manufacturing Economics:</strong> We didn't just build a prototype on an expensive $200 Zynq board. We ported the exact same hardware logic to the ultra-cheap ShrikeFi board ($5 ESP32 + $1 Renesas ForgeFPGA) over a <strong>4-wire SPI link</strong>, proving our medical-grade architecture can be mass-manufactured for pennies. (An older version of this pitch called that link a "custom 4-bit parallel protocol"; it never was — see section 3.)</li>
 </ol>
 <h3>5. Who is this for? (Target Demographics)</h3>
 <ul>
@@ -66,8 +66,8 @@
 |  2. RENESAS ForgeFPGA + ESP32-S3 (ShrikeFi Target)                                |
 |     - Role: Mass-Deployable, Ultra-Low-Cost (&lt;$20 at-scale BOM) Pocket Wearable   |
 |     - Target Part: SLG47910C (1120 5-input LUTs) + Dual-Core ESP32-S3             |
-|     - Utilization: Only 443 / 1120 LUTs (39.55%), 353 FFs, 0 DSP, 0 BRAM          |
-|     - Interconnect: Custom 4-Bit Parallel Link (5.0 MB/s max @ 10MHz; 500kHz bring-up)|
+|     - Utilization: Only 363 / 1120 LUT5s (32.41%), 202 FFs, 75 CLBs, 0 DSP, 0 BRAM |
+|     - Interconnect: Full-duplex 8-bit SPI, Mode 0 (1 MHz runtime; 16 MHz for FPGA configuration)|
 |     - Purpose: Proved commercial feasibility for millions of workers              |
 |                                                                                   |
 |                                        ▼                                          |
@@ -89,42 +89,57 @@
 * <strong>Direct Register Map:</strong> <code>REG_RED_RAW</code> (0x00), <code>REG_RED_FILTERED</code> (0x04), <code>REG_IBI_CYCLES</code> (0x08), <code>REG_STATUS_THRESH</code> (0x0C).
 * <strong>Decoupled Handshake:</strong> Independent Address Write (<code>AW</code>) and Data Write (<code>W</code>) channels prevent interconnect deadlocks.
 * <strong>Write-1-to-Clear (W1C):</strong> Bit [0] of <code>REG_STATUS_THRESH</code> latches when a heartbeat occurs and clears atomically on write, eliminating CPU race conditions.</p>
-<h3>2. ShrikeFi: The 4-Bit Parallel Nibble Link</h3>
-<p>The Renesas ForgeFPGA is a compact chip with limited I/O pins. A 32-bit AXI bus is physically impossible. We designed an ultra-efficient <strong>4-bit parallel nibble link</strong>:</p>
-<p><img alt="ShrikeFi Pinout &amp; Interconnect Diagram" src="../images/shrikefi_pinout.png" /></p>
+<h3>2. ShrikeFi: The Full-Duplex 8-Bit SPI Link</h3>
+<p>The Renesas ForgeFPGA is a compact chip with limited I/O pins. A 32-bit AXI bus is physically impossible. The link is a <strong>4-wire SPI bus in mode 0 (CPOL = 0, CPHA = 0), MSB first</strong>, with the ESP32-S3 as controller and the ForgeFPGA as target:</p>
+<blockquote>
+<p><strong>Figure note:</strong> <code>images/shrikefi_pinout.png</code> predates the SPI link and cannot be
+verified from the repository (it is a raster with no searchable labels). The pin
+table in <a href="../SHRIKEFI_LINK_PROTOCOL.md"><code>../SHRIKEFI_LINK_PROTOCOL.md</code></a> is
+authoritative; regenerate this figure from it before reuse.</p>
+</blockquote>
 <ul>
-<li><strong>Physical Wires (3.3V LVCMOS):</strong></li>
-<li><code>link_data[3:0]</code>: 4-bit bidirectional data bus carrying commands, samples, and timestamps.</li>
-<li><code>link_dir</code>: Direction control pin (0 = MCU $\to$ FPGA, 1 = FPGA $\to$ MCU).</li>
-<li><code>link_strobe</code>: Clock/handshake line toggled by MCU on each transfer.</li>
-<li><code>fpga_irq</code>: Active-high hardware interrupt asserting on detected R-peaks.</li>
+<li><strong>Physical Wires (3.3V LVCMOS), ESP32 GPIO → FPGA pad:</strong></li>
+<li><code>SCK</code> — GPIO12 → <code>PIN_16</code> (<code>spi_sck</code>): SPI clock, generated by the ESP32-S3.</li>
+<li><code>SS_n</code> — GPIO10 → <code>PIN_17</code> (<code>spi_ss_n</code>): active-low chip select, <strong>driven manually</strong> around each transaction (<code>.spics_io_num = -1</code>).</li>
+<li><code>MOSI</code> — GPIO11 → <code>PIN_18</code> (<code>spi_mosi</code>): MCU → FPGA. Carries the raw 8-bit PPG sample.</li>
+<li><code>MISO</code> — GPIO13 → <code>PIN_19</code> (<code>spi_miso</code> + <code>PIN_19_OE</code>): FPGA → MCU. Carries <code>{beat_latched, filt_sample[6:0]}</code>.</li>
+<li>Plus two non-SPI control lines: GPIO8 = FPGA enable (<code>EN</code>), GPIO9 = FPGA power (<code>PWR</code>). <code>led_user</code> is <code>PIN_7</code>; <code>OSC_EN</code> is the oscillator enable — a clock resource, not a GPIO.</li>
 </ul>
-<h4>How Data Travels Across 4 Pins:</h4>
+<blockquote>
+<p><strong>Stale-protocol warning.</strong> Earlier revisions of this section described a "4-bit parallel nibble link" with a <code>link_strobe</code>, a <code>link_dir</code>, a 4-bit <code>link_data</code> bus, a <code>fpga_irq</code> pin and a <code>0x1</code>–<code>0x8</code> command codebook. <strong>That design was retired before it was ever built.</strong> There is no strobe, no direction line, no separate interrupt pin, no command map and no command decode in the RTL or the firmware. Do not present it. If a judge asks why the docs contain it, the honest answer is: the interface was redesigned to SPI before implementation, and this file retained the old description for too long.</p>
+</blockquote>
+<h4>How a Sample Travels Across 4 Wires:</h4>
 <ul>
-<li><strong>Writing an 8-bit PPG Sample:</strong></li>
-<li>Send Command Nibble (<code>0x1</code> for Red, <code>0x2</code> for IR). Toggle strobe.</li>
-<li>High Nibble: Send bits <code>[7:4]</code>. Toggle strobe.</li>
-<li>Low Nibble: Send bits <code>[3:0]</code>. Toggle strobe.</li>
-<li>FPGA Link Receiver FSM inside <code>forgefpga_ppg_top.v</code> latches the full byte and triggers the moving-average filter.</li>
-<li><strong>Reading a 32-bit IBI Timestamp:</strong></li>
-<li>The FPGA asserts <code>irq_beat</code> (GPIO 10) when a heart peak occurs.</li>
-<li>ESP32-S3 sends <code>CMD_READ_IBI</code> (<code>0x6</code>), switches direction to Read, and reads 8 consecutive 4-bit nibbles (<code>[31:28]</code> down to <code>[3:0]</code>).</li>
-<li>Link Latency &amp; Throughput:<ul>
-<li><strong>Measured Bring-Up Driver:</strong> At ~500 kHz software bit-banging (~2 µs strobe period), reading all 9 cycles takes <strong>~18 µs</strong>—occupying &lt;0.1% of the 20,000 µs (50 Hz) optical sampling period.</li>
-<li><strong>Protocol Max (Hardware-Timer / SPI-Assisted Target):</strong> At 10 MHz strobe rate ($T_{\text{strobe}} = 100\text{ ns}$), reading 9 cycles takes <strong>900 ns</strong> (5.0 MB/s raw bandwidth).</li>
+<li><strong>One transaction per sample, both directions at once.</strong> SPI is full duplex, so there is no write phase and no read phase — the MCU shifts the sample out on MOSI while the FPGA shifts its reply back on MISO, on the same eight clock edges.</li>
+<li>MCU asserts <code>SS_n</code> low on GPIO10.</li>
+<li>MCU clocks 8 bits out on MOSI (the raw sample) and 8 bits in on MISO.</li>
+<li>MCU releases <code>SS_n</code> high.</li>
+<li>The FPGA's <code>spi_target</code> module (<code>hardware/shrikefi/forgefpga_ppg_top.v</code>) shifts the received byte into <code>rx_data</code>, and the 8-tap moving-average filter consumes it on <code>rx_valid</code>.</li>
+<li><strong>The reply byte:</strong></li>
+<li>Bit <code>[7]</code> = <code>beat_latched</code> — set by the peak detector on a systolic crest, cleared once it has been shifted out.</li>
+<li>Bits <code>[6:0]</code> = the low seven bits of the 8-tap average. The FPGA's own detector uses the full 8-bit value internally, so detection is unaffected by the truncation.</li>
+<li><strong>One transfer of pipeline latency:</strong> the reply to transaction <em>k+1</em> carries the result of the sample sent in transaction <em>k</em>, because the filter, the beat latch and the transmit shift register each cost a clock.</li>
+<li><strong>There is no cycle count on the wire.</strong> The peak detector holds a 32-bit <code>ibi_cycles</code> internally, but no SPI register carries it and the firmware never reads it. The MCU derives the inter-beat interval from its own <code>esp_timer_get_time()</code> deltas between rising beat flags.</li>
+<li><strong>Link Timing:</strong></li>
+<li><strong>Runtime link (as shipped):</strong> 1 MHz SPI, mode 0 — an 8-bit transaction takes <strong>8 µs</strong>, and one transaction runs per optical sample.</li>
+<li><strong>FPGA configuration (as shipped):</strong> the same four wires carry the 46,408-byte bitstream at <strong>16 MHz</strong>, streamed in 256-byte chunks with <code>SS_n</code> toggled per chunk.</li>
 </ul>
-</li>
-</ul>
-<p><img alt="ShrikeFi 4-Bit Parallel Link Protocol Timing Waveform" src="../images/shrikefi_waveform.png" /></p>
+<blockquote>
+<p><strong>Figure removed.</strong> The waveform that used to appear here was drawn for the retired
+4-bit parallel nibble bus and shows signals (<code>link_strobe</code>, <code>link_dir</code>, <code>irq_beat</code>,
+a 4-bit data bus) that do not exist in this design. The real frame is one 8-bit
+full-duplex SPI transaction per sample — see §3 and
+<a href="../SHRIKEFI_LINK_PROTOCOL.md"><code>../SHRIKEFI_LINK_PROTOCOL.md</code></a>.</p>
+</blockquote>
 <h3>3. ESP32-S3 Dual-Core FreeRTOS Partitioning</h3>
-<p>The ESP32-S3 contains two 240 MHz Xtensa LX7 cores. We strictly partitioned the tasks using FreeRTOS core pinning:</p>
+<p>The ESP32-S3 contains two Xtensa LX7 cores running at <strong>160 MHz</strong> (the configured frequency — <code>CONFIG_ESP_DEFAULT_CPU_FREQ_MHZ=160</code>; the LX7 is capable of 240 MHz but we do not run it there). We strictly partitioned the tasks using FreeRTOS core pinning:</p>
 <p><code>+------------------------------------+    +------------------------------------+
 |         CORE 0: ACQUISITION        |    |       CORE 1: INTELLIGENCE &amp; UI    |
 |   (The Dedicated Paramedic)        |    |      (The AI Chief Physician)      |
 +------------------------------------+    +------------------------------------+
-| • 50 Hz MAX30102 Optical Sampling  |    | • BME280 (Temp/Hum) &amp; PMS5003      |
-| • 4-Bit FPGA Link Streaming        |    | • INT8 Quantized TinyML Inference  |
-| • Cycle-accurate IBI IRQ capture   |    | • Rule Engine (CTSI / PRSI Risk)   |
+| • ~100 Hz MAX30102 Optical Sampling|    | • BME280 (Temp/Hum) &amp; PMS5003      |
+| • 8-Bit SPI Link Streaming         |    | • INT8 Quantized TinyML Inference  |
+| • Beat-Flag Capture (1 µs timer)   |    | • Rule Engine (CTSI / PRSI Risk)   |
 | • Rolling HRV Calculation (RMSSD)  |    | • SSD1306 OLED Real-Time Display   |
 +------------------------------------+    +------------------------------------+
                   │                                         ▲
@@ -132,7 +147,7 @@
 <hr />
 <h1>4. THE CUSTOM VERILOG RTL — EXPLAINED FOR NON-HARDWARE PEOPLE</h1>
 <p>Digital hardware circuits do not "execute instructions" like C code or Python. They are physical arrays of logic gates, flip-flops, and wires operating simultaneously at 50,000,000 clock cycles per second.</p>
-<p><code>RAW PPG SAMPLES (50 Hz)
+<p><code>RAW PPG SAMPLES (~100 Hz)
                                  │
                                  ▼
                      +───────────────────────+
@@ -150,7 +165,7 @@
                  ▼                               ▼
        [ ZYNQ-7000 TARGET ]            [ SHRIKEFI TARGET ]
     axi_ppg_accelerator.v              forgefpga_ppg_top.v
-    (32-bit AXI4-Lite Bus)             (4-bit Parallel Nibble Bus)</code></p>
+    (32-bit AXI4-Lite Bus)             (8-Bit SPI, Mode 0)</code></p>
 <h3>The Core Hardware Modules &amp; Architecture:</h3>
 <ol>
 <li><strong><code>moving_average_8tap.v</code> (<code>hardware/common/</code> — The Smart Filter):</strong></li>
@@ -162,13 +177,13 @@
 <li>
 <p><strong><code>ppg_peak_detector.v</code> (<code>hardware/common/</code> — The Systolic Peak Radar):</strong></p>
 </li>
-<li><em>What it does:</em> Tracks systolic pressure waves and measures the Inter-Beat Interval (IBI) between consecutive heartbeats with <strong>20-nanosecond accuracy</strong>.</li>
+<li><em>What it does:</em> Tracks systolic pressure waves and locates each systolic crest to the nearest 50 MHz clock edge — <strong>20 ns</strong> — then counts 50 MHz cycles between crests in its internal 32-bit <code>ibi_cycles</code> register. <strong>What it does not do is hand that count to the MCU:</strong> no SPI register carries it, so on the shipped link the interval is timed by the ESP32's <code>esp_timer_get_time()</code> (1 µs) between rising beat flags.</li>
 <li>
 <p><em>The 4-State Flowchart:</em></p>
 <ol>
 <li><code>STATE_ARMED (00)</code>: Waiting for the signal to rise above the dynamic threshold (<code>reg_threshold</code>).</li>
 <li><code>STATE_RISING (01)</code>: Tracking the rising slope. To filter out quantization noise, it requires <strong>two consecutive decreasing samples</strong> before confirming the local maximum.</li>
-<li><code>STATE_PEAK_FOUND (10)</code>: Captures the exact clock cycle count, asserts <code>beat_detected</code>, and resets the timer.</li>
+<li><code>STATE_PEAK_FOUND (10)</code>: Captures the exact clock cycle count, sets <code>beat_detected</code> (which the top level latches into MISO bit 7), and resets the timer.</li>
 <li><code>STATE_REFRACTORY (11)</code>: Enforces a 250 ms blanking window so the dicrotic notch does not trigger a false second heartbeat. Crucially, the signal must also <strong>drop back below the dynamic threshold</strong> before re-arming, preventing false triggers on elevated baselines.</li>
 </ol>
 </li>
@@ -179,16 +194,27 @@
 <p><em>What it does:</em> Memory-mapped AXI4-Lite slave wrapper for the Xilinx Zynq-7000 SoC (<code>0x43C00000</code>), providing register-level access (<code>REG_RED_RAW</code>, <code>REG_IBI_CYCLES</code>, <code>REG_STATUS_THRESH</code>) and Write-1-to-Clear interrupt management.</p>
 </li>
 <li>
-<p><strong><code>forgefpga_ppg_top.v</code> (<code>hardware/shrikefi/</code> — ShrikeFi Top-Level Gateway &amp; Link Engine):</strong></p>
+<p><strong><code>forgefpga_ppg_top.v</code> (<code>hardware/shrikefi/</code> — ShrikeFi Top-Level Gateway):</strong></p>
 </li>
-<li><em>What it does:</em> Integrates the dual 8-tap moving-average filters and systolic peak detector with a custom 4-bit parallel link transceiver FSM inside the Renesas ForgeFPGA (SLG47910).</li>
-<li><em>Internal FSM Sub-Blocks:</em><ul>
-<li><strong>Command Decoder &amp; Nibble Reassembler (RX Stage):</strong> Decodes command headers (<code>CMD_WRITE_RED</code>, <code>CMD_WRITE_IR</code>, <code>CMD_WRITE_THRESH</code>) and combines sequential 4-bit nibbles into 8-bit sample bytes for DSP execution.</li>
-<li><strong>32-Bit IBI Serializer (TX Stage):</strong> Latches the 32-bit <code>peak_ibi_cycles</code> timestamp on a heartbeat and streams it across the 4-bit bus as 8 sequential nibbles (<code>[31:28]</code> down to <code>[3:0]</code>) upon receiving <code>CMD_READ_IBI</code>.</li>
+<li><em>What it does:</em> Integrates an 8-bit SPI target (<code>spi_target</code>), the 8-tap moving-average filter, the systolic peak detector, and the beat-latch/SPI-response register inside the Renesas ForgeFPGA (SLG47910). <strong>There is no link transceiver FSM, no command decoder and no nibble reassembler</strong> — an older revision of this file claimed all three.</li>
+<li><em>Top-Level Sub-Blocks:</em><ul>
+<li><strong>SPI Target (RX/TX):</strong> Mode 0, MSB first. Shifts the received byte into <code>rx_data</code>/<code>rx_valid</code> for the filter, and shifts <code>{beat_latched, filt_sample[6:0]}</code> back out on MISO. Simple shift logic, not a protocol state machine.</li>
+<li><strong>Beat Latch &amp; Response Register:</strong> Sets <code>beat_latched</code> when the peak detector fires and clears it once the byte has been transmitted, so the flag is guaranteed to reach the MCU exactly once per beat.</li>
+<li><strong>Power-On Reset:</strong> The ShrikeFi interconnect has <strong>no reset pin</strong> (nothing drives <code>PIN_13</code>), so the top level holds <code>rst_n</code> low for <code>POR_CYC</code> clocks from an internal counter instead of trusting an external line or the fabric's power-up state.</li>
 </ul>
 </li>
-<li><em>Resource Footprint:</em> Uses only <strong>443 out of 1120 LUT5s (39.55%)</strong>, <strong>353 Flip-Flops</strong>, and <strong>85 CLBs</strong>, leaving ~60% of the LUT fabric free (CLB occupancy is 60.7%).</li>
+<li><em>Resource Footprint:</em> Uses only <strong>363 out of 1120 LUT5s (32.41%)</strong>, <strong>202 Flip-Flops</strong>, and <strong>75 CLBs</strong>, leaving ~68% of the LUT fabric free (CLB occupancy is 53.57%).</li>
 </ol>
+<blockquote>
+<p><strong>Protocol note, for anyone reading an older copy of this file.</strong> The <strong>resource
+figures above are current for the shipped SPI design.</strong> Any version of this file
+that mentions a nibble bus, a <code>link_strobe</code>, a <code>link_dir</code>, a <code>link_dout</code>, an
+<code>fpga_irq</code> pin or a <code>CMD_*</code> opcode is carrying <strong>retired 4-bit parallel-link
+material that was never built</strong> — the interface was redesigned to SPI before
+implementation. Every such passage in this revision has been rewritten; if you
+find one that has not, it is stale. See
+<code>hardware/shrikefi/README.md</code> and <code>hardware/shrikefi/forgefpga_pins.pcf</code>.</p>
+</blockquote>
 <p><img alt="Renesas ForgeFPGA Workshop GUI Resources Report" src="../images/forgefpga_resources_report.png" /></p>
 <p><img alt="Renesas SLG47910C Chip Top-Level Schematic" src="../images/forgefpga_chip_schematic.png" /></p>
 <p><img alt="Renesas ForgeFPGA Resource Footprint" src="../images/forgefpga_utilization.png" /></p>
@@ -287,15 +313,21 @@
 <li><strong>State 11 (<code>STATE_REFRACTORY</code>):</strong> The FSM enters a <strong>250 ms blanking window</strong> (<code>REFRACTORY_CYC = 12,500,000</code> cycles at 50 MHz). The signal must also completely drop back below the threshold before re-arming, preventing false triggers.</li>
 </ul>
 <hr />
-<h2>2. Renesas ForgeFPGA Waveform (ShrikeFi 4-Bit Parallel Link Protocol)</h2>
-<p>On the ultra-low-cost ShrikeFi platform, there are no 32-bit buses. All operations stream across 4 GPIO pins using our custom serial-parallel protocol.</p>
-<p><img alt="ShrikeFi 4-Bit Parallel Link Protocol Timing Waveform" src="../images/shrikefi_waveform.png" /></p>
+<h2>2. Renesas ForgeFPGA Waveform (ShrikeFi 8-Bit SPI Link)</h2>
+<p>On the ultra-low-cost ShrikeFi platform there is no 32-bit bus. The ESP32-S3 and the ForgeFPGA exchange <strong>one 8-bit full-duplex SPI transaction per optical sample</strong> — mode 0 (CPOL = 0, CPHA = 0), MSB first, chip select driven manually by firmware.</p>
+<blockquote>
+<p><strong>Figure removed.</strong> The waveform that used to appear here was drawn for the retired
+4-bit parallel nibble bus and shows signals (<code>link_strobe</code>, <code>link_dir</code>, <code>irq_beat</code>,
+a 4-bit data bus) that do not exist in this design. The real frame is one 8-bit
+full-duplex SPI transaction per sample — see §3 and
+<a href="../SHRIKEFI_LINK_PROTOCOL.md"><code>../SHRIKEFI_LINK_PROTOCOL.md</code></a>.</p>
+</blockquote>
 <h3>Signal-by-Signal Breakdown Table:</h3>
 <table>
 <thead>
 <tr>
 <th>Signal Name</th>
-<th style="text-align: center;">FPGA Pin</th>
+<th style="text-align: center;">FPGA Pad</th>
 <th style="text-align: center;">MCU Pin</th>
 <th>Role &amp; Signal Dynamics in Simulation</th>
 </tr>
@@ -303,108 +335,102 @@
 <tbody>
 <tr>
 <td><strong><code>clk</code></strong></td>
-<td style="text-align: center;">PIN_12</td>
+<td style="text-align: center;">— (<code>OSC_EN</code>)</td>
 <td style="text-align: center;">—</td>
-<td>50 MHz internal FPGA oscillator ($T = 20.000\text{ ns}$).</td>
+<td>50 MHz internal FPGA oscillator ($T = 20.000\text{ ns}$). <code>clk_en</code> drives <code>OSC_EN</code>; without it the core has no clock at all.</td>
 </tr>
 <tr>
 <td><strong><code>rst_n</code></strong></td>
-<td style="text-align: center;">PIN_13</td>
-<td style="text-align: center;">GPIO 3</td>
-<td>Active-Low hardware reset driven by ESP32-S3 during boot initialization.</td>
+<td style="text-align: center;"><em>(no pin)</em></td>
+<td style="text-align: center;">—</td>
+<td><strong>Internal, not a pin.</strong> Generated by the top level's power-on counter (<code>por_cnt == POR_CYC</code>). There is no reset pad on the ShrikeFi interconnect — nothing drives <code>PIN_13</code>.</td>
 </tr>
 <tr>
-<td><strong><code>link_strobe</code></strong></td>
-<td style="text-align: center;">PIN_14</td>
-<td style="text-align: center;">GPIO 4</td>
-<td>Bi-phase clock strobe driven by MCU. Rising edge latches data; falling edge prepares next nibble.</td>
+<td><strong><code>spi_sck</code></strong></td>
+<td style="text-align: center;">PIN_16</td>
+<td style="text-align: center;">GPIO12</td>
+<td>SPI clock generated by the ESP32-S3. Mode 0: MOSI/MISO are sampled on the rising edge, outputs shift on the falling edge.</td>
 </tr>
 <tr>
-<td><strong><code>link_dir</code></strong></td>
-<td style="text-align: center;">PIN_15</td>
-<td style="text-align: center;">GPIO 5</td>
-<td>Bus direction control: <code>0 = Host Write</code> (MCU $\to$ FPGA), <code>1 = Host Read</code> (FPGA $\to$ MCU).</td>
+<td><strong><code>spi_ss_n</code></strong></td>
+<td style="text-align: center;">PIN_17</td>
+<td style="text-align: center;">GPIO10</td>
+<td>Active-low chip select, <strong>driven manually</strong> by firmware around each 8-bit transaction. Held high between samples.</td>
 </tr>
 <tr>
-<td><strong><code>link_din[3:0]</code></strong></td>
-<td style="text-align: center;">PIN_16-19</td>
-<td style="text-align: center;">GPIO 6-9</td>
-<td>4-bit multiplexed input bus carrying Command Codes and 4-bit Payload Nibbles into the FPGA.</td>
+<td><strong><code>spi_mosi</code></strong></td>
+<td style="text-align: center;">PIN_18</td>
+<td style="text-align: center;">GPIO11</td>
+<td>MCU $\to$ FPGA: the raw 8-bit PPG sample, MSB first.</td>
 </tr>
 <tr>
-<td><strong><code>filter_red[7:0]</code></strong></td>
+<td><strong><code>spi_miso</code></strong></td>
+<td style="text-align: center;">PIN_19 (+<code>PIN_19_OE</code>)</td>
+<td style="text-align: center;">GPIO13</td>
+<td>FPGA $\to$ MCU: <code>{beat_latched, filt_sample[6:0]}</code>, MSB first.</td>
+</tr>
+<tr>
+<td><strong><code>filt_sample[7:0]</code></strong></td>
 <td style="text-align: center;">Internal</td>
 <td style="text-align: center;">—</td>
-<td>Real-time moving average accumulator inside the ForgeFPGA fabric.</td>
+<td>Real-time 8-tap moving-average output inside the fabric. Only <code>[6:0]</code> reaches the wire; the FPGA's own detector uses all 8 bits.</td>
 </tr>
 <tr>
-<td><strong><code>irq_beat</code></strong></td>
-<td style="text-align: center;">PIN_24</td>
-<td style="text-align: center;">GPIO 10</td>
-<td>Latched active-high interrupt to ESP32-S3. Asserts on systolic peak; held high until <code>CMD_CLEAR_IRQ</code>.</td>
-</tr>
-<tr>
-<td><strong><code>link_dout[3:0]</code></strong></td>
-<td style="text-align: center;">PIN_16-19</td>
-<td style="text-align: center;">GPIO 6-9</td>
-<td>4-bit output bus driven by FPGA during Read mode (<code>link_dir = 1</code>) to stream 32-bit IBI timestamps.</td>
+<td><strong><code>led_user</code></strong></td>
+<td style="text-align: center;">PIN_7 (+<code>PIN_7_OE</code>)</td>
+<td style="text-align: center;">—</td>
+<td>Blue user LED D12, held high for <code>LED_PULSE_CYC</code> (50 ms) after each detected beat.</td>
 </tr>
 </tbody>
 </table>
 <h3>Step-by-Step Protocol Walkthrough (Trace Anatomy):</h3>
-<h4>Phase 1: Writing a Raw PPG Sample (3 Strobe Pulses = 300 ns @ 10 MHz)</h4>
+<h4>Phase 1: Writing a Raw PPG Sample (8 SCK pulses = 8 µs at 1 MHz)</h4>
 <ol>
-<li><code>link_dir = 0</code> (Write Mode).</li>
-<li><strong>Strobe Pulse 1:</strong> <code>link_din = 0x1</code> (<code>CMD_WRITE_RED</code>). The FPGA Command Decoder sets its state to <code>ST_W_RED_H</code>.</li>
-<li><strong>Strobe Pulse 2:</strong> <code>link_din = 0x7</code> (High 4 bits of sample byte <code>0x78</code>). Stored in <code>nibble_temp[3:0]</code>.</li>
-<li><strong>Strobe Pulse 3:</strong> <code>link_din = 0x8</code> (Low 4 bits of sample byte <code>0x78</code>). Combined with <code>nibble_temp</code> to form byte <code>0x78</code> (120). Single-cycle <code>red_valid_pulse</code> fires into the 8-tap filter.</li>
+<li>MCU asserts <code>spi_ss_n</code> low on GPIO10.</li>
+<li>Eight <code>spi_sck</code> pulses. On every pulse the MCU shifts one bit out on MOSI <strong>and</strong> samples one bit in on MISO — one transaction, both directions.</li>
+<li>For sample byte <code>0x78</code> (120), MOSI carries <code>0 1 1 1 1 0 0 0</code>, MSB first.</li>
+<li>On the last rising edge, <code>spi_target</code> latches <code>rx_data = 0x78</code> and pulses <code>rx_data_valid</code> for one clock; the 8-tap moving-average filter consumes it.</li>
+<li>MCU deasserts <code>spi_ss_n</code> high.</li>
 </ol>
-<h4>Phase 2: Hardware Beat Capture &amp; Sticky Interrupt Assertion</h4>
+<h4>Phase 2: Hardware Beat Capture &amp; the One-Bit Interrupt</h4>
 <ul>
-<li>Filtered waveform reaches systolic crest $\to$ Peak Detector FSM detects slope inversion $\to$ Latches <code>reg_ibi_latched &lt;= peak_ibi_cycles</code> $\to$ Asserts <code>irq_beat &lt;= 1</code> on GPIO 10.</li>
-<li>Because ESP32-S3 FreeRTOS tasks may be busy servicing WiFi/BLE, <code>irq_beat</code> <strong>remains firmly latched high</strong> in hardware until explicitly acknowledged, guaranteeing zero dropped beats.</li>
+<li>Filtered waveform reaches the systolic crest $\to$ peak-detector FSM sees the slope inversion $\to$ sets <code>beat_detected</code> $\to$ the top level sets <code>beat_latched &lt;= 1'b1</code>.</li>
+<li><strong>The beat is not a separate wire.</strong> It becomes <strong>bit 7</strong> of the very next MISO byte, <code>{beat_latched, filt_sample[6:0]}</code>. Because the MCU is already clocking that byte in, catching the beat costs nothing extra.</li>
+<li><code>beat_latched</code> clears once the byte has been transmitted, so each beat appears on exactly one frame — no edge races, and no sticky interrupt register to acknowledge.</li>
 </ul>
-<h4>Phase 3: Reading the 32-Bit IBI Timestamp (9 Strobe Pulses = 900 ns @ 10 MHz)</h4>
+<h4>Phase 3: Reading the Filtered Sample and the Beat Flag</h4>
 <ol>
-<li><strong>Command Strobe:</strong> ESP32 sends <code>link_din = 0x6</code> (<code>CMD_READ_IBI</code>) with <code>link_dir = 0</code>.</li>
-<li><strong>Turnaround:</strong> ESP32 switches <code>link_dir = 1</code> (Read mode). FPGA enables its output pin driver (<code>link_dout_oe = 1</code>).</li>
-<li><strong>8 Sequential Nibble Reads:</strong></li>
-<li>Nibble 0 (<code>N0</code>): <code>0x0</code> (Bits <code>[31:28]</code>)</li>
-<li>Nibble 1 (<code>N1</code>): <code>0x0</code> (Bits <code>[27:24]</code>)</li>
-<li>Nibble 2 (<code>N2</code>): <code>0x0</code> (Bits <code>[23:20]</code>)</li>
-<li>Nibble 3 (<code>N3</code>): <code>0x0</code> (Bits <code>[19:16]</code>)</li>
-<li>Nibble 4 (<code>N4</code>): <code>0x0</code> (Bits <code>[15:12]</code>)</li>
-<li>Nibble 5 (<code>N5</code>): <code>0xC</code> (Bits <code>[11:8]</code>)</li>
-<li>Nibble 6 (<code>N6</code>): <code>0xD</code> (Bits <code>[7:4]</code>)</li>
-<li>Nibble 7 (<code>N7</code>): <code>0xF</code> (Bits <code>[3:0]</code>)</li>
-<li><em>Reassembled 32-Bit Value:</em> <code>0x00000CCF</code> = <strong>3279 clock cycles</strong> (exactly $65.58\text{ µs}$ at 50 MHz).</li>
-<li><strong>Clear Interrupt:</strong> ESP32 switches <code>link_dir = 0</code> and sends <code>link_din = 0x7</code> (<code>CMD_CLEAR_IRQ</code>), resetting <code>irq_beat</code> back to 0.</li>
+<li>The reply to transaction <em>k+1</em> carries the result of the sample sent in transaction <em>k</em> — one transfer of pipeline latency, because the filter, the beat latch and the transmit shift register each cost a clock.</li>
+<li>The link returns <strong>only</strong> bit 7 plus <code>filt_sample[6:0]</code>. The RTL's internal 32-bit <code>ibi_cycles</code> register (the <code>0x00000CD1</code> = 3281 value shown in the Zynq waveform above) <strong>is never transmitted on ShrikeFi</strong>.</li>
+<li>Inter-beat intervals are therefore timed by the MCU: <code>shrikefi_link_driver.c</code> records <code>esp_timer_get_time()</code> on each <strong>rising</strong> beat flag and differences consecutive readings, multiplying by 50 to express the result in 20 ns ticks (<code>s_sim_ibi = delta_us * 50</code>).</li>
 </ol>
+<blockquote>
+<p><strong>Be precise about granularity here.</strong> <em>Detection</em> happens in hardware at 50 MHz, so the crest is located to a 20 ns clock edge and there is no scheduler jitter in the detection. The <em>interval the firmware reports</em> is quantised by the MCU's <strong>1 µs</strong> timer. Claiming a 20 ns timestamp on the wire would be wrong, and a judge who knows SPI will catch it.</p>
+</blockquote>
 <hr />
 <h2>3. "POINT-AND-SHOOT" JUDGE DEFENSE CHEAT-SHEET</h2>
 <p>When presenting your timing diagrams, judges will probe your understanding with specific questions. Use these battle-tested responses:</p>
 <h3>Q1: "Point to the exact moment a heartbeat is detected on the waveform."</h3>
 <ul>
-<li><strong>Point to:</strong> The rising edge of <code>irq_beat</code> (where <code>filter_red</code> crests and begins to decrease).</li>
-<li><strong>Say:</strong> <em>"Right here at $t = 65\text{ cycles}$. Notice that <code>filter_red_out</code> reached its local maximum, and we waited for exactly </em><em>two consecutive dropping samples</em><em> to ensure it wasn't just quantization noise. Once confirmed, our systolic FSM asserted <code>irq_beat</code>, capturing the interval count."</em></li>
+<li><strong>Point to:</strong> The rising edge of the latched beat flag — the frame where MISO bit 7 goes high. On the Zynq waveform, the equivalent is the <code>irq_beat</code> register asserting where <code>filter_red</code> crests and begins to decrease.</li>
+<li><strong>Say:</strong> <em>"Right here at $t = 65\text{ cycles}$. Notice that <code>filter_red_out</code> reached its local maximum, and we waited for exactly </em><em>two consecutive dropping samples</em><em> to ensure it wasn't just quantization noise. Once confirmed, the systolic FSM set the beat flag, and the ShrikeFi top level latches it into MISO bit 7 so the MCU picks it up on the byte it is already clocking in."</em></li>
 </ul>
 <h3>Q2: "Why does the AXI waveform show Address Write (<code>AW</code>) and Data Write (<code>W</code>) at different times?"</h3>
 <ul>
 <li><strong>Point to:</strong> <code>s_axi_awvalid</code> pulsing at $t = 12$ and <code>s_axi_wvalid</code> pulsing at $t = 24$.</li>
 <li><strong>Say:</strong> <em>"That is our decoupled AXI4-Lite handshake. Modern ARM AXI crossbars do not guarantee that address and data arrive simultaneously. By using independent <code>aw_done</code> and <code>w_done</code> status registers, our hardware guarantees zero deadlocks regardless of bus latency."</em></li>
 </ul>
-<h3>Q3: "How does the ShrikeFi 4-bit bus know whether a nibble is a command or data?"</h3>
+<h3>Q3: "How does the FPGA know whether a byte is a command or data?"</h3>
 <ul>
-<li><strong>Point to:</strong> <code>link_din</code> transitioning from <code>CMD_WRITE_RED (0x1)</code> to <code>HIGH (0x7)</code> and <code>LOW (0x8)</code>.</li>
-<li><strong>Say:</strong> <em>"The protocol is state-driven. In <code>ST_IDLE</code>, the first strobe pulse is always decoded as a 4-bit command header. Depending on the opcode, the FSM transitions into multi-cycle payload ingestion states (<code>ST_W_RED_H</code> followed by <code>ST_W_RED_L</code>), guaranteeing cycle-accurate framing without packet overhead."</em></li>
+<li><strong>Say:</strong> <em>"It doesn't, because there are no commands. The ShrikeFi link has no command map: every transaction is one 8-bit sample out on MOSI and one reply byte back on MISO, <code>{beat flag, filtered sample}</code>. No opcode, no register address, no length negotiation. That is deliberate — with exactly one thing to say in each direction, a protocol would be pure overhead. Our earlier documentation described a 4-bit link with a <code>0x1</code>–<code>0x8</code> command codebook; that design was retired before it was implemented, which is why you may have seen it in an older deck."</em></li>
 </ul>
-<h3>Q4: "Why do you need 20 ns timing accuracy when human heart rate is only ~1 Hz (60 BPM)?"</h3>
+<h3>Q4: "Why do you need hardware timing when human heart rate is only ~1 Hz (60 BPM)?"</h3>
 <ul>
-<li><strong>Say:</strong> <em>"Heart Rate Variability (HRV) analysis—specifically </em><em>RMSSD</em><em> for parasympathetic stress detection—requires sub-millisecond precision between consecutive R-waves. Microcontroller timers suffer from 5 to 20 ms of interrupt latency and RTOS task switching jitter. Our dedicated 50 MHz FPGA hardware counter measures intervals with </em><em>20-nanosecond physical accuracy</em><em>, eliminating 100% of software jitter."</em></li>
+<li><strong>Say:</strong> <em>"Heart Rate Variability (HRV) analysis — specifically </em><em>RMSSD</em><em> for parasympathetic stress detection — needs sub-millisecond precision between consecutive beats. If a FreeRTOS task detects the beat, the reading is quantised to the 10 ms scheduler tick plus Wi-Fi and flash-cache jitter, and that error is larger than the signal. So the FPGA detects the crest in synchronous logic at 50 MHz with no scheduler in the loop, and the ESP32 times the gap between hardware-set beat flags with its 1 µs hardware timer. Detection is jitter-free; interval timing is 10,000× finer than the RTOS tick. We are careful </em><em>not</em><em> to claim the FPGA hands over a 20 ns timestamp, because it does not."</em></li>
 </ul>
-<h3>Q5: "What is the real measured speed vs. theoretical maximum speed of your 4-bit link?"</h3>
+<h3>Q5: "What is the real measured speed vs. theoretical maximum speed of your link?"</h3>
 <ul>
-<li><strong>Say:</strong> <em>"In our current firmware bring-up driver, we use a conservative bit-banged strobe with 1 µs half-cycle delays (~500 kHz), taking </em><em>18 µs</em><em> for a complete 32-bit IBI read—which uses less than </em><em>0.1% of our 20,000 µs optical sampling window</em><em>. In our verified hardware simulation, the protocol supports up to </em><em>10 MHz</em><em> ($T_{\text{strobe}} = 100\text{ ns}$), transferring the full 32-bit timestamp in </em><em>900 nanoseconds</em><em> (5.0 MB/s raw bandwidth) when driven by a hardware timer or SPI-assisted clock."</em></li>
+<li><strong>Say:</strong> <em>"The link in the shipped firmware is 8-bit SPI at </em><em>1 MHz, mode 0</em><em>, with chip select driven manually: 8 µs per full-duplex transaction, one transaction per optical sample, so the link is idle for more than 99% of the sampling period. The same four wires carry the 46,408-byte FPGA bitstream at </em><em>16 MHz</em><em> during configuration. There is no bit-banged bring-up driver in the shipped code — that belonged to the retired parallel link."</em></li>
 </ul>
 <hr />
 <h1>6. THE SENSOR SUITE — WHAT EACH SENSOR DOES &amp; WHY</h1>
@@ -455,9 +481,9 @@
 │     CLINICAL RULE ENGINE     │  │   INT8 QUANTIZED TinyML NN   │
 │  (disaster_risk_engine.c)    │  │   (nn_risk_model_int8.c)     │
 ├──────────────────────────────┤  ├──────────────────────────────┤
-│ • Cardio-Thermal Strain (CTSI│  │ • 6 Inputs -&gt; 12 Hidden -&gt; 3 │
-│ • Pollution Strain (PRSI)    │  │ • INT8 Weights &amp; Activations │
-│ • Deterministic Safety Net   │  │ • &lt; 1 microsecond inference  │
+│ • Cardio-Thermal Strain (CTSI│  │ • 6 -&gt; 24 -&gt; 16 -&gt; 3          │
+│ • Pollution Strain (PRSI)    │  │ • INT8: 619 params, 576 MACs │
+│ • Deterministic Safety Net   │  │ • 0.44 µs/inference (x86-64) │
 └──────────────┬───────────────┘  └──────────────┬───────────────┘
                │                                 │
                └───────────────┬─────────────────┘
@@ -471,20 +497,23 @@
 * <strong>Pollution Respiratory Strain Index (PRSI):</strong> Fuses PM2.5 particulate concentration with blood oxygen desaturation. If PM2.5 &gt; 300 $\mu\text{g}/\text{m}^3$ and $\text{SpO}_2 &lt; 88\%$, flags <strong>CRITICAL POLLUTION RISK</strong>.</p>
 <h3>2. INT8 Quantized Neural Network (<code>nn_risk_model_int8.c</code>)</h3>
 <ul>
-<li><strong>Architecture:</strong> Multi-Layer Perceptron (6 Input neurons $\rightarrow$ 12 Hidden neurons with ReLU $\rightarrow$ 3 Output neurons with Sigmoid: Heat, Pollution, and Flood risk scores).</li>
-<li><strong>INT8 Quantization:</strong> All floating-point operations were converted to 8-bit integer matrix multiplications using pre-calculated scale factors and zero-points. Inference takes <strong>under 1 microsecond</strong> on an ESP32-S3 or ARM CPU, consuming negligible battery.</li>
+<li><strong>Architecture:</strong> Multi-Layer Perceptron — <strong>6 input neurons $\rightarrow$ 24 hidden neurons (ReLU) $\rightarrow$ 16 hidden neurons (ReLU) $\rightarrow$ 3 output neurons (Sigmoid)</strong> — producing Heat, Pollution and Flood risk scores. Total <strong>619 INT8 parameters, stored in 619 bytes</strong>, and <strong>576 multiply-accumulates per inference</strong> (6×24 + 24×16 + 16×3 = 144 + 384 + 48).</li>
+<li><strong>Correcting an older claim:</strong> previous revisions of this file described a <strong>6 $\rightarrow$ 12 $\rightarrow$ 3</strong> network with "123 bytes". That was a superseded single-hidden-layer model. The shipped architecture is 6 → 24 → 16 → 3, as declared in <code>firmware/core/nn_risk_model.h</code> (<code>NN_HIDDEN1_SIZE 24</code>, <code>NN_HIDDEN2_SIZE 16</code>) and in <code>train_nn_risk_model.py</code> (<code>IN, H1, H2, OUT = 6, 24, 16, 3</code>). If you quote 123 bytes you are quoting a model that is not in the repository.</li>
+<li><strong>INT8 Quantization:</strong> Weights use symmetric quantization with zero-point 0; activations use asymmetric uint8 with per-tensor scales and zero-points. The kernel stores weights as bytes but <strong>dequantises to float for the multiply-accumulate</strong>, so "619 bytes" describes <em>storage</em>, not a float-free compute core — do not claim "zero floating point in core".</li>
+<li><strong>Measured inference latency:</strong> <strong>0.44 µs per inference, measured on an x86-64 host at <code>-O2</code>.</strong> That is the <strong>only</strong> figure anyone has measured. The ESP32-S3 target has <em>not</em> been timed, so do not say "under 1 microsecond on an ESP32-S3 or ARM CPU" — an older revision of this file did, and it was an assumption presented as a measurement.</li>
 <li><strong>Knowledge Distillation Training:</strong></li>
 <li>The deterministic Rule Engine served as the <strong>"Teacher"</strong>.</li>
-<li>We synthesized 62,000 extreme multi-variable disaster scenarios and trained the <strong>"Student"</strong> (Neural Network) to mimic the clinical score gradient.</li>
-<li>Achieved <strong>88.47% classification accuracy</strong> on a 6,200-scenario unseen validation test set while running 10× faster than full floating-point evaluation.</li>
+<li><code>train_nn_risk_model.py</code> synthesises <strong>70,000 scenarios</strong> — 40,000 uniform, 10,000 clustered on class-boundary thresholds, 12,000 around named disaster archetypes, and 8,000 on the derived heat-index edges — then holds out <strong>7,000 for validation</strong> (a 90/10 split; the script prints <code>Dataset: 70000 samples (63000 train / 7000 val)</code>). Older drafts quoted "62,000 scenarios" and a "6,200-scenario" validation set; those numbers are not in the script.</li>
+<li>Training runs for <strong>1200 epochs by default</strong> (<code>--epochs</code>, default 1200) — not "over 100 epochs".</li>
+<li>Achieved <strong>88.47% classification accuracy</strong> on the held-out validation set. Be precise about what that means: the labels come from the same rule engine that generated the training labels, so this measures agreement with our own teacher, not clinical accuracy.</li>
 </ul>
 <hr />
 <h1>8. KILLER ANALOGIES CHEAT-SHEET (For Judges &amp; Team Defense)</h1>
 <p>Use these exact analogies when explaining the project to non-technical judges or team members:</p>
 <h3>1. The "CEO and the Automated Assembly Line" (Why FPGA Acceleration?)</h3>
 <blockquote>
-<p><em>"Think of the microcontroller CPU as a brilliant CEO. If you force the CEO to manually inspect 50 raw optical heartbeat readings every second, they have to stop everything, do math, and burn battery. They become overwhelmed and have no time to make big decisions.<br />
-Instead, we used the FPGA fabric to build an </em><em>automated factory conveyor belt</em><em>. The raw light signals pass through our hardware filter and peak detector, which smooth the wave and count the pulse intervals in silicon. The hardware conveyor belt simply hands the CEO a finished note saying: 'Heart rate is 128, IBI is 468 ms.' Now the CEO's entire brain is free to run our TinyML Neural Network."</em></p>
+<p><em>"Think of the microcontroller CPU as a brilliant CEO. If you force the CEO to manually inspect a hundred raw optical readings every second, they have to stop everything, do math, and burn battery. They become overwhelmed and have no time to make big decisions.<br />
+Instead, we used the FPGA fabric to build an </em><em>automated factory conveyor belt</em><em>. The raw light signals pass through our hardware filter and peak detector, which smooth the wave and flag each systolic crest in silicon — the crest is located to a 20 ns clock edge with no operating system in the loop. The belt hands the CEO one byte per sample with a beat flag on top; the CEO then reads its own microsecond timer to get the interval and says: 'Heart rate is 128, IBI is 468 ms.' Its entire brain is free to run our TinyML Neural Network."</em></p>
 </blockquote>
 <h3>2. The "Formula 1 Wind Tunnel vs. The Pocket Commuter" (Why Two FPGAs?)</h3>
 <blockquote>
@@ -496,20 +525,19 @@ But you can't give a $250 development board to an agricultural worker in rural B
 <p><em>"Imagine calculating the average weight of 8 people inside an elevator. When a new person steps in and the oldest person leaves, a naive algorithm asks all 8 people to step on the scale again, adds up their weights, and divides by 8. That wastes time.<br />
 Our $O(1)$ hardware filter acts like a smart scale: it remembers the previous running sum, subtracts the weight of the person who left, and adds the new person. It does this in a single 20-nanosecond clock cycle, regardless of how large the filter window is."</em></p>
 </blockquote>
-<h3>4. The "4-Lane Walkie-Talkie" (How the ShrikeFi 4-bit Link Works)</h3>
+<h3>4. The "Two-Way Note Pass" (How the ShrikeFi SPI Link Works)</h3>
 <blockquote>
-<p><em>"On large computer chips, components talk over 32 separate parallel copper tracks (like a 32-lane highway). On our compact micro-FPGA, we only have 4 data pins.<br />
-We built a 4-lane high-speed walkie-talkie: when the ESP32 needs to send an 8-bit sensor reading, it sends the command code, slices the sample into two 4-bit 'nibbles', sends the first half, rings a digital doorbell (strobe), sends the second half, and rings the bell again. The FPGA snaps the two halves together in hardware in single-digit microseconds during software bring-up, and under 300 nanoseconds at maximum protocol clocking."</em></p>
+<p><em>"On large chips, components talk over 32 parallel copper tracks — a 32-lane highway. On our compact micro-FPGA we have four wires: clock, chip-select, and one lane each way. But it's a two-way street: the ESP32 sends the sensor sample out on one wire at the same moment the FPGA sends its answer back on the other. Eight clock ticks and both have exchanged a full byte, in a single transaction. No commands, no handshake syllables — one byte out, one byte back, eight microseconds, and the heartbeat is one bit inside the byte that was coming back anyway."</em></p>
 </blockquote>
 <h3>5. The "Paramedic &amp; The AI Chief Physician" (Dual-Core FreeRTOS Partitioning)</h3>
 <blockquote>
-<p><em>"On the ESP32-S3, Core 0 is our dedicated paramedic in the ambulance: it never leaves the patient, sampling optical vitals at 50 Hz and exchanging packets with the FPGA link without ever dropping a beat.<br />
+<p><em>"On the ESP32-S3, Core 0 is our dedicated paramedic in the ambulance: it never leaves the patient while sampling optical vitals, and it exchanges one SPI frame per sample with the FPGA without ever dropping a beat.<br />
 Core 1 is the Chief Physician at the hospital: it takes the clean data, gathers environmental readings, runs the AI Neural Network, calculates disaster risk scores, and updates the wrist display."</em></p>
 </blockquote>
 <h3>6. The "Teacher and the Student" (How the AI was Trained)</h3>
 <blockquote>
-<p><em>"Our clinical Rule Engine is a strict medical professor: 100% accurate according to published papers, but heavy and slow to calculate.<br />
-Our Neural Network is an eager student. We gave the student 62,000 flashcards of extreme heatwaves and toxic smog scenarios. The professor graded every flashcard. By learning from its mistakes over 100 epochs of gradient descent, the student learned to make the exact same life-saving triage decisions in under 1 microsecond."</em></p>
+<p><em>"Our clinical Rule Engine is a strict medical professor: consistent and inspectable, but heavy and slow to calculate.<br />
+Our Neural Network is an eager student. We gave the student 70,000 flashcards of extreme heatwaves and toxic smog scenarios — including 12,000 built around named disasters and 8,000 sitting exactly on the decision edges — and held 7,000 back as an unseen exam. The professor graded every flashcard. By learning from its mistakes over up to 1200 epochs of gradient descent, the student learned to make the same triage decisions in 619 bytes."</em></p>
 </blockquote>
 <hr />
 <h1>9. LIKELY JUDGE QUESTIONS &amp; WINNING DEFENSE ANSWERS</h1>
@@ -519,11 +547,12 @@ Our Neural Network is an eager student. We gave the student 62,000 flashcards of
 </ul>
 <h3>Q2: "How did you manage to fit your design into Renesas ForgeFPGA's tiny 1120 LUT capacity?"</h3>
 <ul>
-<li><strong>Answer:</strong> <em>"Our architecture was designed from day one to be ultra-lean. By using an $O(1)$ running-sum filter with bit-shift division and an accumulator-based peak detector, our entire ShrikeFi design consumes just </em><em>443 of 1120 LUT5s (39.55%)</em><em> and </em><em>353 flip-flops</em><em>, with zero DSP multiplier blocks and zero Block RAM."</em></li>
+<li><strong>Answer:</strong> <em>"Our architecture was designed from day one to be ultra-lean. By using an $O(1)$ running-sum filter with bit-shift division and an accumulator-based peak detector, our entire ShrikeFi design consumes </em><em>363 of 1120 LUT5s (32.41%)</em><em> and </em><em>202 flip-flops</em><em>, with zero DSP multiplier blocks, zero Block RAM, and zero PLL."</em></li>
 </ul>
-<h3>Q3: "What makes your 4-bit link better than standard SPI or I2C?"</h3>
+<h3>Q3: "Why SPI rather than I2C for the FPGA link?"</h3>
 <ul>
-<li><strong>Answer:</strong> <em>"I2C is too slow (400 kHz) with heavy bus addressing, and SPI has protocol framing overhead. Our custom 4-bit parallel nibble link provides a dedicated hardware strobe and direct register-level latching. In our current bit-banged bring-up driver, a complete 32-bit IBI timestamp transfer takes only </em><em>18 microseconds</em><em> (occupying less than 0.1% of the 50 Hz optical sampling window). At our verified 10 MHz simulation target with hardware-assisted strobing, it transfers in </em><em>900 nanoseconds</em><em> (5.0 MB/s raw bandwidth) with zero protocol bloat."</em></li>
+<li><strong>Answer:</strong> <em>"Because the link is exactly what SPI is for, and it is the one bus the FPGA and the MCU already both have. I2C would need addressing and register semantics for a device that has no registers — we have one 8-bit value out and one 8-bit value back, per sample. SPI gives us that as a shift register: mode 0, MSB first, an 8-bit full-duplex transaction in 8 µs at 1 MHz, with chip select held low around each sample. There is no command map, no strobe, no direction turnaround and no separate interrupt pin — the beat flag rides in bit 7 of the byte we were already reading, and the ESP32-S3's hardware SPI peripheral means the CPU cost per sample is essentially zero. The same four wires also carry the FPGA bitstream at 16 MHz during configuration."</em></li>
+<li><strong>Correction to an older answer:</strong> this question used to be <em>"What makes your 4-bit link better than standard SPI or I2C?"</em> with an answer arguing that a "custom 4-bit parallel nibble link" beat SPI. That was wrong on two counts: the 4-bit link was retired before it was built, and the design <strong>is</strong> SPI. Never argue against the bus you are actually using.</li>
 </ul>
 <h3>Q4: "What happens if the PM2.5 air quality sensor gets clogged or malfunctions?"</h3>
 <ul>
@@ -572,12 +601,13 @@ Our Neural Network is an eager student. We gave the student 62,000 flashcards of
 <li><strong>AXI4-Lite:</strong> Advanced eXtensible Interface; standard memory-mapped point-to-point bus protocol for ARM SoC chips.</li>
 <li><strong>CTSI:</strong> Cardio-Thermal Strain Index; our custom index quantifying physiological heat stress.</li>
 <li><strong>FSM:</strong> Finite State Machine; a sequential digital hardware circuit transitioning between distinct operating states.</li>
-<li><strong>IBI:</strong> Inter-Beat Interval; the exact elapsed time (in milliseconds or 20 ns clock ticks) between consecutive R-wave peaks.</li>
-<li><strong>INT8 Quantization:</strong> Compressing 32-bit floating-point neural network weights into 8-bit signed integers for high-speed integer ALU execution.</li>
-<li><strong>Nibble:</strong> A 4-bit aggregation of binary data (half an 8-bit byte).</li>
+<li><strong>IBI:</strong> Inter-Beat Interval; the elapsed time between consecutive systolic peaks. On ShrikeFi it is <strong>timed by the MCU's 1 µs <code>esp_timer_get_time()</code></strong> between hardware-set beat flags, and reported in 20 ns tick units (<code>shrikefi_link_driver.c</code> multiplies the µs delta by 50). The FPGA locates the peak at 20 ns resolution but does not transmit a cycle count.</li>
+<li><strong>INT8 Quantization:</strong> Compressing 32-bit floating-point neural network weights into 8-bit signed integers for compact storage and fast integer ALU execution.</li>
+<li><strong>Nibble:</strong> A 4-bit aggregation of binary data (half an 8-bit byte). <strong>Listed for completeness only — the shipped ShrikeFi link does not use nibbles.</strong> It is 8-bit SPI.</li>
 <li><strong>PRSI:</strong> Pollution Respiratory Strain Index; our custom index quantifying respiratory distress during smoke/smog events.</li>
 <li><strong>RMSSD:</strong> Root Mean Square of Successive Differences; the clinical gold standard for measuring parasympathetic Heart Rate Variability (HRV).</li>
 <li><strong>SoC:</strong> System on Chip; an integrated circuit combining CPU cores, memory, peripherals, and FPGA fabric.</li>
+<li><strong>SPI (Serial Peripheral Interface):</strong> A synchronous 4-wire serial bus — clock (<code>SCK</code>), chip select (<code>SS_n</code>), and one data line each way (<code>MOSI</code>/<code>MISO</code>). A transaction transfers data in both directions simultaneously. The ShrikeFi MCU↔FPGA link is SPI mode 0 (CPOL = 0, CPHA = 0), 8-bit, MSB first.</li>
 </ul>
 </body>
 </html>

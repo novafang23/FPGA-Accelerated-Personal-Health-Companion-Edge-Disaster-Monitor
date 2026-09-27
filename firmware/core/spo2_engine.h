@@ -11,7 +11,10 @@
 extern "C" {
 #endif
 
-#define SPO2_WINDOW_SIZE 50  /* Samples per measurement window (1.0 sec at 50Hz) */
+/* Samples per measurement window. The optical link delivers ~100 samples/s
+ * (measured ~105/s), so this is ~0.5 s per entry, not the 1.0 s an earlier
+ * 50 Hz assumption gave. */
+#define SPO2_WINDOW_SIZE 50
 #define SPO2_MA_FILTER_SIZE 8 /* Moving average history size (8-second smoothing window) */
 
 /* Clinical validity thresholds calibrated for MAX30102 18-bit optical levels */

@@ -7,7 +7,7 @@
 > |---|---|
 > | "95.40% specificity" | **98.19% specificity** (the 95.40% came from a report the repo's own evaluator contradicts) |
 > | "ESP32-S3 running at 240 MHz" | "ESP32-S3 at **160 MHz** as configured; the LX7 is capable of 240 MHz" |
-> | "The FPGA runs standalone and never needs I2C boot flashing" | "The FPGA is **expected** to self-configure; we are confirming which mechanism on the bench" |
+> | "The FPGA runs standalone and never needs I2C boot flashing" | "The ESP32 delivers the bitstream **over SPI** (16 MHz, open-loop); the link handshake — not the programming call — is what proves the FPGA is running. There is no I2C route into it at all." |
 >
 > A judge who catches one invented number stops believing all of them. Transparency is not a weakness here — it is the single strongest thing about how this project is documented.
 
@@ -60,7 +60,7 @@ This is a favourite judge question, so let's make the answer airtight. A consume
 
 ### The 15-second elevator pitch
 
-> "VALOR (Vital and Atmospheric Logic for Offline Rescue) is a wearable disaster-triage companion. A MAX30102 optical sensor, a BME280 environment sensor and a laser particulate counter feed an FPGA that extracts heartbeat timing with 20-nanosecond accuracy, and an ESP32-S3 that runs clinical triage and a 619-byte neural network. It tells a rescuer not just 'your heart rate is 140' but 'heat stroke is imminent, stop exertion now' — completely offline, because in a disaster the cloud is the first thing to disappear."
+> "VALOR (Vital and Atmospheric Logic for Offline Rescue) is a wearable disaster-triage companion. A MAX30102 optical sensor, a BME280 environment sensor and a laser particulate counter feed an FPGA that finds each heartbeat in hardware — no operating system in the loop — and an ESP32-S3 that times those beats to the microsecond and runs clinical triage on a 619-byte neural network. It tells a rescuer not just 'your heart rate is 140' but 'heat stroke is imminent, stop exertion now' — completely offline, because in a disaster the cloud is the first thing to disappear."
 
 > [!TIP]
 > **Judge Defence Tip:** lead with *offline* and *fusion*. Judges have seen a hundred heart-rate wearables. The moment you say "and it knows the air is poisoning you at the same time, with no network", they lean in.
@@ -89,13 +89,14 @@ That is not a performance problem you can optimise away. It is a *category* prob
 
 | | Software peak detection (ESP32-S3 alone) | Hardware peak detection (FPGA) |
 |---|---|---|
-| Timing resolution | ~10 ms (RTOS tick) + jitter | **20 ns** (one 50 MHz clock cycle) |
-| Jitter under Wi-Fi load | Milliseconds, non-deterministic | **None** — synchronous logic |
+| What the timestamp is quantised to | ~10 ms (RTOS tick) + jitter | **1 µs** MCU hardware timer, gated by a hardware-set beat flag |
+| Peak-finding resolution | One task period, if the beat is seen at all | **20 ns** (one 50 MHz clock edge) |
+| Jitter under Wi-Fi load | Milliseconds, non-deterministic | **None in detection** — synchronous logic, no scheduler in the loop |
 | Cost per beat | CPU cycles, interrupts, power | Free — it's wires |
 | HRV usable? | Only for very large variations | **Yes, down to single milliseconds** |
 
 > [!IMPORTANT]
-> **Say this out loud:** "Our HRV measurement is only valid because the beat timestamps come from hardware. On a software timestamp, our measurement error would exceed the physiological signal we're trying to detect."
+> **Say this out loud:** "Our HRV is only valid because the *beat detection* happens in hardware. In software, detection would be quantised to the 10 ms scheduler tick and jittered by the Wi-Fi stack — error larger than the signal. The FPGA finds the crest in synchronous logic with no scheduler in the loop, and the interval between those hardware-set flags is then timed by a 1 µs hardware timer on the MCU."
 
 ### Why can't the FPGA do it alone?
 
@@ -108,34 +109,43 @@ Because an FPGA is gloriously stupid. It has no operating system, no Wi-Fi, no f
 
 The FPGA chops onions. The chef cooks.
 
-### The 4-bit parallel bus: how the two chips talk
+### The 8-bit SPI link: how the two chips talk
 
-**The analogy:** imagine two people passing notes, but instead of writing full sentences, they agree on a codebook and pass **four bits at a time** — a "nibble" — on four parallel wires. One person taps the table (the strobe) to say "here comes a nibble."
+**The analogy:** imagine two people passing notes down a single lane each way, one bit at a time, but perfectly in step — one of them taps a clock, and both read one bit on every tap. Eight taps and a whole byte has moved in each direction, *at the same time*.
 
-There is no AXI bus, no SPI controller, no I2C. It is **four data wires, one strobe, one direction line, and one interrupt**. Deliberately primitive — which makes it trivially verifiable and impossible to deadlock.
+The two chips are joined by a **4-wire SPI bus, mode 0 (CPOL = 0, CPHA = 0), MSB first.** The ESP32-S3 is the **controller** and the ForgeFPGA is the **target**. Because SPI is full duplex, a single transaction carries data both ways: the MCU shifts the sample out on MOSI while the FPGA shifts its reply back on MISO.
 
-**Link signals:**
+> [!WARNING]
+> **An earlier revision of this guide described a 4-bit parallel nibble link** — four data wires, a strobe, a direction line, a command codebook and a dedicated `irq_beat` interrupt pin. That design was **retired before it was ever built.** There is no strobe, no direction line, no separate interrupt, no command map, and no instruction decode anywhere in the RTL or the firmware. Everything below describes the link that actually exists, and every claim in it is traceable to `firmware/shrikefi/shrikefi_link_driver.c`, `firmware/shrikefi/shrikefi_pinmap.h`, `hardware/shrikefi/forgefpga_pins.pcf` and `hardware/shrikefi/forgefpga_ppg_top.v`.
 
-| Signal | Direction | Purpose |
+**Link signals.** The ESP32 side is fixed by the board's internal copper traces; the FPGA side is fixed by the design's own pin constraints.
+
+| Signal | ESP32-S3 | FPGA pad | Direction | Purpose |
+|---|---|---|---|---|
+| `SCK` | GPIO12 | `PIN_16` (`spi_sck`) | ESP32 → FPGA | SPI clock, generated by the ESP32 |
+| `SS_n` (CS) | GPIO10, driven **manually** | `PIN_17` (`spi_ss_n`) | ESP32 → FPGA | Active-low chip select, asserted around each transaction |
+| `MOSI` | GPIO11 | `PIN_18` (`spi_mosi`) | ESP32 → FPGA | The 8-bit raw PPG sample |
+| `MISO` | GPIO13 | `PIN_19` (`spi_miso` + `PIN_19_OE`) | FPGA → ESP32 | `{beat_latched, filt_sample[6:0]}` |
+| FPGA enable | GPIO8 | — | ESP32 → FPGA | `EN` — held through the boot-mode latch |
+| FPGA power | GPIO9 | — | ESP32 → FPGA | `PWR` — the FPGA rail, switched by the MCU |
+
+Two pads round out the FPGA side: `led_user` on `PIN_7` drives the blue user LED (D12), and `OSC_EN` is the oscillator enable — a clock resource, not a GPIO. **There is no reset pad.** The RTL generates its own power-on reset from an internal counter (`POR_CYC` clocks) because nothing on the ShrikeFi interconnect drives `PIN_13`.
+
+**The frame: one 8-bit transaction per optical sample.**
+
+| Byte | Bits | Meaning |
 |---|---|---|
-| `link_strobe` | ESP32 → FPGA | "Data on the bus is valid right now" |
-| `link_dir` | ESP32 → FPGA | 0 = ESP32 writing to FPGA, 1 = ESP32 reading |
-| `link_din[3:0]` | ESP32 → FPGA | 4-bit command/data nibble |
-| `link_dout[3:0]` | FPGA → ESP32 | 4-bit return nibble |
-| `irq_beat` | FPGA → ESP32 | Active-high pulse the moment a systolic peak is detected |
+| MOSI | `[7:0]` | Raw 8-bit PPG sample written by the MCU |
+| MISO | `[7]` | `beat_latched` — set when the peak detector found a systolic crest |
+| MISO | `[6:0]` | Low 7 bits of the 8-tap moving-average output |
 
-**Command codebook** (identical in the protocol doc, the C driver header, and the Verilog `localparam` block — a fact worth stating, because most projects' docs disagree with their code):
+Bit 7 is the beat flag, so only the **low seven bits** of the filter output come back; the FPGA's own detector uses the full 8-bit average internally, so detection is unaffected. The reply to transaction *k+1* carries the result of the sample sent in transaction *k* — one transfer of pipeline latency, because the filter, the beat latch and the SPI transmit shift register each cost a clock.
 
-| Code | Command | Payload |
-|---|---|---|
-| `0x1` | Write Red PPG sample | 2 nibbles (8-bit) |
-| `0x2` | Write IR PPG sample | 2 nibbles |
-| `0x3` | Set systolic threshold | 2 nibbles |
-| `0x4` | Read filtered Red | 2 nibbles |
-| `0x5` | Read filtered IR | 2 nibbles |
-| `0x6` | Read 32-bit IBI | 8 nibbles |
-| `0x7` | Clear beat interrupt | none |
-| `0x8` | Read status | 1 nibble |
+**There is no command map.** The write *is* the sample and the reply *is* the reading. No opcode, no register address, no payload length negotiation, no `SHRIKEFI_CMD_*` identifier anywhere in the driver, and no decode block in the Verilog.
+
+**How the MCU gets the IBI.** The FPGA does not timestamp beats and does not put a cycle count on the link. The MCU watches bit 7 of each reply and, on a rising beat flag, differences its own `esp_timer_get_time()` readings to get the interval (section 5 covers the arithmetic).
+
+**Why SPI is the right choice here.** The ForgeFPGA has a small I/O budget, and an SPI target costs a shift register rather than a bus. Unlike a parallel link it needs no strobe agreement, no direction turnaround and no opcode space — and a heartbeat is exactly one bit, so the one thing the link must not lose is cheap to send. The ESP32-S3 already has a hardware SPI controller (`driver/spi_master.h` on `SPI2_HOST`), so the MCU pays almost no CPU cost per sample. The runtime link runs at **1 MHz**; the same wires carry the bitstream at **16 MHz** during FPGA configuration.
 
 ### Block diagram
 
@@ -158,20 +168,22 @@ flowchart LR
     subgraph FPGA["ForgeFPGA SLG47910C  (Prep Cook)"]
         F1[Dual 8-tap<br/>moving average]
         F2[Systolic peak<br/>detector + 250 ms<br/>refractory]
-        F3[32-bit IBI counter<br/>@ 50 MHz = 20 ns/tick]
+        F3[Beat latch + SPI reply<br/>bit7 = beat flag<br/>bits[6:0] = filtered]
     end
 
     M -->|I2C| T1
     B -->|I2C| T2
     P -->|UART| T2
     O --- T2
-    T1 <-->|4-bit nibble link| FPGA
+    T1 <-->|"8-bit SPI, mode 0, 1 MHz<br/>1 full-duplex frame per sample"| FPGA
     F1 --> F2 --> F3
-    F3 -.->|irq_beat| T1
     T1 --> AI --> CL --> O
     T2 -->|Wi-Fi / MQTT| Cloud[(MQTT broker)]
     T1 -->|USB UART| PC[PC Dashboard]
 ```
+
+> [!NOTE]
+> **One link, both directions, no interrupt pin.** The beat does not arrive on a dedicated wire: it arrives as bit 7 of the MISO byte, which the MCU is already clocking in as part of the sample transaction. The MCU derives the inter-beat interval from its own `esp_timer_get_time()` deltas between rising beat flags — the FPGA's internal 32-bit interval counter never crosses the link.
 
 ### The ForgeFPGA configuration question — handle this honestly
 
@@ -181,7 +193,7 @@ flowchart LR
 What we *know*:
 
 - The Renesas **SLG47910C** is an **FPGA**, not a GreenPAK mixed-signal CMIC. It therefore does **not** have the hardwired I2C NVM controller that Renesas's simpler configurable-analogue parts do.
-- The design's own pin constraints (`hardware/shrikefi/forgefpga_pins.pcf`) declare only: clock, reset, the 4-bit link, and `irq_beat`. **No I2C or SPI configuration interface is declared.**
+- The design's own pin constraints (`hardware/shrikefi/forgefpga_pins.pcf`) declare the clock enable (`OSC_EN`), an **SPI interface** (`spi_sck`/`spi_ss_n`/`spi_mosi`/`spi_miso` on `PIN_16`–`PIN_19`, plus `PIN_19_OE`), and the user LED (`PIN_7`). **No I2C configuration port is declared** — and note there is no reset pin either, which is why the RTL generates its own power-on reset. The SPI pads are the same four wires the runtime link uses, so the declared SPI interface serves both configuration and sampling.
 - The Renesas toolchain emits **three** bitstream variants, which map onto three plausible delivery modes:
 
 | Variant | Size | Plausible delivery |
@@ -190,18 +202,18 @@ What we *know*:
 | `FPGA_bitstream_FLASH_MEM.bin` | 45,096 B | FPGA acts as SPI master reading an external flash (the board has a W25Q32JV) |
 | `FPGA_bitstream_MCU.bin` | 46,408 B | Host MCU delivers it (the variant embedded in the firmware) |
 
-What we do **not** know: which mechanism this board uses.
+What we do **not** know, without reading a boot log on the bench: whether the part is already configured from OTP before the ESP32 gets to it, or whether it is waiting for the MCU to deliver the bitstream.
 
-**How the firmware handles it:** `shrikefi_fpga_flash_init()` probes I²C address `0x08` and **reports honestly** rather than pretending. The boot log says which case occurred. A "not detected" result is the *expected* case if the FPGA self-configures, and it never blocks the boot.
+**How the firmware handles it — and this is a place where an older draft of this guide was simply wrong.** `shrikefi_fpga_flash_init()` does **not** probe I²C. It drives the vendor's reset/boot-latch sequence on `PWR`/`EN`/`SS`, then streams `FPGA_bitstream_MCU.bin` (46,408 bytes) out of `SPI2` at 16 MHz in 256-byte chunks, toggling chip select per chunk. The transfer is **open-loop** — nothing is read back, so the call cannot confirm the FPGA accepted anything — and a non-OK result is explicitly non-fatal: boot continues either way. The authoritative check is the `0x55` link handshake a few lines later, which only answers if the FPGA is alive and running user-mode logic. (The I²C bus scanner does label address `0x08` as "ForgeFPGA", but that is a string in a scan log, not a configuration path.)
 
 **The correct judge answer:**
 
-> "The FPGA is expected to configure itself from on-chip NVM or the onboard QSPI flash — the design's pin constraints declare no I2C or SPI configuration port, and the part is an FPGA rather than one of Renesas's I2C-configurable CMICs. Our firmware attempts I2C delivery as a best-effort path and logs precisely which case it found, so we never claim a mechanism we haven't confirmed. We're settling it on the bench."
+> "The design's pin constraints declare no I²C configuration port, and the part is an FPGA rather than one of Renesas's I²C-configurable CMICs, so there is no I²C route into it. What they *do* declare is a 4-wire SPI interface on PIN_16–PIN_19, shared with the runtime link, and that is the route the firmware uses: it runs the vendor's reset/boot-latch sequence and streams the 46 KB bitstream over SPI2 at 16 MHz. That transfer is open-loop, so we don't present it as proof of anything — our proof is the link handshake that follows, which only succeeds if the FPGA is configured and running. Whether the part *also* self-configures from OTP is the one thing we're still settling on the bench."
 
 That answer is *stronger* than a confident false one.
 
 > [!TIP]
-> **Judge Defence Tip:** if asked "how is the FPGA programmed?", never guess. Say "expected to self-configure from NVM or onboard flash; here's the boot-log line that tells us, and here's why we don't need to assume." Being the team that measured instead of assumed is a differentiator.
+> **Judge Defence Tip:** if asked "how is the FPGA programmed?", never guess. Say "over SPI, using the vendor's reset/boot-latch sequence — and because that transfer is open-loop, we prove the FPGA is running with a link handshake instead of assuming the programming worked." Being the team that measured instead of assumed is a differentiator.
 
 ---
 
@@ -311,10 +323,10 @@ Your heart is the same. After a real systolic peak there is a **dicrotic notch**
 |---|---|---|
 | `STATE_ARMED` | Waiting for a beat | Sample rises above dynamic threshold |
 | `STATE_RISING` | Tracking the ascending wave | Sample starts to fall (inflection = peak) |
-| `STATE_PEAK_FOUND` | Latch timestamp, pulse `irq_beat` | Immediately → refractory |
+| `STATE_PEAK_FOUND` | Latch the internal interval counter, set the beat flag | Immediately → refractory; the flag is cleared once it has been shifted out on MISO |
 | `STATE_REFRACTORY` | Blanking | 250 ms counter expires |
 
-### The 32-bit cycle-accurate IBI counter
+### The 32-bit cycle-accurate interval counter
 
 **Analogy:** a stopwatch that ticks **fifty million times a second**. Between two heartbeats you count the ticks. 3,000 ticks = 3,000 ÷ 50,000,000 s = 60 µs.
 
@@ -323,7 +335,13 @@ Your heart is the same. After a real systolic peak there is a **dicrotic notch**
 | Clock | 50 MHz |
 | Tick period | 1 / 50,000,000 = **20 ns** |
 | Counter width | 32 bits |
-| Practical range | ~1.5 billion beats before wrap |
+| Wraps after | 2³² ticks ÷ 50 MHz = **85.9 seconds** (4,294,967,296 ticks) of continuous counting |
+
+> [!WARNING]
+> **The counter counts ticks, not beats.** 2³² ticks at 20 ns is about **85.9 seconds**, not "1.5 billion beats before wrap". An earlier revision of this table said "~1.5 billion beats before wrap", which confuses a tick count with a beat count and is wrong by roughly six orders of magnitude. If a judge asks the wrap period, the answer is 85.9 seconds.
+
+> [!IMPORTANT]
+> **Be precise about what crosses the link.** The peak-detector FSM holds a 32-bit `ibi_cycles` count internally, but **no SPI register carries it and the firmware never reads it** — the reply byte is only `{beat_flag, filtered[6:0]}`. The MCU reconstructs the interval from its own `esp_timer_get_time()` deltas between rising beat flags (`s_sim_ibi = delta_us * 50` in `shrikefi_link_driver.c`). So the *detection* is cycle-accurate and jitter-free in hardware, while the interval the firmware reports is quantised by the MCU's 1 µs timer and merely *expressed* in 20 ns ticks. Do not tell a judge that the FPGA hands over a hardware timestamp — it does not.
 
 This is the measurement that makes the whole clinical layer possible, and it is the answer to *"why is there an FPGA in this project?"*
 
@@ -337,22 +355,22 @@ filtered    XXXXXX<--- converges over 8 samples --->XXXX
                                    100 (steady)
 threshold   -----------------------/‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾
                                    ↑ crossing arms FSM
-irq_beat    ______________________/‾\_______________   (1 cycle)
-ibi_cycles  XXXXXXXXXXXXXXXXXXXXXX< 0x00000CD1 >XXXX   (3,281 ticks)
+beat flag   ______________________/‾\_______________   (1 cycle, sent as MISO bit 7)
+ibi_cycles  XXXXXXXXXXXXXXXXXXXXXX< 0x00000CD1 >XXXX   (3,281 internal ticks = 65.62 µs)
 ```
 
-**Reading it:** eight valid samples drive the filter output to the input value; the sample crossing the threshold arms the FSM; the descending inflection fires a **single-cycle** `irq_beat` pulse; the 32-bit IBI register latches the cycle count.
+**Reading it:** eight valid samples drive the filter output to the input value; the sample crossing the threshold arms the FSM; the descending inflection sets the beat flag for one clock, which is returned as bit 7 of the next MISO byte and then cleared. The RTL's internal 32-bit interval counter latches on that same edge — but, as noted above, that count stays inside the FPGA.
 
 ### Verilog module hierarchy
 
 | Module | File | Role |
 |---|---|---|
 | `axi_ppg_accelerator` | `hardware/zynq/` | Zynq AXI4-Lite wrapper + register file |
-| `forgefpga_ppg_top` | `hardware/shrikefi/` | ShrikeFi 4-bit link FSM + command decode |
+| `forgefpga_ppg_top` | `hardware/shrikefi/` | ShrikeFi top: `spi_target` + filter + peak detector + beat-latch reply. **No command decode, no link FSM** |
 | `moving_average_8tap` | `hardware/common/` | The O(1) filter (instantiated twice) |
 | `ppg_peak_detector` | `hardware/common/` | 4-state systolic FSM |
 | `tb_ppg_system` | `hardware/zynq/` | 6 self-checking tests |
-| `tb_forgefpga_system` | `hardware/shrikefi/` | 5 self-checking link tests |
+| `tb_forgefpga_system` | `hardware/shrikefi/` | 5 self-checking SPI link tests |
 
 > [!NOTE]
 > The two DSP modules live in `hardware/common/` and are instantiated by **both** platform tops. That is deliberate: one source of truth, no copy-paste drift, and it proves the core is genuinely vendor-agnostic. Both CI and the local build compile the same files.
@@ -379,31 +397,37 @@ ibi_cycles  XXXXXXXXXXXXXXXXXXXXXX< 0x00000CD1 >XXXX   (3,281 ticks)
 
 ### Heart rate from cycle ticks
 
-The FPGA hands you a raw cycle count. Two steps:
+The interval counter runs at 50 MHz, so **one tick is 20 ns** and there are **50,000 ticks in a millisecond**. The conversion is therefore:
 
 ```
-IBI_ms = ibi_cycles / 50,000        // cycles -> milliseconds at 50 MHz... 
-```
-careful — the clean form is:
-
-```
-IBI_ms   = ibi_cycles × 20 / 1000     = ibi_cycles / 50
-BPM      = 60,000 / IBI_ms
+IBI_ns = ibi_cycles × 20              // 1 tick = 20 ns
+IBI_ms = ibi_cycles / 50,000          // 50,000 ticks per millisecond
+IBI_s  = ibi_cycles / 50,000,000
+BPM    = 60,000 / IBI_ms = 60 / IBI_s = 3,000,000,000 / ibi_cycles
 ```
 
-**Worked example.** Suppose the FPGA reports **3,281 ticks**:
+> [!WARNING]
+> **A 1000× error lived in this section and has been corrected.** An earlier revision printed `IBI_ms = ibi_cycles × 20 / 1000 = ibi_cycles / 50`. The divisor is wrong: converting nanoseconds to **milliseconds** divides by 1,000,000, not 1,000, so the correct constant is 50,000 — not 50. Every example derived from it (65.62 ms for 3,281 ticks, "750,000 ticks = 1,000 ms", "600,000 ticks = 1,200 ms") was wrong by the same factor of 1000. The formulas printed above are the correct ones, and they agree with the rest of this guide: section 4 states that 3,000 ticks is 60 µs, and the timing diagram in section 4 shows 3,281 ticks for the same shortened simulation interval.
 
-- IBI = 3,281 ÷ 50 = **65.62 ms**… which would be 914 bpm, so obviously that example is a *simulated* short interval, not a real one. Let's use a physiological one:
+**Worked example.** The RTL's internal counter reads **3,281 ticks** (`0x00000CD1`, the value in the section 4 timing diagram):
 
-**Real example.** IBI counter reports **750,000 ticks**:
+- IBI = 3,281 × 20 ns = **65,620 ns = 65.62 µs**
+- 65.62 µs corresponds to a "rate" of 60 / 0.00006562 ≈ **914,000 bpm** — which is obviously not a heart rate. That is because the testbench deliberately compresses the sample period and the refractory window so the VCD stays short. **Never present this value as a physiological interval.**
 
-- IBI = 750,000 × 20 ns = **15,000,000 ns = 1,000 ms = 1.0 s**
-- BPM = 60,000 / 1,000 = **60 bpm** ✓ (a resting adult)
+**Real examples** (a physiological IBI is between about 0.3 s and 1.5 s):
 
-**Another:** **600,000 ticks** → 600,000 × 20 ns = 12 ms×10³ = **1,200 ms** → BPM = **50 bpm** (a fit athlete).
+| Heart rate | Interval | Ticks at 50 MHz | MCU `esp_timer_get_time()` delta |
+|---|---|---|---|
+| **60 bpm** (resting adult) | 1.000 s | **50,000,000** | 1,000,000 µs |
+| **50 bpm** (fit athlete) | 1.200 s | **60,000,000** | 1,200,000 µs |
+| **75 bpm** | 0.800 s | **40,000,000** | 800,000 µs |
+| **120 bpm** (exertion) | 0.500 s | **25,000,000** | 500,000 µs |
 
 > [!NOTE]
-> If a demo scenario shows 3,000-ish ticks, that is a *simulation* interval chosen to keep the VCD waveform short — do not present it as a physiological heart rate. Say "in simulation we compress the interval; on hardware it's ~750,000 ticks for 60 bpm." That kind of precision is exactly what earns trust.
+> If a demo scenario shows a few thousand ticks, that is a *simulation* interval chosen to keep the VCD waveform short — do not present it as a physiological heart rate. On hardware a 60 bpm beat is **50,000,000 ticks**, or a 1,000,000 µs `esp_timer_get_time()` delta between rising beat flags. That kind of precision is exactly what earns trust.
+
+> [!IMPORTANT]
+> **Where the number actually comes from.** The firmware does not read a cycle count from the FPGA — the SPI reply carries only `{beat flag, filtered[6:0]}`. `shrikefi_link_driver.c` takes the delta of `esp_timer_get_time()` on each rising beat flag and multiplies by 50 to express it in 20 ns ticks (`s_sim_ibi = delta_us * 50`). So the tick figures in the table above are the *equivalent* count at 50 MHz; the real measurement is the MCU timer delta in the right-hand column, which is quantised to 1 µs.
 
 ### SpO₂: the Ratio-of-Ratios
 
@@ -449,16 +473,20 @@ SpO2 (%)  =  110  −  25 × R
 
 **Another:** R = 1.0 → SpO₂ = **85 %** — clinically significant hypoxia.
 
-**Engineering safeguards in our implementation:**
+**Engineering safeguards in our implementation** (`firmware/core/spo2_engine.h` / `spo2_engine.c` — the constants are quoted so they can be checked):
 
-| Safeguard | Why |
-|---|---|
-| Require minimum DC level | Finger not on the sensor → no valid reading |
-| Require minimum AC amplitude | Rejects noise, not real pulsation |
-| Physiological PI window (0.2–15%) | Rejects both "no perfusion" and "sensor off finger" |
-| Clamp R to 0.35–1.65 | Outside this is not human blood |
-| Slew-rate limit ±2.5 %/s | Stops flicker and motion from faking a desaturation event |
-| 8-second rolling window | Smooths without destroying real response |
+| Safeguard | Constant | Why |
+|---|---|---|
+| Require minimum DC level | `SPO2_MIN_DC_IR` 1000 / `SPO2_MIN_DC_RED` 800 counts | Finger not on the sensor → no valid reading (ambient air is < 600 counts) |
+| Require minimum AC amplitude | `SPO2_MIN_AC_IR` 10 / `SPO2_MIN_AC_RED` 8 counts | Rejects noise, not real pulsation |
+| Perfusion-index window | **0.15 – 15 %** (`SPO2_MIN_PERFUSION_INDEX` = 0.15f, `SPO2_MAX_PERFUSION_INDEX` = 15.0f) | The *minimum is 0.15 %, not 0.2 %*. Rejects both "no perfusion" and "sensor off finger" |
+| Clamp R | 0.35 – 1.65 (`SPO2_MIN_RATIO_R` / `SPO2_MAX_RATIO_R`) | Outside this is not human blood |
+| Flatness gate, not a slew limiter | **2 % max spread across the last 8 windows** (`SPO2_STABLE_SPREAD_PCT` = 2.0f, `SPO2_STABLE_MIN_WINDOWS` = 8) | This is a *stability* test on consecutive estimates, not a ±2.5 %/s rate limit — the older wording was wrong on both the value and the mechanism. It is what stops a still-settling estimate from being published as an emergency |
+| Latch gate | **8 consecutive valid windows** (`SPO2_REQUIRED_VALID_WINDOWS` = 8), i.e. `REQUIRED_VALID_WINDOWS` and `STABLE_MIN_WINDOWS` are both 8 | A single valid window used to latch and publish. Measured on hardware the reported value climbed 78 % → 96 % over ~30 s, all of it published as VALID — and a real 78 % is a life-threatening desaturation, so that was not cosmetic |
+| Measurement window | 50 samples per estimate (`SPO2_WINDOW_SIZE` = 50), then an 8-estimate moving average (`SPO2_MA_FILTER_SIZE` = 8) | Smooths without destroying real response |
+
+> [!NOTE]
+> **Why the latch gate exists at all.** The underlying R ratio keeps drifting for far longer than one window while the LED current control settles the DC baseline, so a fixed short window cannot tell "settled" from "still ramping". The gate therefore asks the question that matters — has the smoothed estimate stopped moving? — across the *full* moving-average depth, and only then publishes. Sampling 30 s of hardware data was what exposed the original bug.
 
 > [!IMPORTANT]
 > Be precise about provenance: **110 − 25R** is the widely used *nominal* calibration curve, not a curve derived from calibrating this specific device against a blood-gas analyser. Say so. "This is the standard textbook linear approximation; real clinical devices are calibrated per-sensor against reference oximetry."
@@ -495,7 +523,7 @@ RMSSD  =   ╱   ─── ×  Σ   (IBIₖ₊₁ − IBIₖ)
 
 - Differences: +2, −3, +2, −1 → squares 4, 9, 4, 1 → mean 4.5 → **RMSSD = 2.1 ms**
 
-That collapse from 29 ms to 2 ms is what our engine watches for, and it is only measurable because the FPGA timestamps beats with 20 ns resolution.
+That collapse from 29 ms to 2 ms is what our engine watches for, and it is only measurable because each beat is *located* in hardware rather than by a scheduled task, and the interval between beats is timed by a 1 µs hardware timer instead of a 10 ms OS tick.
 
 | RMSSD | Interpretation |
 |---|---|
@@ -633,7 +661,10 @@ Together with the NOAA heat index, these are what let VALOR say *"stop exerting 
 
 **Analogy:** you're packing a suitcase with a strict weight limit. You *could* bring 32-bit precision for everything. But if you convert every item into a compact travel version that's 4× smaller and works just as well for the trip, you fit **four times as much** in the same bag.
 
-Quantization shrinks each 32-bit float to an 8-bit integer. Our **619 parameters become 619 bytes** — about the size of a tweet.
+Quantization shrinks each 32-bit float to an 8-bit integer. Our **619 parameters become 619 bytes** — about the size of a tweet — and a full forward pass is **576 multiply-accumulates** (6×24 + 24×16 + 16×3 = 144 + 384 + 48).
+
+> [!NOTE]
+> **Two different numbers, two different things.** 619 is the *storage* count (weights + biases, one byte each). 576 is the *arithmetic* count (one MAC per weight, biases added free). Quote whichever the question is about — "619 parameters" for memory, "576 int8 MACs" for compute. Measured inference time is **0.44 µs on an x86-64 host at `-O2`**; the ESP32-S3 figure has **not** been measured, so do not quote 0.44 µs as an on-device number.
 
 **How the shrink works (and how it doesn't lie to you):**
 
@@ -714,8 +745,8 @@ A tiny INT8 network learns the correction from the sensor's own humidity and tem
 ```mermaid
 flowchart TD
     A[MAX30102<br/>raw Red/IR] --> B[FPGA: filter<br/>+ peak detect]
-    B --> C[IBI cycles + irq_beat]
-    C --> D[hrv_analysis.c<br/>RMSSD / SDNN]
+    B --> C["beat flag (MISO bit 7)<br/>+ filtered sample"]
+    C --> D[hrv_analysis.c<br/>RMSSD / SDNN<br/>intervals timed by esp_timer]
     A --> E[spo2_engine.c<br/>ratio-of-ratios]
     F[BME280] --> G[clinical_vitals_engine.c<br/>mNEWS2]
     H[PMSA003] --> I[pm25_calibration_int8.c]
@@ -740,11 +771,15 @@ A standalone Win32 GDI application — no Python, no browser, no dependencies. I
 
 | Constraint | Value | Implication |
 |---|---|---|
-| App image | **945,520 bytes** | — |
-| App partition | 1,048,576 bytes (1 MB) | — |
-| **Free headroom** | **103,056 bytes (9.8 %)** | Tight — release optimisation strongly advised |
-| Optimization level | **Debug (`-Og`)** | Switching to release frees significant space |
+| Device flash | **8 MB** (ESP32-S3-WROOM-1-N8R2) | `CONFIG_ESPTOOLPY_FLASHSIZE_8MB=y` |
+| App image | **945,520 bytes** (~0.9 MiB) | — |
+| App partition | **7,340,032 bytes (7 MB)** — `factory`, type `app`, offset `0x10000`, size `0x700000` | `firmware/shrikefi/partitions.csv` |
+| **Free headroom** | **6,394,512 bytes (~87 %)** | Comfortable. The stock ESP-IDF "single app" table reserved only 1 MB and left ~10 %, which would have failed the build the moment anything was added |
+| Optimization level | **Debug (`-Og`)** | Switching to release still frees space, but it is no longer urgent |
 | CPU frequency | **160 MHz configured** | The LX7 supports 240 MHz |
+
+> [!WARNING]
+> **The 1 MB / 103,056-byte / 9.8 % figures in earlier revisions of this table were stale.** They described the stock ESP-IDF single-app partition on a 2 MB-configured part. `partitions.csv` was changed to a 7 MB app partition precisely because the old table's headroom would have broken the next build. The current numbers are: **945,520 B image in a 7,340,032 B partition on an 8 MB module, ~87 % free.** If you quote "9.8 % free" in the judging room you are quoting a revision that no longer exists.
 
 > [!WARNING]
 > **Do not claim 240 MHz operation.** `sdkconfig` sets `CONFIG_ESP_DEFAULT_CPU_FREQ_MHZ=160`. Either raise it deliberately or phrase it as "the LX7 is capable of 240 MHz." Claiming a clock you didn't configure is exactly the kind of thing a hardware judge checks.
@@ -758,11 +793,11 @@ A standalone Win32 GDI application — no Python, no browser, no dependencies. I
 
 ---
 
-**Q1. "Why did you use an FPGA when the ESP32-S3 has two 240 MHz cores?"**
+**Q1. "Why did you use an FPGA when the ESP32-S3 has two 160 MHz cores?"**
 
 - **Elevator:** "Because the measurement we need is smaller than the timing error a software timestamp would introduce."
-- **Technical:** "HRV needs beat-to-beat intervals accurate to a few milliseconds. Our ESP32-S3 runs FreeRTOS at a 100 Hz tick — a 10 ms scheduling quantum, plus jitter from Wi-Fi and flash caching. The error would exceed the physiological signal. The FPGA measures the same interval in 20 ns cycles with zero jitter, because it's synchronous hardware, not scheduled code."
-- **Evidence:** "`CONFIG_FREERTOS_HZ=100` in our sdkconfig; the RTL uses a 50 MHz clock so one tick is 20 ns; the 6/6 and 5/5 testbenches verify the peak detector and IBI latching."
+- **Technical:** "HRV needs beat-to-beat intervals accurate to a few milliseconds. If the ESP32 timestamped beats inside a FreeRTOS task, the reading would be quantised to the 10 ms scheduler tick *plus* whatever jitter Wi-Fi and flash caching add — error larger than the signal. So detection happens in hardware: the FPGA's peak detector finds the systolic crest in synchronous logic at 50 MHz with no scheduler in the loop, and sets a beat flag. The MCU then only has to notice that flag and read its own 1 µs hardware timer, which is a 10,000× finer quantum than the RTOS tick — and the detection step has no jitter at all. What we do **not** claim is that the FPGA hands the MCU a 20 ns timestamp: the interval is timed by the MCU."
+- **Evidence:** "`CONFIG_FREERTOS_HZ=100` in our sdkconfig; the RTL detects the peak at 50 MHz and returns the beat as **bit 7 of the MISO byte**; `shrikefi_link_driver.c` times the interval with `esp_timer_get_time()` on rising beat flags, so its resolution is 1 µs. The 6/6 and 5/5 testbenches verify the peak detector and the beat flag."
 
 ---
 
@@ -793,7 +828,7 @@ A standalone Win32 GDI application — no Python, no browser, no dependencies. I
 **Q5. "How do you calculate respiratory rate without a breathing sensor?"**
 
 - **Elevator:** "From the pulse itself — breathing modulates heart rate, and we can see that modulation in the beat intervals."
-- **Technical:** "Respiratory Sinus Arrhythmia: inspiration accelerates the heart, expiration slows it. Because we have 20 ns-resolution beat intervals, the breathing rhythm is recoverable from the IBI series without any additional sensor."
+- **Technical:** "Respiratory Sinus Arrhythmia: inspiration accelerates the heart, expiration slows it. Because our beats are hardware-detected and the interval between them is timed to the microsecond, the breathing rhythm is recoverable from the IBI series without any additional sensor."
 - **Evidence:** "Implemented per Charlton 2018 and running on the device — `ppg_respiratory_rate.c` is compiled into the ESP build, fed from a 40-beat rolling window of *accepted* IBIs, and its output goes into the NEWS2 respiratory term via `clinical_vitals_assess_full()`. A 4-second IBI oscillation maps to ~15 breaths/min. It reports a confidence value and RR is only trusted when the estimate is reliable."
 
   > **Be precise if pressed:** before this was wired up, NEWS2 ran with RR defaulted to a normal 14, which silently disabled the tachypnoea and bradypnoea terms — the most sensitive part of the score. If you are asked about an older build, that is the honest answer.
@@ -802,16 +837,16 @@ A standalone Win32 GDI application — no Python, no browser, no dependencies. I
 
 **Q6. "How does the FPGA communicate with the MCU?"**
 
-- **Elevator:** "A deliberately primitive 4-bit parallel link — four data wires, a strobe, a direction line and one interrupt."
-- **Technical:** "No AXI, no SPI, no I2C. The MCU sends a command nibble then payload nibbles, clocked by `link_strobe`. The FPGA returns data on `link_dout` and raises `irq_beat` the cycle a systolic peak is detected."
-- **Evidence:** "The command map (`0x1`–`0x8`) is identical in the protocol doc, the C driver header and the Verilog `localparam` decode — and the 5-test link testbench verifies it."
+- **Elevator:** "Over 4-wire SPI — one 8-bit full-duplex transfer per optical sample. The MCU sends the sample; the FPGA returns the filtered waveform with the beat flag in bit 7."
+- **Technical:** "8-bit SPI, **mode 0, MSB first, on the ESP32's `SPI2_HOST`**, at 1 MHz, with chip select driven manually on GPIO10 so that each sample is exactly one transaction. There is **no command map**: the write *is* the sample, and the reply is `{beat_latched, filt_sample[6:0]}`. The FPGA holds no register file and answers no opcodes. There is no interrupt pin either — the beat arrives as bit 7 of the byte the MCU is already clocking in, and the MCU derives the inter-beat interval from its own `esp_timer_get_time()` deltas. (An earlier revision of this guide described a 4-bit parallel nibble link with a strobe, a direction line and a `0x1`–`0x8` command codebook. **That design was retired before it was ever built** and none of it exists in the code.)"
+- **Evidence:** "`firmware/shrikefi/shrikefi_link_driver.c` includes `driver/spi_master.h`, initialises `SPI2_HOST` and sets `.mode = 0`; `hardware/shrikefi/forgefpga_ppg_top.v` instantiates `spi_target`; `hardware/shrikefi/forgefpga_pins.pcf` binds `spi_sck`/`spi_ss_n`/`spi_mosi`/`spi_miso` to `PIN_16`–`PIN_19`; and `tb_forgefpga_system.v` drives the DUT exactly that way in its 5 self-checking tests. There is no `SHRIKEFI_CMD_*` identifier in the driver and no opcode decode in the RTL — grep for either and the only hits are in retired documentation."
 
 ---
 
 **Q7. "Why INT8 quantization instead of float32?"**
 
 - **Elevator:** "619 bytes of storage, integer arithmetic, and 97% tier agreement that our unit test enforces."
-- **Technical:** "Symmetric quantization for weights, asymmetric uint8 for activations, with per-tensor scales and zero-points. Storage is 4× smaller and the MACs run natively on the ESP32-S3 without an FPU."
+- **Technical:** "Symmetric quantization for weights, asymmetric uint8 for activations, with per-tensor scales and zero-points. Storage is 4× smaller than float32, and the win is that 619 parameters fit in a few hundred bytes with a 576-MAC forward pass. Note the ESP32-S3 *does* have a single-precision FPU and this kernel dequantizes to float for the multiply-accumulate, so quantization buys footprint here, not the absence of floating point."
 - **Evidence:** "Measured mean error 0.0079, max 0.091 against a 0.18 budget; `test_int8_matches_float_nn` fails the build if it regresses."
 
 ---
@@ -842,12 +877,12 @@ A standalone Win32 GDI application — no Python, no browser, no dependencies. I
 
 **Q11. "How is the Renesas ForgeFPGA programmed on boot?"** ⚠️ *the dangerous one*
 
-- **Elevator:** "We believe it self-configures from on-chip NVM or the onboard flash — and our firmware reports precisely what it finds rather than assuming."
-- **Technical:** "The SLG47910C is an FPGA, not a Renesas I2C-configurable CMIC, so it has no hardwired I2C NVM controller. Our pin constraints declare no I2C or SPI configuration port. The toolchain emits three variants — OTP, external-flash, and MCU-delivered — and our board has an onboard W25Q32JV. Our firmware probes I²C 0x08 as a best-effort path and logs which case occurred; a 'not detected' result is the expected case and never blocks boot."
-- **Evidence:** "`hardware/shrikefi/forgefpga_pins.pcf` (no config pins declared); the boot log distinguishes 'no I2C configuration interface' from 'device ACKed'; the 46 KB bitstream is compiled out by default because we don't assume the path works."
+- **Elevator:** "Over SPI — the ESP32 runs the vendor's reset/boot-latch sequence and streams the bitstream to it. Because that transfer is open-loop, we prove the FPGA is running with a link handshake rather than with the programming call."
+- **Technical:** "The SLG47910C is an FPGA, not a Renesas I2C-configurable CMIC, so it has no hardwired I2C NVM controller — and our pin constraints declare no I2C configuration port, so there is no I2C route into it. What they *do* declare is a 4-wire SPI interface on `PIN_16`–`PIN_19`, shared with the runtime link, and that is the route the firmware uses: `shrikefi_fpga_flash_init()` drives `PWR`/`EN`/`SS` through the boot-mode latch, then streams `FPGA_bitstream_MCU.bin` (46,408 bytes) over `SPI2` at 16 MHz in 256-byte chunks. Nothing is read back, so the call cannot confirm delivery, and a failure is explicitly non-fatal. The authoritative check is the `0x55` handshake on the runtime link, which only answers if the FPGA is alive. Whether the part *also* self-configures from OTP is the open question we are settling on the bench."
+- **Evidence:** "`firmware/shrikefi/shrikefi_link_driver.c: shrikefi_fpga_flash_init()` (the SPI2 stream, using `esp_rom_delay_us` for the sub-tick latch windows); the call site and its 'open-loop, non-fatal, authoritative check is the handshake' comment in `main_shrikefi.c`; the boot log prints 'configuration COMPLETE! (46408 bytes loaded)' and then the link probe result. `hardware/shrikefi/forgefpga_pins.pcf` names the SPI pads. The I²C scanner in `esp32_i2c_hal.c` labels address `0x08` as 'ForgeFPGA', but that is a string on a scan log line, not a configuration path."
 
 > [!IMPORTANT]
-> **Never** answer this with a confident invented mechanism. The honest answer above is *stronger*, because it demonstrates you understand the difference between an FPGA and a CMIC, and that you instrumented the uncertainty instead of hiding it.
+> **Never** answer this with a confident invented mechanism. The honest answer above is *stronger*, because it distinguishes an FPGA from a CMIC, describes the path the code actually takes, and shows that the uncertainty is instrumented instead of hidden.
 
 ---
 
@@ -903,7 +938,7 @@ A standalone Win32 GDI application — no Python, no browser, no dependencies. I
 
 > **"Your heart rate variability is the wobble between heartbeats — tens of milliseconds. Our ESP32 runs an operating system with a ten-millisecond tick. If we timestamped beats in software, our measurement error would be bigger than the thing we're measuring."**
 
-> **"So we don't. The FPGA timestamps every beat to twenty nanoseconds. That's the difference between HRV you can trust and HRV that's noise."**
+> **"So we don't. The FPGA finds the peak itself, in hardware, at fifty megahertz — no operating system in the loop, no jitter. Then a microsecond timer on the ESP32 measures the gap between those hardware-confirmed beats. That's the difference between HRV you can trust and HRV that's noise."**
 
 **[0:32 — Finger on the sensor. Let the oscilloscope fill.]**
 
@@ -915,7 +950,7 @@ A standalone Win32 GDI application — no Python, no browser, no dependencies. I
 
 **[0:52 — Step back.]**
 
-> **"Sixteen thousand real ICU records, ninety-four percent triage accuracy, ninety-eight percent specificity. No cloud. No phone. Twenty nanosecond timing. That's VALOR."**
+> **"Sixteen thousand real ICU records, ninety-four percent triage accuracy, ninety-eight percent specificity. No cloud. No phone. Hardware beat detection, microsecond interval timing. That's VALOR."**
 
 ---
 
@@ -926,7 +961,7 @@ A standalone Win32 GDI application — no Python, no browser, no dependencies. I
 | Sensor gives no reading | "The sensor needs skin contact — while I re-seat it, here's the same pipeline running our MIMIC validation data." *(switch dashboard to a simulation profile)* |
 | Board won't boot | "Let me show you the same algorithm chain on the dashboard — six disaster profiles, identical code path." |
 | Judge asks something you don't know | "I don't know that yet — here's how we'd measure it." *(Never guess. Never.)* |
-| FPGA link dead | "The FPGA is expected to self-configure from onboard flash; if it hasn't, the ESP32-side algorithms still demonstrate end to end on the simulation profiles." |
+| FPGA link dead | "The ESP32 streams the bitstream to it over SPI at boot; if that didn't take, the ESP32-side algorithms still demonstrate end to end on the simulation profiles." |
 | Wi-Fi/MQTT fails | "That's the point — it's designed to work offline. The advisory on the OLED doesn't need the network." |
 
 > [!WARNING]
@@ -939,20 +974,20 @@ A standalone Win32 GDI application — no Python, no browser, no dependencies. I
 | | |
 |---|---|
 | **Project** | SIH26181 VALOR (Vital and Atmospheric Logic for Offline Rescue) / ShrikeFi — wearable offline disaster triage |
-| **MCU** | ESP32-S3, Xtensa LX7 dual-core, **160 MHz configured**, FreeRTOS, 2 MB flash |
+| **MCU** | ESP32-S3 (WROOM-1-N8R2), Xtensa LX7 dual-core, **160 MHz configured**, FreeRTOS, **8 MB flash** |
 | **FPGA** | Renesas ForgeFPGA SLG47910C, 1120 LUT5s, 50 MHz, **363 LUT5s used (32.41%)**, 202 FFs, 75 CLBs, 0 DSP, 0 BRAM, 0 PLL |
 | **Baseline** | Xilinx Zynq-7000 `xc7z020`, AXI4-Lite, 6/6 tests, 0 DSP/BRAM |
 | **Sensors** | MAX30102 (PPG), BME280 (T/H/P), PMSA003 (PM1/2.5/10), SSD1306 OLED |
-| **Link** | 4-bit parallel nibble link: strobe, dir, din[3:0], dout[3:0], irq_beat |
+| **Link** | **8-bit SPI, mode 0 (4-wire):** SCK/SS_n/MOSI/MISO, 1 MHz, CS driven manually — one full-duplex frame per sample; beat = **MISO bit 7**. No command map, no strobe, no IRQ pin |
 | **DSP** | O(1) 8-tap running-sum filter (`>>3`), 4-state peak FSM, 250 ms refractory |
-| **Timing** | 32-bit IBI counter, **20 ns** per tick — the reason the FPGA exists |
-| **AI** | 6→24→16→3, INT8, **619 bytes**, error 0.0079 mean / 0.091 max, **97.32%** tier agreement |
+| **Timing** | Peak detection at 50 MHz (**20 ns** per tick); the 32-bit interval counter is internal — the MCU times beats with `esp_timer_get_time()` (**1 µs**) |
+| **AI** | 6→24→16→3, INT8, **619 bytes / 576 MACs**, error 0.0079 mean / 0.091 max, **97.32%** tier agreement |
 | **Clinical** | mNEWS2, Moran PSI, AHA autonomic strain, Charlton RSA respiration, Elgendi/Karlen SQI |
 | **MIMIC-III** | 16,387 rows / 98 patients — **94.11% accuracy, 98.19% specificity**, TP971/FP267/TN14451/FN698 |
 | **Timing budget** | 0.44 µs per INT8 inference, **x86-64 host measured**; ESP32 target not yet measured |
-| **Image** | 945,520 B in a 1 MB partition — 103,056 B (9.8%) free, debug build |
+| **Image** | 945,520 B in a **7 MB app partition** (`0x700000` at `0x10000`) on **8 MB flash** — ~6.39 MB (~87%) free, debug build |
 | **Tests** | Zynq 6/6 · ShrikeFi 5/5 · firmware unit tests pass · MIMIC gate 94.11% |
-| **Never say** | "95.40% specificity" · "240 MHz" · "443 LUTs" · "FPGA definitely needs no programming" |
+| **Never say** | "95.40% specificity" · "240 MHz" · "443 LUTs" · "4-bit parallel link" · "no SPI/nibble command map" · "9.8% free" · "FPGA definitely needs no programming" |
 
 > [!IMPORTANT]
 > **The one-sentence version of this entire guide:** *We built a wearable that fuses the patient and the environment, on hardware fast enough to measure what software cannot, and we documented it honestly enough that every number can be checked.*
