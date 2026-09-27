@@ -1050,7 +1050,100 @@ static void test_rr_tracker(void) {
     printf("test_rr_tracker: PASS (holds through the flicker, bounded, median rejects outliers)\n");
 }
 
+/* Synthetic respiratory modulation at a known rate, sampled at the beat rate.
+ * Phase advances with elapsed TIME, not beat index, so this is a genuine
+ * respiratory modulation and not an artefact of the array indexing. */
+static float rr_synth(float true_bpm, float mean_ibi, float depth_ms,
+                      size_t n, ppg_respiratory_result_t *out) {
+    float ibi[96];
+    if (n > 96) n = 96;
+    float t = 0.0f;
+    float period_s = 60.0f / true_bpm;
+    for (size_t i = 0; i < n; i++) {
+        float phase = 2.0f * 3.14159265f * (t / period_s);
+        ibi[i] = mean_ibi + 0.5f * depth_ms * sinf(phase);
+        t += ibi[i] / 1000.0f;
+    }
+    memset(out, 0, sizeof(*out));
+    ppg_estimate_respiratory_rate(ibi, NULL, n, out);
+    return out->respiratory_rate_bpm;
+}
+
+/* Rate resolution.
+ *
+ * The autocorrelation is sampled at INTEGER beat lags and the period was formed
+ * as `lag * mean_ibi`, so the reported rate could only land on the grid
+ * 60000/(k * mean_ibi). At a resting 800 ms IBI that grid is 25.0, 18.75, 15.0,
+ * 12.5, 10.71 br/min - steps of up to 6.25, and up to 3.1 br/min of error at the
+ * midpoint between two lags.
+ *
+ * That is clinically load-bearing: NEWS2's first abnormal respiratory band
+ * starts at 21 br/min, and this file's own FM/AM agreement test tolerates
+ * 3 br/min of disagreement between two independent estimates. An instrument
+ * whose resolution is coarser than both cannot support either.
+ *
+ * It is also why a paced-breathing run at 15 br/min could not be distinguished
+ * from a spontaneous 17 - at the 880 ms IBI measured on hardware, 15 sits
+ * almost exactly between lag 4 (17.0) and lag 5 (13.6), so that comparison was
+ * deciding which of two adjacent lags won, not measuring respiration.
+ *
+ * The pre-existing test passed only because 15 br/min at 800 ms is exactly
+ * lag 5. Every rate here is deliberately the MIDPOINT between two adjacent
+ * lags, which is the worst case by construction, and it is run at two IBIs so
+ * the result cannot be an accident of one grid. */
+static void test_rr_resolution(void) {
+    const float mean_ibis[] = { 800.0f, 880.0f };
+    const int   pairs[]     = { 3, 4, 5, 6, 7 };   /* lag k and k+1 */
+    const float tol         = 1.5f;                /* br/min */
+    const size_t N          = 90;
+
+    printf("  RR resolution - off-grid rates are the midpoint between two lags\n");
+    printf("  (worst case; tolerance %.1f br/min)\n", tol);
+
+    float worst_err  = 0.0f;
+    float worst_true = 0.0f;
+    int   failures   = 0;
+    int   n_run      = 0;
+
+    for (size_t b = 0; b < sizeof(mean_ibis) / sizeof(mean_ibis[0]); b++) {
+        float ibi = mean_ibis[b];
+        for (size_t p = 0; p < sizeof(pairs) / sizeof(pairs[0]); p++) {
+            float rr_hi = 60000.0f / ((float)pairs[p]       * ibi);
+            float rr_lo = 60000.0f / ((float)(pairs[p] + 1) * ibi);
+            float truth = 0.5f * (rr_hi + rr_lo);
+
+            ppg_respiratory_result_t rr;
+            float est = rr_synth(truth, ibi, 40.0f, N, &rr);
+            float err = fabsf(est - truth);
+            n_run++;
+
+            printf("    IBI %3.0f ms  lag %d/%d  true %5.2f  est %5.2f  err %5.2f  conf %.2f  rel %d\n",
+                   ibi, pairs[p], pairs[p] + 1, truth, est, err,
+                   rr.confidence, (int)rr.is_reliable);
+
+            if (err > worst_err) { worst_err = err; worst_true = truth; }
+            /* A default-valued result would otherwise pass this test by
+             * accident: PPG_RR_DEFAULT_BPM is 14, which happens to sit near
+             * several of these midpoints. Insist the estimator actually
+             * committed to an answer. */
+            if (!rr.is_reliable || err > tol) failures++;
+        }
+    }
+
+    printf("  RR resolution: %d of %d off-grid rates outside %.1f br/min "
+           "(worst %.2f br/min at true %.2f)\n",
+           failures, n_run, tol, worst_err, worst_true);
+    assert(failures == 0);
+
+    printf("test_rr_resolution: PASS (off-grid rates resolved to better than %.1f br/min)\n", tol);
+}
+
 int main() {
+    /* Unbuffered, because a failing assert calls abort() and abort() does not
+     * flush stdio. With the default block buffering the diagnostic printed
+     * immediately before the failing assertion - the actual numbers - is thrown
+     * away and all the runner shows is the assertion text. */
+    setvbuf(stdout, NULL, _IONBF, 0);
     printf("Running unit tests for disaster_risk_engine...\n");
     test_heat_risk();
     test_pollution_risk();
@@ -1068,6 +1161,7 @@ int main() {
     test_cyclone_risk();
     test_rr_confidence();
     test_rr_tracker();
+    test_rr_resolution();
     printf("ALL TESTS PASSED.\n");
     return 0;
 }

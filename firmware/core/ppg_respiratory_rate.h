@@ -70,6 +70,29 @@ extern "C" {
 #define PPG_RR_ACF_MIN       0.25f
 #define PPG_RR_ACF_STRONG    0.60f
 
+/* Harmonic preference.
+ *
+ * A periodic series correlates at every MULTIPLE of its period, so the
+ * autocorrelation has a peak at the fundamental lag L and again at 2L, 3L, ...
+ * In the continuous limit those peaks are all the same height and the choice
+ * between them is free. Sampled at integer beat lags they are not: whenever L
+ * is not close to an integer, the sampled value at L is pulled down while a
+ * harmonic can still land near an integer and score close to full height.
+ *
+ * Concretely, at the 800 ms IBI used in the tests a clean 21.9 br/min
+ * modulation has L = 3.43 beats, which scores 0.68 at lag 3 but 0.89 at lag 7 -
+ * so a subject breathing nearly 22 times a minute was reported as breathing
+ * 10.9. Taking the global maximum is not a choice between equal evidence; it is
+ * a systematic bias toward reporting half the true rate.
+ *
+ * The autocorrelation cannot separate them, so this needs a prior, which is the
+ * same kind PPG_RR_MIN_BPM and PPG_RR_MAX_BPM already encode. Of the lags that
+ * are local maxima and reach this fraction of the strongest admissible one, take
+ * the LOWEST - the fundamental. Below it a genuine fast rate is missed; too low
+ * and noise peaks start winning, so it is set from the measured ratio above
+ * (0.68/0.89 = 0.77) with margin for a noisier series. */
+#define PPG_RR_HARMONIC_FRAC 0.60f
+
 /* Respiratory sinus arrhythmia, as an equivalent sinusoid peak-to-peak in ms.
  * Adult RSA at rest is typically 20-60 ms peak-to-peak; below about 10 ms there
  * is effectively no modulation to detect. */

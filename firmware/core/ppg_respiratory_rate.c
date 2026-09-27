@@ -9,10 +9,44 @@
 #include <math.h>
 #include <string.h>
 
+/* Upper bound on the autocorrelation lag search (see max_lag below). Named
+ * because the lag-correlation buffer has to be sized off it. */
+#define MAX_ACF_LAGS 24
+
 static float clamp_rr(float x) {
     if (x < PPG_RR_MIN_BPM) return PPG_RR_MIN_BPM;
     if (x > PPG_RR_MAX_BPM) return PPG_RR_MAX_BPM;
     return x;
+}
+
+/* Quadratic (parabolic) interpolation of an autocorrelation peak.
+ *
+ * The ACF is sampled at INTEGER beat lags and the period was formed as
+ * `lag * mean_ibi`, so the reported rate could only ever land on the grid
+ * 60000 / (k * mean_ibi). At the 880 ms IBI measured on real finger PPG that
+ * grid is 22.7, 17.0, 13.6, 11.3, 9.7 br/min: steps of 3.4 br/min, with a
+ * worst-case error of half a step at the midpoint between two lags.
+ *
+ * That is a clinical problem, not a cosmetic one. NEWS2's first abnormal
+ * respiratory band starts at 21 br/min, and this file's own FM/AM agreement
+ * test allows 3 br/min of disagreement between two independent estimates -
+ * both finer than the instrument's own resolution. It is also why a paced run
+ * at 15 br/min could not be told apart from a spontaneous 17: at 880 ms, 15
+ * sits almost exactly between lag 4 (17.0) and lag 5 (13.6).
+ *
+ * The three correlations around the winner sample a parabola whose vertex lies
+ * between them; its offset recovers the sub-lag peak. Clamped to +/-0.5 lag so
+ * the refinement can sharpen the chosen peak but never migrate to another one.
+ * A flat or inverted neighbourhood has no vertex to find and is left alone. */
+static float interp_peak_lag(const float *r, int k, size_t max_lag) {
+    if (k < 1 || (size_t)(k + 1) > max_lag) return (float)k;
+    float rm = r[k - 1], r0 = r[k], rp = r[k + 1];
+    float denom = rm - 2.0f * r0 + rp;
+    if (fabsf(denom) < 1e-6f) return (float)k;
+    float d = 0.5f * (rm - rp) / denom;
+    if (d >  0.5f) d =  0.5f;
+    if (d < -0.5f) d = -0.5f;
+    return (float)k + d;
 }
 
 void ppg_estimate_respiratory_rate(
@@ -104,11 +138,27 @@ void ppg_estimate_respiratory_rate(
 
     /* 2. Autocorrelation of IBI sequence (Frequency Modulation / RSA) */
     size_t max_lag = N / 2;
-    if (max_lag > 24) max_lag = 24;
+    if (max_lag > MAX_ACF_LAGS) max_lag = MAX_ACF_LAGS;
     if (max_lag < 3) max_lag = 3;
 
     int best_lag = -1;
     float best_r = -1.0f;
+
+    /* The correlation at every lag, kept so the winner's peak can be
+     * interpolated afterwards. A scalar running maximum cannot be refined once
+     * the loop has moved past the neighbours it would need.
+     *
+     * Lag 1 is computed purely as a neighbour for the case best_lag == 2. Its
+     * own implied rate (~68 br/min at rest) is far outside the band and it can
+     * never win - the band gate below still excludes it from the search. */
+    float r_lag[MAX_ACF_LAGS + 2];
+    memset(r_lag, 0, sizeof(r_lag));
+
+    if (max_lag >= 1) {
+        float cross = 0.0f;
+        for (size_t i = 0; i + 1 < N; i++) cross += y[i] * y[i + 1];
+        r_lag[1] = cross / var_sum;
+    }
 
     /* Search lags corresponding to 6 to 36 breaths/min.
      * With mean_ibi in ms, lag k beats corresponds to period = k * mean_ibi / 1000 sec.
@@ -130,31 +180,60 @@ void ppg_estimate_respiratory_rate(
          * triage. A rate that only exists because we clamped it is not a rate
          * we measured. */
         float rr_k = 60000.0f / ((float)k * mean_ibi);
-        if (rr_k < PPG_RR_MIN_BPM || rr_k > PPG_RR_MAX_BPM) {
-            continue;
-        }
 
         float cross = 0.0f;
         for (size_t i = 0; i < N - k; i++) {
             cross += y[i] * y[i + k];
         }
         float r = cross / var_sum;
+        r_lag[k] = r;   /* stored before the band gate: a neighbour is still a neighbour */
 
-        /* Check for local peak */
-        if (r > best_r && r > 0.15f) {
+        /* A lag outside the physiological band cannot win the search. */
+        if (rr_k < PPG_RR_MIN_BPM || rr_k > PPG_RR_MAX_BPM) {
+            continue;
+        }
+
+        if (r > best_r) {
             best_r = r;
             best_lag = (int)k;
+        }
+    }
+
+    /* No admissible lag cleared the floor, so there is no peak to report. */
+    if (best_r < 0.15f) {
+        best_lag = -1;
+    }
+
+    /* Prefer the fundamental over its harmonics - see PPG_RR_HARMONIC_FRAC.
+     * `best_lag` is the strongest admissible lag; this walks up from the
+     * shortest and takes the first local maximum that is within the fraction. */
+    int   peak_lag = best_lag;
+    float peak_r   = best_r;
+    if (best_lag > 0) {
+        float frac_r = PPG_RR_HARMONIC_FRAC * best_r;
+        for (size_t k = 2; k <= max_lag; k++) {
+            float rr_k = 60000.0f / ((float)k * mean_ibi);
+            if (rr_k < PPG_RR_MIN_BPM || rr_k > PPG_RR_MAX_BPM) continue;
+            if (r_lag[k] < frac_r) continue;
+            bool local_max = (r_lag[k] >= r_lag[k - 1]) &&
+                             (k + 1 > max_lag || r_lag[k] >= r_lag[k + 1]);
+            if (local_max) {
+                peak_lag = (int)k;
+                peak_r   = r_lag[k];
+                break;
+            }
         }
     }
 
     float rr_from_fm = PPG_RR_DEFAULT_BPM;
     float conf_fm = 0.0f;
 
-    if (best_lag > 0) {
-        float breath_period_sec = ((float)best_lag * mean_ibi) / 1000.0f;
+    if (peak_lag > 0) {
+        float lag_f = interp_peak_lag(r_lag, peak_lag, max_lag);
+        float breath_period_sec = (lag_f * mean_ibi) / 1000.0f;
         if (breath_period_sec > 1.2f && breath_period_sec < 12.0f) {
             rr_from_fm = 60.0f / breath_period_sec;
-            conf_fm = (best_r > 0.90f) ? 0.90f : best_r;
+            conf_fm = (peak_r > 0.90f) ? 0.90f : peak_r;
         }
     }
 
@@ -177,24 +256,60 @@ void ppg_estimate_respiratory_rate(
         if (amp_var > 1e-3f) {
             int best_am_lag = -1;
             float best_am_r = -1.0f;
+            float ar_lag[MAX_ACF_LAGS + 2];
+            memset(ar_lag, 0, sizeof(ar_lag));
+            if (max_lag >= 1) {
+                float cross = 0.0f;
+                for (size_t i = 0; i + 1 < N; i++) cross += amp_y[i] * amp_y[i + 1];
+                ar_lag[1] = cross / amp_var;
+            }
             for (size_t k = 2; k <= max_lag; k++) {
-                /* Same band rejection as the FM search above. */
-                float rr_k = 60000.0f / ((float)k * mean_ibi);
-                if (rr_k < PPG_RR_MIN_BPM || rr_k > PPG_RR_MAX_BPM) {
-                    continue;
-                }
                 float cross = 0.0f;
                 for (size_t i = 0; i < N - k; i++) {
                     cross += amp_y[i] * amp_y[i + k];
                 }
                 float r = cross / amp_var;
-                if (r > best_am_r && r > 0.20f) {
+                ar_lag[k] = r;
+
+                /* Same band rejection as the FM search above. */
+                float rr_k = 60000.0f / ((float)k * mean_ibi);
+                if (rr_k < PPG_RR_MIN_BPM || rr_k > PPG_RR_MAX_BPM) {
+                    continue;
+                }
+                if (r > best_am_r) {
                     best_am_r = r;
                     best_am_lag = (int)k;
                 }
             }
+            /* Same 0.20 floor the search applied before it was restructured to
+             * store every lag. */
+            if (best_am_r < 0.20f) {
+                best_am_lag = -1;
+            }
+            /* Same fundamental-over-harmonic preference as the FM path: this
+             * estimate is fused with that one, so an octave error here would go
+             * straight back into the published rate. */
             if (best_am_lag > 0) {
-                float period_am = ((float)best_am_lag * mean_ibi) / 1000.0f;
+                float frac_am = PPG_RR_HARMONIC_FRAC * best_am_r;
+                for (size_t k = 2; k <= max_lag; k++) {
+                    float rr_k = 60000.0f / ((float)k * mean_ibi);
+                    if (rr_k < PPG_RR_MIN_BPM || rr_k > PPG_RR_MAX_BPM) continue;
+                    if (ar_lag[k] < frac_am) continue;
+                    bool am_local_max = (ar_lag[k] >= ar_lag[k - 1]) &&
+                                        (k + 1 > max_lag || ar_lag[k] >= ar_lag[k + 1]);
+                    if (am_local_max) {
+                        best_am_lag = (int)k;
+                        best_am_r   = ar_lag[k];
+                        break;
+                    }
+                }
+            }
+            if (best_am_lag > 0) {
+                /* Interpolated on the same reasoning as the FM path - this is the
+                 * estimate that is fused with it, so leaving it quantised would
+                 * put the grid straight back into the fused value. */
+                float lag_am = interp_peak_lag(ar_lag, best_am_lag, max_lag);
+                float period_am = (lag_am * mean_ibi) / 1000.0f;
                 if (period_am > 1.2f && period_am < 12.0f) {
                     rr_from_am = 60.0f / period_am;
                     conf_am = best_am_r;
