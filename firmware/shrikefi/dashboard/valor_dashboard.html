@@ -537,6 +537,8 @@ const V = {
 let mode = 'idle';         // 'idle' | 'sim' | 'live'
 let profile = 'Normal Baseline';
 let sampleRate = 0;
+let ppgSeen = false;      /* has any [PPG] sample arrived this connection? */
+let liveStart = 0;        /* when the current live session began */
 let lastSerialLine = 0;
 
 /* ==========================================================================
@@ -645,6 +647,25 @@ function makePPG() {
       ctx.font = '12px ' + getComputedStyle(document.body).fontFamily;
       ctx.textAlign = 'center';
       ctx.fillText('NO SIGNAL \u2014 connect a device or start a simulation', w / 2, h / 2 - 12);
+      ctx.textAlign = 'left';
+      return;
+    }
+
+    /* Live, but the firmware is not sending [PPG]. That is what
+       CONFIG_SHRIKEFI_STREAM_PPG=n looks like from here - every number still
+       arrives on [TELEMETRY]/[TRIAGE], only the waveform is missing. Say so
+       rather than drawing an unexplained flat line. */
+    if (mode === 'live' && !ppgSeen && performance.now() - liveStart > 5000) {
+      ctx.strokeStyle = 'rgba(245,158,11,0.35)';
+      ctx.lineWidth = 1;
+      ctx.setLineDash([6, 6]);
+      ctx.beginPath(); ctx.moveTo(0, h / 2); ctx.lineTo(w, h / 2); ctx.stroke();
+      ctx.setLineDash([]);
+      ctx.fillStyle = 'rgba(245,158,11,0.9)';
+      ctx.font = '12px ' + getComputedStyle(document.body).fontFamily;
+      ctx.textAlign = 'center';
+      ctx.fillText('PPG stream disabled in firmware (CONFIG_SHRIKEFI_STREAM_PPG=n)', w / 2, h / 2 - 12);
+      ctx.fillText('readings are live; reconnect with the option on for the waveform', w / 2, h / 2 + 8);
       ctx.textAlign = 'left';
       return;
     }
@@ -873,7 +894,7 @@ function render() {
   $('scope-sqi').textContent = 'SQI ' + sqiPct + '%';
   $('scope-sqi').style.color = V.sqi < 50 ? C.crimson : C.mid;
   $('scope-rate').textContent = (mode === 'live' ? (sampleRate || '--') : '50') + ' Hz';
-  $('scope-src').textContent = mode === 'live' ? 'LIVE' : 'SIM';
+  $('scope-src').textContent = (mode === 'live') ? (ppgSeen ? 'LIVE' : 'GATED') : (mode === 'sim' ? 'SIM' : 'NONE');
   $('scope-sub').textContent = mode === 'live'
     ? 'AC-coupled reflectance Â· live MAX30102 Â· auto-ranged'
     : 'AC-coupled reflectance Â· ring buffer Â· auto-ranged';
@@ -1105,7 +1126,7 @@ function handleLine(line) {
 
   if (line.startsWith('[PPG]')) {
     const v = parseFloat(line.slice(5));
-    if (isFinite(v)) { PPG.push(v); ppgCount++; }
+    if (isFinite(v)) { PPG.push(v); ppgCount++; ppgSeen = true; }
     return;
   }
 
@@ -1160,8 +1181,10 @@ async function connect() {
   try {
     port = await navigator.serial.requestPort();
     await port.open({ baudRate: 115200 });
-    mode = 'live';
+mode = 'live';
     keepReading = true;
+    ppgSeen = false;
+    liveStart = performance.now();
     $('gate').classList.add('hidden');
     $('foot-note').textContent = 'live device stream over USB serial';
     [...$('profile-buttons').children].forEach((b) => b.classList.remove('active'));

@@ -167,6 +167,11 @@ shrikefi_err_t shrikefi_write_ir_sample(uint8_t sample) {
 #ifndef SHRIKEFI_LINK_FULL_RATE_LOG
 #define SHRIKEFI_LINK_FULL_RATE_LOG 0
 #endif
+        /* Gated by CONFIG_SHRIKEFI_STREAM_PPG (default y). With it off the
+         * console carries only [TELEMETRY] and [TRIAGE], which is what you want
+         * when the question is "did the link hand over to the FPGA" rather than
+         * "what exactly is the filter returning". */
+#if CONFIG_SHRIKEFI_STREAM_PPG
         static int s_dbg_cnt = 0;
 #if SHRIKEFI_LINK_FULL_RATE_LOG
         printf("FG %d %u %u %u\n", s_dbg_cnt, tx, rx & 0x7F, (rx >> 7) & 1);
@@ -178,6 +183,7 @@ shrikefi_err_t shrikefi_write_ir_sample(uint8_t sample) {
         }
 #endif
         s_dbg_cnt++;
+#endif /* CONFIG_SHRIKEFI_STREAM_PPG */
         s_last_filtered_ir = rx & 0x7F;
         bool beat = ((rx >> 7) & 1) != 0;
         if (beat && !s_last_beat) {

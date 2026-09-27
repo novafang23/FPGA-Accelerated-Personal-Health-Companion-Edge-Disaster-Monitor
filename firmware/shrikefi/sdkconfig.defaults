@@ -1,4 +1,4 @@
-# ShrikeFi ESP32-S3 build identity
+﻿# ShrikeFi ESP32-S3 build identity
 # ==============================================================================
 # Reproduces the configuration the committed firmware was built with. ESP-IDF
 # uses this file only when sdkconfig does not exist yet, so it does not change
@@ -74,6 +74,11 @@ CONFIG_FREERTOS_WATCHPOINT_END_OF_STACK=y
 # unauthenticated, so enabling this broadcasts real physiological data to
 # anyone subscribed to the topic.
 CONFIG_SHRIKEFI_CLOUD_PUBLISH=n
+
+# Per-sample PPG + FPGA link-debug streaming. Default y because the web
+# dashboard's oscilloscope needs [PPG]. Turn OFF for a readable log at bring-up:
+# [TELEMETRY] and [TRIAGE] are unaffected, only the waveform is lost.
+CONFIG_SHRIKEFI_STREAM_PPG=y
 
 # --- Compiler -----------------------------------------------------------------
 # NOTE: intentionally reproducing the current DEBUG build (-Og). For a demo,

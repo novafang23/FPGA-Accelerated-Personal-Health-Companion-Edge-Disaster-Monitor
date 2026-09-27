@@ -554,8 +554,17 @@ static void task_ppg_accelerator(void *pvParameters) {
                                      ppg_sample.ir);
             }
 
-            /* Stream raw PPG sample for PC Dashboard oscilloscope */
+#if CONFIG_SHRIKEFI_STREAM_PPG
+            /* Stream raw PPG sample for the dashboard oscilloscope.
+             *
+             * Gated on CONFIG_SHRIKEFI_STREAM_PPG (default y). At 50 Hz this one
+             * line is most of the console output, and it buries the lines that
+             * actually answer bring-up questions - the FPGA link handshake, the
+             * detector handover, and [TRIAGE]. Turn the option off for a
+             * readable log; the web dashboard keeps every number and only loses
+             * the waveform. */
             printf("[PPG] %lu\n", (unsigned long)ppg_sample.ir);
+#endif
 
             /* 2. Stream to ForgeFPGA over 4-bit parallel link */
             shrikefi_write_red_sample(raw_red);

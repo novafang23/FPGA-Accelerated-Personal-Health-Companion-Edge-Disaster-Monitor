@@ -19,6 +19,35 @@ menu "ShrikeFi configuration"
             When enabled, the device will connect to the broker specified in
             wifi_mqtt_manager.c and broadcast telemetry. Use with caution.
 
+    config SHRIKEFI_STREAM_PPG
+        bool "Stream per-sample PPG and FPGA link debug over the console"
+        default y
+        help
+            Prints two high-rate diagnostic streams:
+
+              [PPG] <raw IR>            one line per optical sample, 50 Hz
+              FG <n> <tx> <rx> <beat>   periodic FPGA link-debug line
+
+            ON by default because the web dashboard's oscilloscope is driven by
+            the [PPG] stream - with this OFF, live mode still shows every number
+            but the waveform stays flat.
+
+            Turn it OFF when you need a readable log. Those two lines are roughly
+            90% of console output and they bury the lines that actually answer
+            questions at bring-up:
+
+              ForgeFPGA runtime link handshake: probe sent 0x55, received 0x..
+              IBI detector handover -> ForgeFPGA / software fallback
+              [TRIAGE] NEWS2=..,RISK=..
+
+            [TELEMETRY] and [TRIAGE] are NOT affected: the dashboard keeps every
+            reading, and only the waveform is lost.
+
+            This is the low-rate FG mode (every 25th transaction). The full-rate
+            dump that tools/replay_fpga_link_log.py consumes is a separate macro,
+            SHRIKEFI_LINK_FULL_RATE_LOG in shrikefi_link_driver.c, which is off
+            unless edited - that one really is unreadable while it runs.
+
 
     config SHRIKEFI_WIFI_SSID
         string "WiFi SSID (2.4 GHz only; leave empty for offline edge mode)"
