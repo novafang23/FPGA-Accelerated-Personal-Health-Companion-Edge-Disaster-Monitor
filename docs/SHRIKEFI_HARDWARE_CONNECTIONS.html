@@ -20,140 +20,20 @@
 <strong>Target Hardware:</strong> Vicharak ShrikeFi (ESP32-S3 Dual-Core + Renesas ForgeFPGA SLG47910)</p>
 <hr />
 <h2>1. Quick Reference: Complete System Pinout</h2>
-<table>
-<thead>
-<tr>
-<th>Peripheral / Interface</th>
-<th>Signal Name</th>
-<th style="text-align: center;">ESP32-S3 Pin</th>
-<th style="text-align: center;">FPGA Pin</th>
-<th style="text-align: center;">Voltage Level</th>
-<th>Notes</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td><strong>I2C Bus</strong></td>
-<td><strong>SDA</strong></td>
-<td style="text-align: center;"><strong>GPIO 1</strong></td>
-<td style="text-align: center;">—</td>
-<td style="text-align: center;">3.3V</td>
-<td>Shared by OLED, MAX30102, BME280</td>
-</tr>
-<tr>
-<td><strong>I2C Bus</strong></td>
-<td><strong>SCL</strong></td>
-<td style="text-align: center;"><strong>GPIO 2</strong></td>
-<td style="text-align: center;">—</td>
-<td style="text-align: center;">3.3V</td>
-<td>400 kHz Fast-Mode I2C clock</td>
-</tr>
-<tr>
-<td><strong>PMS5003 PM2.5</strong></td>
-<td><strong>UART1 RX</strong></td>
-<td style="text-align: center;"><strong>GPIO 14</strong></td>
-<td style="text-align: center;">—</td>
-<td style="text-align: center;">3.3V</td>
-<td>Connects to PMS5003 Pin 5 (TX)</td>
-</tr>
-<tr>
-<td><strong>PMS5003 PM2.5</strong></td>
-<td><strong>UART1 TX</strong></td>
-<td style="text-align: center;"><strong>GPIO 18</strong></td>
-<td style="text-align: center;">—</td>
-<td style="text-align: center;">3.3V</td>
-<td>Connects to PMS5003 Pin 6 (RX) <em>(optional)</em></td>
-</tr>
-<tr>
-<td><strong>FPGA 4-Bit Link</strong></td>
-<td><code>link_strobe</code></td>
-<td style="text-align: center;"><strong>GPIO 4</strong></td>
-<td style="text-align: center;">PIN_14</td>
-<td style="text-align: center;">3.3V</td>
-<td>Internal PCB trace (Strobe Clock)</td>
-</tr>
-<tr>
-<td><strong>FPGA 4-Bit Link</strong></td>
-<td><code>link_dir</code></td>
-<td style="text-align: center;"><strong>GPIO 5</strong></td>
-<td style="text-align: center;">PIN_15</td>
-<td style="text-align: center;">3.3V</td>
-<td>Internal PCB trace (0=Write, 1=Read)</td>
-</tr>
-<tr>
-<td><strong>FPGA 4-Bit Link</strong></td>
-<td><code>link_data[0]</code></td>
-<td style="text-align: center;"><strong>GPIO 6</strong></td>
-<td style="text-align: center;">PIN_16 / 20</td>
-<td style="text-align: center;">3.3V</td>
-<td>Internal PCB trace (Data Bit 0 - LSB)</td>
-</tr>
-<tr>
-<td><strong>FPGA 4-Bit Link</strong></td>
-<td><code>link_data[1]</code></td>
-<td style="text-align: center;"><strong>GPIO 7</strong></td>
-<td style="text-align: center;">PIN_17 / 21</td>
-<td style="text-align: center;">3.3V</td>
-<td>Internal PCB trace (Data Bit 1)</td>
-</tr>
-<tr>
-<td><strong>FPGA 4-Bit Link</strong></td>
-<td><code>link_data[2]</code></td>
-<td style="text-align: center;"><strong>GPIO 8</strong></td>
-<td style="text-align: center;">PIN_18 / 22</td>
-<td style="text-align: center;">3.3V</td>
-<td>Internal PCB trace (Data Bit 2)</td>
-</tr>
-<tr>
-<td><strong>FPGA 4-Bit Link</strong></td>
-<td><code>link_data[3]</code></td>
-<td style="text-align: center;"><strong>GPIO 9</strong></td>
-<td style="text-align: center;">PIN_19 / 23</td>
-<td style="text-align: center;">3.3V</td>
-<td>Internal PCB trace (Data Bit 3 - MSB)</td>
-</tr>
-<tr>
-<td><strong>FPGA Beat IRQ</strong></td>
-<td><code>irq_beat</code></td>
-<td style="text-align: center;"><strong>GPIO 10</strong></td>
-<td style="text-align: center;">PIN_24</td>
-<td style="text-align: center;">3.3V</td>
-<td>Internal PCB trace (Active-High Beat Pulse)</td>
-</tr>
-<tr>
-<td><strong>FPGA Reset</strong></td>
-<td><code>rst_n</code></td>
-<td style="text-align: center;"><strong>GPIO 3</strong></td>
-<td style="text-align: center;">PIN_13</td>
-<td style="text-align: center;">3.3V</td>
-<td>Active-Low FPGA system reset</td>
-</tr>
-<tr>
-<td><strong>Power Input</strong></td>
-<td><strong>5V (VBUS)</strong></td>
-<td style="text-align: center;"><strong>5V / VBUS</strong></td>
-<td style="text-align: center;">—</td>
-<td style="text-align: center;"><strong>5.0V</strong></td>
-<td>Powers PMS5003 fan &amp; laser</td>
-</tr>
-<tr>
-<td><strong>Power System</strong></td>
-<td><strong>3.3V</strong></td>
-<td style="text-align: center;"><strong>3.3V</strong></td>
-<td style="text-align: center;">VDD</td>
-<td style="text-align: center;"><strong>3.3V</strong></td>
-<td>Powers all sensors, MCU, and FPGA</td>
-</tr>
-<tr>
-<td><strong>Ground</strong></td>
-<td><strong>GND</strong></td>
-<td style="text-align: center;"><strong>GND</strong></td>
-<td style="text-align: center;">GND</td>
-<td style="text-align: center;">0V</td>
-<td>Common ground across all modules</td>
-</tr>
-</tbody>
-</table>
+<p>| Peripheral / Interface | Signal Name | ESP32-S3 Pin | FPGA Pin | Voltage Level | Notes |
+| <strong>I2C Bus</strong> | <strong>SDA</strong> | <strong>GPIO 1</strong> | — | 3.3V | Shared by OLED, MAX30102, BME280 |
+| <strong>I2C Bus</strong> | <strong>SCL</strong> | <strong>GPIO 2</strong> | — | 3.3V | 400 kHz Fast-Mode I2C clock |
+| <strong>PMS5003 PM2.5</strong> | <strong>UART1 RX</strong> | <strong>GPIO 14</strong> | — | 3.3V | Connects to PMS5003 Pin 5 (TX) |
+| <strong>PMS5003 PM2.5</strong> | <strong>UART1 TX</strong> | <strong>GPIO 18</strong> | — | 3.3V | Connects to PMS5003 Pin 6 (RX) <em>(optional)</em> |
+| <strong>FPGA SPI Link</strong> | <code>spi_sck</code> | <strong>GPIO 12</strong> | PIN_16 | 3.3V | Internal PCB trace — SPI clock, mode 0 |
+| <strong>FPGA SPI Link</strong> | <code>spi_ss_n</code> | <strong>GPIO 10</strong> | PIN_17 | 3.3V | Internal PCB trace — chip select, active low, driven manually per transaction |
+| <strong>FPGA SPI Link</strong> | <code>spi_mosi</code> | <strong>GPIO 11</strong> | PIN_18 | 3.3V | Internal PCB trace — MCU → FPGA, the sample byte |
+| <strong>FPGA SPI Link</strong> | <code>spi_miso</code> | <strong>GPIO 13</strong> | PIN_19 (+PIN_19_OE) | 3.3V | Internal PCB trace — FPGA → MCU: <code>{beat, filt[6:0]}</code> |
+| <strong>FPGA Enable</strong> | <code>PIN_FPGA_EN</code> | <strong>GPIO 8</strong> | — | 3.3V | Internal PCB trace — enable / boot-mode latch |
+| <strong>FPGA Power</strong> | <code>PIN_FPGA_PWR</code> | <strong>GPIO 9</strong> | — | 3.3V | Internal PCB trace — FPGA power control |
+| <strong>Power Input</strong> | <strong>5V (VBUS)</strong> | <strong>5V / VBUS</strong> | — | <strong>5.0V</strong> | Powers PMS5003 fan &amp; laser |
+| <strong>Power System</strong> | <strong>3.3V</strong> | <strong>3.3V</strong> | VDD | <strong>3.3V</strong> | Powers all sensors, MCU, and FPGA |
+| <strong>Ground</strong> | <strong>GND</strong> | <strong>GND</strong> | GND | 0V | Common ground across all modules |</p>
 <blockquote>
 <p>[!CAUTION]
 <strong>CRITICAL VOLTAGE RULE: 3.3V ONLY</strong><br />
@@ -286,33 +166,76 @@ Row 7 (PMS5003 RX)  : [7A: ESP32 GPIO 18][7B: PMS5003 Pin 4 (RX)] [7C: Empty] [7
 <h3>Where is the FPGA?</h3>
 <ul>
 <li>The ForgeFPGA is <strong>soldered directly on the ShrikeFi PCB</strong>.</li>
-<li>You <strong>do not</strong> need external jumper wires between the ESP32-S3 and the ForgeFPGA — the 4-bit bus lines (GPIO 4 through 10) are routed through high-speed internal PCB copper traces.</li>
+<li>You <strong>do not</strong> need external jumper wires between the ESP32-S3 and the ForgeFPGA — the SPI lines
+  (GPIO 10–13) are routed through internal PCB copper traces.</li>
 </ul>
-<h3>4-Bit Parallel Link Interface Details:</h3>
+<h3>SPI Link Interface Details</h3>
 <ul>
-<li><strong>Protocol:</strong> Synchronous 4-bit nibble transfers clocked by <code>link_strobe</code> (GPIO 4).</li>
-<li><strong>Speed:</strong> 500 kHz software bit-bang driver / up to 10 MHz simulation-verified throughput (40 Mbps).</li>
-<li><strong>Commands:</strong></li>
-<li><code>0x1</code>: Send raw Red sample (8-bit)</li>
-<li><code>0x2</code>: Send raw IR sample (8-bit)</li>
-<li><code>0x3</code>: Set systolic detection threshold (8-bit, default <code>120</code>)</li>
-<li><code>0x6</code>: Read 32-bit IBI cycle count ($T_{\text{clk}} = 20\text{ ns}$)</li>
-<li><code>0x7</code>: Acknowledge and clear <code>irq_beat</code> interrupt</li>
-<li><strong>Hardware Interrupt:</strong> When the systolic peak detector on the FPGA identifies a crest, it drives <code>irq_beat</code> (GPIO 10) HIGH. The ESP32 immediately services this interrupt to update Heart Rate and HRV metrics.</li>
+<li><strong>Protocol:</strong> 4-wire SPI, mode 0 (CPOL=0, CPHA=0). The ESP32-S3 is the controller on
+  <code>SPI2_HOST</code>; the ForgeFPGA is the target. Chip select is driven manually per transaction.</li>
+<li><strong>Speed:</strong> 1 MHz for the runtime link, 16 MHz while streaming the bitstream.</li>
+<li><strong>Framing:</strong> one 8-bit full-duplex transaction per optical sample (~100 Hz). The MCU sends the
+  raw IR sample on MOSI; the FPGA returns <code>{beat_latched, filt_sample[6:0]}</code> on MISO — bit 7 is the
+  beat flag, bits 6:0 are the low seven bits of the 8-tap moving average.</li>
+<li><strong>There is no command map and no interrupt line.</strong> The beat is not signalled on a separate pin;
+  it is bit 7 of the returned byte, polled by the MCU. The MCU derives the IBI from its own
+  <code>esp_timer_get_time()</code> deltas between rising beat flags — the FPGA does not timestamp beats.</li>
 </ul>
+<p>Full specification: <a href="SHRIKEFI_LINK_PROTOCOL.md"><code>SHRIKEFI_LINK_PROTOCOL.md</code></a>. Earlier revisions of
+this document described a 4-bit parallel nibble bus with a strobe, a direction line and an
+<code>irq_beat</code> pin. That design was retired before it was built, and its pin numbers collided with the
+real SPI pins, so any table still carrying them will miswire a board.</p>
 <hr />
 <h2>5. Software &amp; Hardware Diagnostics</h2>
 <h3>A. I2C Bus Auto-Scan Output</h3>
-<p>When the firmware boots, it automatically runs an I2C bus scan across all 127 addresses and prints the status to the serial console:</p>
+<p>At boot the firmware calls <code>esp32_i2c_hal_scan()</code>, which probes addresses 0x01–0x7E and logs every responder. The exact lines the code emits (<code>firmware/shrikefi/esp32_i2c_hal.c</code>) are:</p>
 <p><code>text
-I (1234) I2C_HAL: Scanning I2C bus (SDA=1, SCL=2, 400kHz)...
-I (1250) I2C_HAL:   - Device found at 0x08 (ForgeFPGA Configuration Interface)
-I (1270) I2C_HAL:   - Device found at 0x3C (SSD1306 OLED Display)
-I (1290) I2C_HAL:   - Device found at 0x57 (MAX30102 / MAX30100 Pulse Oximeter)
-I (1310) I2C_HAL:   - Device found at 0x76 (BME280 Environmental Sensor)
-I (1320) I2C_HAL: I2C scan complete: 4 devices found.</code></p>
+I (1234) I2C_SCAN: Scanning I2C bus (SDA=GPIO1, SCL=GPIO2)...
+I (1250) I2C_SCAN:  -&gt; Found device at 0x3C (SSD1306 OLED)
+I (1256) I2C_SCAN:  -&gt; Found device at 0x57 (MAX30100/MAX30102 PPG)
+I (1262) I2C_SCAN:  -&gt; Found device at 0x76 (BME280 Env)
+I (1270) I2C_SCAN: Scan complete: 3 device(s) found.</code></p>
+<blockquote>
+<p>This shows the <strong>format</strong> the firmware produces, not a captured run — the timestamps and which sensors answer depend on the board. An earlier revision of this document showed a hand-written log using the tag <code>I2C_HAL</code> and the wording <code>Device found at 0x08 (ForgeFPGA Configuration Interface)</code>. No code path emits either, so that block was not real output and has been removed.</p>
+</blockquote>
+<p><strong>The line worth looking for is whether <code>0x08</code> appears.</strong> <code>esp32_i2c_hal_scan()</code> labels 0x08 as
+<code>ForgeFPGA</code> (<code>esp32_i2c_hal.c:113</code>), but the Renesas SLG47910 is not documented to expose a hard
+I2C configuration port. The design's pin constraints
+(<code>hardware/shrikefi/forgefpga_pins.pcf</code>) declare <strong>no I2C port</strong> — the FPGA is configured over
+the same SPI link it uses at runtime (see below).</p>
+<ul>
+<li><strong>No <code>0x08</code> line</strong> → expected, and says nothing about whether the FPGA is programmed. The FPGA is programmed over <strong>SPI2</strong>, not I2C — see the FPGA-delivery note in <a href="../firmware/shrikefi/README.md"><code>firmware/shrikefi/README.md</code></a>.</li>
+<li><strong><code>0x08</code> appears</strong> → something real is answering on the I2C bus. Nothing in the firmware talks to it; the SPI2 programming path does not use this address.</li>
+</ul>
+<p><code>0x08</code> is not used by the bitstream path at all. The boot evidence that actually matters is the SPI2 sequence plus the runtime link probe:</p>
+<p><code>I (502) SHRIKEFI_LINK:   Programming Renesas ForgeFPGA SLG47910 via SPI2
+I (621) SHRIKEFI_LINK: ForgeFPGA SLG47910 configuration COMPLETE! (46408 bytes loaded)
+I (631) SHRIKEFI_LINK: ForgeFPGA runtime link handshake: probe sent 0x55, received 0x00
+I (641) SHRIKEFI_LINK: MISO Pin 13 Physical Line Test: Pulldown=0, Pullup=0 (ACTIVELY DRIVEN BY FPGA)</code></p>
+<p><strong>The <code>0x00</code> reply is the expected result, not a failure.</strong> At reset the RTL initialises its
+response register to <code>0xA5</code>, but the very next clock overwrites it with
+<code>{beat_latched, filt_sample[6:0]}</code> — which is <code>0x00</code> before any beat and before the filter has
+filled. The byte sent on MOSI is never echoed back, so the probe reply is <strong>not</strong> a liveness
+signature and must not be treated as one. (An earlier revision of this document showed
+<code>received 0x80</code> and called a defined reply "the only proof"; both were wrong.)</p>
+<p>What actually proves a configured design is running:</p>
+<ul>
+<li><code>MISO ... ACTIVELY DRIVEN BY FPGA</code> — the pin is driven rather than floating;</li>
+<li><code>configuration COMPLETE!</code> with the expected byte count;</li>
+<li>and, decisively, <code>[FPGA ACCEL] Systolic crest detected!</code> lines once a finger is on the sensor,
+  which only the programmed design can produce.</li>
+</ul>
 <h3>B. SpO2 Engine Tuning</h3>
-<p>The SpO2 calculation uses an <strong>8-second rolling moving-average window</strong> (<code>SPO2_MA_FILTER_SIZE = 8</code> in <a href="../firmware/core/spo2_engine.h"><code>firmware/core/spo2_engine.h</code></a>) with <strong>slew-rate limiting ($\pm 2.5\%$ per second)</strong> to eliminate sensor flicker and finger-motion artifacts while keeping true medical response fast and accurate.</p>
+<p>The SpO2 calculation keeps an 8-entry moving average over
+<code>SPO2_WINDOW_SIZE = 50</code> raw samples per entry (<a href="../firmware/core/spo2_engine.h"><code>firmware/core/spo2_engine.h</code></a>).
+At the measured ~100 Hz optical rate that is a ~0.5 s window per entry, and the slew limiter caps
+movement at <strong>2 % per window</strong>.</p>
+<p>A value is only published as valid after <strong>8 valid windows</strong> <em>and</em> a flatness test across an
+8-window history (<code>SPO2_REQUIRED_VALID_WINDOWS</code> and <code>SPO2_STABLE_MIN_WINDOWS</code>). That gate matters:
+before it was added, the engine published a converging estimate as a trustworthy reading, so a
+subject could be shown as hypoxaemic at 78 % while the estimate was still settling toward 96 %.
+The cost is that SpO2 shows <code>CALC/--</code> for roughly the first 15–20 s of contact. That is the gate
+working, not a fault.</p>
 <hr />
 <h2>6. How to Flash &amp; Monitor</h2>
 <p>```powershell</p>

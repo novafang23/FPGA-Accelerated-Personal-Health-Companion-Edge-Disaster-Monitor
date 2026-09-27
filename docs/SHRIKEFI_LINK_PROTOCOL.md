@@ -1,109 +1,205 @@
-# ShrikeFi FPGA-MCU Link Protocol Specification
+# ShrikeFi FPGA–MCU link protocol
+
+> **This document was rewritten on 2026-09-28.** It previously specified a
+> synchronous **4-bit parallel nibble bus** with a strobe line, a direction line,
+> a command codebook (`0x1`–`0x8`) and a dedicated `irq_beat` interrupt pin, with
+> pin numbers that collided with the real ones. **That design was retired before
+> it was ever built.** Nothing in the firmware or the RTL implements it. The link
+> is 8-bit SPI, as described below. See §8 for what the old design was and why
+> references to it may still be found elsewhere in the repository.
 
 ## 1. Overview
-This document specifies the communication protocol between the **ESP32-S3 microcontroller** and the **Renesas ForgeFPGA (SLG47910)** accelerator on the **ShrikeFi** board.
 
-Because the ForgeFPGA has no hard AXI bus or ARM processing system, all register operations are packetized across a **synchronous 4-bit parallel nibble link**, complemented by a dedicated hardware interrupt line.
+The ESP32-S3 and the Renesas ForgeFPGA (SLG47910) are connected by a plain
+**4-wire SPI bus, mode 0**, with the ESP32-S3 as controller and the ForgeFPGA as
+target. The ESP32-S3 drives it with the ESP-IDF `spi_master` driver on
+`SPI2_HOST`; the ForgeFPGA implements a shift register in
+`hardware/shrikefi/forgefpga_ppg_top.v`.
+
+There is no AXI bus and no ARM processing system on this board, so there is no
+memory-mapped register file — but there is also no bespoke parallel protocol.
+The ForgeFPGA is an SPI peripheral that happens to run the PPG filter and peak
+detector, and the whole interface is one byte in each direction.
+
+> **WARNING — 3.3 V ONLY.** Every I/O pin on both the ESP32-S3 and the ForgeFPGA
+> is 3.3 V LVCMOS. Applying 5 V to any GPIO permanently destroys the IC. 5 V is
+> used only for the PMSA003 sensor's VCC rail, sourced from USB VBUS.
+
+## 2. Physical interface and pin assignment
+
+These pins are **internal PCB traces** on the ShrikeFi board — no external wiring
+is required for the link.
+
+| Signal | FPGA pad | ESP32-S3 GPIO | Direction | Notes |
+|---|:---:|:---:|---|---|
+| `spi_sck` | PIN_16 | **GPIO 12** | MCU → FPGA | SPI clock, mode 0 |
+| `spi_ss_n` | PIN_17 | **GPIO 10** | MCU → FPGA | Chip select, active low, driven manually per transaction |
+| `spi_mosi` | PIN_18 | **GPIO 11** | MCU → FPGA | Sample data to the FPGA |
+| `spi_miso` | PIN_19 | **GPIO 13** | FPGA → MCU | Result byte from the FPGA (PIN_19_OE is its output enable) |
+| — | — | **GPIO 8** | MCU → FPGA | `PIN_FPGA_EN` — enable / boot-mode latch |
+| — | — | **GPIO 9** | MCU → FPGA | `PIN_FPGA_PWR` — FPGA power control |
+| `clk_en` | OSC_EN | — | — | On-chip oscillator enable (a resource, not a GPIO) |
+| `led_user` | PIN_7 | — | — | Blue user LED D12, pulsed on each detected beat (PIN_7_OE) |
+
+**There is no reset pin.** PIN_13 is not connected to anything; the RTL resets
+from an internal power-on counter. Any table listing `rst_n` on GPIO 3 or GPIO 11
+is describing the retired design and is wrong — GPIO 11 is MOSI.
+
+**There is no interrupt pin.** The beat is reported as **bit 7 of the byte
+returned on MISO**, not by a separate line.
+
+Sources of truth: `firmware/shrikefi/shrikefi_pinmap.h` (ESP32 side),
+`hardware/shrikefi/forgefpga_pins.pcf` (FPGA side),
+`firmware/shrikefi/shrikefi_link_driver.c` (behaviour).
+
+> **A trap when reading the `.pcf`.** Its inline comments look like
+> `set_io spi_sck PIN_16 # Connected to ESP32 GPIO12 (F_SP_CLK) -> GPIO3_IN`.
+> The `-> GPIO3_IN` suffix is an **FPGA-side port designator**, not an ESP32 GPIO
+> number. Reading it as one is the most likely origin of the wrong pin tables
+> this document was rewritten to remove.
+
+## 3. Data framing
+
+There is **no command map, no header, no payload length and no address**. Each
+optical sample is one 8-bit full-duplex SPI transaction:
 
 ```
-  ESP32-S3 (Host MCU)                              Renesas ForgeFPGA
- ┌───────────────────┐                            ┌───────────────────────┐
- │                   │ ─── link_strobe (GPIO4) ─▶ │                       │
- │                   │ ─── link_dir    (GPIO5) ─▶ │ 4-Bit Link            │
- │                   │ ◀── link_din/dout(GPIO6-9)▶│ Transceiver Engine    │
- │                   │                            │          │            │
- │                   │ ◀── irq_beat   (GPIO10) ── │ ◀────────┘            │
- └───────────────────┘                            └───────────────────────┘
+        ┌─────────────────────────────────────────────────┐
+ MCU ───┤ MOSI: [ sample[7:0] ]  — the raw IR sample     ├───▶ FPGA
+        │                                                 │
+ MCU ◀──┤ MISO: [ beat | filt[6:0] ]  — one result byte   ├──── FPGA
+        └─────────────────────────────────────────────────┘
+                 one 8-bit transfer, CS pulsed low
 ```
 
-> [!WARNING]
-> **3.3V ELECTRICAL WARNING:**  
-> All FPGA and MCU I/O pins operate at **3.3V LVCMOS ONLY**. Applying 5V logic signals will permanently destroy both the ForgeFPGA and ESP32-S3 ICs.
-
----
-
-## 2. Physical Interface & Pin Assignment
-
-![ShrikeFi Pinout & Interconnect Diagram](images/shrikefi_pinout.png)
-
-| Signal Name | FPGA Pin | ESP32-S3 GPIO | Direction (FPGA perspective) | Description |
-|---|:---:|:---:|:---:|---|
-| **`clk`** | PIN_12 | — | Input | 50 MHz FPGA system clock (on-chip oscillator) |
-| **`rst_n`** | PIN_13 | GPIO 3 | Input | Active-Low system reset |
-| **`link_strobe`** | PIN_14 | GPIO 4 | Input | Clock strobe driven by ESP32 on each nibble transfer |
-| **`link_dir`** | PIN_15 | GPIO 5 | Input | Bus direction: `0` = ESP32 Write $\to$ FPGA, `1` = ESP32 Read $\leftarrow$ FPGA |
-| **`link_data[0]`** | PIN_16 | GPIO 6 | Inout / Bidirectional | Data bit 0 (LSB) |
-| **`link_data[1]`** | PIN_17 | GPIO 7 | Inout / Bidirectional | Data bit 1 |
-| **`link_data[2]`** | PIN_18 | GPIO 8 | Inout / Bidirectional | Data bit 2 |
-| **`link_data[3]`** | PIN_19 | GPIO 9 | Inout / Bidirectional | Data bit 3 (MSB) |
-| **`irq_beat`** | PIN_24 | GPIO 10 | Output | Active-High interrupt asserted on systolic peak detection |
-
----
-
-## 3. Data Framing & Command Map
-
-Every transaction begins with a **1-nibble (4-bit) Command Header** sent while `link_dir = 0`:
-
-| Command Code (`link_din[3:0]`) | Command Name | Payload Nibbles | Description |
-|:---:|---|:---:|---|
-| `0x1` | `CMD_WRITE_RED` | 2 (Write) | Write 8-bit raw Red sample (`[7:4]`, `[3:0]`) |
-| `0x2` | `CMD_WRITE_IR` | 2 (Write) | Write 8-bit raw IR sample (`[7:4]`, `[3:0]`) |
-| `0x3` | `CMD_WRITE_THRESH` | 2 (Write) | Write 8-bit systolic peak threshold (`[7:4]`, `[3:0]`) |
-| `0x4` | `CMD_READ_RED` | 2 (Read) | Read 8-bit filtered Red output (`[7:4]`, `[3:0]`) |
-| `0x5` | `CMD_READ_IR` | 2 (Read) | Read 8-bit filtered IR output (`[7:4]`, `[3:0]`) |
-| `0x6` | `CMD_READ_IBI` | 8 (Read) | Read 32-bit IBI cycle timestamp across 8 nibbles |
-| `0x7` | `CMD_CLEAR_IRQ` | 0 | Clear latched `irq_beat` interrupt (Write-1-to-Clear) |
-| `0x8` | `CMD_READ_STATUS` | 1 (Read) | Read 4-bit status: `[0]=irq_beat`, `[1]=filter_valid` |
-
-### Transaction Examples:
-
-#### A. Write 8-Bit PPG Sample (`0x78` = 120):
-1. `link_dir = 0` (Write mode).
-2. `link_din = 0x1` (`CMD_WRITE_RED`) $\rightarrow$ Pulse `link_strobe`.
-3. `link_din = 0x7` (High Nibble) $\rightarrow$ Pulse `link_strobe`.
-4. `link_din = 0x8` (Low Nibble) $\rightarrow$ Pulse `link_strobe`.  
-*Total transaction time: 3 strobe cycles ($\approx 300\text{ ns}$).*
-
-#### B. Read 32-Bit IBI Timestamp:
-1. `link_dir = 0` (Write mode).
-2. `link_din = 0x6` (`CMD_READ_IBI`) $\rightarrow$ Pulse `link_strobe`.
-3. `link_dir = 1` (Switch to Read mode).
-4. Read 8 consecutive nibbles: `[31:28]`, `[27:24]`, ..., `[3:0]` with `link_strobe` pulses.
-5. Send `CMD_CLEAR_IRQ` to acknowledge and reset interrupt line.  
-*Total transaction time: 9 strobe cycles ($\approx 900\text{ ns}$).*
-
-![ShrikeFi 4-Bit Parallel Link Protocol Timing Waveform](images/shrikefi_waveform.png)
-
----
-
-## 4. Timing & Latency Budget
-
-* **Core FPGA Clock:** 50 MHz internal oscillator ($T_{\text{tick}} = 20.000\text{ ns}$).
-* **Sampling Rate:** 50 Hz optical acquisition (1 sample every 20,000 µs).
-* **Speed & Timing Modes:**
-  * **Measured Bring-Up Baseline (Software Bit-Bang Driver):**
-    * Strobe rate: ~500 kHz ($T_{\text{strobe}} \approx 2\text{ µs}$ using `esp_rom_delay_us(1)` high/low half-cycles).
-    * Sample Write (3 strobe cycles): $\approx 6\text{ µs}$.
-    * 32-Bit IBI Read (9 strobe cycles): $\approx 18\text{ µs}$.
-    * Bus Duty Cycle: $\approx 0.09\%$ at 50 Hz optical sampling, consuming $< 0.1\%$ MCU processing overhead.
-  * **Protocol Theoretical Maximum (Simulation-Verified / Hardware-Assisted Target):**
-    * Strobe rate: 10 MHz ($T_{\text{strobe}} = 100\text{ ns}$, verified in `tb_forgefpga_system.v`).
-    * Sample Write (3 strobe cycles): $300\text{ ns}$.
-    * 32-Bit IBI Read (9 strobe cycles): $900\text{ ns}$.
-    * Raw Link Throughput: $5.0\text{ MB/s}$ (40 Mbps).
-* **MCU CPU Headroom:** $> 99.9\%$ of ESP32-S3 CPU cycles remain completely available for FreeRTOS dual-core multitasking, BLE/WiFi telemetry, and INT8 TinyML inference.
-
----
-
-## 5. Comparison to the Zynq AXI4-Lite Interface
-
-| Function | Xilinx Zynq-7000 (AXI4-Lite) | Renesas ForgeFPGA (ShrikeFi 4-Bit Link) |
+| Byte | Field | Meaning |
 |---|---|---|
-| **Interconnect Architecture** | 32-bit memory-mapped bus (`0x43C00000`) | 4-bit parallel GPIO nibble bus |
-| **Write Raw Red Sample** | Write 32-bit register `0x00` (`REG_RED_RAW`) | `CMD_WRITE_RED` + 2 Data Nibbles |
-| **Write Raw IR Sample** | Write 32-bit register `0x10` (`REG_IR_RAW`) | `CMD_WRITE_IR` + 2 Data Nibbles |
-| **Read Filtered Output** | Read 32-bit register `0x04` / `0x14` | `CMD_READ_RED` / `CMD_READ_IR` (2 Nibbles) |
-| **Read 32-bit IBI Cycles** | Read 32-bit register `0x08` (`REG_IBI_CYCLES`) | `CMD_READ_IBI` (8 Data Nibbles) |
-| **Set Dynamic Threshold** | Write `REG_STATUS_THRESH[15:8]` (`0x0C`) | `CMD_WRITE_THRESH` (2 Data Nibbles) |
-| **Clear Interrupt Flag** | Write `1` to `REG_STATUS_THRESH[0]` (W1C) | Send `CMD_CLEAR_IRQ` (`0x7`) |
-| **Hardware Interrupt Pin** | AXI Fabric Interrupt to ARM GIC | Dedicated direct GPIO interrupt line (`irq_beat`) |
+| MOSI | `sample[7:0]` | The 8-bit IR sample the MCU wants filtered |
+| MISO bit 7 | `beat_latched` | 1 = the peak detector latched a systolic crest |
+| MISO bits 6:0 | `filt_sample[6:0]` | The **low seven bits** of the 8-tap moving average |
+
+Two consequences that matter when reading a capture:
+
+- **The returned byte is not a waveform.** The moving average is a full 8-bit
+  quantity, so the FPGA packs the beat flag into bit 7 and only the low 7 bits
+  come back. The logged value therefore wraps at 128 and looks like a sawtooth.
+  The FPGA's own peak detector uses the full 8 bits internally, so detection is
+  unaffected — only the diagnostic is. `hardware/shrikefi/tools/replay_fpga_link_log.py`
+  reconstructs the true 8-bit value from the input stream.
+- **The handshake probe byte never comes back.** At reset the RTL initialises its
+  response register to `0xA5`, but the next clock overwrites it with
+  `{beat_latched, filt_sample[6:0]}`, which is `0x00` before any beat and before
+  the filter has filled. So the boot log's
+  `handshake: probe sent 0x55, received 0x00` is the expected result, not a
+  fault. Do not use the probe byte as a liveness signature. Liveness comes from
+  the beat flag, and the firmware latches it from the first beat the FPGA
+  reports.
+
+**Beat timing is measured on the MCU, not the FPGA.** The RTL computes a 32-bit
+IBI, but there is no room for it in an 8-bit reply and it is not transmitted.
+`shrikefi_link_driver.c` timestamps each rising beat flag with
+`esp_timer_get_time()` and differences consecutive timestamps.
+
+This is the honest limit of the design: IBI resolution is the **sample cadence
+(about 10 ms at ~100 Hz)**, not the FPGA's 20 ns tick. The earlier "20 ns IBI
+resolution" claim in `docs/MIGRATION.md` and elsewhere describes the retired
+design. Because RMSSD is the RMS of successive interval *differences*, this
+quantisation is a real term in the reported HRV, and it is one reason T4.1
+(validate against a reference device) is still open.
+
+## 4. Timing
+
+| Quantity | Value | Source |
+|---|---|---|
+| Link mode | SPI mode 0 (CPOL=0, CPHA=0) | `shrikefi_link_driver.c` |
+| Runtime link clock | **1 MHz** | `shrikefi_link_driver.c` |
+| One transaction | 8 bits = **8 µs** | derived |
+| Sample cadence | **~100 Hz** (measured ~105/s over an 81 s capture) | `reports/live_test_runs/` |
+| Link duty cycle at 100 Hz | 8 µs per 10 ms ≈ **0.08 %** | derived |
+| Flashing clock | **16 MHz** | `shrikefi_link_driver.c` |
+| Bitstream | **46,408 bytes** in 256-byte chunks (182 transfers) | `forgefpga_bitstream.h` |
+| Pure clocking time to flash | 371,264 bits ÷ 16 MHz ≈ **23.2 ms** | derived |
+| FPGA logic clock | **50 MHz** on-chip oscillator, enabled via `OSC_EN` | `docs/reference/shrike_board/` |
+
+**On ForgeFPGA timing evidence.** The fitter report `PNR_TIMING.log` shows
+WNS −10.088 ns, but that figure is an artefact: the design declares no clock
+constraint, so the tool auto-constrains `clk` to 500 MHz (2000 ps). The
+**achievable period is 12,087 ps (82.73 MHz)**, so at the documented 50 MHz the
+margin is **+7.913 ns**. Do not quote −10.088 ns as a result. Adding a real
+constraint to the flow is still open work (T4.5 in `docs/REMAINING_WORK.md`).
+
+## 5. FPGA configuration
+
+The bitstream is delivered over the **same SPI bus**, not by a separate
+programmer. `shrikefi_fpga_flash_init()` in `shrikefi_link_driver.c`:
+
+1. Configures PWR, EN and SS as outputs.
+2. Initialises `SPI2_HOST` at 16 MHz, mode 0, with **manual CS**.
+3. Runs the vendor boot-mode latch sequence — PWR=0/EN=0/SS=1, settle 3 ms;
+   PWR=1/EN=1/SS=0, settle 10 ms; SS=1, settle 1 ms. (These use
+   `esp_rom_delay_us`, not `vTaskDelay(pdMS_TO_TICKS(..))`: at
+   `CONFIG_FREERTOS_HZ=100` a tick is 10 ms, so `pdMS_TO_TICKS(5)` is **zero
+   ticks** and the latch window would never be held.)
+4. Streams the 46,408-byte image in 256-byte chunks with SS toggled per chunk.
+5. Waits 50 ms for user mode, removes the flashing device and leaves
+   `SPI2_HOST` up for runtime communication.
+
+The image costs 0.6 % of the 7 MB application partition, which is why it is
+always embedded rather than made optional — an option that can silently turn the
+FPGA path off is a worse failure than 46 KB of flash.
+
+## 6. Comparison with the Zynq AXI4-Lite interface
+
+The Zynq baseline (`hardware/zynq/`, `docs/HARDWARE_ARCHITECTURE.md`) remains
+valid and citable; it is a different interconnect, not a port of this one.
+
+| Function | Xilinx Zynq-7000 (AXI4-Lite) | ForgeFPGA on ShrikeFi (SPI) |
+|---|---|---|
+| Interconnect | 32-bit memory-mapped at `0x43C00000` | 8-bit full-duplex SPI, one transfer per sample |
+| Write a raw sample | Write `REG_RED_RAW` / `REG_IR_RAW` | The MOSI byte of the transaction |
+| Read the filtered output | Read the filtered-output registers | Bits 6:0 of the MISO byte |
+| Read the IBI | Read `REG_IBI_CYCLES` (32-bit) | **Not available** — measured on the MCU |
+| Set the peak threshold | Write `REG_STATUS_THRESH[15:8]` | **Not implemented** — `shrikefi_set_threshold()` only stores a value; the RTL hard-codes `dyn_threshold` |
+| Clear the beat flag | Write 1 to `REG_STATUS_THRESH[0]` (W1C) | Implicit: the flag is high for the one transaction that carries it |
+| Interrupt to the host | AXI fabric interrupt to the ARM GIC | **None** — polled as bit 7 of the MISO byte |
+
+The two "not available" rows are the honest gaps between the platforms. Neither
+is required for the device to work, and both are recorded rather than papered
+over.
+
+## 7. What is not on the wire
+
+- **No command map.** There is no `CMD_*` decode in the RTL and no `SHRIKEFI_CMD_*`
+  constant in use in the driver.
+- **No strobe, no direction line, no nibble framing.**
+- **No separate beat interrupt.**
+- **No threshold write path.** `shrikefi_set_threshold()` is a no-op against real
+  hardware; the FPGA's peak threshold is fixed at synthesis.
+- **No FPGA-side IBI.** See §3.
+
+## 8. History: the retired 4-bit parallel design
+
+For anyone who finds a reference to it: ShrikeFi was originally specified with a
+synchronous 4-bit parallel link — a `link_strobe` clock, a `link_dir` direction
+line, a bidirectional `link_data[3:0]` bus, a `CMD_*` codebook and an `irq_beat`
+interrupt — on GPIO 4/5/6-9/10 with FPGA pads PIN_14-19 and PIN_24. It was
+abandoned before implementation in favour of SPI: the ForgeFPGA is a small
+device (1120 LUT5s) with no need for a bespoke bus, the ESP32-S3 has a hardware
+SPI controller, and one 8-bit transaction per sample carries everything the link
+actually needs.
+
+The old pin numbers **collide** with the real ones (its `link_data[0..3]` sat on
+PIN_16-19, which are now SCK/SS/MOSI/MISO), so a document still carrying them is
+not merely out of date — it will miswire a board.
+
+If you find the retired design described elsewhere, it is a stale reference.
+`docs/REMAINING_WORK.md` tracks the remaining cleanup.
+
+### Figures
+
+The two images previously referenced here — `images/shrikefi_pinout.png` and
+`images/shrikefi_waveform.png` — are **no longer referenced**. They were produced
+for the retired design, and their contents cannot be verified from the
+repository (the pinout SVG carries an embedded raster, so its labels are not
+searchable text). Treat the tables above as authoritative, and regenerate those
+figures from them before using either in a document or a presentation.

@@ -1,9 +1,9 @@
 menu "ShrikeFi configuration"
 
     # NOTE: there is deliberately NO option to disable embedding the ForgeFPGA
-    # bitstream. Programming the FPGA over SPI2 at boot is what makes the 4-bit
+    # bitstream. Programming the FPGA over SPI2 at boot is what makes the SPI
     # runtime link work, and the 46,408-byte image costs 0.6% of the 7 MB app
-    # partition (89% free). An earlier revision made this conditional; because
+    # partition (about 87% free). An earlier revision made this conditional; because
     # sdkconfig is gitignored and keeps its own value, that silently turned the
     # FPGA path off on any checkout whose sdkconfig predated the option - so it
     # was removed rather than left as a footgun.

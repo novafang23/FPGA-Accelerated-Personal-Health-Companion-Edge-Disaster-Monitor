@@ -36,16 +36,17 @@ The system splits workload across specialized silicon tiers:
 │   • Cycle-Accurate 20ns Timer: Hardware Inter-Beat Interval (IBI)      │
 │   • 4-State Systolic Crest Detector FSM (ARMED->RISING->PEAK->REF)     │
 │   • Dynamic Crest-Fall Confirmation: Eliminates dicrotic notch errors  │
-│   • Pulsed Hardware Interrupt: Pin 16 beat strobe to MCU               │
+│   • Beat Flag in MISO: bit 7 of the SPI reply (PIN_16 = SPI clock)     │
 └───────────────────────────────────┬────────────────────────────────────┘
-                                    │ SPI Link & Hardware Interrupt
+                                    │ SPI Link (8-bit, beat flag in MISO)
                                     ▼
 ┌────────────────────────────────────────────────────────────────────────┐
-│             ESPRESSIF ESP32-S3 DUAL-CORE XTENSA LX7 (240 MHz)          │
+│             ESPRESSIF ESP32-S3 DUAL-CORE XTENSA LX7 (160 MHz)          │
 │                     [~60% OF SYSTEM WORKLOAD]                          │
 │                                                                        │
 │   • Core 0 (DSP & Link Task):                                          │
-│     - Latches FPGA IBI interval; computes SpO2 AC/DC calibration       │
+│     - Derives IBI from esp_timer_get_time() deltas between beat flags  │
+│     - Computes SpO2 AC/DC calibration                                  │
 │     - Computes Signal Quality Index (SQI) (Karlen 2012 / Elgendi 2016)  │
 │     - Derives Respiratory Rate via RSA amplitude modulation (Charlton) │
 │     - Neural PM2.5 Humidity Calibration (Si et al. 2019 hygroscopic)   │
@@ -70,7 +71,7 @@ The system splits workload across specialized silicon tiers:
 ## 3. Key Engineering Breakthroughs
 
 1. **Eliminated Dicrotic Notch False Peak Triggers:**
-   * Rewrote the Verilog peak detector FSM in `hardware/shrikefi/forgefpga_ppg_top.v` with dynamic `peak_val` tracking and running drop confirmation, stopping the secondary arterial reflection from artificially doubling heart rate and corrupting RMSSD.
+   * Rewrote the Verilog peak detector FSM in `hardware/common/ppg_peak_detector.v` (the shared module that `hardware/shrikefi/forgefpga_ppg_top.v` instantiates) with dynamic `peak_val` tracking and running drop confirmation, stopping the secondary arterial reflection from artificially doubling heart rate and corrupting RMSSD.
 2. **Resolved DC Baseline Drift Blindness:**
    * Dropped the static level check (`sample_in < dyn_threshold`) from `STATE_REFRACTORY`, preventing the FSM from getting trapped in refractory during weak finger perfusion.
 3. **Dynamic Crest-Fall Threshold (`crest_fall_min`):**
@@ -88,6 +89,6 @@ The system splits workload across specialized silicon tiers:
 
 | Component | Target Architecture | Verified Utilization | Report File Reference |
 | :--- | :--- | :--- | :--- |
-| **ForgeFPGA** | Renesas SLG47910C | **342 / 1120 LUT5s (30.54%)**, 194 FFs, 76 / 140 CLBs (54.29%), 0 DSP, 0 BRAM, 0 PLL | `hardware/shrikefi/synthesis_evidence/resource_utilization_spi_link.log` |
+| **ForgeFPGA** | Renesas SLG47910C | **363 / 1120 LUT5s (32.41%)**, 202 FFs, 75 / 140 CLBs (53.57%), 0 DSP, 0 BRAM, 0 PLL | `hardware/shrikefi/synthesis_evidence/resource_utilization_spi_link.log` |
 | **Zynq-7000 (Baseline)** | AMD Xilinx `xc7z020` | **185 LUTs**, 16 LUTRAM, 266 FFs, 0 DSP, 0 BRAM, WNS **+5.603 ns** (Fmax 69.45 MHz) | `hardware/zynq/synthesis_evidence/` |
 | **TinyML Model** | INT8 Quantized MLP | **619 bytes parameter footprint**, 88.47% validation accuracy, 97.32% FP32 agreement | `firmware/core/nn_risk_model_int8.c` |

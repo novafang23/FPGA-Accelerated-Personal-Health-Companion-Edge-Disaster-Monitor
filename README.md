@@ -32,7 +32,7 @@ Every headline number below is reproducible from a committed command. Where a cl
 | Claim | Reproduce with | Expected result |
 |---|---|---|
 | Zynq RTL — self-checking testbench | `hardware/zynq/build_and_run.bat` (or the `iverilog`/`vvp` pair it wraps) | `6 passed, 0 failed` |
-| ShrikeFi RTL — 4-bit link testbench | `hardware/shrikefi/build_shrikefi_sim.bat` | `Passed: 5 / 5` |
+| ShrikeFi RTL — SPI link testbench (`hardware/shrikefi/tb_forgefpga_system.v`) | `hardware/shrikefi/build_shrikefi_sim.bat` | `RESULTS: 10 passed, 0 failed (out of 10 checks)` |
 | Firmware unit tests (incl. FP32↔INT8 parity) | `make -C firmware/zynq test` | `ALL TESTS PASSED.` |
 | INT8 model regeneration | `python3 firmware/core/train_nn_risk_model.py` | `88.47%` val accuracy, `619` params, INT8 max error `0.091` |
 | Clinical triage metrics | build & run `firmware/core/accuracy_evaluator.c` on `data/mimic/mimic_eval_feed.csv` | accuracy `94.11%`, TP `971` / FP `267` / TN `14451` / FN `698` |
@@ -86,7 +86,7 @@ The system operates across four coordinated processing tiers, moving from raw ph
 ┌──────────────────────────────────────────────────────────────────────────────────────────────────────┐
 │                              FPGA PROGRAMMABLE LOGIC (50 MHz RTL CORE)                              │
 │                                                                                                      │
-│   ┌───────────────────────────────────┐    AXI4-Lite / 4-Bit   ┌──────────────────────────────────┐  │
+│   ┌───────────────────────────────────┐    8-Bit SPI (mode 0)  ┌──────────────────────────────────┐  │
 │   │ Dual 8-Tap Moving Average Filters │◄───────────────────────┤ Memory-Mapped Register Interface │  │
 │   │ (O(1) Running Sum, 0 DSP Slices)  │                        │ 0x00: REG_RED_RAW                │  │
 │   └─────────────────┬─────────────────┘                        │ 0x04: REG_RED_FILTERED           │  │
@@ -285,25 +285,33 @@ To scale beyond expensive development kits to an accessible disaster monitor (pr
 #### ESP32-S3 ↔ Renesas ForgeFPGA Link Pinout:
 | ESP32-S3 GPIO | ForgeFPGA Pin | Signal Name | Direction | Description |
 |:---:|:---:|:---|:---:|:---|
-| **GPIO 3** | **PIN_13** | `rst_n` | MCU $\rightarrow$ FPGA | Active-low system reset |
-| **GPIO 4** | **PIN_14** | `link_strobe` | MCU $\rightarrow$ FPGA | Transaction strobe clock pulse |
-| **GPIO 5** | **PIN_15** | `link_dir` | MCU $\rightarrow$ FPGA | Direction flag (`0` = Write to FPGA, `1` = Read from FPGA) |
-| **GPIO 6–9** | **PIN_16–19**| `link_data[3:0]` | Bidirectional | 4-bit nibble data bus |
-| **GPIO 10** | **PIN_24** | `irq_beat` | FPGA $\rightarrow$ MCU | Hardware interrupt pulse on systolic peak detection |
-| **GPIO 21/22**| — | `I2C SDA/SCL` | Bidirectional | Sensor bus (MAX30102, BME280, SSD1306) |
-| **GPIO 1/2** | — | `UART RX/TX` | Bidirectional | Environmental sensor bus (PMS5003 PM2.5) |
+| **GPIO 10** | **PIN_17** | `spi_ss_n` (CS) | MCU $\rightarrow$ FPGA | Chip select, active low, toggled manually around each transaction |
+| **GPIO 11** | **PIN_18** | `spi_mosi` | MCU $\rightarrow$ FPGA | SPI data out — the 8-bit optical sample |
+| **GPIO 12** | **PIN_16** | `spi_sck` | MCU $\rightarrow$ FPGA | SPI clock (mode 0, MSB first) |
+| **GPIO 13** | **PIN_19** (+ `PIN_19_OE`) | `spi_miso` | FPGA $\rightarrow$ MCU | SPI data in — `{beat_latched, filt_sample[6:0]}` |
+| **GPIO 8** | — | `fpga_en` | MCU $\rightarrow$ FPGA | FPGA hardware enable |
+| **GPIO 9** | — | `fpga_pwr` | MCU $\rightarrow$ FPGA | FPGA power control |
+| — | **PIN_7** (+ `PIN_7_OE`) | `led_user` | FPGA $\rightarrow$ LED D12 | Blue user LED, flashed on each detected systolic crest |
+| — | `OSC_EN` | `clk_en` | FPGA internal | Oscillator enable — the core has no clock unless this is driven |
+| **GPIO 1/2** | — | `I2C SDA/SCL` | Bidirectional | Sensor bus (MAX30102, BME280, SSD1306 OLED) |
+| **GPIO 14 (RX) / 18 (TX)** | — | `UART1` PMS5003 | Bidirectional | Laser particulate sensor (PM2.5) bus, 9600 8N1 |
+
+The link is a 4-wire SPI bus (mode 0) with the ESP32-S3 as controller on `SPI2_HOST`; the ForgeFPGA is a bare fabric target with no processor and no AXI bus. **GPIO 3 / PIN_13 is not a reset pin and is not part of the interconnect** — nothing drives it; the ForgeFPGA resets itself from an internal power-on counter (`POR_CYC` in `forgefpga_ppg_top.v`). There is no strobe line, no direction line, no command codebook and no separate beat-interrupt pin: the beat arrives as bit 7 of the MISO byte. Authoritative sources: [`hardware/shrikefi/forgefpga_pins.pcf`](hardware/shrikefi/forgefpga_pins.pcf) and [`firmware/shrikefi/shrikefi_pinmap.h`](firmware/shrikefi/shrikefi_pinmap.h).
 
 ---
 
-### 2. 4-Bit Parallel Link Protocol Timing
+### 2. 8-Bit SPI Link Protocol Timing
 
-Because the ShrikeFi board utilizes a 4-bit parallel bus rather than an on-chip AXI bus, high-speed transactions are framed in nibbles:
+The ShrikeFi board has no on-chip AXI bus and the ForgeFPGA has no processor, so the two chips exchange data over a plain 4-wire SPI bus. High-speed transactions are framed as a single byte, not as nibbles:
 
-![ShrikeFi 4-Bit Parallel Link Protocol Timing Waveform](docs/images/shrikefi_waveform.png)
+> The timing figure that used to sit here showed the retired 4-bit parallel
+> protocol and has been removed rather than reproduced. The frame and timing are
+> specified in [`docs/SHRIKEFI_LINK_PROTOCOL.md`](docs/SHRIKEFI_LINK_PROTOCOL.md);
+> regenerate the figure from those tables before reuse.
 
-* **Sample Streaming (Write):** A PPG sample write consists of command nibble `CMD_WRITE_RED (0x1)`, followed by high nibble (`0x7`), then low nibble (`0x8`).
-* **Hardware Interrupt (`irq_beat`):** When a peak is detected, `irq_beat` asserts high on ForgeFPGA `PIN_24`, triggering a high-priority FreeRTOS GPIO interrupt service routine on the ESP32-S3.
-* **32-Bit IBI Deserialization (Read):** The ESP32 issues `CMD_READ_IBI (0x6)` and clocks out 8 consecutive nibbles (`0x0`, `0x0`, `0x0`, `0x0`, `0x0`, `0xC`, `0xD`, `0x1` $\implies$ `0x00000CD1` = 3,281 clock cycles).
+* **Frame:** one 8-bit full-duplex transaction per optical sample, at roughly 100 Hz. CS (`GPIO 10` / `PIN_17`) is pulled low around the transaction; the MCU shifts the 8-bit sample out on MOSI while the FPGA shifts its reply back on MISO over the same 8 clock edges. The runtime link runs at 1 MHz; the bitstream is pushed over the same bus at 16 MHz during boot.
+* **Returned Byte:** `{beat_latched, filt_sample[6:0]}` — **bit 7 is the beat flag**, bits 6:0 are the low 7 bits of the 8-tap moving average. There is no command map, no strobe and no separate interrupt line; the systolic crest simply sets bit 7 of the next MISO byte.
+* **IBI Derivation:** the FPGA does **not** timestamp beats and there is no IBI register to read. The MCU latches `esp_timer_get_time()` on each rising beat flag and derives the inter-beat interval from the delta between successive flags.
 
 ---
 
@@ -314,8 +322,8 @@ Post-synthesis compilation results from **Renesas ForgeFPGA Workshop v6.55** tar
 ![Renesas ForgeFPGA Resource Footprint](docs/images/forgefpga_utilization.png)
 
 * **Logic LUT5 Usage:** **363 / 1120 CLB LUT5s (32.41%)** — **67.59% of logic fabric remains free** for expanded DSP and filtering.
-* **Registers / Flip-Flops:** **194 Flip-Flops** (190 CLB FFs @ 16.96% + 4 IOB FFs @ 0.54%).
-* **CLB Macrocells:** **76 / 140 Blocks (54.29%)** — CLB occupancy is balanced. The SPI design runs from the on-chip oscillator, so the PLL is **free (0/1)**.
+* **Registers / Flip-Flops:** **202 Flip-Flops** (198 CLB FFs @ 17.68% + 4 IOB FFs @ 0.54%).
+* **CLB Macrocells:** **75 / 140 Blocks (53.57%)** — CLB occupancy is balanced. The SPI design runs from the on-chip oscillator, so the PLL is **free (0/1)**.
 * **DSP Multipliers & BRAM:** **0 DSP Multipliers, 0 Block RAMs** (synthesized purely from logic).
 
 > **Footnote — the 443-LUT figure quoted by older revisions of this file, the
@@ -347,13 +355,14 @@ To ensure transparent, reproducible engineering rigor, all performance metrics a
   $$F_{\text{max}} = \frac{1}{T_{\text{critical}}} = \frac{1}{14.397\text{ ns}} \approx \mathbf{69.45\text{ MHz}}$$
 * **Critical Path:** Source register `peak_det_inst/sample_prev_reg[6]/C` $\rightarrow$ 4 logic levels (LUT2 $\rightarrow$ LUT4 $\rightarrow$ LUT4 $\rightarrow$ LUT6) $\rightarrow$ Destination register `peak_det_inst/ibi_counter_reg[22]/D`.
 
-### 2. TinyML Inference Latency ($< 1\ \mu\text{s}$) Calculation
-* **Model Profile:** 123 float32 weights/biases, 108 Multiply-Accumulate (MAC) operations, 12 ReLU comparisons, 3 Sigmoid evaluations.
-* **Target Architecture:** Dual-core ARM Cortex-A9 @ 667 MHz / ESP32-S3 @ 240 MHz.
-* **Cycle Breakdown:**
-  * Layer 1 (Hidden 12): $6 \times 12 = 72\text{ MACs} \times 2\text{ cycles} \approx 144\text{ cycles}$ + 12 ReLU $\approx 24\text{ cycles}$.
-  * Layer 2 (Output 3): $12 \times 3 = 36\text{ MACs} \times 2\text{ cycles} \approx 72\text{ cycles}$ + 3 Sigmoid $\approx 150\text{ cycles}$.
-  * Total Execution: $\approx 390\text{–}480\text{ clock cycles} \div 667\text{ MHz} \approx \mathbf{0.58\text{–}0.72\ \mu\text{s}} \ (\mathbf{< 1\ \mu\text{s}})$.
+### 2. TinyML Inference Latency ($0.44\ \mu\text{s}$, measured on an x86-64 host)
+* **Model Profile (shipped INT8 model, $6 \to 24 \to 16 \to 3$):** 619 INT8 parameters/bytes — 576 weights ($144 + 384 + 48$) plus 43 biases ($24 + 16 + 3$) — and therefore **576 INT8 Multiply-Accumulate (MAC) operations**, plus 40 ReLU comparisons (24 + 16) and 3 Sigmoid evaluations.
+* **Op-Count Breakdown:**
+  * Layer 1 (Hidden 24): $6 \times 24 = 144\text{ MACs}$ + 24 ReLU.
+  * Layer 2 (Hidden 16): $24 \times 16 = 384\text{ MACs}$ + 16 ReLU.
+  * Layer 3 (Output 3): $16 \times 3 = 48\text{ MACs}$ + 3 Sigmoid.
+  * **Total: $576\text{ MACs} + 40\text{ ReLU} + 3\text{ Sigmoid}$ over 619 bytes of parameters.**
+* **Measured Latency:** **0.44 µs per inference**, measured at `-O2` on an **x86-64 host**. This is a host figure and not an ESP32-S3 figure: the target MCU runs at 160 MHz (`CONFIG_ESP_DEFAULT_CPU_FREQ_MHZ=160`), and **target-side latency has not been measured**. Do not quote 0.44 µs as an ESP32-S3 number.
 
 ### 3. FPGA Inter-Beat Interval (IBI) Resolution ($20\text{ ns}$)
 * **System Clock:** $f = 50.000\text{ MHz} \implies T = \frac{1}{f} = \mathbf{20.000\text{ ns per tick}}$.
@@ -516,7 +525,7 @@ For an in-depth mathematical defense, signal processing equations, and clinical 
 │   │   ├── spo2_engine.c / .h      # Ratio-of-ratios pulse oximetry calculation
 │   │   ├── disaster_risk_engine.c  # Moran PSI, Steadman HI, AHA PM2.5-HRV, Si et al. Neural PM2.5
 │   │   ├── nn_risk_model.c / .h    # Float32 feedforward TinyML model (6→24→16→3)
-│   │   ├── nn_risk_model_int8.c    # INT8 Quantized TinyML engine (619 bytes SRAM, 91% acc)
+│   │   ├── nn_risk_model_int8.c    # INT8 Quantized TinyML engine (619 bytes SRAM, 88.47% acc)
 │   │   ├── accuracy_evaluator.c    # MIMIC-III triage metrics (94.11% acc, confusion matrix)
 │   │   └── mimic_harness.c         # MIMIC-III cohort scan (triage level counts + latency only)
 │   ├── zynq/                       # Zynq PS application, sensor drivers & harnesses
@@ -534,7 +543,7 @@ For an in-depth mathematical defense, signal processing equations, and clinical 
 │       ├── shrikefi_dashboard.c    # Standalone Win32 GDI real-time GUI dashboard
 │       ├── max30102.c / .h         # Auto-sensing MAX30100 & MAX30102 driver
 │       ├── pmsa003.c / .h          # Plantower laser particulate PM2.5 driver
-│       ├── shrikefi_link_driver.c  # 4-bit parallel link driver & SPI2 bitstream programmer
+│       ├── shrikefi_link_driver.c  # Full-duplex SPI2 link driver & bitstream programmer
 │       ├── wifi_mqtt_manager.c     # ESP-IDF WiFi connectivity & MQTT cloud sync
 │       ├── forgefpga_bitstream.h   # Auto-generated C header of the ForgeFPGA bitstream
 │       ├── CMakeLists.txt          # ESP-IDF component build configuration
@@ -564,13 +573,12 @@ For an in-depth mathematical defense, signal processing equations, and clinical 
 │   ├── presentation/               # SIH26181 Official Presentation Decks
 │   │   ├── SIH26181_Official_Template_Presentation.pdf  # Strict 6-slide SIH portal submission
 │   │   ├── SIH26181_Official_Template_Presentation.pptx # Editable official SIH template deck
-│   │   ├── SIH26181_VALOR_Presentation.pdf             # Widescreen 16:9 pitch deck (PDF)
 │   │   └── SIH26181_VALOR_Presentation.pptx            # Widescreen 16:9 pitch deck (PowerPoint)
 │   ├── theory/                     # Master theory notes & printable PDF book
 │   ├── HARDWARE_ARCHITECTURE.md    # In-depth microarchitecture specification
 │   ├── QUALCOMM_PLATFORM_STRATEGY.md # Qualcomm Snapdragon Wear W5+ migration spec
 │   ├── MIGRATION.md                # ShrikeFi platform migration roadmap & matrix
-│   └── SHRIKEFI_LINK_PROTOCOL.md   # 4-bit FPGA↔MCU link protocol specification
+│   └── SHRIKEFI_LINK_PROTOCOL.md   # SPI FPGA↔MCU link protocol specification
 │
 ├── .github/workflows/              # CI: compilation, testing, secret scanning
 ├── launch_dashboard.bat            # One-click native desktop GUI launcher
@@ -637,7 +645,7 @@ The companion includes a high-performance, native Windows desktop GUI applicatio
   * **OFFLINE DISASTER SIMULATOR:** Built-in multi-hazard simulation generator cycling across 6 clinical/disaster scenarios (Normal Baseline, Heat Wave & Dehydration, Severe Smog / PM2.5 Crisis, Flash Flood / Hypothermia, Cardiopulmonary ICU Emergency, Motion Artifact / Noise Test). The same six profiles drive the web dashboard, so both simulations present the same patient.
 * **Real-Time Visual Oscilloscope:** 60 FPS scrolling sweep of filtered PPG systolic pulses with beat-to-beat cadence.
 * **Full Biomarker Telemetry Panel:** Real-time digital readouts for Heart Rate, SpO2, Respiratory Rate, RMSSD HRV, Ambient Temperature, Relative Humidity, PM2.5, and Signal Quality Index (Karlen SQI).
-* **Clinical Triage & Hazard Meters:** Live color-coded gauges for **Royal College of Physicians mNEWS2 Triage** (Stable / Low / Medium / High / Critical) alongside the **INT8 TinyML Hazard Inference Engine** (Heatstroke, Smog, Hypothermia).
+* **Clinical Triage & Hazard Meters:** Live color-coded gauges for **Royal College of Physicians mNEWS2 Triage** (NORMAL / ELEVATED / HIGH / CRITICAL) alongside the **INT8 TinyML Hazard Inference Engine** (Heatstroke, Smog, Hypothermia).
 * **Instant Launch:** Simply double-click `launch_dashboard.bat` from the root directory.
 
 ---
@@ -700,7 +708,7 @@ gtkwave hardware/shrikefi/shrikefi_sim.vcd hardware/shrikefi/presentation.gtkw
 
 ### What You'll See
 - **Zynq**: AXI4-Lite register transactions, dual 8-tap moving average filters (0 DSP/0 BRAM), 4-state peak detector FSM, beat interrupt + IBI cycles (20 ns resolution)
-- **ShrikeFi**: 4-bit parallel FPGA↔MCU link protocol, same filter/peak detector RTL, link framing + strobe synchronization, beat interrupt to ESP32-S3
+- **ShrikeFi**: 8-bit SPI FPGA↔MCU link (mode 0, one byte per sample), same filter/peak detector RTL, beat flag in bit 7 of the MISO byte, IBI derived on the MCU
 
 For the commands that reproduce each waveform and test result, see [Reproducibility & Evidence Provenance](#-reproducibility--evidence-provenance)..
 

@@ -80,7 +80,17 @@ Measured post-synthesis results from **Renesas ForgeFPGA Workshop v6.55**:
 ### 1. Interconnect Architecture & Pinout
 ![ShrikeFi Pinout & Interconnect Diagram](images/shrikefi_pinout.png)
 
-### 2. 4-Bit Parallel Link Waveform Simulation
-![ShrikeFi 4-Bit Parallel Link Protocol Timing Waveform](images/shrikefi_waveform.png)
+### 2. SPI Link Framing
+
+The ShrikeFi link is **8-bit SPI**, not a parallel nibble bus: one full-duplex
+transaction per optical sample, with the beat flag in bit 7 of the returned byte.
+The frame, the pin table and the timing are in
+[`SHRIKEFI_LINK_PROTOCOL.md`](SHRIKEFI_LINK_PROTOCOL.md).
+
+The figure that used to sit here — "4-Bit Parallel Link Protocol Timing
+Waveform" — shows the retired design and is deliberately not reproduced. It
+cannot be verified from the repository (a raster with no searchable labels), so
+treat the tables in the protocol document as authoritative and regenerate the
+figure from them before reuse.
 
 

@@ -4,17 +4,19 @@ ESP-IDF application for the **ShrikeFi** platform (ESP32-S3 + Renesas ForgeFPGA
 `SLG47910C`). The port is implemented — see
 [docs/MIGRATION.md](../../docs/MIGRATION.md) for the platform roadmap and
 [docs/SHRIKEFI_LINK_PROTOCOL.md](../../docs/SHRIKEFI_LINK_PROTOCOL.md) for the
-4-bit link protocol.
+SPI link protocol.
 
 ## What the application does
 
 1. Boots under FreeRTOS and brings up I2C (MAX30102 PPG + BME280 environment),
    UART (PMSA003 / PMS5003 particulate sensor) and the SSD1306 OLED.
-2. Configures the ForgeFPGA over I2C from the bitstream embedded in
+2. Configures the ForgeFPGA over **SPI2** from the bitstream embedded in
    `forgefpga_bitstream.h` (`shrikefi_fpga_flash_init()`), so the FPGA is
    programmed on every boot without an external programmer.
-3. Streams raw Red/IR samples to the FPGA over the 4-bit parallel link and reads
-   back the filtered samples, the 32-bit IBI cycle timestamp and the beat IRQ.
+3. Streams raw IR samples to the FPGA over the SPI link and reads back
+   `{beat_latched, filt_sample[6:0]}` — one 8-bit transaction per sample. There
+   is no IBI register and no interrupt pin: the beat is bit 7 of the reply and
+   the MCU derives the IBI from its own microsecond timestamps.
 4. Runs the shared, hardware-agnostic algorithm core from `../core/`
    (HRV, SpO2, mNEWS2 triage, INT8 TinyML multi-hazard model).
 5. Publishes telemetry over USB UART and WiFi/MQTT, and drives the OLED with an
@@ -25,7 +27,7 @@ ESP-IDF application for the **ShrikeFi** platform (ESP32-S3 + Renesas ForgeFPGA
 | File | Purpose |
 |---|---|
 | `main_shrikefi.c` | FreeRTOS application: sensor task, link task, telemetry, OLED |
-| `shrikefi_link_driver.c/.h` | 4-bit parallel link driver (command/register map) |
+| `shrikefi_link_driver.c/.h` | SPI2 link driver (8-bit frame, no command map) |
 | `shrikefi_pinmap.h` | Single source of truth for every GPIO assignment |
 | `esp32_i2c_hal.c/.h` | ESP-IDF I2C HAL implementing the shared HAL interface |
 | `max30102.c/.h`, `bme280.c/.h`, `pms5003.c/.h`, `pmsa003.c/.h` | Sensor drivers |
@@ -62,7 +64,7 @@ ShrikeFi has **two USB Type-C ports** (power and programming). You only flash th
 **ESP32-S3** — the FPGA is *not* programmed separately. At boot, `app_main()`
 calls `shrikefi_fpga_flash_init()`, which programs the Renesas ForgeFPGA over
 **SPI2** from the bitstream embedded in `forgefpga_bitstream.h`. On the real
-ShrikeFi board the 4-bit link runs over internal PCB traces, so no jumper wires
+ShrikeFi board the SPI link runs over internal PCB traces, so no jumper wires
 are needed for it.
 
 1. **The bitstream is up to date.** `forgefpga_bitstream.h` was regenerated from
@@ -115,7 +117,7 @@ Vicharak `Web_FPGA_programmer.ino` sequence:
 3. SS=1 → 2 ms
 4. Image streamed in 256-byte chunks, SS toggled LOW/HIGH per chunk, SPI mode 0
    at 16 MHz
-5. 50 ms settle, then the SPI2 device is released so the 4-bit runtime link can
+5. 50 ms settle, then the SPI2 device is released so the runtime SPI link can
    take the bus
 
 This is verified on hardware. The boot log reads:
@@ -124,19 +126,28 @@ This is verified on hardware. The boot log reads:
 I (502) SHRIKEFI_LINK:   Programming Renesas ForgeFPGA SLG47910 via SPI2
 I (621) SHRIKEFI_LINK: ForgeFPGA SLG47910 configuration COMPLETE! (46408 bytes loaded)
 I (621) SHRIKEFI_MAIN: ForgeFPGA SLG47910 bitstream programmed successfully over SPI!
-I (631) SHRIKEFI_LINK: ForgeFPGA runtime link handshake: probe sent 0x55, received 0x80
+I (631) SHRIKEFI_LINK: ForgeFPGA runtime link handshake: probe sent 0x55, received 0x00
+I (641) SHRIKEFI_LINK: MISO Pin 13 Physical Line Test: Pulldown=0, Pullup=0 (ACTIVELY DRIVEN BY FPGA)
 ```
 
-The `0x80` reply is the real evidence: the runtime link only answers that probe if
-a configured design is actually running in the FPGA.
+**The `0x00` reply is expected, and the probe is not evidence of anything.** At reset the
+RTL initialises its response register to `0xA5`, but the next clock overwrites it with
+`{beat_latched, filt_sample[6:0]}` - which is `0x00` before any beat and before the filter
+has filled. The byte sent on MOSI is never echoed back, so the handshake cannot distinguish
+a programmed FPGA from a floating MISO. (An earlier revision of this file showed
+`received 0x80` and called it "the real evidence"; both were wrong.)
+
+What does show a configured design is running: the `ACTIVELY DRIVEN BY FPGA` line above, and
+then `[FPGA ACCEL] Systolic crest detected!` once a finger is on the sensor - which only the
+programmed design can produce.
 
 ### The transfer is open-loop
 
 SPI writes cannot tell us whether a ForgeFPGA is listening, so `SHRIKEFI_OK`
 means "the bytes were clocked out", not "the device confirmed receipt". The
-authoritative end-to-end check is the `0x55` probe afterwards. That is why
-`app_main()` logs the result and **continues in every case** — the 4-bit parallel
-link is the runtime bus and does not depend on this call:
+link answers its own way once a finger is on the sensor. That is why
+`app_main()` logs the result and **continues in every case** — the
+SPI link is the runtime bus and does not depend on this call:
 
 | Result | Meaning |
 |---|---|

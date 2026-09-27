@@ -51,9 +51,7 @@ static bool     s_sim_irq = false;
 
 static bool s_initialized = false;
 
-shrikefi_err_t shrikefi_link_init(const shrikefi_pins_t *pins) {
-    (void)pins;
-
+shrikefi_err_t shrikefi_link_init(void) {
 #ifdef ESP_PLATFORM
     /* Keep SS de-asserted (HIGH) for runtime SPI communication */
     gpio_set_level((gpio_num_t)PIN_FPGA_SS, 1);
@@ -196,7 +194,7 @@ shrikefi_err_t shrikefi_write_ir_sample(uint8_t sample) {
             }
             s_last_beat_time_us = now_us;
             s_beat_detected_latched = true;
-            ESP_LOGI(LINK_TAG, "[FPGA ACCEL] Systolic crest detected! Filtered=%d | Pin 16 Blue LED pulsing", s_last_filtered_ir);
+            ESP_LOGI(LINK_TAG, "[FPGA ACCEL] Systolic crest detected! Filtered=%d | PIN_7 blue LED pulsing", s_last_filtered_ir);
         }
         s_last_beat = beat;
     }

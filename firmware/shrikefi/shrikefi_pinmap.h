@@ -69,7 +69,7 @@
  * hardware/shrikefi/forgefpga_pins.pcf: spi_sck=PIN_16, spi_ss_n=PIN_17,
  * spi_mosi=PIN_18, spi_miso=PIN_19 (with PIN_19_OE).
  *
- * Frame: one 8-bit full-duplex transaction per IR sample (50 Hz). The MCU
+ * Frame: one 8-bit full-duplex transaction per IR sample (~100 Hz, measured). The MCU
  * sends the 8-bit sample; the FPGA returns {beat_latched, filt_sample[6:0]} —
  * bit 7 is the beat flag and only the low 7 bits of the 8-tap average come
  * back. There is no separate interrupt line: the beat arrives as that flag.
@@ -93,10 +93,10 @@
 #define PIN_FPGA_MISO        13   /* GPIO13 — SPI MISO (FPGA -> MCU) */
 
 /* =========================================================================
- * MAX30102 Interrupt (Optional — firmware uses polling at 50Hz instead)
+ * MAX30102 Interrupt (Optional — firmware polls the FIFO instead)
  * =========================================================================
  * The MAX30102 INT pin is open-drain, active-low, requires a pull-up.
- * Currently unused: firmware polls FIFO at 50Hz via I2C.
+ * Currently unused: firmware polls the FIFO over I2C.
  * To enable interrupt-driven mode, wire INT to this pin and add a
  * 100kΩ pull-up to 3.3V on the PCB.
  * ====================================================================== */

@@ -4,7 +4,7 @@
  * @project SIH26181 Personal Health Companion & Edge Disaster Monitor
  *
  * Demonstrates:
- *   - Core 0: High-speed 50Hz optical acquisition & 4-bit FPGA parallel link driver
+ *   - Core 0: High-speed optical acquisition (~100 Hz) & SPI link driver to the FPGA
  *   - Core 1: Environmental sensor fusion, INT8 TinyML inference, and OLED UI
  */
 
@@ -437,7 +437,7 @@ static int read_pms5003_data(pms5003_data_t *data) {
 }
 
 /**
- * @brief Core 0 Task: FPGA 4-bit link transceiver & high-frequency PPG processing
+ * @brief Core 0 Task: FPGA SPI link transceiver & high-frequency PPG processing
  */
 static void task_ppg_accelerator(void *pvParameters) {
     (void)pvParameters;
@@ -606,7 +606,7 @@ static void task_ppg_accelerator(void *pvParameters) {
             printf("[PPG] %lu\n", (unsigned long)ppg_sample.ir);
 #endif
 
-            /* 2. Stream to ForgeFPGA over 4-bit parallel link */
+            /* 2. Stream to the ForgeFPGA over the SPI link */
             shrikefi_write_red_sample(raw_red);
             shrikefi_write_ir_sample(raw_ir);
 
@@ -882,7 +882,7 @@ static void task_ppg_accelerator(void *pvParameters) {
             }
         }
 
-        /* Periodic optical debug log (every 1 second at 50Hz = 50 iterations) */
+        /* Periodic optical debug log (about once a second at the ~100 Hz optical rate) */
         if (++raw_log_timer >= 50) {
             raw_log_timer = 0;
             ppg_update_respiration_and_sqi();
@@ -898,7 +898,7 @@ static void task_ppg_accelerator(void *pvParameters) {
                      samples_read);
         }
 
-        vTaskDelay(pdMS_TO_TICKS(20)); // 50 Hz sampling loop
+        vTaskDelay(pdMS_TO_TICKS(20)); // 50 Hz poll loop; the sensor delivers ~100 Hz
     }
 }
 
@@ -1429,7 +1429,7 @@ static void task_pms5003_uart(void *pvParameters) {
 void app_main(void) {
     ESP_LOGI(TAG, "================================================================");
     ESP_LOGI(TAG, "  SIH26181 ShrikeFi Health Companion Firmware");
-    ESP_LOGI(TAG, "  ESP32-S3 + Renesas ForgeFPGA 4-Bit Heterogeneous System");
+    ESP_LOGI(TAG, "  ESP32-S3 + Renesas ForgeFPGA SPI-Linked System");
     ESP_LOGI(TAG, "================================================================");
 
     s_data_mutex = xSemaphoreCreateMutex();
@@ -1453,22 +1453,27 @@ void app_main(void) {
     esp32_i2c_hal_scan();
 
     /* ForgeFPGA bitstream delivery over SPI2, using the Vicharak
-     * Web_FPGA_programmer sequence. This is the path the board actually uses:
-     * on success the boot log reads "configuration COMPLETE! (46408 bytes
-     * loaded)" and the 4-bit runtime link below then answers its 0x55 probe.
+     * Web_FPGA_programmer sequence. On success the boot log reads
+     * "configuration COMPLETE! (46408 bytes loaded)".
      *
      * The transfer is open-loop - it cannot confirm the FPGA received anything -
-     * so this result is advisory. Non-OK is NOT fatal: the 4-bit link is the
+     * so this result is advisory. Non-OK is NOT fatal: the SPI link is the
      * runtime bus and does not depend on this call, so boot continues either way.
-     * The authoritative check is the link handshake further down. */
+     *
+     * The 0x55 handshake further down is not the confirmation either: the RTL
+     * overwrites its response register with {beat_latched, filt_sample[6:0]} on
+     * the clock after reset, so the reply is 0x00 and the probe byte is never
+     * echoed. What actually proves a configured design is running is the MISO
+     * line reading ACTIVELY DRIVEN BY FPGA, and then "[FPGA ACCEL] Systolic
+     * crest detected!" once a finger is on the sensor. */
     if (shrikefi_fpga_flash_init() == SHRIKEFI_OK) {
         ESP_LOGI(TAG, "ForgeFPGA SLG47910 bitstream programmed successfully over SPI!");
     } else {
         ESP_LOGW(TAG, "ForgeFPGA SPI programming did not complete. Falling back to dual-core MCU DSP.");
     }
 
-    /* Initialize 4-bit link to ForgeFPGA */
-    shrikefi_link_init(NULL);
+    /* Initialize the runtime SPI link to the ForgeFPGA */
+    shrikefi_link_init();
     shrikefi_set_threshold(120);
 
     /* Radio.
@@ -1589,7 +1594,7 @@ int main(void) {
     printf("================================================================\n\n");
 
     // Initialize link driver (stub)
-    shrikefi_link_init(NULL);
+    shrikefi_link_init();
     shrikefi_set_threshold(120);
 
     // Prepare simulated inputs

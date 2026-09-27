@@ -303,27 +303,39 @@ A missed beat does not have to exceed 1500 ms: at a 770 ms rhythm it produces
 
 ### Fix — and why this one is safe
 
-`IBI_MISSED_BEAT_RATIO = 1.6f` in `main_shrikefi.c`: reject an interval above
-1.6 × the median of the accepted series.
+`IBI_LOW_RATIO = 0.70f` and `IBI_HIGH_RATIO = 1.30f` in `main_shrikefi.c`:
+reject an interval outside ±30 % of the median of the accepted series.
 
 Two conditions make it safe, and both are load-bearing:
 
-**1. The median window must be FULL (5 entries) before it is consulted.**
-`hrv_median_value()` returns `0.0f` until then. This is the direct lesson of §3:
-the latch was seeded by a median over a *partly-filled* window (4 entries, 2 of
-them outliers) — not a robust statistic, and `hrv_median_of()` picks the
-upper-middle element for an even count, which makes it worse.
+**1. The median window must be FULL before it is consulted.**
+`hrv_median_value()` returns `0.0f` until the window has enough entries, and the
+window is `HRV_MEDIAN_WINDOW` (11) entries. This is the direct lesson of §3: the
+latch was seeded by a median over a *partly-filled* window (4 entries, 2 of them
+outliers) — not a robust statistic, and `hrv_median_of()` picks the upper-middle
+element for an even count, which makes it worse.
 
-**2. It is an UPPER bound only. Never add a lower one.** The asymmetry is
-provable, not a rule of thumb:
+**2. A lower bound is safe only because a reject-escape re-seeds the reference.**
+
+An earlier revision of this document specified an upper bound alone
+(`IBI_MISSED_BEAT_RATIO = 1.6f` — no longer in the tree) and warned that a lower
+bound must never be added. That warning is correct in general, and it is why the
+shipped code pairs the lower bound with an escape:
 
 * **Rejecting LONG intervals** removes only values that would drag the median
   *up*, so the median settles at the true rhythm and the ceiling adapts to it.
-  The true rhythm is always far below 1.6 × the median, so it is always accepted,
+  The true rhythm is always far below 1.3 × the median, so it is always accepted,
   and it always pulls the median back if it drifts. The fixed point is stable.
 * **Rejecting SHORT intervals** removes exactly the values that would pull the
-  median *down*, so the floor ratchets up and eventually excludes the real rhythm
-  permanently. That is §3.
+  median *down*, so without a way out the floor ratchets up and eventually
+  excludes the real rhythm permanently. That is §3.
+* `IBI_REJECT_ESCAPE` (12) is the way out: after 12 consecutive rejections the
+  pipeline discards the rhythm reference entirely and re-seeds it from live beats
+  via `hrv_median_init()`. A ratcheted floor therefore costs a few seconds of
+  re-settling rather than the measurement.
+
+**So: if you ever remove the escape, remove the lower bound with it.** Either one
+alone is unsafe; together they are what runs on the board.
 
 A missed beat is rejected **without** setting `skip_next`, because the next
 interval is timed from the real previous beat and remains valid. Only a split
@@ -477,9 +489,9 @@ still contains claims that have been corrected elsewhere in this repo — see
 
 | File | Change |
 |---|---|
-| `firmware/core/hrv_analysis.h` | Added `hrv_median_t`, `hrv_median_init()`, `hrv_median_push()`, `hrv_median_value()`, `HRV_MEDIAN_WINDOW` (5), `HRV_MEDIAN_MIN` (3). Header comments carry the rationale, the low-bias caveat, and the warning that the median is only safe as an upper bound. |
+| `firmware/core/hrv_analysis.h` | Added `hrv_median_t`, `hrv_median_init()`, `hrv_median_push()`, `hrv_median_value()`, `HRV_MEDIAN_WINDOW` (11), `HRV_MEDIAN_MIN` (3). Header comments carry the rationale, the low-bias caveat, and the warning that the median is only safe as an upper bound. |
 | `firmware/core/hrv_analysis.c` | Added `hrv_median_of()` (insertion sort over ≤5 floats) and the three public functions. `hrv_median_peek()` was added in `59ebaf1` then removed in `fccfaea` — see §3. `hrv_median_value()` replaces it and refuses to return anything until the window is full. |
-| `firmware/shrikefi/main_shrikefi.c` | Added `ibi_pipeline_t`, `ibi_pipeline_reset()`, `ibi_pipeline_submit()`; hoisted `IBI_MIN_MS`/`IBI_MAX_MS` to file scope; added `IBI_REJECT_ESCAPE` and `IBI_MISSED_BEAT_RATIO`; routed **both** detectors through the pipeline; added the rail re-seed; fixed the `NO_FINGER` telemetry mislabel; reset the pipeline on finger removal; rewrote the split-beat comment now that the cause is established. |
+| `firmware/shrikefi/main_shrikefi.c` | Added `ibi_pipeline_t`, `ibi_pipeline_reset()`, `ibi_pipeline_submit()`; hoisted `IBI_MIN_MS`/`IBI_MAX_MS` to file scope; added `IBI_REJECT_ESCAPE` and the two-sided `IBI_LOW_RATIO`/`IBI_HIGH_RATIO` band; routed **both** detectors through the pipeline; added the rail re-seed; fixed the `NO_FINGER` telemetry mislabel; reset the pipeline on finger removal; rewrote the split-beat comment now that the cause is established. |
 | `firmware/shrikefi/shrikefi_dashboard.c` | Added the `ACQUIRING` telemetry branch (Packet 2b). |
 | `firmware/shrikefi/shrikefi_link_driver.c` | Decimated logging by default; added `SHRIKEFI_LINK_FULL_RATE_LOG`; documented the 7-bit truncation. |
 | `hardware/shrikefi/tools/replay_fpga_link_log.py` | **New.** Bit-accurate RTL replay tool — checks the FPGA. |
@@ -569,10 +581,14 @@ the bitstream and the `.v` have diverged, or a pin has moved.
   `vicharak_spi_target.v`, `shrike.pdc`). Stage explicit paths only.
 * **Do not edit the RTL and the bitstream independently.** They are a matched
   pair; see §9.
-* **Never add a rejection threshold that is a LOWER bound on a running
-  statistic.** An upper bound is safe and is used for missed beats; a lower
-  bound latched the pipeline on hardware. See §3 for the failure and §6 for the
-  proof of the asymmetry.
+* **Never add a LOWER-bound rejection threshold without an escape that re-seeds
+  the statistic.** A lower bound alone ratchets: it removes exactly the values
+  that would pull the running median down, so the floor climbs until it excludes
+  the real rhythm — which is §3, and it did latch the pipeline on hardware. The
+  shipped code therefore pairs `IBI_LOW_RATIO` (0.70) with `IBI_REJECT_ESCAPE`
+  (12): after 12 consecutive rejections the reference is discarded and re-seeded
+  from live beats. Remove the escape and you must remove the lower bound with it.
+  See §3 for the failure and §6 for the asymmetry.
 * **Only consult the median when its window is full.** `hrv_median_value()`
   enforces this by returning `0.0f` early. Do not "optimise" that away.
 * **Do not call `hrv_add_ibi()` directly** from either detector. Go through

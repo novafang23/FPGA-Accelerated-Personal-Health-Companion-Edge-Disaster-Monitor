@@ -1,10 +1,18 @@
 > [!WARNING]
 > **SUPERSEDED — this report predates the fixes it audits (dated 09-MAY-2026).**
 >
-> Several findings below have since been resolved in the code. Notably it flags a
-> **GPIO3 strapping conflict on the FPGA reset line**; the current pin map uses
-> **GPIO11** (`PIN_FPGA_RST_N` in `firmware/shrikefi/shrikefi_pinmap.h`), which is
-> not an ESP32-S3 strapping pin.
+> Two of its premises no longer hold, and one of them was actively misleading:
+>
+> * **§2 audits the retired 4-bit parallel link** (`link_dir`, `link_dout_oe`,
+>   `link_strobe`, `read_nibble()`) as though it were the shipped design. The link
+>   is **8-bit SPI** — see `docs/SHRIKEFI_LINK_PROTOCOL.md`. Nothing in that
+>   section applies to the current tree, and its "must use / before the ESP32 can
+>   drive it" phrasing reads as a live defect list when it is not.
+> * The banner that previously sat here said the FPGA reset line had moved to
+>   **GPIO11** (`PIN_FPGA_RST_N`). That was wrong twice: `PIN_FPGA_RST_N` was a
+>   dead alias that has since been deleted, and **GPIO11 is SPI MOSI**. There is
+>   no reset pin at all — the RTL resets from an internal power-on counter and
+>   nothing drives PIN_13.
 >
 > Its "not jury-ready" and "critical hardware/software mismatch" verdicts describe
 > the tree as of that date, not the current one. Kept for audit-trail purposes.

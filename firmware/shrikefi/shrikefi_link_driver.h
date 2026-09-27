@@ -1,10 +1,24 @@
 /**
  * @file shrikefi_link_driver.h
- * @brief High-Speed 4-Bit Parallel Link Driver for ESP32-S3 <-> Renesas ForgeFPGA
+ * @brief Full-duplex SPI2 link driver for ESP32-S3 <-> Renesas ForgeFPGA
  * @project SIH26181 Personal Health Companion & Edge Disaster Monitor
  *
- * Provides cycle-accurate communication over the 4-bit parallel GPIO bus
- * between the ESP32-S3 MCU and the on-board Renesas ForgeFPGA accelerator.
+ * Drives the 4-wire SPI link (mode 0, SPI2_HOST) between the ESP32-S3 and the
+ * on-board Renesas ForgeFPGA, and delivers the FPGA bitstream over that same bus
+ * at boot.
+ *
+ * One 8-bit full-duplex transaction per optical sample (~100 Hz): the MCU sends
+ * the raw IR sample on MOSI and receives {beat_latched, filt_sample[6:0]} on
+ * MISO. There is no command map, no strobe, no direction line, no address and no
+ * interrupt pin - the beat is bit 7 of the returned byte, and the MCU derives
+ * the IBI from its own esp_timer_get_time() deltas. Full specification:
+ * docs/SHRIKEFI_LINK_PROTOCOL.md.
+ *
+ * Earlier revisions of this header declared a "4-bit parallel GPIO bus" with a
+ * SHRIKEFI_CMD_* nibble codebook and a shrikefi_pins_t carrying a strobe, a
+ * direction line and an irq pin. That design was retired before it was built,
+ * and no constant in it was ever referenced by the driver. It has been removed
+ * rather than left to describe a bus that does not exist.
  *
  * ELECTRICAL NOTICE:
  * All GPIOs operate at 3.3V LVCMOS.
@@ -19,25 +33,6 @@
 #ifdef __cplusplus
 extern "C" {
 #endif
-
-/* Command Nibbles matching FPGA protocol */
-#define SHRIKEFI_CMD_NOP          0x0
-#define SHRIKEFI_CMD_WRITE_RED    0x1
-#define SHRIKEFI_CMD_WRITE_IR     0x2
-#define SHRIKEFI_CMD_WRITE_THRESH 0x3
-#define SHRIKEFI_CMD_READ_RED     0x4
-#define SHRIKEFI_CMD_READ_IR      0x5
-#define SHRIKEFI_CMD_READ_IBI     0x6
-#define SHRIKEFI_CMD_CLEAR_IRQ    0x7
-#define SHRIKEFI_CMD_READ_STATUS  0x8
-
-/* Pin configuration structure */
-typedef struct {
-    int pin_strobe;    /**< Strobe clock GPIO */
-    int pin_dir;       /**< Direction GPIO (0=Write to FPGA, 1=Read from FPGA) */
-    int pin_data[4];   /**< 4-bit bidirectional data GPIOs [D0, D1, D2, D3] */
-    int pin_irq;       /**< Beat detected interrupt GPIO */
-} shrikefi_pins_t;
 
 typedef enum {
     SHRIKEFI_OK = 0,
@@ -57,11 +52,14 @@ typedef enum {
 /**
  * @brief Deliver the ForgeFPGA bitstream over SPI2 at boot.
  *
- * The image (46,408 bytes) is always embedded and always sent. This is the path
- * this board is verified to use: the boot log reaches "configuration COMPLETE!
- * (46408 bytes loaded)" and the runtime link below then answers its 0x55 probe,
- * which only happens if a configured design is actually running. The image costs
- * 0.6% of the 7 MB app partition, so there is no build switch to remove it.
+ * The image (46,408 bytes) is always embedded and always sent. The boot log
+ * reaches "configuration COMPLETE! (46408 bytes loaded)". The 0x55 probe that
+ * follows is NOT proof of anything: the RTL overwrites its response register
+ * with {beat_latched, filt_sample[6:0]} on the clock after reset, so the reply
+ * is 0x00 and the probe byte is never echoed. What proves a configured design is
+ * running is the MISO line read showing ACTIVELY DRIVEN BY FPGA, and the
+ * "[FPGA ACCEL] Systolic crest detected!" lines that follow once a finger is on
+ * the sensor.
  *
  * The image is streamed in 256-byte chunks after the Vicharak
  * Web_FPGA_programmer.ino reset sequence (PWR=0/EN=0/SS=1 -> PWR=1/EN=1/SS=0,
@@ -69,29 +67,32 @@ typedef enum {
  *
  * The sequence is OPEN-LOOP: SPI writes cannot tell us whether a ForgeFPGA is
  * actually listening, so SHRIKEFI_OK means "the bytes were clocked out", not
- * "the device confirmed receipt". The real end-to-end check is the runtime link
- * probe afterwards - we send 0x55 and expect a defined reply.
+ * "the device confirmed receipt".
  *
  * Return values:
  *   SHRIKEFI_OK            - the image was clocked out over SPI2
  *   SHRIKEFI_ERR_TIMEOUT   - SPI2 bus/device setup or DMA alloc failed
  *   SHRIKEFI_ERR_SPI_WRITE - a chunk failed mid-transfer
  *
- * CALLERS MUST NOT TREAT A NON-OK RESULT AS FATAL. The 4-bit parallel link is the
- * runtime bus between the ESP32-S3 and the FPGA and does not depend on this call.
+ * CALLERS MUST NOT TREAT A NON-OK RESULT AS FATAL. The SPI link is the runtime
+ * bus between the ESP32-S3 and the FPGA and does not depend on this call.
  *
- * The ForgeFPGA pin constraints (hardware/shrikefi/forgefpga_pins.pcf) declare no
- * configuration interface, so if the FPGA is instead self-configuring from
- * OTP/NVM or the onboard W25Q32JV QSPI flash, this transfer is redundant rather
- * than harmful.
+ * The ForgeFPGA pin constraints (hardware/shrikefi/forgefpga_pins.pcf) declare
+ * the SPI link on PIN_16-19 but no I2C configuration port, so if the FPGA is
+ * instead self-configuring from OTP/NVM or the onboard W25Q32JV QSPI flash, this
+ * transfer is redundant rather than harmful.
  */
 shrikefi_err_t shrikefi_fpga_flash_init(void);
 
 /**
- * @brief Initialize ESP32 GPIOs for the 4-bit ForgeFPGA parallel link
- * @param pins Pointer to pin configuration struct (or NULL for default pins)
+ * @brief Bring up the runtime SPI link on SPI2_HOST
+ *
+ * Takes no pin argument: the link pins are compile-time constants in
+ * shrikefi_pinmap.h, and the bus is configured by shrikefi_fpga_flash_init().
+ * (This used to accept a shrikefi_pins_t describing the retired parallel bus.
+ * The argument was ignored by the implementation and the type is gone.)
  */
-shrikefi_err_t shrikefi_link_init(const shrikefi_pins_t *pins);
+shrikefi_err_t shrikefi_link_init(void);
 
 /**
  * @brief Set systolic peak detection threshold on FPGA
@@ -124,19 +125,30 @@ uint8_t shrikefi_read_filtered_red(void);
 uint8_t shrikefi_read_filtered_ir(void);
 
 /**
- * @brief Read 32-bit cycle-accurate Inter-Beat Interval (IBI) from FPGA
- * @return Number of 50MHz clock cycles (20ns per cycle)
+ * @brief Inter-beat interval, in 50 MHz cycles, since the previous beat
+ *
+ * NOT read from the FPGA. The RTL keeps a 32-bit cycle counter, but there is no
+ * room for it in the 8-bit SPI reply and it is never transmitted. The driver
+ * timestamps each rising beat flag with esp_timer_get_time() and differences
+ * consecutive timestamps, converting to 50 MHz-equivalent cycles. The value is
+ * numerically right (the 50 MHz factor cancels downstream) but its resolution is
+ * the SPI poll cadence - about 10 ms at ~100 Hz - not the FPGA's 20 ns tick.
  */
 uint32_t shrikefi_read_ibi_cycles(void);
 
 /**
- * @brief Clear hardware beat interrupt flag on FPGA (Write-1-to-Clear)
+ * @brief Clear the latched beat flag
+ *
+ * There is no interrupt line and no write-1-to-clear register: the beat is bit 7
+ * of the MISO byte and this clears the driver's latched copy of it.
  */
 void shrikefi_clear_irq(void);
 
 /**
- * @brief Check if hardware interrupt pin is currently asserted
- * @return true if beat detected
+ * @brief Has a beat been latched since the last shrikefi_clear_irq()?
+ * @return true if a systolic crest has been reported
+ *
+ * Polled, not interrupt-driven - there is no beat interrupt pin on this board.
  */
 bool shrikefi_is_beat_detected(void);
 

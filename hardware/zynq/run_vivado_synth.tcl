@@ -24,14 +24,19 @@ if {$mode == "sim"} {
     # ---- SIMULATION MODE ----
     puts ">> Running Behavioral Simulation (xsim)..."
     create_project -in_memory -part $part
-    read_verilog moving_average_8tap.v
-    read_verilog ppg_peak_detector.v
+    # The filter and peak detector are vendor-agnostic and live in
+    # hardware/common/ (they are shared with the ShrikeFi target), so they must
+    # be read with a ../common/ prefix. Reading them bare worked when every file
+    # sat in one flat folder; after the platform split it silently read nothing
+    # from that directory and the flow failed.
+    read_verilog ../common/moving_average_8tap.v
+    read_verilog ../common/ppg_peak_detector.v
     read_verilog axi_ppg_accelerator.v
     read_verilog tb_ppg_system.v
     
     # Compile & elaborate
     puts ">> Compiling..."
-    xvlog -sv -work xil_defaultlib [glob *.v]
+    xvlog -sv -work xil_defaultlib [glob *.v ../common/*.v]
     
     # Elaborate
     puts ">> Elaborating..."
@@ -51,9 +56,9 @@ puts "==========================================================================
 
 create_project -in_memory -part $part
 
-# Read RTL source files
-read_verilog moving_average_8tap.v
-read_verilog ppg_peak_detector.v
+# Read RTL source files. The two shared modules live in hardware/common/.
+read_verilog ../common/moving_average_8tap.v
+read_verilog ../common/ppg_peak_detector.v
 read_verilog axi_ppg_accelerator.v
 
 # Read Timing Constraints
