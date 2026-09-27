@@ -48,6 +48,21 @@ CONFIG_ESP_CONSOLE_UART_BAUDRATE=115200
 # timing is done in the FPGA rather than in software.
 CONFIG_FREERTOS_HZ=100
 
+# Immediate stack-overflow detection.
+#
+# The default (CANARY) only checks a magic word when a task is switched out, so
+# an overflow that corrupts memory and then faults inside an ISR reports as
+# something unrecognisable - which is exactly what happened here: the panic
+# pointed at the I2C interrupt handler and a FreeRTOS queue, while the actual
+# cause was task_disaster_monitor overrunning its stack after risk_assessment_t
+# grew from ~48 bytes to 552.
+#
+# The watchpoint method arms a hardware watchpoint at the end of every task
+# stack and panics the moment it is touched, naming the task. It costs a little
+# RAM per task and is worth every byte while the stack sizes are being settled.
+CONFIG_FREERTOS_CHECK_STACKOVERFLOW_CANARY=y
+CONFIG_FREERTOS_WATCHPOINT_END_OF_STACK=y
+
 # --- ShrikeFi project options (see main/Kconfig.projbuild) --------------------
 # The 46 KB ForgeFPGA bitstream is always embedded and always sent over SPI2 at
 # boot; there is deliberately no option to compile it out (it is 0.6% of the app

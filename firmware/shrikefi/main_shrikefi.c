@@ -1281,10 +1281,31 @@ void app_main(void) {
     gpio_set_pull_mode(14, GPIO_PULLUP_ONLY); // Prevent floating noise when sensor disconnected
     uart_driver_install(UART_NUM_1, 1024, 0, 0, NULL, 0);
 
-    /* Spawn Dual-Core FreeRTOS Tasks */
-    xTaskCreatePinnedToCore(task_ppg_accelerator, "PPG_Accel", 4096, NULL, 5, NULL, 0); // Core 0
-    xTaskCreatePinnedToCore(task_disaster_monitor, "Risk_Monitor", 4096, NULL, 2, NULL, 1); // Core 1
-    xTaskCreatePinnedToCore(task_pms5003_uart, "PMS5003_UART", 2048, NULL, 3, NULL, 1); // Core 1
+    /* Spawn Dual-Core FreeRTOS Tasks.
+     *
+     * Stack sizes are not arbitrary. task_disaster_monitor alone puts roughly
+     * 4 KB of structs on its stack:
+     *
+     *   hrv_state_t           1224 B
+     *   risk_assessment_t  x4 2208 B   (552 B each after overall_advisory became
+     *                                   an embedded char[512] instead of a
+     *                                   const char* - the C-02 fix)
+     *   clinical_assessment_t  284 B
+     *   nn_output_t             12 B
+     *
+     * That is ~3.7 KB before any call frame, and its ESP_LOGI/printf lines with
+     * a dozen arguments (four of them doubles) need several hundred more. At the
+     * old 4096-byte stack it overflowed on every boot and corrupted the heap,
+     * which surfaced as a StoreProhibited panic inside the I2C ISR rather than
+     * as anything recognisable. Enlarging the buffers without enlarging the
+     * stack is what broke it, so the sizes below carry real headroom.
+     *
+     * CONFIG_FREERTOS_WATCHPOINT_END_OF_STACK is enabled in sdkconfig.defaults so
+     * the next overflow of this kind panics immediately and names the task,
+     * instead of corrupting memory somewhere unrelated. */
+    xTaskCreatePinnedToCore(task_ppg_accelerator, "PPG_Accel",    7168, NULL, 5, NULL, 0); // Core 0
+    xTaskCreatePinnedToCore(task_disaster_monitor, "Risk_Monitor", 10240, NULL, 2, NULL, 1); // Core 1
+    xTaskCreatePinnedToCore(task_pms5003_uart, "PMS5003_UART",     4096, NULL, 3, NULL, 1); // Core 1
 }
 #endif
 
