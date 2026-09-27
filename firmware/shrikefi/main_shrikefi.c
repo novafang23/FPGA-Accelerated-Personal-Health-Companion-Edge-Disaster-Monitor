@@ -37,6 +37,7 @@
 #include "freertos/task.h"
 #include "freertos/semphr.h"
 #include "esp_log.h"
+#include "esp_timer.h"   /* microsecond beat timestamps - see the PPG task */
 #include "driver/uart.h"
 
 static const char *TAG = "SHRIKEFI_MAIN";
@@ -500,7 +501,17 @@ static void task_ppg_accelerator(void *pvParameters) {
             samples_read++;
             avail--;
 
-            uint32_t now_ms = (uint32_t)(xTaskGetTickCount() * portTICK_PERIOD_MS);
+            /* Beat timestamps must not come from the RTOS tick.
+             *
+             * xTaskGetTickCount() * portTICK_PERIOD_MS is quantised to one tick
+             * - 10 ms at CONFIG_FREERTOS_HZ=100 - so every software-detected
+             * interval was necessarily a multiple of 10 ms. RMSSD is the RMS of
+             * successive interval *differences*, so it is maximally sensitive to
+             * exactly that kind of independent per-sample error, and this path
+             * is the only source of intervals for the first beats of every
+             * contact and after any FPGA dropout. esp_timer is the microsecond
+             * source shrikefi_link_driver.c already times FPGA beats with. */
+            uint32_t now_ms = (uint32_t)(esp_timer_get_time() / 1000);
 
             /* Track min/max over 50 samples (1 sec) to measure pulsatile AC amplitude */
             if (ppg_sample.ir < ir_win_min) ir_win_min = ppg_sample.ir;
@@ -571,10 +582,19 @@ static void task_ppg_accelerator(void *pvParameters) {
                                      ppg_sample.ir);
             }
 
-#if CONFIG_SHRIKEFI_STREAM_PPG
+/* ESP-IDF omits an unset bool from sdkconfig.h entirely, so an undefined
+ * CONFIG_SHRIKEFI_STREAM_PPG and a "not set" one are indistinguishable here -
+ * and an undefined identifier in #if evaluates to 0. That is how this option
+ * silently compiled the whole [PPG]/FG stream out of a build whose
+ * sdkconfig.defaults asked for it, flattening the dashboard oscilloscope with
+ * no diagnostic. Spell the test out so the dependency is explicit rather than
+ * relying on the reader knowing the #if rule. The option is default y in
+ * main/Kconfig.projbuild and y in sdkconfig.defaults. */
+#if defined(CONFIG_SHRIKEFI_STREAM_PPG) && CONFIG_SHRIKEFI_STREAM_PPG
             /* Stream raw PPG sample for the dashboard oscilloscope.
              *
-             * Gated on CONFIG_SHRIKEFI_STREAM_PPG (default y). At 50 Hz this one
+             * Gated on CONFIG_SHRIKEFI_STREAM_PPG (default y). At the ~100 Hz optical
+ * rate this one
              * line is most of the console output, and it buries the lines that
              * actually answer bring-up questions - the FPGA link handshake, the
              * detector handover, and [TRIAGE]. Turn the option off for a
@@ -621,7 +641,19 @@ static void task_ppg_accelerator(void *pvParameters) {
                 /* Hardware beat detected by ForgeFPGA on GPIO 10 */
                 uint32_t ibi_cycles = shrikefi_read_ibi_cycles();
                 shrikefi_clear_irq();
-                s_last_fpga_beat_ms = now_ms;
+                /* Liveness is deliberately NOT latched here - see the accepted
+                 * branch below. Latching it from the raw beat flag meant a
+                 * single spurious bit 7 declared the FPGA alive for the rest of
+                 * the contact session and permanently suppressed the software
+                 * fallback, which is the only other detector. A floating MISO
+                 * produces that bit roughly half the time, and
+                 * shrikefi_link_init() leaves MISO floating on purpose when the
+                 * FPGA is not driving it. Every noise "interval" is then
+                 * rejected as implausible, so hrv_state.count never reaches 10,
+                 * the risk engines never run, and the operator is told
+                 * "LOW PERFUSION (PRESS FIRMER)" - pointing at the finger
+                 * instead of at the link. Removing and replacing the finger was
+                 * the only way out. */
 
                 float ibi_ms = (float)ibi_cycles * (20.0f / 1000000.0f); // 50 MHz clock
 
@@ -653,6 +685,12 @@ static void task_ppg_accelerator(void *pvParameters) {
                  * this guard removes the symptom, and ibi_pipeline_submit()
                  * removes the residual one-in-N split with a median filter. */
                 if (ibi_pipeline_submit(&ibi_pipe, &hrv_state, IBI_SRC_FPGA, ibi_ms)) {
+                    /* An interval that passed the plausibility pipeline is the
+                     * only evidence that the FPGA is genuinely detecting
+                     * beats, so that - not the raw flag - is what latches
+                     * liveness. A spurious beat now simply fails validation and
+                     * leaves the software detector running. */
+                    s_last_fpga_beat_ms = now_ms;
                     float inst_hr = 60000.0f / ibi_ms;
                     if (xSemaphoreTake(s_data_mutex, pdMS_TO_TICKS(10)) == pdTRUE) {
                         g_state.r_peak_interval_ms = ibi_ms;

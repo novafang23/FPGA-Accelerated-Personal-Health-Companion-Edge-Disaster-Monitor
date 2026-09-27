@@ -46,7 +46,19 @@ static int max30102_i2c_write_read(max30102_t *dev, uint8_t reg, uint8_t *data, 
 
 static void max30102_delay_ms(int ms) {
 #ifdef ESP_PLATFORM
-    vTaskDelay(pdMS_TO_TICKS(ms));
+    /* vTaskDelay(pdMS_TO_TICKS(1)) is ZERO ticks at CONFIG_FREERTOS_HZ=100 -
+     * pdMS_TO_TICKS is integer division - and vTaskDelay(0) is only a yield.
+     * This function is used by the soft-reset and temperature poll loops, so
+     * those loops spun on back-to-back I2C transactions with no real wait and
+     * could exhaust their 100-iteration budget before the device cleared the
+     * bit. The failure mode was a silent "MAX30102 initialization failed!" and
+     * then no vitals at all, which reads like a wiring fault. Busy-wait the
+     * sub-tick intervals; bme280.c already does exactly this. */
+    if (ms * 1000 <= 10000) {
+        esp_rom_delay_us((uint32_t)ms * 1000u);
+    } else {
+        vTaskDelay(pdMS_TO_TICKS(ms));
+    }
 #elif defined(_WIN32)
     Sleep(ms);
 #else

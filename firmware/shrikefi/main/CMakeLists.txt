@@ -68,3 +68,23 @@ idf_component_register(
 )
 
 target_compile_definitions(${COMPONENT_LIB} PRIVATE ${SHRIKEFI_WIFI_MODE_DEF})
+
+# ── On -Wundef ───────────────────────────────────────────────────────────────
+# This component has been bitten three times by a configuration decision that
+# failed silently: an in-source __has_include() probe that evaluated false with
+# the header present, a bitstream Kconfig option that quietly turned the FPGA
+# path off on any checkout whose sdkconfig predated it, and
+# " #if CONFIG_SHRIKEFI_STREAM_PPG " - where an option absent from sdkconfig.h
+# makes the identifier 0, compiling the whole PPG/FG stream out silently.
+#
+# -Wundef is the obvious guard against that third class, and it was tried here.
+# It is NOT enabled, deliberately: ESP-IDF's own headers trip it 24 times
+# (esp_log_config.h, esp_log_color.h, esp_log_timestamp.h, esp_timer.h,
+# hal/uart_types.h, driver/uart.h - mostly BOOTLOADER_BUILD, NON_OS_BUILD and
+# SOC_UART_LP_NUM), all reported through this component because IDF passes its
+# includes with -I rather than -isystem. A genuine finding would be buried in
+# that noise, and the build would no longer be warning-clean.
+#
+# The actual fix is to never test a bare CONFIG_* in #if. Both sites now read
+#   #if defined(CONFIG_SHRIKEFI_STREAM_PPG) && CONFIG_SHRIKEFI_STREAM_PPG
+# and silently-absent options must not be the mechanism a feature depends on.

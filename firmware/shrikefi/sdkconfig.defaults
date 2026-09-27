@@ -1,4 +1,4 @@
-﻿# ShrikeFi ESP32-S3 build identity
+# ShrikeFi ESP32-S3 build identity
 # ==============================================================================
 # Reproduces the configuration the committed firmware was built with. ESP-IDF
 # uses this file only when sdkconfig does not exist yet, so it does not change

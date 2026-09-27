@@ -171,7 +171,9 @@ shrikefi_err_t shrikefi_write_ir_sample(uint8_t sample) {
          * console carries only [TELEMETRY] and [TRIAGE], which is what you want
          * when the question is "did the link hand over to the FPGA" rather than
          * "what exactly is the filter returning". */
-#if CONFIG_SHRIKEFI_STREAM_PPG
+/* See the matching note in main_shrikefi.c: an unset option is omitted from
+ * sdkconfig.h, and an undefined identifier in #if is 0, so spell it out. */
+#if defined(CONFIG_SHRIKEFI_STREAM_PPG) && CONFIG_SHRIKEFI_STREAM_PPG
         static int s_dbg_cnt = 0;
 #if SHRIKEFI_LINK_FULL_RATE_LOG
         printf("FG %d %u %u %u\n", s_dbg_cnt, tx, rx & 0x7F, (rx >> 7) & 1);
@@ -298,19 +300,26 @@ shrikefi_err_t shrikefi_fpga_flash_init(void) {
      *    PWR=0, EN=0, SS=1 -> delay 3ms
      *    PWR=1, EN=1, SS=0 -> delay 10ms (boot mode latch)
      *    SS=1              -> delay 1ms
-     */
+     *
+     * These use esp_rom_delay_us, NOT vTaskDelay(pdMS_TO_TICKS(..)). At
+     * CONFIG_FREERTOS_HZ=100 a tick is 10 ms, so pdMS_TO_TICKS is integer
+     * division: pdMS_TO_TICKS(5) and pdMS_TO_TICKS(2) are both ZERO ticks and
+     * vTaskDelay(0) is only a yield. The boot-mode latch window was therefore
+     * not being held on any boot, deterministically, which is exactly the kind
+     * of intermittent FPGA-programming failure that is worst to debug. Same
+     * reasoning as bme280.c's sub-tick waits. */
     gpio_set_level((gpio_num_t)PIN_FPGA_PWR, 0);
     gpio_set_level((gpio_num_t)PIN_FPGA_EN, 0);
     gpio_set_level((gpio_num_t)PIN_FPGA_SS, 1);
-    vTaskDelay(pdMS_TO_TICKS(5));
+    esp_rom_delay_us(3000);
 
     gpio_set_level((gpio_num_t)PIN_FPGA_PWR, 1);
     gpio_set_level((gpio_num_t)PIN_FPGA_EN, 1);
     gpio_set_level((gpio_num_t)PIN_FPGA_SS, 0);
-    vTaskDelay(pdMS_TO_TICKS(15));
+    esp_rom_delay_us(10000);
 
     gpio_set_level((gpio_num_t)PIN_FPGA_SS, 1);
-    vTaskDelay(pdMS_TO_TICKS(2));
+    esp_rom_delay_us(1000);
 
     /* 4. Stream bitstream in 256-byte chunks with SS toggling LOW/HIGH per chunk */
     uint8_t *dma_chunk = (uint8_t *)heap_caps_malloc(256, MALLOC_CAP_DMA | MALLOC_CAP_INTERNAL);
