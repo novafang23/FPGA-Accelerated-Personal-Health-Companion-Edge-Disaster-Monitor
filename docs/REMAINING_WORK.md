@@ -58,19 +58,41 @@ device never measured.
 
 ---
 
-### T1.3 — WiFi SoftAP + tiny HTTP status page
+### T1.3 - SoftAP + local status page  DONE (2026-09-28)
 
 **This is the strongest available demo and it needs no router.**
 
-The WiFi radio is fine. Only *station association* to `Airtel_Abhi-506` fails — SoftAP is a
-different mode that broadcasts its own network instead of joining one.
+`firmware/shrikefi/web_status.{h,c}` raises an open access point and serves a live status page
+from the device itself. The dashboard that existed before this needed a PC, a USB cable and a
+browser gesture - the opposite of a field device. Now a rescuer's phone joins `VALOR-xxxx` and
+reads the patient's status directly.
 
-On SOS: raise an access point `VALOR-SOS`, run a minimal HTTP server on `192.168.4.1`, serve a
-single page with live vitals, the active risk level and the stored location.
+- `GET /` serves a 3.9 KB phone-sized page in the VALOR palette.
+- `GET /status.json` serves the whole snapshot: HR, SpO2, RR, SQI, RMSSD, temp, humidity,
+  PM2.5, NEWS2, level, flags, fused risk, SOS state and trigger, location, uptime, contact.
+- The page **derives nothing** - every number is computed on the device, the same rule the
+  desktop dashboard follows.
+- The AP is **open by design**: it is an emergency status page, and a passphrase would be a
+  credential a bystander does not have. Nothing confidential leaves the device over it.
+- **Failure is never fatal.** Every init step is returned and logged rather than
+  `ESP_ERROR_CHECK`'d, so a radio that will not come up leaves the device measuring.
 
-**Demo:** router unplugged, judge opens it on their phone, sees the patient's status. That
-*demonstrates* requirement 5's "operate effectively with intermittent or no internet" instead
-of merely asserting it. ~3–4 hours.
+**Deliberate deviation from the original sketch:** the page is published **always**, not only on
+SOS, and the AP **replaces** the station path rather than joining it. Publishing always means a
+rescuer who arrives *before* any alarm still gets a reading. AP+STA would force the access point
+onto whatever channel the station associates on, dropping a connected phone mid-demo; and cloud
+publishing is off by default, so the station connection had no function left to lose.
+`CONFIG_SHRIKEFI_SOFTAP` selects this; turning it off restores `wifi_mqtt_init()`.
+
+**Verified on hardware, end to end:** the PC joined `VALOR-0081`, `GET /status.json` returned
+HTTP 200 with live values, `GET /` returned the page, an unknown path returned 404, and the PC
+was returned to its own network afterwards. The page's JavaScript was then rendered against a
+stubbed endpoint in headless Chrome and the DOM checked in three states - healthy, emergency and
+no finger - including that an absent reading renders `--` rather than `0`.
+
+**Still open:** the page is read-only. A manual SOS trigger and a cancel button from the phone
+need a POST endpoint (a natural pairing with T2.2's button). T1.4 supplies the location it shows.
+
 
 ---
 
@@ -399,7 +421,7 @@ constraint is worse than none, because it produces a confident number.
 | 3 | Disaster alerts | Heat + air quality good; **flood/cyclone not instrumented** | **T3.1** — free, BME280 pressure trend |
 | 4 | Environmental awareness | **Strong** | — |
 | 5 | Privacy-preserving edge AI | **Satisfied** — cloud publishing off by default | — |
-| 6 | Emergency assistance | **Partial — SOS latch + full-screen OLED emergency card shipped (T1.2)** | **T1.3** (SoftAP page) + **T1.4** (stored location) + a button (T2.2) |
+| 6 | Emergency assistance | **Partial — SOS latch + OLED emergency card + local status page shipped (T1.2, T1.3)** | **T1.4** (stored location), a POST trigger endpoint, and a button (T2.2) |
 | 7 | Wellness dashboard | Live only, no history or trends | T3.2 |
 | 8 | Scalable deployment | Roadmap only | — |
 
@@ -409,21 +431,21 @@ constraint is worse than none, because it produces a confident number.
 
 ```
 DONE (2026-09-21):  T1.1 MQTT privacy · T1.6 badge · T4.4 re-fit
-DONE (2026-09-28):  T1.2 SOS state machine + OLED card · T1.5 RR/SQI verified on hardware
+DONE (2026-09-28):  T1.2 SOS state machine + OLED card · T1.3 SoftAP status page
+                    T1.5 RR/SQI verified on hardware
 
 Still open, no parts needed — in this order:
-  1. T1.3  SoftAP + status page          <- the demo a judge can hold, no router
-  2. T1.4  Stored location in NVS
-  3. T3.1  BME280 pressure trend         <- free cyclone advisory
-  4. T3.4  Correct the docs that still describe the retired 4-bit parallel link
-  5. T3.5  Give the respiratory rate a confidence measure that works on real data
-  6. T3.3  Handover log spam (~30 min)
-  7. T1.7  README images (blocked on images from the user)
+  1. T1.4  Stored location in NVS
+  2. T3.1  BME280 pressure trend         <- free cyclone advisory
+  3. T3.4  Correct the docs that still describe the retired 4-bit parallel link
+  4. T3.5  Give the respiratory rate a confidence measure that works on real data
+  5. T3.3  Handover log spam (~30 min)
+  6. T1.7  README images (blocked on images from the user)
 
 With parts (roughly ₹450 total):
-  8. T2.1  MAX30205 skin temperature     <- highest-value part on this list
-  9. T2.2  SOS button + buzzer
- 10. T2.3  IMU (activity + sleep + falls)
+  7. T2.1  MAX30205 skin temperature     <- highest-value part on this list
+  8. T2.2  SOS button + buzzer           <- also unlocks the phone POST trigger
+  9. T2.3  IMU (activity + sleep + falls)
 
 Before submission:
  11. T4.1  Chest-strap validation        <- the only thing that changes what you can claim

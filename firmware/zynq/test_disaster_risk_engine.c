@@ -12,6 +12,10 @@
  * or FreeRTOS dependency, so the emergency state machine is testable here
  * alongside everything else rather than only on the bench. */
 #include "sos.h"
+/* The status page's wire format. web_status.c keeps the JSON formatter free of
+ * ESP-IDF (the SoftAP and HTTP handlers are behind ESP_PLATFORM), so the exact
+ * bytes the phone receives are checked here rather than by curling a board. */
+#include "web_status.h"
 
 /* ---------------------------------------------------------------------------
  * Compile-time contract: the INT8 model struct must exactly match the
@@ -595,6 +599,68 @@ static void test_sos_state_machine(void) {
     printf("test_sos_state_machine: PASS\n");
 }
 
+/* The status page wire format (T1.3).
+ *
+ * The page derives nothing - every number it shows is computed on the device -
+ * so this document is the whole contract between the two, and it is worth
+ * pinning down exactly. */
+static void test_web_status_json(void) {
+    valor_status_t s;
+    memset(&s, 0, sizeof(s));
+    s.hr = 72.1f; s.spo2 = 97.5f; s.rr = 0.0f; s.sqi = 0.87f; s.rmssd = 38.3f;
+    s.temp = 29.2f; s.hum = 61.7f; s.pm25 = 13.9f;
+    s.news2 = 0; s.level = 0; s.flags = 0;
+    s.risk = "NORMAL"; s.sos = "IDLE"; s.trigger = "none"; s.loc = "UNSET";
+    s.uptime_s = 123; s.contact = true;
+
+    char buf[512];
+    size_t n = web_status_json(&s, buf, sizeof(buf));
+    assert(n > 0);
+    assert(strlen(buf) == n);            /* length agrees with the content */
+
+    assert(strstr(buf, "\"hr\":72.1")        != NULL);
+    assert(strstr(buf, "\"spo2\":97.5")      != NULL);
+    assert(strstr(buf, "\"rr\":0.0")         != NULL);
+    assert(strstr(buf, "\"sqi\":0.87")       != NULL);
+    assert(strstr(buf, "\"rmssd\":38.3")     != NULL);
+    assert(strstr(buf, "\"risk\":\"NORMAL\"")!= NULL);
+    assert(strstr(buf, "\"sos\":\"IDLE\"")   != NULL);
+    assert(strstr(buf, "\"loc\":\"UNSET\"")  != NULL);
+    assert(strstr(buf, "\"contact\":true")   != NULL);
+    assert(strstr(buf, "\"up\":123")         != NULL);
+
+    /* An active emergency must be distinguishable, since the page turns red on
+     * exactly this field. */
+    s.sos = "ACTIVE"; s.trigger = "critical triage"; s.risk = "CRITICAL";
+    n = web_status_json(&s, buf, sizeof(buf));
+    assert(n > 0);
+    assert(strstr(buf, "\"sos\":\"ACTIVE\"")                 != NULL);
+    assert(strstr(buf, "\"trigger\":\"critical triage\"")    != NULL);
+    assert(strstr(buf, "\"risk\":\"CRITICAL\"")              != NULL);
+
+    /* NULL name fields must degrade to words, not to a malformed document: the
+     * page would otherwise render the string "null". */
+    s.risk = NULL; s.sos = NULL; s.trigger = NULL; s.loc = NULL;
+    n = web_status_json(&s, buf, sizeof(buf));
+    assert(n > 0);
+    assert(strstr(buf, "\"risk\":\"UNKNOWN\"") != NULL);
+    assert(strstr(buf, "\"sos\":\"IDLE\"")     != NULL);
+    assert(strstr(buf, "\"trigger\":\"none\"") != NULL);
+    assert(strstr(buf, "\"loc\":\"UNSET\"")    != NULL);
+
+    /* A buffer that cannot hold the document must report failure. A truncated
+     * line would be invalid JSON and the page would silently stop updating. */
+    char tiny[16];
+    assert(web_status_json(&s, tiny, sizeof(tiny)) == 0);
+
+    /* And NULL arguments must not fault. */
+    assert(web_status_json(NULL, buf, sizeof(buf)) == 0);
+    assert(web_status_json(&s, NULL, sizeof(buf)) == 0);
+
+    printf("test_web_status_json: PASS (document is %u bytes)\n",
+           (unsigned)strlen(buf));
+}
+
 int main() {
     printf("Running unit tests for disaster_risk_engine...\n");
     test_heat_risk();
@@ -607,6 +673,7 @@ int main() {
     test_rr_estimate_rejects_clamped_value();
     test_sqi_requires_beat_intervals();
     test_sos_state_machine();
+    test_web_status_json();
     printf("ALL TESTS PASSED.\n");
     return 0;
 }

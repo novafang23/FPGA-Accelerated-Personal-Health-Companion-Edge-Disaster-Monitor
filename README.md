@@ -674,7 +674,7 @@ gcc -Wall -Wextra -Ifirmware/core -Ifirmware/zynq -o health_demo firmware/zynq/m
 ./health_demo
 
 # 3. Compile and run unit tests:
-gcc -Wall -Wextra -std=c11 -Ifirmware/core -Ifirmware/zynq -Ifirmware/shrikefi -o test_engine firmware/zynq/test_disaster_risk_engine.c firmware/core/hrv_analysis.c firmware/core/spo2_engine.c firmware/core/disaster_risk_engine.c firmware/core/nn_risk_model.c firmware/core/nn_risk_model_int8.c firmware/core/clinical_vitals_engine.c firmware/core/ppg_sqi.c firmware/core/ppg_respiratory_rate.c firmware/core/pm25_calibration_int8.c firmware/shrikefi/sos.c -lm
+gcc -Wall -Wextra -std=c11 -Ifirmware/core -Ifirmware/zynq -Ifirmware/shrikefi -o test_engine firmware/zynq/test_disaster_risk_engine.c firmware/core/hrv_analysis.c firmware/core/spo2_engine.c firmware/core/disaster_risk_engine.c firmware/core/nn_risk_model.c firmware/core/nn_risk_model_int8.c firmware/core/clinical_vitals_engine.c firmware/core/ppg_sqi.c firmware/core/ppg_respiratory_rate.c firmware/core/pm25_calibration_int8.c firmware/shrikefi/sos.c firmware/shrikefi/web_status.c -lm
 ./test_engine
 ```
 

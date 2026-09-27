@@ -58,6 +58,9 @@ idf_component_register(
         # hardware and FreeRTOS so firmware/zynq/test_disaster_risk_engine.c can
         # exercise its timers on the host.
         "${SHRIKEFI_DIR}/sos.c"
+        # SoftAP + local status page (T1.3). The JSON formatter inside it is
+        # ESP-free so the host test suite can check the wire format.
+        "${SHRIKEFI_DIR}/web_status.c"
     INCLUDE_DIRS 
         "${SHRIKEFI_DIR}"
         "${CORE_DIR}"
@@ -69,6 +72,7 @@ idf_component_register(
         esp_netif
         nvs_flash
         mqtt
+        esp_http_server
 )
 
 target_compile_definitions(${COMPONENT_LIB} PRIVATE ${SHRIKEFI_WIFI_MODE_DEF})

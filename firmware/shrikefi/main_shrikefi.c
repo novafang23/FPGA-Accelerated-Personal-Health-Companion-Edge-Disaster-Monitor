@@ -32,6 +32,7 @@
 #include "ppg_respiratory_rate.h"
 #include "wifi_mqtt_manager.h"
 #include "sos.h"
+#include "web_status.h"
 
 #ifdef ESP_PLATFORM
 #include "freertos/FreeRTOS.h"
@@ -1103,6 +1104,10 @@ static void task_disaster_monitor(void *pvParameters) {
          * to be drawable whatever state the assessment is in. */
         float rr_for_news2 = 0.0f;
         float sqi_for_news2 = 0.0f;
+        /* Also hoisted for the same reason: the status page shows the triage
+         * the device actually produced, not a re-derivation of it. */
+        unsigned clin_news2 = 0;
+        unsigned clin_flags = 0;
 
         risk_assessment_t final_risk;
         memset(&final_risk, 0, sizeof(final_risk));
@@ -1162,6 +1167,8 @@ static void task_disaster_monitor(void *pvParameters) {
             clinical_vitals_assess_full(hr, engine_spo2, hrv_snapshot.rmssd,
                                         rr_for_news2, sqi_for_news2, &clin_assess);
             triage_level = (int)clin_assess.level;
+            clin_news2 = (unsigned)clin_assess.news2_score;
+            clin_flags = (unsigned)clin_assess.alert_flags;
 
             /* 4. Unified Triage: Fuse deterministic bounds, TinyML patterns, and clinical vitals */
             risk_assessment_t env_fused = rule_risk;
@@ -1305,6 +1312,35 @@ static void task_disaster_monitor(void *pvParameters) {
             ESP_LOGI(TAG, "[SOS] stood down -> %s", sos_state_name(sos_get_state()));
         }
 
+        /* Publish the status-page snapshot.
+         *
+         * The page renders and derives nothing: every number here was computed
+         * on the device, which is the same rule the desktop dashboard follows.
+         * Publishing unconditionally - not only during an emergency - is what
+         * makes the page useful to a rescuer who arrives before any alarm. */
+        {
+            valor_status_t st;
+            memset(&st, 0, sizeof(st));
+            st.hr       = hr;
+            st.spo2     = spo2;
+            st.rr       = rr_for_news2;
+            st.sqi      = sqi_for_news2;
+            st.rmssd    = hrv_snapshot.rmssd;
+            st.temp     = env.ambient_temp_c;
+            st.hum      = env.humidity_pct;
+            st.pm25     = env.pm25;
+            st.news2    = clin_news2;
+            st.level    = (triage_level > 0) ? (unsigned)triage_level : 0u;
+            st.flags    = clin_flags;
+            st.risk     = risk_level_to_string(final_risk.overall_risk);
+            st.sos      = sos_state_name(sos_get_state());
+            st.trigger  = sos_trigger_name(sos_get_trigger());
+            st.loc      = s_sos_location;
+            st.uptime_s = sos_now_ms / 1000u;
+            st.contact  = contact_present;
+            web_status_publish(&st);
+        }
+
         /* 3. Render the OLED: the emergency card replaces the dashboard
          * entirely while an emergency is latched. */
         if (s_ssd1306.initialized) {
@@ -1434,8 +1470,22 @@ void app_main(void) {
     shrikefi_link_init(NULL);
     shrikefi_set_threshold(120);
 
-    /* Initialize WiFi & MQTT Cloud Sync */
+    /* Radio.
+     *
+     * The SoftAP status page REPLACES the station path rather than joining it.
+     * Cloud publishing is off by default, so the station connection had no
+     * function beyond its own failure modes - and an AP+STA radio forces the
+     * access point onto whatever channel the station lands on, which would drop
+     * a connected phone mid-demonstration. The access point depends on nothing
+     * external: no router, no credentials, nothing to associate with, which is
+     * the whole point of the requirement it serves. */
+#if defined(CONFIG_SHRIKEFI_SOFTAP) && CONFIG_SHRIKEFI_SOFTAP
+    if (web_status_start() != ESP_OK) {
+        ESP_LOGW(TAG, "Status page unavailable - vitals monitoring is unaffected");
+    }
+#else
     wifi_mqtt_init();
+#endif
 
     /* Initialize SSD1306 OLED (check default 0x3C, fallback to 0x3D) */
     if (ssd1306_init(&s_ssd1306, esp32_i2c_hal_get_handle(), SSD1306_I2C_ADDR) == 0) {

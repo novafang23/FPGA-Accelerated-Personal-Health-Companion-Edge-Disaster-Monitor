@@ -8,6 +8,32 @@ menu "ShrikeFi configuration"
     # FPGA path off on any checkout whose sdkconfig predated the option - so it
     # was removed rather than left as a footgun.
 
+    config SHRIKEFI_SOFTAP
+        bool "Serve the local status page over a self-hosted access point"
+        default y
+        help
+            Raises an open access point named VALOR-xxxx (the last two MAC
+            bytes) and serves a live status page on http://192.168.4.1. Any
+            phone can join it and read the patient's vitals, the triage verdict
+            and the active risk level. No router, no credentials and no
+            association step - which is what requirement 5's "operate
+            effectively with intermittent or no internet" actually asks for,
+            and what makes requirement 6 reachable by a rescuer who has no
+            laptop and no cable.
+
+            The access point is deliberately OPEN. It is an emergency status
+            page, and a passphrase would be a credential a bystander does not
+            have. Nothing confidential leaves the device over it: the cloud path
+            stays off unless SHRIKEFI_CLOUD_PUBLISH is separately enabled.
+
+            THIS REPLACES THE WIFI STATION PATH. With this on, wifi_mqtt_init()
+            is not called and the radio is used only for the access point. Two
+            reasons: cloud publishing is off by default, so the station
+            connection had no function beyond its own failure modes; and an
+            AP+STA radio forces the access point onto whatever channel the
+            station associates on, which would drop a connected phone
+            mid-demonstration. Turn this off to get the station path back.
+
     config SHRIKEFI_CLOUD_PUBLISH
         bool "Enable MQTT cloud publishing of health telemetry"
         default n
