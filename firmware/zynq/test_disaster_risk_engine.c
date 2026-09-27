@@ -319,7 +319,11 @@ static void test_spo2_clinical_rejection() {
     /* Scenario 3: Genuine physiological arterial pulsation */
     /* DC_ir = 30000, AC_ir = 300 (1.0% PI), DC_red = 25000, AC_red = 125 (0.5% PI), R = 0.50 -> SpO2 = ~97.5% */
     spo2_init(&spo2);
-    for (int win = 0; win < 4; win++) {
+    /* 10 windows, not 4: the gate now requires a full 8-window moving average
+     * before it will publish, which is the point of it. The signal is still the
+     * same clean constant-amplitude pulse, so this only proves the engine
+     * accepts good input - Test 4 is what proves the gate rejects bad input. */
+    for (int win = 0; win < 12; win++) {
         for (int i = 0; i < SPO2_WINDOW_SIZE; i++) {
             float phase = (float)i / (float)SPO2_WINDOW_SIZE * 6.283185f;
             float pulse = sinf(phase);
@@ -333,6 +337,49 @@ static void test_spo2_clinical_rejection() {
     printf("  SpO2 Test 3 (proper arterial pulse verified): valid=%d, SpO2=%.1f%%, PI=%.2f%%\n",
            spo2_is_valid(&spo2), val, spo2_get_perfusion_index(&spo2));
     assert(val >= 95.0f && val <= 100.0f);
+
+    /* Scenario 4: the acquisition transient.
+     *
+     * This is the case the old gate got wrong, so it is the one worth guarding.
+     * max30102_adjust_led_current() re-tunes the LED current while the finger
+     * settles, which moves the DC baseline, which moves R, which moves the
+     * reported SpO2 - for tens of seconds. On hardware that published 78% as
+     * VALID, and a real 78% is a life-threatening desaturation.
+     *
+     * A falling red AC amplitude reproduces the same drift in R: 125 counts is
+     * R=1.00 (~85%), 62.5 counts is R=0.50 (~97.5%). Scenario 3 above uses a
+     * constant pulse, so it latches immediately and would still pass with the
+     * gate removed entirely - it cannot detect a regression on its own. This
+     * can: with SPO2_REQUIRED_VALID_WINDOWS back at 1 it fails. */
+    spo2_init(&spo2);
+    for (int win = 0; win < 10; win++) {
+        float red_ac = 125.0f - (float)win * 6.25f;
+        for (int i = 0; i < SPO2_WINDOW_SIZE; i++) {
+            float phase = (float)i / (float)SPO2_WINDOW_SIZE * 6.283185f;
+            float pulse = sinf(phase);
+            uint32_t red = (uint32_t)(25000.0f + red_ac * pulse);
+            uint32_t ir  = (uint32_t)(30000.0f + 150.0f * pulse);
+            spo2_add_samples(&spo2, red, ir);
+        }
+    }
+    assert(spo2_is_valid(&spo2) == 0);
+    printf("  SpO2 Test 4 (drifting acquisition NOT published as valid): valid=%d\n",
+           spo2_is_valid(&spo2));
+
+    /* Scenario 5: it must still latch once the input genuinely settles, or the
+     * gate has simply broken SpO2 reporting instead of fixing it. */
+    for (int win = 0; win < 12; win++) {
+        for (int i = 0; i < SPO2_WINDOW_SIZE; i++) {
+            float phase = (float)i / (float)SPO2_WINDOW_SIZE * 6.283185f;
+            float pulse = sinf(phase);
+            uint32_t red = (uint32_t)(25000.0f + 62.5f * pulse);
+            uint32_t ir  = (uint32_t)(30000.0f + 150.0f * pulse);
+            spo2_add_samples(&spo2, red, ir);
+        }
+    }
+    assert(spo2_is_valid(&spo2) == 1);
+    printf("  SpO2 Test 5 (latches once the input settles): valid=%d, SpO2=%.1f%%\n",
+           spo2_is_valid(&spo2), spo2_get_value(&spo2));
 
     printf("test_spo2_clinical_rejection: PASS\n");
 }

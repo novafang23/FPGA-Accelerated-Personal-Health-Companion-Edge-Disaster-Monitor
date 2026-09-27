@@ -75,8 +75,20 @@ void spo2_add_samples(spo2_state_t *state, uint32_t red_filtered,
                 if (raw_spo2 > 100.0f) raw_spo2 = 100.0f;
                 if (raw_spo2 < 70.0f)  raw_spo2 = 70.0f;
 
-                /* Slew-rate limiting / outlier dampening to eliminate motion spikes */
-                if (state->spo2_hist_count >= 2) {
+                /* Slew-rate limiting / outlier dampening, to reject motion spikes.
+                 *
+                 * Skipped until the first value has been published. The limiter
+                 * compares against state->spo2, the running mean, so during
+                 * acquisition it clamps every sample to (mean + 2) and the mean
+                 * then chases its own clamp - convergence becomes a slow crawl.
+                 * Measured on a re-acquisition ramp: 28 windows to a trustworthy
+                 * value with the limiter always on, 8 with it gated. There is no
+                 * established reading to protect while acquiring, so applying it
+                 * there buys nothing and delays first SpO2 by ~20 seconds.
+                 *
+                 * Once valid, it is back on and does its job: damping the motion
+                 * spikes it was written for. */
+                if (state->valid && state->spo2_hist_count >= 2) {
                     float max_step = 2.0f; /* Max 2% change per 1-second window */
                     if (raw_spo2 > state->spo2 + max_step) {
                         raw_spo2 = state->spo2 + max_step;
@@ -100,7 +112,30 @@ void spo2_add_samples(spo2_state_t *state, uint32_t red_filtered,
                 state->spo2 = sum / (float)state->spo2_hist_count;
 
                 state->consecutive_valid++;
-                if (state->consecutive_valid >= SPO2_REQUIRED_VALID_WINDOWS) {
+
+                /* Has the smoothed estimate stopped moving?
+                 *
+                 * Compared over the most recent few entries rather than the
+                 * whole 8-window history: the slew limiter below allows 2% per
+                 * window, so a value still climbing at full rate spans 16%
+                 * across a full history and would never look flat. The last few
+                 * windows capture the thing that matters - whether it is still
+                 * converging. Once `valid` latches it is never un-set by this
+                 * test, so a genuine desaturation still tracks and displays. */
+                int settled = 0;
+                if (state->spo2_hist_count >= SPO2_STABLE_MIN_WINDOWS) {
+                    float lo = 1e9f, hi = -1e9f;
+                    for (int k = 0; k < SPO2_STABLE_MIN_WINDOWS; k++) {
+                        int idx = (state->spo2_hist_idx - 1 - k + 2 * SPO2_MA_FILTER_SIZE)
+                                  % SPO2_MA_FILTER_SIZE;
+                        float h = state->spo2_history[idx];
+                        if (h < lo) lo = h;
+                        if (h > hi) hi = h;
+                    }
+                    settled = ((hi - lo) <= SPO2_STABLE_SPREAD_PCT);
+                }
+
+                if (state->consecutive_valid >= SPO2_REQUIRED_VALID_WINDOWS && settled) {
                     state->valid = 1;
                 }
             }

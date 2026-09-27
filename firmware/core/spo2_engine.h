@@ -23,7 +23,35 @@ extern "C" {
 #define SPO2_MAX_PERFUSION_INDEX    15.0f  /* Maximum Perfusion Index to reject motion (15.0%) */
 #define SPO2_MIN_RATIO_R             0.35f /* Physiological lower bound for R (approx 100% SpO2) */
 #define SPO2_MAX_RATIO_R             1.65f /* Physiological upper bound for R (approx 68% SpO2) */
-#define SPO2_REQUIRED_VALID_WINDOWS  1     /* Single 1-second valid window to lock in with 8-tap smoothing */
+
+/* Acquisition gate.
+ *
+ * This used to be 1: a single valid one-second window latched `valid` and
+ * published the value. Because SPO2_MA_FILTER_SIZE is 8, the moving average is
+ * not even fully primed after one window - and the underlying R ratio keeps
+ * drifting for far longer than that, while max30102_adjust_led_current()
+ * settles the DC baseline. Measured on hardware, the reported value climbed
+ * from 78% to 96% over about 30 seconds, all of it published as VALID. A real
+ * 78% is a life-threatening desaturation, so that is not a cosmetic problem.
+ *
+ * A fixed window count cannot fix it either: the settling time depends on the
+ * finger and the LED current, not on a constant. Too low publishes an artefact
+ * as an emergency; too high hides genuine hypoxia, which is the worse failure
+ * for SpO2. So the gate asks the question that actually matters - has the
+ * smoothed estimate stopped moving? - and adapts to however long convergence
+ * takes.
+ *
+ * The comparison must span the FULL moving-average depth, not the last few
+ * windows. Against a synthetic re-acquisition ramp, a three-window comparison
+ * latched at window 5 at 87.45% - better than the 78% it replaced, but 87% is
+ * still significant hypoxaemia. The drift decelerates as it converges, so any
+ * short baseline eventually looks flat while the absolute value is still far
+ * from settled. Eight windows at a 2% tolerance clears the real transient
+ * (about 0.55%/s on hardware, so roughly 4.4% across the window) and still
+ * latches on a genuinely settled signal. */
+#define SPO2_REQUIRED_VALID_WINDOWS  8     /* Consecutive valid windows before latching */
+#define SPO2_STABLE_MIN_WINDOWS      8     /* Windows compared for flatness (= MA depth) */
+#define SPO2_STABLE_SPREAD_PCT       2.0f  /* Max spread across those windows, in SpO2 % */
 
 typedef struct {
     uint32_t red_min, red_max;
