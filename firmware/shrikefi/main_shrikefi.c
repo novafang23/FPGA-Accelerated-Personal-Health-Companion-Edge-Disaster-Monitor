@@ -221,6 +221,15 @@ static void ibi_pipeline_reset(ibi_pipeline_t *p) {
  * than rings. They are read about once a second, so the memmove is free.
  */
 #define PPG_RR_HISTORY   40    /* accepted beats fed to the RR estimator        */
+/* Minimum beats before an RSA estimate is attempted at all.
+ *
+ * Respiration is 0.2-0.3 Hz, a 3-5 s cycle, so resolving it needs several full
+ * cycles - not ten beats. At a resting 78 BPM the old floor of 10 was 7.7
+ * seconds, under two cycles, and the estimator still answered: it railed at its
+ * 36 br/min ceiling and the triage reported CRITICAL tachypnoea on a healthy
+ * resting subject, on every other assessment. 30 beats is about 23 s at rest,
+ * roughly five cycles - enough for the confidence figure to mean something. */
+#define PPG_RR_MIN_IBIS  30
 #define PPG_SQI_RAW_WIN 100    /* raw IR samples fed to the SQI (1 s at 100 Hz) */
 
 static float    s_rr_ibis[PPG_RR_HISTORY];
@@ -261,7 +270,7 @@ static void ppg_update_respiration_and_sqi(void) {
 
     /* Charlton-style RSA needs a reasonable run of beats to resolve a
      * respiratory modulation; below that the estimate is noise. */
-    if (s_rr_ibi_n >= 10) {
+    if (s_rr_ibi_n >= PPG_RR_MIN_IBIS) {
         ppg_estimate_respiratory_rate(s_rr_ibis, NULL, (size_t)s_rr_ibi_n, &rr);
     }
 
@@ -271,7 +280,15 @@ static void ppg_update_respiration_and_sqi(void) {
     }
 
     if (xSemaphoreTake(s_data_mutex, pdMS_TO_TICKS(10)) == pdTRUE) {
-        g_state.respiratory_rate_bpm = rr.respiratory_rate_bpm;
+        /* Honour the estimator's own reliability verdict. It computes
+         * confidence and sets is_reliable at >= 0.60, and the caller used to
+         * ignore both - so a low-confidence estimate was published as though it
+         * were a measurement. Publish 0 instead: clinical_vitals_assess_full()
+         * treats rr <= 0 as "unavailable" and holds the NEWS2 respiratory term
+         * neutral, which is the honest answer. Something confidently wrong is
+         * worse here than something absent, because tachypnoea is the most
+         * sensitive term in the score. */
+        g_state.respiratory_rate_bpm = rr.is_reliable ? rr.respiratory_rate_bpm : 0.0f;
         g_state.ppg_sqi               = sqi.overall_sqi;
         xSemaphoreGive(s_data_mutex);
     }
