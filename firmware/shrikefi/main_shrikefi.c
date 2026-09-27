@@ -31,6 +31,7 @@
 #include "ppg_sqi.h"
 #include "ppg_respiratory_rate.h"
 #include "wifi_mqtt_manager.h"
+#include "sos.h"
 
 #ifdef ESP_PLATFORM
 #include "freertos/FreeRTOS.h"
@@ -902,6 +903,97 @@ static void task_ppg_accelerator(void *pvParameters) {
 /**
  * @brief Core 1 Task: Environmental sensor acquisition, TinyML inference & OLED UI
  */
+/* ---------------------------------------------------------------------------
+ * Emergency assist (requirement 6)
+ * ------------------------------------------------------------------------ */
+
+/* Where the patient is, for the emergency card.
+ *
+ * T1.4 loads this from NVS at boot (a fixed installation site, or the last known
+ * position). Until then it says so, rather than showing a plausible-looking
+ * coordinate this device never measured. */
+static char s_sos_location[20] = "UNSET";
+
+/* Render the framebuffer as ASCII, so the card can be verified by reading the
+ * log instead of by looking at the panel.
+ *
+ * There is no other way to check what the display actually shows: the SSD1306 is
+ * write-only over I2C, nothing in the loop can see the screen, and a card that
+ * silently clips at the 128 px edge looks perfectly correct to the code that
+ * drew it. Printed only on the transition into an emergency. */
+static void sos_dump_framebuffer(const ssd1306_t *d) {
+    /* Built up whole and emitted in ONE printf.
+     *
+     * Emitting it line by line looked fine in the source and was useless in
+     * practice: the PPG task on the other core writes to the same console, and
+     * newlib only locks per call, so its lines landed between the rows of the
+     * card and shredded it. One call is atomic against the other core. */
+    static char buf[SSD1306_HEIGHT * (SSD1306_WIDTH + 2) + 16];
+    size_t n = 0;
+    memcpy(buf, "[SOS CARD]\n", 11);
+    n = 11;
+    for (int y = 0; y < SSD1306_HEIGHT; y++) {
+        for (int x = 0; x < SSD1306_WIDTH; x++) {
+            int on = (d->framebuf[x + (y / 8) * SSD1306_WIDTH] >> (y % 8)) & 1;
+            buf[n++] = on ? '#' : '.';
+        }
+        buf[n++] = '\n';
+    }
+    buf[n] = '\0';
+    printf("%s", buf);
+    fflush(stdout);
+}
+
+/* Full-screen emergency card.
+ *
+ * Replaces the dashboard entirely while an emergency is latched: whoever finds
+ * the patient reads this off the screen, with no phone, network or instruction
+ * needed. Every line is at most 21 characters, because the 5x7 font advances
+ * 6 px per glyph on a 128 px panel - anything longer is clipped silently.
+ *
+ * There is no time of day to show. The board has no battery-backed RTC, so
+ * offline there is no wall clock; elapsed-since-activation is printed instead,
+ * which is the number that matters to whoever is standing there. */
+static void sos_render_card(ssd1306_t *d, uint32_t now_ms,
+                            float hr, float spo2, float rr, float sqi,
+                            const char *condition) {
+    /* Sized for the worst case, not the typical one: "%s" against the 20-byte
+     * location plus the "LOC: " prefix is already past a 24-byte buffer, and
+     * gcc's -Wformat-truncation cannot bound the float fields either. */
+    char line[48];
+
+    ssd1306_draw_string(d, 0, 0, "* MEDICAL EMERGENCY *");
+
+    uint32_t secs = sos_active_ms(now_ms) / 1000u;
+    snprintf(line, sizeof(line), "SOS ACTIVE  T+%02u:%02u",
+             (unsigned)(secs / 60u), (unsigned)(secs % 60u));
+    ssd1306_draw_string(d, 0, 9, line);
+
+    if (hr > 0.0f && spo2 > 0.0f) {
+        snprintf(line, sizeof(line), "HR %3.0f bpm SpO2 %2.0f%%", hr, spo2);
+    } else if (hr > 0.0f) {
+        snprintf(line, sizeof(line), "HR %3.0f bpm SpO2 --", hr);
+    } else {
+        snprintf(line, sizeof(line), "HR -- bpm   SpO2 --");
+    }
+    ssd1306_draw_string(d, 0, 18, line);
+
+    if (rr > 0.0f) {
+        snprintf(line, sizeof(line), "RR %2.0f/min  SQI %.2f", rr, sqi);
+    } else {
+        snprintf(line, sizeof(line), "RR --/min   SQI %.2f", sqi);
+    }
+    ssd1306_draw_string(d, 0, 27, line);
+
+    snprintf(line, sizeof(line), "CONDITION: %s", condition);
+    ssd1306_draw_string(d, 0, 36, line);
+
+    snprintf(line, sizeof(line), "LOC: %s", s_sos_location);
+    ssd1306_draw_string(d, 0, 45, line);
+
+    ssd1306_draw_string(d, 0, 54, "CALL 108 DO NOT MOVE");
+}
+
 static void task_disaster_monitor(void *pvParameters) {
     (void)pvParameters;
     ESP_LOGI(TAG, "Core 1: Disaster Risk Engine & TinyML Task Started.");
@@ -1002,6 +1094,16 @@ static void task_disaster_monitor(void *pvParameters) {
         nn_output_t nn_out;
         memset(&nn_out, 0, sizeof(nn_out));
 
+        /* Emergency assist (requirement 6) needs the clinical level outside the
+         * vitals_ready branch, so the emergency state machine can be updated
+         * every second whether or not a full assessment ran. -1 = none yet. */
+        int triage_level = -1;
+        /* Hoisted out of the vitals_ready branch: the emergency card shows the
+         * same respiratory rate and signal quality the triage used, and it has
+         * to be drawable whatever state the assessment is in. */
+        float rr_for_news2 = 0.0f;
+        float sqi_for_news2 = 0.0f;
+
         risk_assessment_t final_risk;
         memset(&final_risk, 0, sizeof(final_risk));
         final_risk.overall_risk = RISK_UNKNOWN;
@@ -1052,8 +1154,6 @@ static void task_disaster_monitor(void *pvParameters) {
              * NEWS2. RR is only trusted once the estimator reports it reliable;
              * SQI gates the whole score. */
             clinical_assessment_t clin_assess;
-            float rr_for_news2 = 0.0f;
-            float sqi_for_news2 = 0.0f;
             if (xSemaphoreTake(s_data_mutex, pdMS_TO_TICKS(10)) == pdTRUE) {
                 rr_for_news2  = g_state.respiratory_rate_bpm;
                 sqi_for_news2 = g_state.ppg_sqi;
@@ -1061,6 +1161,7 @@ static void task_disaster_monitor(void *pvParameters) {
             }
             clinical_vitals_assess_full(hr, engine_spo2, hrv_snapshot.rmssd,
                                         rr_for_news2, sqi_for_news2, &clin_assess);
+            triage_level = (int)clin_assess.level;
 
             /* 4. Unified Triage: Fuse deterministic bounds, TinyML patterns, and clinical vitals */
             risk_assessment_t env_fused = rule_risk;
@@ -1186,9 +1287,38 @@ static void task_disaster_monitor(void *pvParameters) {
             fflush(stdout);
         }
 
-        /* 2. Render Live Dashboard to OLED Display */
+        /* 2. Emergency assist (requirement 6).
+         *
+         * Updated before the display, so the state machine and the card can
+         * never disagree about whether an emergency is on: whatever
+         * sos_update() decides is what gets drawn immediately below. */
+        uint32_t sos_now_ms = (uint32_t)(esp_timer_get_time() / 1000);
+        bool contact_present = (sig_stat != SIGNAL_STATUS_NO_FINGER);
+        sos_state_t sos_was = sos_get_state();
+        sos_update(sos_now_ms, triage_level == (int)CLINICAL_CRITICAL, contact_present);
+
+        if (sos_was != SOS_ACTIVE && sos_get_state() == SOS_ACTIVE) {
+            ESP_LOGW(TAG, "[SOS] EMERGENCY LATCHED - trigger: %s (level %d, contact %d)",
+                     sos_trigger_name(sos_get_trigger()), triage_level,
+                     (int)contact_present);
+        } else if (sos_was == SOS_ACTIVE && sos_get_state() != SOS_ACTIVE) {
+            ESP_LOGI(TAG, "[SOS] stood down -> %s", sos_state_name(sos_get_state()));
+        }
+
+        /* 3. Render the OLED: the emergency card replaces the dashboard
+         * entirely while an emergency is latched. */
         if (s_ssd1306.initialized) {
             ssd1306_clear(&s_ssd1306);
+
+            if (sos_get_state() == SOS_ACTIVE) {
+                sos_render_card(&s_ssd1306, sos_now_ms, hr, spo2,
+                                rr_for_news2, sqi_for_news2,
+                                risk_level_to_string(final_risk.overall_risk));
+                if (sos_was != SOS_ACTIVE) {
+                    /* First frame of the emergency: verify what was drawn. */
+                    sos_dump_framebuffer(&s_ssd1306);
+                }
+            } else {
 
             // Header
             ssd1306_draw_string(&s_ssd1306, 8, 2, "SIH26181 COMPANION");
@@ -1237,6 +1367,7 @@ static void task_disaster_monitor(void *pvParameters) {
                 snprintf(buf_cond, sizeof(buf_cond), "CONDITION: %s", risk_str);
             }
             ssd1306_draw_string(&s_ssd1306, 2, 53, buf_cond);
+            }   /* end normal dashboard */
 
             ssd1306_update(&s_ssd1306);
         }
@@ -1324,6 +1455,13 @@ void app_main(void) {
         ssd1306_draw_string(&s_ssd1306, 18, 48, "Starting...");
         ssd1306_update(&s_ssd1306);
     }
+
+    /* Emergency assist (requirement 6). Defaults: 3 s CRITICAL confirm, 5 s
+     * cancel hold, 30 s recovery stand-down, and the contact-loss trigger OFF
+     * because the finger leaves this device constantly in normal use. See sos.h
+     * for why each of those is the value it is. */
+    sos_init(NULL);
+    ESP_LOGI(TAG, "Emergency assist ready (state: %s)", sos_state_name(sos_get_state()));
 
     /* Initialize MAX30102 (PPG sensor) */
     if (max30102_init(&s_max30102, esp32_i2c_hal_get_handle()) != 0) {

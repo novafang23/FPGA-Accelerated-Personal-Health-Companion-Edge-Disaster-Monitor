@@ -54,6 +54,10 @@ idf_component_register(
         "${CORE_DIR}/ppg_respiratory_rate.c"
         "${CORE_DIR}/ppg_sqi.c"
         "${SHRIKEFI_DIR}/wifi_mqtt_manager.c"
+        # Emergency assist state machine (requirement 6). Deliberately free of
+        # hardware and FreeRTOS so firmware/zynq/test_disaster_risk_engine.c can
+        # exercise its timers on the host.
+        "${SHRIKEFI_DIR}/sos.c"
     INCLUDE_DIRS 
         "${SHRIKEFI_DIR}"
         "${CORE_DIR}"

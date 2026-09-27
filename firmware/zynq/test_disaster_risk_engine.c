@@ -8,6 +8,10 @@
 #include "nn_risk_model_int8.h"
 #include "ppg_respiratory_rate.h"
 #include "ppg_sqi.h"
+/* sos.c lives under firmware/shrikefi/ but is deliberately free of any hardware
+ * or FreeRTOS dependency, so the emergency state machine is testable here
+ * alongside everything else rather than only on the bench. */
+#include "sos.h"
 
 /* ---------------------------------------------------------------------------
  * Compile-time contract: the INT8 model struct must exactly match the
@@ -468,6 +472,129 @@ static void test_sqi_requires_beat_intervals() {
     printf("test_sqi_requires_beat_intervals: PASS\n");
 }
 
+/* Emergency assist state machine (requirement 6).
+ *
+ * sos.c has no hardware or RTOS dependency, so every timer that matters is
+ * exercised here rather than on the bench: the confirm window that stops a
+ * single corrupt second latching an emergency, the cancel hold that stops a
+ * knock dismissing one, the recovery stand-down that stops a false trigger
+ * holding the screen until the battery dies, and the re-arm rule that lets a
+ * cancelled emergency be replaced by a genuine one. */
+static void test_sos_state_machine(void) {
+    sos_config_t cfg;
+    sos_default_config(&cfg);
+    assert(cfg.contact_lost_enabled == false);   /* fingertip device default */
+
+    /* A single critical second must NOT latch - it is inside the 3 s confirm. */
+    sos_init(&cfg);
+    sos_update(0, true, true);
+    assert(sos_get_state() == SOS_ARMED);
+    sos_update(1000, true, true);
+    assert(sos_get_state() == SOS_ARMED);
+    sos_update(2000, false, true);               /* artefact clears */
+    assert(sos_get_state() == SOS_IDLE);
+
+    /* Sustained critical latches. */
+    sos_init(&cfg);
+    sos_update(0, true, true);
+    sos_update(3000, true, true);
+    assert(sos_get_state() == SOS_ACTIVE);
+    assert(sos_get_trigger() == SOS_TRIGGER_CRITICAL_TRIAGE);
+    printf("  SOS: critical latched after %.0f ms confirm\n", 3000.0);
+
+    /* A critical flag with no finger is stale data, not an emergency. */
+    sos_init(&cfg);
+    sos_update(0, true, false);
+    sos_update(10000, true, false);
+    assert(sos_get_state() == SOS_IDLE);
+
+    /* Recovery stand-down after 30 s of continuous non-critical. */
+    sos_init(&cfg);
+    sos_update(0, true, true);
+    sos_update(3000, true, true);
+    assert(sos_get_state() == SOS_ACTIVE);
+    sos_update(31000, false, true);              /* recovery clock starts */
+    assert(sos_get_state() == SOS_ACTIVE);
+    sos_update(60000, false, true);              /* 29 s - not yet */
+    assert(sos_get_state() == SOS_ACTIVE);
+    sos_update(62000, false, true);              /* 31 s -> stand down */
+    /* The stand-down latches as CANCELLED rather than dropping straight to
+     * IDLE: if the level oscillates around critical, going idle would let it
+     * re-arm and re-latch every few seconds. It reaches IDLE on the next update
+     * where nothing is pending, which is also what lets a genuine re-crash arm
+     * a fresh emergency. */
+    assert(sos_get_state() == SOS_CANCELLED);
+    sos_update(63000, false, true);
+    assert(sos_get_state() == SOS_IDLE);
+
+    /* A brief recovery must not clear it. */
+    sos_init(&cfg);
+    sos_update(0, true, true);
+    sos_update(3000, true, true);
+    sos_update(10000, false, true);
+    sos_update(11000, true, true);               /* critical again */
+    sos_update(90000, true, true);
+    assert(sos_get_state() == SOS_ACTIVE);
+
+    /* Cancel requires the full 5 s hold. */
+    sos_init(&cfg);
+    sos_manual_trigger(0);
+    assert(sos_get_state() == SOS_ACTIVE);
+    sos_cancel_press(1000);
+    sos_update(4000, false, true);               /* 3 s held */
+    assert(sos_get_state() == SOS_ACTIVE);
+    assert(sos_cancel_progress_pct(4000) == 60);
+    sos_update(6000, false, true);               /* 5 s held */
+    assert(sos_get_state() == SOS_CANCELLED);
+
+    /* Releasing early resets the hold, so a brush cannot dismiss it. */
+    sos_init(&cfg);
+    sos_manual_trigger(0);
+    sos_cancel_press(1000);
+    sos_update(5000, false, true);               /* 4 s - not enough */
+    assert(sos_get_state() == SOS_ACTIVE);
+    sos_cancel_release();
+    sos_update(9000, false, true);
+    assert(sos_get_state() == SOS_ACTIVE);
+
+    /* An explicit cancel latches, then returns to IDLE so a fresh episode arms. */
+    sos_init(&cfg);
+    sos_manual_trigger(0);
+    sos_cancel_now(1000);
+    assert(sos_get_state() == SOS_CANCELLED);
+    sos_update(2000, false, true);               /* nothing pending */
+    assert(sos_get_state() == SOS_IDLE);
+    sos_update(3000, true, true);
+    sos_update(7000, true, true);
+    assert(sos_get_state() == SOS_ACTIVE);
+
+    /* A manual emergency is never auto-cleared: only a human stands it down. */
+    sos_init(&cfg);
+    sos_manual_trigger(0);
+    sos_update(120000, false, true);
+    assert(sos_get_state() == SOS_ACTIVE);
+
+    /* The contact-loss trigger stays off by default: the finger comes off
+     * between every measurement on a fingertip device. */
+    sos_init(&cfg);
+    sos_update(0, false, false);
+    sos_update(600000, false, false);
+    assert(sos_get_state() == SOS_IDLE);
+
+    /* ... but works when explicitly enabled, keeping the same confirm rule. */
+    cfg.contact_lost_enabled = true;
+    sos_init(&cfg);
+    sos_update(0, false, false);
+    assert(sos_get_state() == SOS_ARMED);
+    sos_update(60000, false, false);             /* 60 s < 120 s confirm */
+    assert(sos_get_state() == SOS_ARMED);
+    sos_update(121000, false, false);
+    assert(sos_get_state() == SOS_ACTIVE);
+    assert(sos_get_trigger() == SOS_TRIGGER_CONTACT_LOST);
+
+    printf("test_sos_state_machine: PASS\n");
+}
+
 int main() {
     printf("Running unit tests for disaster_risk_engine...\n");
     test_heat_risk();
@@ -479,6 +606,7 @@ int main() {
     test_spo2_clinical_rejection();
     test_rr_estimate_rejects_clamped_value();
     test_sqi_requires_beat_intervals();
+    test_sos_state_machine();
     printf("ALL TESTS PASSED.\n");
     return 0;
 }

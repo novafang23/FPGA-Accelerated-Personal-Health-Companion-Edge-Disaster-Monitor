@@ -23,19 +23,38 @@ MQTT blocker was raised for, just on the host side.
 
 ---
 
-### T1.2 — SOS state machine + full-screen OLED emergency card
+### T1.2 — SOS state machine + full-screen OLED emergency card  ✅ **DONE (2026-09-28)**
 
-Requirement 6, and it works today with no parts.
+Requirement 6, and it needed no parts. `firmware/shrikefi/sos.{h,c}` holds the state machine —
+`IDLE / ARMED / ACTIVE / CANCELLED` — deliberately free of hardware and FreeRTOS so its timers
+are unit-tested on the host rather than only on the bench.
 
-- A `sos_state_t` — `IDLE / ARMED / ACTIVE / CANCELLED`.
-- Triggers: physical button (T2.2), prolonged loss of contact, or a **CRITICAL** verdict from
-  `clinical_fuse_triage()`.
-- On activation the OLED leaves the dashboard and shows a full-screen card: **SOS — MEDICAL
-  EMERGENCY**, last vitals, stored location, and a timestamp.
-- Manual cancel with a 5-second hold, so it cannot be dismissed by a knock.
+**Shipped:**
+- **Trigger:** a CRITICAL verdict from `clinical_fuse_triage()`, confirmed over 3 s so a single
+  artefact-corrupted second cannot latch. A critical flag with no finger on the sensor is
+  ignored — the triage engines do not run without contact, so that flag is stale, not a finding.
+- **Card:** 128×64, seven rows, replaces the dashboard entirely — `* MEDICAL EMERGENCY *`,
+  `SOS ACTIVE T+MM:SS`, HR/SpO2, RR/SQI, `CONDITION:`, `LOC:`, `CALL 108 DO NOT MOVE`.
+  Every line is ≤21 characters because the 5×7 font advances 6 px on a 128 px panel.
+- **Cancel:** `sos_cancel_press()/release()` implement the 5 s hold so a knock cannot dismiss it.
+- **Recovery stand-down:** 30 s of continuous non-critical clears a CRITICAL-triggered emergency
+  automatically. This is not optional — with no button and no network yet, a false trigger would
+  otherwise hold the screen until the battery died. A manual emergency is never auto-cleared.
+- **Verified:** `test_sos_state_machine()` covers every transition; and the rendered card was
+  checked against the real font table pixel-by-pixel (`EXACT MATCH`, 1465 lit pixels, 0
+  mismatches) via the `[SOS CARD]` framebuffer dump, since the SSD1306 is write-only and the
+  panel cannot be read back.
 
-The OLED card alone closes most of bullet 2: a rescuer who finds the person reads it off the
-screen. **No network required.** ~2–3 hours.
+**Deliberate deviation:** the "prolonged loss of contact" trigger is implemented but **OFF by
+default**. This is a fingertip device — the finger comes off between every measurement — so that
+trigger would fire continuously in normal use. It is the right trigger for a worn device; leave
+it enabled via `sos_config_t` when T2.3 (IMU) makes the device wearable.
+
+**Still open in requirement 6:** the physical button (T2.2, ~₹20) to drive `sos_cancel_press()`
+and a manual trigger; the SoftAP page (T1.3) to trigger and display it remotely; and the stored
+location (T1.4) — the card currently says `LOC: UNSET` rather than showing a coordinate the
+device never measured.
+
 
 ---
 
@@ -380,7 +399,7 @@ constraint is worse than none, because it produces a confident number.
 | 3 | Disaster alerts | Heat + air quality good; **flood/cyclone not instrumented** | **T3.1** — free, BME280 pressure trend |
 | 4 | Environmental awareness | **Strong** | — |
 | 5 | Privacy-preserving edge AI | **Satisfied** — cloud publishing off by default | — |
-| 6 | Emergency assistance | **MISSING — nothing implemented at all** | **T1.2 + T1.3 + T1.4** — no parts needed |
+| 6 | Emergency assistance | **Partial — SOS latch + full-screen OLED emergency card shipped (T1.2)** | **T1.3** (SoftAP page) + **T1.4** (stored location) + a button (T2.2) |
 | 7 | Wellness dashboard | Live only, no history or trends | T3.2 |
 | 8 | Scalable deployment | Roadmap only | — |
 
@@ -390,13 +409,14 @@ constraint is worse than none, because it produces a confident number.
 
 ```
 DONE (2026-09-21):  T1.1 MQTT privacy · T1.6 badge · T4.4 re-fit
+DONE (2026-09-28):  T1.2 SOS state machine + OLED card · T1.5 RR/SQI verified on hardware
 
 Still open, no parts needed — in this order:
-  1. T1.5  Verify RR/SQI on hardware    <- only needs a flash + 3-min capture
-  2. T1.2  SOS state machine + OLED card <- requirement 6 is currently EMPTY
-  3. T1.3  SoftAP + status page          <- the demo a judge can hold, no router
-  4. T1.4  Stored location in NVS
-  5. T3.1  BME280 pressure trend         <- free cyclone advisory
+  1. T1.3  SoftAP + status page          <- the demo a judge can hold, no router
+  2. T1.4  Stored location in NVS
+  3. T3.1  BME280 pressure trend         <- free cyclone advisory
+  4. T3.4  Correct the docs that still describe the retired 4-bit parallel link
+  5. T3.5  Give the respiratory rate a confidence measure that works on real data
   6. T3.3  Handover log spam (~30 min)
   7. T1.7  README images (blocked on images from the user)
 
