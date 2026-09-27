@@ -7,6 +7,7 @@
 
 #include "ppg_respiratory_rate.h"
 #include <math.h>
+#include <string.h>
 
 static float clamp_rr(float x) {
     if (x < PPG_RR_MIN_BPM) return PPG_RR_MIN_BPM;
@@ -273,4 +274,70 @@ void ppg_estimate_respiratory_rate(
     result->respiratory_rate_bpm = clamp_rr(final_rr);
     result->confidence = final_conf;
     result->is_reliable = (final_conf >= PPG_RR_CONF_MIN) && !clipped;
+}
+
+/* ------------------------------------------------------------------------- */
+/* Published-rate stabilisation                                               */
+/* ------------------------------------------------------------------------- */
+
+void ppg_rr_tracker_init(ppg_rr_tracker_t *t) {
+    if (!t) return;
+    memset(t, 0, sizeof(*t));
+}
+
+static void rr_hist_push(ppg_rr_tracker_t *t, float v) {
+    t->hist[t->head] = v;
+    t->head = (t->head + 1) % PPG_RR_TRACK_HISTORY;
+    if (t->n < PPG_RR_TRACK_HISTORY) t->n++;
+}
+
+static float rr_hist_median(const ppg_rr_tracker_t *t) {
+    if (t->n <= 0) return 0.0f;
+
+    float s[PPG_RR_TRACK_HISTORY];
+    memcpy(s, t->hist, sizeof(s));
+    /* Insertion sort: five elements, and it keeps the function free of any
+     * allocation or qsort callback. */
+    for (int i = 1; i < t->n; i++) {
+        float key = s[i];
+        int j = i - 1;
+        while (j >= 0 && s[j] > key) { s[j + 1] = s[j]; j--; }
+        s[j + 1] = key;
+    }
+    return s[t->n / 2];
+}
+
+void ppg_rr_tracker_update(ppg_rr_tracker_t *t, ppg_respiratory_result_t *rr) {
+    if (!t || !rr) return;
+
+    if (rr->is_reliable) {
+        /* A fresh estimate above the bar: accept it and restart the hold. */
+        rr_hist_push(t, rr->respiratory_rate_bpm);
+        t->last_conf = rr->confidence;
+        t->holding = true;
+        t->hold = 0;
+    } else if (t->holding && t->n > 0 && t->hold < PPG_RR_HOLD_MAX &&
+               rr->confidence >= PPG_RR_REL_OFF) {
+        /* Between the hysteresis floor and the bar. Weak, but not decisively
+         * bad, so hold: report the smoothed value rather than blinking off. */
+        t->hold++;
+    } else {
+        /* Decisively below the floor, or the hold has run out. Retract, and
+         * drop the history so the next reliable episode starts from its own
+         * evidence rather than inheriting a stale rate. */
+        t->holding = false;
+        t->hold = 0;
+        t->n = 0;
+        t->head = 0;
+        rr->is_reliable = false;
+        return;
+    }
+
+    /* Published value is the median of accepted estimates, so one noisy frame
+     * cannot move the number. */
+    rr->respiratory_rate_bpm = rr_hist_median(t);
+    /* Report the confidence the published value rests on, not this frame's, so
+     * "is_reliable implies confidence >= PPG_RR_CONF_MIN" stays true. */
+    rr->confidence = t->last_conf;
+    rr->is_reliable = true;
 }

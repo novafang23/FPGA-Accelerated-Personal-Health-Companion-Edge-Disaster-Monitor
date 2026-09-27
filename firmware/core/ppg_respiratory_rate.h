@@ -67,6 +67,51 @@ typedef struct {
     bool  is_reliable;          /* True if confidence >= 0.60 */
 } ppg_respiratory_result_t;
 
+/* --- Published-rate stabilisation -----------------------------------------
+ *
+ * ppg_estimate_respiratory_rate() is stateless and re-decides on every call. On
+ * hardware that showed up as the rate appearing in 4 frames out of 118 -
+ * confidence sitting right on the 0.60 bar and crossing it occasionally rather
+ * than settling. That flickers the display and, because NEWS2 scores the band
+ * edges most steeply, flips the whole triage between NORMAL and MODERATE frame
+ * to frame. A rate that appears one second and vanishes the next is worse than
+ * no rate at all.
+ *
+ * This tracker applies two things the raw estimate cannot:
+ *
+ *   hysteresis  - a published rate is HELD until confidence falls decisively
+ *                 below the bar (PPG_RR_REL_OFF), not merely back to it, so a
+ *                 value hovering at the boundary does not blink;
+ *   a median    - the published value is the median of the recent accepted
+ *                 estimates, so one noisy frame cannot move the number.
+ *
+ * The hold is BOUNDED (PPG_RR_HOLD_MAX). An unbounded hold would be the same
+ * stale-value-published-as-valid defect this codebase has had to remove from
+ * SpO2: a rate must not keep being reported as current once the evidence for it
+ * has gone. */
+#define PPG_RR_TRACK_HISTORY 5      /* odd, so the median is a real sample */
+#define PPG_RR_REL_OFF       0.45f  /* hysteresis floor: below this, retract */
+#define PPG_RR_HOLD_MAX      10     /* frames; at the 1 Hz call site, 10 s */
+
+typedef struct {
+    float hist[PPG_RR_TRACK_HISTORY];
+    float last_conf;   /* confidence at the last accepted estimate */
+    int   n;           /* entries in hist */
+    int   head;        /* next write index */
+    int   hold;        /* consecutive frames published without a fresh accept */
+    bool  holding;     /* a rate is currently being published */
+} ppg_rr_tracker_t;
+
+void ppg_rr_tracker_init(ppg_rr_tracker_t *t);
+
+/* Apply hysteresis and smoothing to a fresh estimate, in place.
+ *
+ * On return, respiratory_rate_bpm and is_reliable hold the PUBLISHED verdict,
+ * which may be a held value from an earlier frame. confidence is set to the
+ * confidence that verdict rests on, so "is_reliable implies confidence >=
+ * PPG_RR_CONF_MIN" stays true for consumers. Call once per estimator run. */
+void ppg_rr_tracker_update(ppg_rr_tracker_t *t, ppg_respiratory_result_t *rr);
+
 /*
  * Estimate Respiratory Rate from pulse Inter-Beat Intervals (IBIs)
  * and pulse peak amplitudes (AM + FM fusion).

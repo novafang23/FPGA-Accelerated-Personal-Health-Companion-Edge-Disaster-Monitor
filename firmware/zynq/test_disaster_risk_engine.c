@@ -955,6 +955,83 @@ static void test_rr_confidence(void) {
     printf("test_rr_confidence: PASS (real modulation published, jitter rejected)\n");
 }
 
+/* Published-rate stabilisation (T3.5 follow-on).
+ *
+ * The estimator is stateless and re-decides every second. On hardware the rate
+ * appeared in 4 frames of 118 - confidence sitting on its own bar - which
+ * flickers the display and, since NEWS2 scores the band edges most steeply,
+ * flips the triage between NORMAL and MODERATE frame to frame. */
+static void test_rr_tracker(void) {
+    ppg_rr_tracker_t t;
+    ppg_respiratory_result_t rr;
+
+    /* Nothing reliable yet -> nothing published. */
+    ppg_rr_tracker_init(&t);
+    memset(&rr, 0, sizeof(rr));
+    rr.respiratory_rate_bpm = 20.0f; rr.confidence = 0.30f; rr.is_reliable = false;
+    ppg_rr_tracker_update(&t, &rr);
+    assert(!rr.is_reliable);
+
+    /* A reliable estimate is published as-is. */
+    rr.respiratory_rate_bpm = 15.0f; rr.confidence = 0.80f; rr.is_reliable = true;
+    ppg_rr_tracker_update(&t, &rr);
+    assert(rr.is_reliable);
+    assert(fabsf(rr.respiratory_rate_bpm - 15.0f) < 0.01f);
+
+    /* THE FLICKER THIS EXISTS FOR. Confidence dips below the bar but not below
+     * the hysteresis floor: the rate must be HELD, not retracted. */
+    memset(&rr, 0, sizeof(rr));
+    rr.respiratory_rate_bpm = 30.0f;   /* a wildly different raw estimate */
+    rr.confidence = 0.52f;             /* below 0.60, above 0.45 */
+    rr.is_reliable = false;
+    ppg_rr_tracker_update(&t, &rr);
+    assert(rr.is_reliable);                                 /* held, not blinked off */
+    assert(fabsf(rr.respiratory_rate_bpm - 15.0f) < 0.01f); /* and not the new value */
+    assert(rr.confidence >= PPG_RR_CONF_MIN);               /* invariant preserved */
+
+    /* ...but the hold is BOUNDED. An unbounded one would be a stale value
+     * published as current, which is the SpO2 defect all over again. */
+    int held_for = 1;
+    for (int i = 0; i < PPG_RR_HOLD_MAX + 2; i++) {
+        memset(&rr, 0, sizeof(rr));
+        rr.respiratory_rate_bpm = 30.0f;
+        rr.confidence = 0.52f;
+        rr.is_reliable = false;
+        ppg_rr_tracker_update(&t, &rr);
+        if (!rr.is_reliable) break;
+        held_for++;
+    }
+    assert(!rr.is_reliable);
+    assert(held_for <= PPG_RR_HOLD_MAX);
+
+    /* Decisively below the floor -> retract at once. */
+    ppg_rr_tracker_init(&t);
+    memset(&rr, 0, sizeof(rr));
+    rr.respiratory_rate_bpm = 15.0f; rr.confidence = 0.80f; rr.is_reliable = true;
+    ppg_rr_tracker_update(&t, &rr);
+    assert(rr.is_reliable);
+    memset(&rr, 0, sizeof(rr));
+    rr.respiratory_rate_bpm = 25.0f; rr.confidence = 0.30f; rr.is_reliable = false;
+    ppg_rr_tracker_update(&t, &rr);
+    assert(!rr.is_reliable);
+
+    /* One outlier among accepted estimates must not move the published value -
+     * that is what the median is for. */
+    ppg_rr_tracker_init(&t);
+    const float series[5] = { 14.0f, 15.0f, 14.5f, 40.0f, 15.5f };
+    for (int i = 0; i < 5; i++) {
+        memset(&rr, 0, sizeof(rr));
+        rr.respiratory_rate_bpm = series[i];
+        rr.confidence = 0.80f;
+        rr.is_reliable = true;
+        ppg_rr_tracker_update(&t, &rr);
+    }
+    assert(rr.is_reliable);
+    assert(rr.respiratory_rate_bpm >= 14.0f && rr.respiratory_rate_bpm <= 15.5f);
+
+    printf("test_rr_tracker: PASS (holds through the flicker, bounded, median rejects outliers)\n");
+}
+
 int main() {
     printf("Running unit tests for disaster_risk_engine...\n");
     test_heat_risk();
@@ -972,6 +1049,7 @@ int main() {
     test_pressure_trend();
     test_cyclone_risk();
     test_rr_confidence();
+    test_rr_tracker();
     printf("ALL TESTS PASSED.\n");
     return 0;
 }

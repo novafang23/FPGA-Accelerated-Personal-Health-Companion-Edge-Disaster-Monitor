@@ -252,6 +252,11 @@ static int      s_rr_ibi_n = 0;
 static uint32_t s_sqi_raw[PPG_SQI_RAW_WIN];
 static int      s_sqi_raw_n = 0;
 
+/* Published-rate stabiliser. The raw estimate re-decides every second and on
+ * hardware crossed its own confidence bar in 4 frames out of 118, which
+ * flickers the display and flips the triage; see ppg_rr_tracker_update(). */
+static ppg_rr_tracker_t s_rr_tracker;
+
 static void ppg_history_push_f(float *buf, int *n, int cap, float v) {
     if (*n < cap) {
         buf[(*n)++] = v;
@@ -273,6 +278,9 @@ static void ppg_history_push_u32(uint32_t *buf, int *n, int cap, uint32_t v) {
 static void ppg_history_reset(void) {
     s_rr_ibi_n  = 0;
     s_sqi_raw_n = 0;
+    /* A new contact starts with no respiratory evidence, so it must not inherit
+     * a rate - or a hold - from the previous one. */
+    ppg_rr_tracker_init(&s_rr_tracker);
 }
 
 /* Recompute respiration and SQI from the rolling windows. Cheap enough to run
@@ -288,6 +296,10 @@ static void ppg_update_respiration_and_sqi(void) {
     if (s_rr_ibi_n >= PPG_RR_MIN_IBIS) {
         ppg_estimate_respiratory_rate(s_rr_ibis, NULL, (size_t)s_rr_ibi_n, &rr);
     }
+
+    /* Stabilise before publishing. A fresh contact, or one that has just lost
+     * its evidence, must not inherit a rate from before. */
+    ppg_rr_tracker_update(&s_rr_tracker, &rr);
 
     if (s_sqi_raw_n >= 30) {
         ppg_calculate_sqi(s_sqi_raw, (size_t)s_sqi_raw_n,
@@ -1585,6 +1597,8 @@ void app_main(void) {
      * storm advisory reports UNKNOWN for the first half hour rather than
      * inventing a trend from two readings. */
     pressure_trend_init(&s_pressure_trend);
+    /* The respiratory-rate stabiliser starts empty too. */
+    ppg_rr_tracker_init(&s_rr_tracker);
     ESP_LOGI(TAG, "Emergency assist ready (state: %s), location '%s'",
              sos_state_name(sos_get_state()), location_get());
 
