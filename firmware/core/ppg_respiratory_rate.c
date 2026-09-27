@@ -19,6 +19,28 @@ static float clamp_rr(float x) {
     return x;
 }
 
+/* Is lag k a near-integer SUB-MULTIPLE of lag L? i.e. could a peak at k be the
+ * fundamental of the peak found at L?
+ *
+ * This is the whole point of the harmonic search, and getting it wrong is worse
+ * than not doing it. A rule that simply takes the first lag clearing a fraction
+ * of the strongest one cannot tell a genuine sub-multiple from an arbitrary early
+ * blip, and on real finger PPG it picked lag 2 - the very first lag searched - in
+ * 42 of 108 frames, including every second of a breath hold and 25 s of normal
+ * breathing afterwards. At an 800 ms mean IBI, lag 2 is 37.5 br/min: a false
+ * tachypnoea at the top of the band, reported as reliable.
+ *
+ * Restricting candidates to L/n for small n means an early lag can only win if it
+ * is actually related to the peak that was found. */
+static bool rr_is_sub_multiple(size_t k, int L) {
+    if (L <= 0) return false;
+    for (int n = 2; n <= PPG_RR_HARMONIC_MAX_N; n++) {
+        float c = (float)L / (float)n;
+        if (fabsf((float)k - c) <= 0.51f) return true;
+    }
+    return false;
+}
+
 /* Quadratic (parabolic) interpolation of an autocorrelation peak.
  *
  * The ACF is sampled at INTEGER beat lags and the period was formed as
@@ -66,6 +88,7 @@ void ppg_estimate_respiratory_rate(
      * rather than reading whatever was on the caller's stack. */
     result->diag_mean_ibi_ms = 0.0f;
     result->diag_acf_peak_r  = 0.0f;
+    result->diag_lag1_r      = 0.0f;
     result->diag_peak_lag    = -1;
     result->diag_peak_lag_f  = 0.0f;
     result->diag_beats       = 0;
@@ -191,6 +214,12 @@ void ppg_estimate_respiratory_rate(
         float r = cross / var_sum;
         r_lag[k] = r;
 
+        /* Computed for lag 2 (lag 3's parabola needs it) but it may not win -
+         * see PPG_RR_MIN_LAG. */
+        if (k < (size_t)PPG_RR_MIN_LAG) {
+            continue;
+        }
+
         if (r > best_r) {
             best_r = r;
             best_lag = (int)k;
@@ -210,6 +239,12 @@ void ppg_estimate_respiratory_rate(
     if (best_lag > 0) {
         float frac_r = PPG_RR_HARMONIC_FRAC * best_r;
         for (size_t k = 2; k <= max_lag; k++) {
+            /* The sub-multiple search must obey PPG_RR_MIN_LAG as well as the
+             * main search. Without this it puts lag 2 straight back: a winning
+             * lag of 4 makes 2 a legitimate L/2, so the harmonic walk re-selects
+             * exactly the lag the main search just refused. */
+            if (k < (size_t)PPG_RR_MIN_LAG) continue;
+            if (!rr_is_sub_multiple(k, best_lag)) continue;
             if (r_lag[k] < frac_r) continue;
             bool local_max = (r_lag[k] >= r_lag[k - 1]) &&
                              (k + 1 > max_lag || r_lag[k] >= r_lag[k + 1]);
@@ -224,6 +259,26 @@ void ppg_estimate_respiratory_rate(
     float rr_from_fm = PPG_RR_DEFAULT_BPM;
     float conf_fm = 0.0f;
     float peak_lag_f = (float)peak_lag;
+
+    /* The INTEGER lag must already be inside the band before interpolation is
+     * allowed to refine it. Otherwise a peak that lies outside the band gets
+     * interpolated into it, which is how a false 30 br/min was published: the
+     * winning lag on real finger PPG was 2, the first lag the search scans. At
+     * an 800 ms mean IBI that is 37.5 br/min, above PPG_RR_MAX_BPM, so it should
+     * have been refused - but the parabola clamped to +0.5, giving lag 2.5 and
+     * 30.0 br/min, inside the band and published as reliable for 42 of 108 frames
+     * including a breath hold and 25 s of normal breathing afterwards.
+     *
+     * The file already holds that "a rate that only exists because we clamped it
+     * is not a rate we measured". Interpolation deserved the same rule and did
+     * not have it. */
+    if (peak_lag > 0) {
+        float raw_rr = 60000.0f / ((float)peak_lag * mean_ibi);
+        if (raw_rr < PPG_RR_MIN_BPM || raw_rr > PPG_RR_MAX_BPM) {
+            peak_lag = -1;
+            peak_lag_f = 0.0f;
+        }
+    }
 
     if (peak_lag > 0) {
         float lag_f = interp_peak_lag(r_lag, peak_lag, max_lag);
@@ -285,6 +340,8 @@ void ppg_estimate_respiratory_rate(
             if (best_am_lag > 0) {
                 float frac_am = PPG_RR_HARMONIC_FRAC * best_am_r;
                 for (size_t k = 2; k <= max_lag; k++) {
+                    if (k < (size_t)PPG_RR_MIN_LAG) continue;   /* see the FM path */
+                    if (!rr_is_sub_multiple(k, best_am_lag)) continue;
                     if (ar_lag[k] < frac_am) continue;
                     bool am_local_max = (ar_lag[k] >= ar_lag[k - 1]) &&
                                         (k + 1 > max_lag || ar_lag[k] >= ar_lag[k + 1]);
@@ -293,6 +350,14 @@ void ppg_estimate_respiratory_rate(
                         best_am_r   = ar_lag[k];
                         break;
                     }
+                }
+            }
+            /* Same rule as the FM path: the integer lag must already be in band,
+             * so interpolation cannot walk an out-of-band peak back inside. */
+            if (best_am_lag > 0) {
+                float raw_am = 60000.0f / ((float)best_am_lag * mean_ibi);
+                if (raw_am < PPG_RR_MIN_BPM || raw_am > PPG_RR_MAX_BPM) {
+                    best_am_lag = -1;
                 }
             }
             if (best_am_lag > 0) {
@@ -387,6 +452,7 @@ void ppg_estimate_respiratory_rate(
      * refused or that should have been. */
     result->diag_mean_ibi_ms = mean_ibi;
     result->diag_acf_peak_r  = conf_fm;
+    result->diag_lag1_r      = r_lag[1];
     result->diag_peak_lag    = peak_lag;
     result->diag_peak_lag_f  = peak_lag_f;
     result->diag_beats       = (int)N;

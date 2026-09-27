@@ -124,6 +124,36 @@ extern "C" {
  * (0.68/0.89 = 0.77) with margin for a noisier series. */
 #define PPG_RR_HARMONIC_FRAC 0.60f
 
+/* How many harmonics up to look for a fundamental. A peak at lag L can be the
+ * n-th harmonic of a fundamental at L/n; beyond n=4 the candidates crowd the
+ * short-lag end and the test stops discriminating. See the note above for why
+ * the candidate set has to be sub-multiples of the winning lag and not simply
+ * "any early lag" - the latter is what produced 42 frames of lag 2, a 37.5
+ * br/min reading taken during a breath hold and for 25 s of normal breathing
+ * afterwards, because lag 2 is the first lag the search scans and so wins
+ * whenever its correlation clears the fraction. */
+#define PPG_RR_HARMONIC_MAX_N 4
+
+/* Shortest lag allowed to WIN the search.
+ *
+ * Lag 2 means a respiratory cycle occupying two heartbeats. No beat-to-beat
+ * method can resolve that: RSA needs several beats per breath to be measurable at
+ * all, and at two beats the modulation is indistinguishable from beat ALTERNANS -
+ * an alternating long-short-long interval pattern that is a common artefact of
+ * PPG peak detection and has nothing to do with breathing.
+ *
+ * This is not hypothetical. On real finger PPG lag 2 won 42 of 108 frames,
+ * including every second of a breath hold and 25 s of normal breathing afterwards,
+ * and ~18 of those were published as reliable 27.9-30.4 br/min: a false
+ * emergency-grade tachypnoea. It is the shortest lag the search scans, so it wins
+ * whenever its correlation clears the bar.
+ *
+ * Lag 2 is still COMPUTED, because lag 3's parabola needs it as a neighbour - it
+ * just cannot win. The cost is that the highest reportable rate falls to about
+ * 60000/(3*IBI): ~23 br/min at 70 bpm. That is an honest limit, not a regression -
+ * RSA cannot measure tachypnoea at 70 bpm however much we would like it to. */
+#define PPG_RR_MIN_LAG 3
+
 /* Respiratory sinus arrhythmia, as an equivalent sinusoid peak-to-peak in ms.
  * Adult RSA at rest is typically 20-60 ms peak-to-peak; below about 10 ms there
  * is effectively no modulation to detect. */
@@ -160,6 +190,7 @@ typedef struct {
      * on, and therefore no way to fix it. */
     float diag_mean_ibi_ms;     /* mean interval the lags were converted with */
     float diag_acf_peak_r;      /* autocorrelation at the winning lag */
+    float diag_lag1_r;          /* autocorrelation at lag 1 - the alternans tell */
     int   diag_peak_lag;        /* winning lag, in beats (interpolated if float) */
     float diag_peak_lag_f;      /* winning lag after parabolic interpolation */
     int   diag_beats;           /* IBIs the estimate was computed from */

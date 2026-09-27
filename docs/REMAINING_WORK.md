@@ -427,10 +427,43 @@ breathing, so keep the band narrow, and NEWS2 scores <=8 as +3 so a false bradyp
 expensive." The band gate is now a clean refusal rather than a snap to the nearest lag,
 so 7 br/min reports unavailable rather than as a confident 9.
 
-**Still open, and the more serious of the two findings:** the floor does not guard the
-fast end, so a strain can produce a false severe alarm. Reproducing it needs the raw
-inter-beat intervals, which the firmware does not currently print - that is the next
-step, not another paced run.
+**The false tachypnoea: found, and fixed.** The [RRDIAG] line added for the purpose
+(see below) showed the estimator picking **lag 2 in 42 of 108 frames** - every second
+of the breath hold and 25 s of normal breathing afterwards. Lag 2 is the first lag the
+search scans, so it wins whenever its correlation clears the bar, and at the capture's
+861 ms IBI it is 34.8 br/min: inside the band, so the `clipped` guard never fired, and
+it was published as a reliable 27.9-30.4 br/min.
+
+Three separate causes had to be fixed, none of which was visible from the rate alone:
+
+1. **Lag 2 is not respiration.** A respiratory cycle occupying two heartbeats cannot be
+   resolved by any beat-to-beat method - RSA needs several beats per breath, and at two
+   beats the modulation is indistinguishable from beat *alternans*, an alternating
+   long-short interval pattern that is a common artefact of PPG peak detection.
+   `PPG_RR_MIN_LAG` now bars lag 2 from winning. It is still computed, because lag 3's
+   parabola needs it as a neighbour.
+2. **The harmonic search had to obey that bar too.** Barring lag 2 in the main search
+   was not enough: with a winning lag of 4, lag 2 is a legitimate L/2, so the
+   sub-multiple walk put it straight back. Both paths now respect `PPG_RR_MIN_LAG`.
+3. **Interpolation was walking out-of-band peaks back into the band.** The integer
+   winning lag must now already be inside the band before interpolation may refine it.
+   The file already held that "a rate that only exists because we clamped it is not a
+   rate we measured"; interpolation deserved the same rule and did not have it.
+
+`test_rr_rejects_alternans` reproduces it: a respiratory sinusoid with a dominant lag-2
+alternans. Pre-fix it publishes **34.11 br/min** for a true 12; post-fix it reports
+**11.36 at lag 6**. The alternans signature is now also logged as `r1`, the lag-1
+correlation - measured at **-0.937** during the artefact, where smooth respiratory
+modulation gives a positive value.
+
+**The cost, honestly:** barring lag 2 caps the highest reportable rate at about
+`60000/(3*IBI)` - roughly 23 br/min at 70 bpm. That is not a regression, it is the
+method's real ceiling. RSA cannot measure tachypnoea at a resting heart rate, and
+pretending otherwise is what produced the false emergency reading.
+
+**Also found:** the IBI buffer needs ~45 s to reach the 30 beats the estimator requires,
+not the ~25 s assumed - so the settle phase of every paced run was still warming up and
+could never have produced a baseline measurement.
 
 **How the mitigation was arrived at (and why its premise is now doubtful).**
 
@@ -731,11 +764,10 @@ DONE (2026-09-28):  T1.2 SOS card · T1.3 SoftAP status page · T1.4 stored loca
                     T1.5 RR/SQI verified · T3.4 documentation corrected
 
 Still open, no parts needed — in this order:
-  1. T3.5  Breath-hold test with the floor temporarily at 6, to decide whether the
-           estimator follows respiration or a Mayer wave below 9 br/min. Tracking is
-           already proven; this is the last open question in the RR path.
-  2. T3.3  Handover log spam (~30 min)
-  3. T1.7  README images (blocked on images from the user)
+  1. T3.3  Handover log spam (~30 min)
+  2. T1.7  README images (blocked on images from the user)
+  3. T3.5  Re-run the paced staircase to confirm the lag-2 fix did not cost the
+           paced cases; RR is no longer allowed to report above ~23 br/min at rest
 
 With parts (roughly ₹450 total):
   4. T2.1  MAX30205 skin temperature     <- highest-value part on this list

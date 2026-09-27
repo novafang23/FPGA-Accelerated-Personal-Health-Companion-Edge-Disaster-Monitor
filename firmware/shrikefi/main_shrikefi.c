@@ -312,9 +312,10 @@ static void ppg_update_respiration_and_sqi(void) {
      * depth term (saturated at 273 ms) while the periodicity behind it was only
      * 0.36. Printing the winning lag and its correlation makes that visible, and
      * a rate without them cannot be argued with. */
-    ESP_LOGI(TAG, "[RRDIAG] beats=%d mean_ibi=%.0fms lag=%d(%.2f) r=%.3f depth=%.1fms conf=%.2f rel=%d",
+    ESP_LOGI(TAG, "[RRDIAG] beats=%d mean_ibi=%.0fms lag=%d(%.2f) r=%.3f r1=%.3f depth=%.1fms conf=%.2f rel=%d",
              rr.diag_beats, rr.diag_mean_ibi_ms, rr.diag_peak_lag, rr.diag_peak_lag_f,
-             rr.diag_acf_peak_r, rr.rsa_depth_ms, rr.confidence, (int)rr.is_reliable);
+             rr.diag_acf_peak_r, rr.diag_lag1_r, rr.rsa_depth_ms, rr.confidence,
+             (int)rr.is_reliable);
 
     /* Stabilise before publishing. A fresh contact, or one that has just lost
      * its evidence, must not inherit a rate from before. */

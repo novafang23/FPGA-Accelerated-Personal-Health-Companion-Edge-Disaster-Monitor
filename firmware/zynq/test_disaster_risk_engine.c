@@ -1208,6 +1208,55 @@ static void test_rr_band_edges(void) {
     printf("test_rr_band_edges: PASS (out-of-band refused, not snapped to the edge)\n");
 }
 
+/* Beat-to-beat alternans must not be reported as tachypnoea.
+ *
+ * On real finger PPG the estimator picked lag 2 - the first lag the search scans -
+ * in 42 of 108 frames, including every second of a breath hold and 25 s of normal
+ * breathing afterwards. At an 800 ms mean IBI, lag 2 is 37.5 br/min, above the
+ * ceiling, so the integer lag should have been refused outright; the parabola
+ * clamped to +0.5 instead, giving lag 2.5 and 30.0 br/min, inside the band, and
+ * that was published as reliable.
+ *
+ * This reproduces the shape without needing the hardware: a respiratory sinusoid
+ * the estimator should find, plus a lag-2 alternans of comparable size. A period-2
+ * component correlates at every EVEN lag, so lag 2 is a legitimate sub-multiple of
+ * the respiratory lag and the harmonic search cannot reject it on that basis - the
+ * band check on the integer lag is what has to catch it. */
+static void test_rr_rejects_alternans(void) {
+    ppg_respiratory_result_t rr;
+    float ibi[96];
+    const size_t N = 60;
+    const float mean_ibi = 880.0f;   /* 68 bpm - the rate the bad capture ran at */
+    const float rr_true = 12.0f;     /* a 5 s cycle: lag 6.88 */
+    const float period_s = 60.0f / rr_true;
+    const float resp_ms = 20.0f;     /* respiratory modulation, peak-to-peak */
+    const float alt_ms  = 80.0f;     /* alternans DOMINATES - the real case */
+
+    float t = 0.0f;
+    for (size_t i = 0; i < N; i++) {
+        float phase = 2.0f * 3.14159265f * (t / period_s);
+        ibi[i] = mean_ibi
+                 + 0.5f * resp_ms * sinf(phase)
+                 + ((i % 2) ? 0.5f * alt_ms : -0.5f * alt_ms);
+        t += ibi[i] / 1000.0f;
+    }
+
+    memset(&rr, 0, sizeof(rr));
+    ppg_estimate_respiratory_rate(ibi, NULL, N, &rr);
+    printf("  RR alternans : true %.0f -> est %5.2f  lag=%d(%.2f) r=%.3f r1=%.3f conf=%.2f rel=%d\n",
+           rr_true, rr.respiratory_rate_bpm, rr.diag_peak_lag, rr.diag_peak_lag_f,
+           rr.diag_acf_peak_r, rr.diag_lag1_r, rr.confidence, (int)rr.is_reliable);
+
+    /* Either it refuses, or it reports something at the respiratory rate. What it
+     * must never do is publish a tachypnoea derived from a 2-beat rhythm. */
+    if (rr.is_reliable) {
+        assert(fabsf(rr.respiratory_rate_bpm - rr_true) < 3.0f);
+    }
+    assert(rr.diag_peak_lag < 0 || rr.diag_peak_lag >= 4);
+
+    printf("test_rr_rejects_alternans: PASS (lag-2 alternans not published as tachypnoea)\n");
+}
+
 int main() {
     /* Unbuffered, because a failing assert calls abort() and abort() does not
      * flush stdio. With the default block buffering the diagnostic printed
@@ -1233,6 +1282,7 @@ int main() {
     test_rr_tracker();
     test_rr_resolution();
     test_rr_band_edges();
+    test_rr_rejects_alternans();
     printf("ALL TESTS PASSED.\n");
     return 0;
 }
