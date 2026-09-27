@@ -46,17 +46,55 @@ void ppg_estimate_respiratory_rate(
     #define MAX_BEATS_BUF 64
     size_t N = (beat_count > MAX_BEATS_BUF) ? MAX_BEATS_BUF : beat_count;
     float y[MAX_BEATS_BUF];
-    float min_y = 1e6f, max_y = -1e6f;
-    float var_sum = 0.0f;
 
     for (size_t i = 0; i < N; i++) {
         y[i] = ibi_ms[i] - mean_ibi;
-        if (y[i] < min_y) min_y = y[i];
-        if (y[i] > max_y) max_y = y[i];
+    }
+
+    /* Remove the best-fit straight line, not just the mean.
+     *
+     * A slow drift in heart rate is not respiration, but it correlates strongly
+     * with itself at short lags and therefore wins the autocorrelation search.
+     * On the measured reproduction - a healthy 78 bpm subject with 55 ms of drift
+     * and NO respiratory modulation at all - mean removal alone let lag 3 win and
+     * the estimator published 26 br/min. Adding a depth term then made that
+     * confident (0.97) rather than merely plausible, which is worse: a confident
+     * wrong number in NEWS2's most sensitive term gets acted on.
+     *
+     * Detrending first is what separates a trend from an oscillation, and it is
+     * also what makes the depth measure meaningful - respiration is the residual
+     * ripple, not the drift underneath it. */
+    float idx_mean = 0.0f;
+    for (size_t i = 0; i < N; i++) idx_mean += (float)i;
+    idx_mean /= (float)N;
+
+    float stt = 0.0f, sty = 0.0f;
+    for (size_t i = 0; i < N; i++) {
+        float dt = (float)i - idx_mean;
+        stt += dt * dt;
+        sty += dt * y[i];
+    }
+    float slope = (stt > 1e-6f) ? (sty / stt) : 0.0f;
+
+    float var_sum = 0.0f;
+    for (size_t i = 0; i < N; i++) {
+        y[i] -= slope * ((float)i - idx_mean);
         var_sum += y[i] * y[i];
     }
 
-    result->rsa_depth_ms = (max_y - min_y);
+    /* RSA depth as an EQUIVALENT SINUSOID peak-to-peak over the DETRENDED series,
+     * from the standard deviation: pp = 2*sqrt(2)*sigma.
+     *
+     * This used to be a raw max-minus-min. A range is set by the single worst
+     * pair of beats in the window and grows with sample count, so thirty beats
+     * of pure jitter produced the same "30 ms of RSA" as a genuine 30 ms
+     * respiratory modulation - exactly the confusion the depth term exists to
+     * prevent. The standard deviation uses every sample and is stable in N.
+     *
+     * For a true sinusoid this recovers the peak-to-peak exactly, since
+     * sigma = pp / (2*sqrt(2)); the constant is algebra, not a fudge factor. */
+    float sigma = sqrtf(var_sum / (float)N);
+    result->rsa_depth_ms = 2.0f * 1.41421356f * sigma;
 
     if (var_sum < 1e-3f) {
         /* Zero variance in IBI */
@@ -164,29 +202,66 @@ void ppg_estimate_respiratory_rate(
         }
     }
 
-    /* 4. Fusion of FM and AM estimations */
+    /* 4. Fusion of the FM and AM estimates.
+     *
+     * The point estimate still prefers the sharper evidence, but the CONFIDENCE
+     * is no longer taken from here - see step 5. */
     float final_rr;
-    float final_conf;
+    float acf_conf;   /* periodicity evidence only; one input to the confidence */
 
     if (conf_am > 0.20f && conf_fm > 0.20f) {
-        /* Weighted combination */
         float total_w = conf_fm + conf_am;
         final_rr = (rr_from_fm * conf_fm + rr_from_am * conf_am) / total_w;
-        final_conf = (conf_fm + conf_am) * 0.55f;
+        acf_conf = (conf_fm + conf_am) * 0.55f;
     } else if (conf_fm > 0.20f) {
         final_rr = rr_from_fm;
-        final_conf = conf_fm;
+        acf_conf = conf_fm;
     } else if (conf_am > 0.20f) {
         final_rr = rr_from_am;
-        final_conf = conf_am;
+        acf_conf = conf_am;
     } else {
         final_rr = PPG_RR_DEFAULT_BPM;
-        final_conf = 0.25f;
+        acf_conf = 0.0f;
     }
 
-    /* Adjust confidence based on RSA amplitude depth */
-    if (result->rsa_depth_ms < 15.0f && final_conf > 0.50f) {
-        final_conf *= 0.85f; /* Shallow autonomic modulation */
+    /* 5. Confidence, rebuilt around the two things that actually indicate a real
+     * respiratory component rather than one weak proxy for both.
+     *
+     * The old confidence WAS the autocorrelation coefficient. On real finger PPG
+     * that sits around 0.3-0.5 - RSA modulates the IBI series by tens of
+     * milliseconds on top of beat-to-beat variation of similar size - so it never
+     * reached the 0.60 bar and RR was published as unavailable on every real
+     * contact, even with 94 accepted intervals behind it.
+     *
+     * Periodicity alone is also not enough in the other direction: random jitter
+     * produces a modest ACF peak at some lag with nothing periodic behind it. So
+     * the two questions are scored separately and both must be answered:
+     *
+     *   acf_conf   - is the series periodic at the winning lag?
+     *   depth_conf - is the modulation big enough to be respiratory?
+     *
+     * and agreement between the independent FM and AM paths is credited on top. */
+
+    /* Scale the raw coefficient onto the range that carries information: below
+     * ACF_MIN there is nothing to find, at ACF_STRONG the peak is unambiguous. */
+    float acf_scaled = (acf_conf - PPG_RR_ACF_MIN) / (PPG_RR_ACF_STRONG - PPG_RR_ACF_MIN);
+    if (acf_scaled < 0.0f) acf_scaled = 0.0f;
+    if (acf_scaled > 1.0f) acf_scaled = 1.0f;
+
+    float depth_scaled =
+        (result->rsa_depth_ms - PPG_RSA_DEPTH_NONE_MS) /
+        (PPG_RSA_DEPTH_CLEAR_MS - PPG_RSA_DEPTH_NONE_MS);
+    if (depth_scaled < 0.0f) depth_scaled = 0.0f;
+    if (depth_scaled > 1.0f) depth_scaled = 1.0f;
+
+    float final_conf = 0.5f * acf_scaled + 0.5f * depth_scaled;
+
+    /* Corroboration: two independent measurements of the same physiology landing
+     * on the same rate is evidence that neither coefficient captures. */
+    bool fm_am_agree = (conf_am > 0.20f && conf_fm > 0.20f &&
+                        fabsf(rr_from_fm - rr_from_am) <= PPG_RR_AGREE_BPM);
+    if (fm_am_agree) {
+        final_conf += PPG_RR_AGREE_BONUS;
     }
 
     if (final_conf > 1.0f) final_conf = 1.0f;
@@ -197,5 +272,5 @@ void ppg_estimate_respiratory_rate(
 
     result->respiratory_rate_bpm = clamp_rr(final_rr);
     result->confidence = final_conf;
-    result->is_reliable = (final_conf >= 0.60f) && !clipped;
+    result->is_reliable = (final_conf >= PPG_RR_CONF_MIN) && !clipped;
 }

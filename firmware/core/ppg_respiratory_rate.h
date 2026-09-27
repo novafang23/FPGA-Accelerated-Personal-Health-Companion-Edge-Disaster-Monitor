@@ -20,6 +20,46 @@ extern "C" {
 #define PPG_RR_MAX_BPM       36.0f   /* Physiological ceiling: severe tachypnea */
 #define PPG_RR_DEFAULT_BPM   14.0f   /* Normal resting adult breathing rate */
 
+/* --- Confidence calibration (see ppg_respiratory_rate.c) -------------------
+ *
+ * Two independent things have to be true before a respiratory rate is worth
+ * publishing: the IBI series has to be PERIODIC at the winning lag, and the
+ * modulation has to be BIG enough to be respiratory rather than noise. The
+ * earlier implementation scored only the first, using the raw autocorrelation
+ * coefficient as the confidence. On real finger PPG that peaks around 0.3-0.5,
+ * so it never cleared the 0.60 reliability bar and RR was published as 0
+ * (unavailable) on every real contact while the estimator was working correctly.
+ *
+ * These thresholds are a first calibration from first principles and the
+ * literature. They have NOT been validated against paced breathing; that is the
+ * outstanding half of T3.5. Do not treat them as measured.
+ */
+
+/* Autocorrelation coefficient at the winning lag. Below MIN there is no
+ * periodicity to find; at STRONG the peak is unambiguous. Random jitter of
+ * similar magnitude peaks around 1/sqrt(N), which for a 60-beat window is about
+ * 0.13, so MIN sits deliberately above that. */
+#define PPG_RR_ACF_MIN       0.25f
+#define PPG_RR_ACF_STRONG    0.60f
+
+/* Respiratory sinus arrhythmia, as an equivalent sinusoid peak-to-peak in ms.
+ * Adult RSA at rest is typically 20-60 ms peak-to-peak; below about 10 ms there
+ * is effectively no modulation to detect. */
+#define PPG_RSA_DEPTH_NONE_MS  10.0f
+#define PPG_RSA_DEPTH_CLEAR_MS 35.0f
+
+/* When the frequency-modulation and amplitude-modulation paths - independent
+ * measurements of the same physiology - land within this many breaths per minute
+ * of each other, that agreement is evidence in its own right and is worth more
+ * than either coefficient alone. */
+#define PPG_RR_AGREE_BPM     3.0f
+#define PPG_RR_AGREE_BONUS   0.15f
+
+/* Reliability bar. UNCHANGED: the point of this work is to make a genuine
+ * respiratory component reach it, not to lower it. Lowering it would reinstate
+ * the bug where a railed 36 br/min was published as a reliable measurement. */
+#define PPG_RR_CONF_MIN      0.60f
+
 typedef struct {
     float respiratory_rate_bpm; /* Estimated breaths per minute [6.0, 36.0] */
     float confidence;           /* Respiration estimation confidence [0.0, 1.0] */

@@ -339,36 +339,68 @@ so that fix is local to this checkout.
 
 ---
 
-### T3.5 — The respiratory rate no longer publishes at all on real data
+### T3.5 - Respiratory-rate confidence  IMPLEMENTED (2026-09-28), hardware confirmation PENDING
 
-The RR rail fix (54d9a27) stopped the estimator publishing a clamped
-36.00 br/min as a reliable measurement — it could report the tachypnoea ceiling
-for a healthy resting subject with **no** respiratory modulation. The fix rejects
-lags whose implied rate falls outside [6, 36] br/min before they can win the
-autocorrelation search, and refuses to certify any value `clamp_rr()` had to move.
+The estimator ran correctly on real contacts - 84 to 94 accepted intervals, well
+past the 30 it needs - and still published RR as `0.0` (unavailable), because its
+confidence WAS the raw autocorrelation coefficient, which on real finger PPG peaks
+around 0.3-0.5 and so never cleared the 0.60 bar. The most sensitive term in NEWS2
+was therefore permanently absent.
 
-The measured consequence: RR now publishes **0.0** (unavailable) on a good
-contact. In a 90 s finger-on capture the HRV window reached 94 accepted intervals
-— comfortably past the 30 the estimator needs — so it ran, but returned
-`is_reliable = false` because confidence stayed under the 0.60 bar. The most
-sensitive term in NEWS2 is therefore currently always absent.
+**The fix, in two parts.**
 
-That is safe and honest, but not useful. `conf_fm = best_r`, the raw
-autocorrelation coefficient at the winning lag, is a weak confidence measure on
-real PPG, where RSA depth is small. Options, cheapest first:
+1. **Confidence now answers two separate questions**, because one coefficient was
+   being asked to answer both:
+   - *is the series periodic* at the winning lag? (the autocorrelation, rescaled so
+     0.25 maps to 0 and 0.60 to 1)
+   - *is the modulation big enough* to be respiratory? (RSA depth)
+   FM/AM agreement within 3 br/min is credited on top, since those are independent
+   measurements of the same physiology and their agreement is evidence neither
+   coefficient carries. **The 0.60 bar itself is unchanged** - lowering it would
+   reinstate the railed-36 bug that 54d9a27 removed.
 
-1. Earn confidence from RSA depth rather than from the ACF peak.
-   `rsa_depth_ms` is already computed: a subject with under ~15 ms of
-   respiratory modulation should report unavailable, and one with clear
-   modulation should not be held back by a modest `best_r`.
-2. Treat the FM and AM estimates as corroborating evidence — when both
-   independently agree within a few br/min, that is worth more than either
-   coefficient alone.
-3. Validate against paced breathing at 6/min and 15/min **before** tuning any
-   threshold. Without that, any change here is curve-fitting.
+2. **RSA depth is now `2*sqrt(2)*sigma` over the detrended series, not `max-min`.**
+   A range is set by the single worst pair of beats in the window and grows with
+   sample count, so thirty beats of pure jitter read as "30 ms of RSA" - exactly
+   the confusion the depth term exists to prevent. For a true sinusoid the
+   estimator recovers the peak-to-peak exactly (verified: 40 ms injected, 39.9 ms
+   measured).
 
-Do not simply lower the 0.60 threshold: that reinstates exactly the class of bug
-54d9a27 removed.
+**A worse bug that the change exposed.** Adding the depth term made the drift
+reproduction - a healthy 78 bpm subject with 55 ms of slow drift and **no
+respiratory modulation at all** - report **26 br/min at 0.97 confidence**. The old
+code reported an unreliable 36 for the same input; the new code reported a
+*confident* wrong number, which is worse because a confident number gets acted on
+in NEWS2's most sensitive term.
+
+Root cause: the estimator removed only the MEAN. A slow drift in heart rate is not
+respiration, but it correlates strongly with itself at short lags and therefore
+wins the autocorrelation search. It now removes the best-fit straight line first,
+which is what separates a trend from an oscillation and makes the depth measure
+mean anything. Same input now yields `conf=0.51, reliable=0`.
+
+**Verified by unit test:**
+
+| case | result |
+|---|---|
+| real RSA, 15 br/min, 40 ms modulation | `rr=15.0` (true 15), `conf=1.00`, **published** |
+| the drift reproduction (no modulation) | `conf=0.51`, **not published** (was 26.05 @ 0.97) |
+| white jitter, 8 seeds | **0 of 8 published**, worst confidence 0.48 |
+| the old rail reproduction | no longer rails, and now correctly refuses to publish |
+
+**NOT YET CONFIRMED ON HARDWARE.** Two 90-100 s captures both came back entirely
+`NO_FINGER` (`IR=0`), so the triage branch never ran and RR could not be
+evaluated. The outstanding question is the one the unit tests cannot answer:
+whether real finger PPG produces enough RSA depth and enough autocorrelation to
+clear the gate. Until a capture with a finger on the sensor shows a plausible RR,
+this stays open.
+
+**And the thresholds are a first calibration, not measurements.** They come from
+first principles and the RSA literature (adult resting RSA is typically 20-60 ms
+peak-to-peak). They have not been validated against paced breathing. Doing that -
+6/min and 15/min against a phone timer, checking the estimate lands within 1-2
+br/min - is what would turn these numbers into evidence rather than guesses, and
+it is still the right next step for this task.
 
 ---
 

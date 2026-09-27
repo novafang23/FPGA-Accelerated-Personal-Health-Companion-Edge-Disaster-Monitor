@@ -434,6 +434,14 @@ static void test_rr_estimate_rejects_clamped_value() {
      * not be reported as a finding. */
     assert(!(rr.is_reliable && rr.respiratory_rate_bpm >= PPG_RR_MAX_BPM));
 
+    /* And this record contains NO respiratory modulation at all - it is a slow
+     * drift plus detector jitter - so nothing may be published. Before linear
+     * detrending was added the drift won the autocorrelation search and the
+     * estimator reported 26 br/min at 0.97 confidence: a confident wrong number,
+     * which is worse than the railed 36 it used to produce, because a confident
+     * number is acted on. */
+    assert(!rr.is_reliable);
+
     printf("test_rr_estimate_rejects_clamped_value: PASS\n");
 }
 
@@ -880,6 +888,73 @@ static void test_cyclone_risk(void) {
     printf("test_cyclone_risk: PASS (thresholds, drop floor, rise ignored)\n");
 }
 
+/* Respiratory rate confidence (T3.5).
+ *
+ * The confidence used to BE the autocorrelation coefficient. On real finger PPG
+ * that peaks around 0.3-0.5, so it never cleared the 0.60 bar and RR was
+ * published as unavailable on every real contact while the estimator was working
+ * correctly. It is now scored on periodicity AND modulation depth, with credit
+ * for FM/AM agreement.
+ *
+ * The pair that matters is here: a real respiratory modulation must be published,
+ * and jitter with no modulation must not be - in either direction the failure is
+ * a wrong number in NEWS2's most sensitive term. The jitter case is run over
+ * several seeds, because one seed proving nothing proves nothing. */
+static void test_rr_confidence(void) {
+    ppg_respiratory_result_t rr;
+    const size_t N = 60;
+    float ibi[60];
+    const float mean_ibi = 800.0f;   /* 75 bpm */
+
+    /* A real respiratory sinusoid: 15 br/min (a 4 s cycle) modulating the rhythm
+     * with 40 ms of peak-to-peak RSA. The phase advances with elapsed TIME, not
+     * with beat index, so this is a genuine respiratory modulation rather than an
+     * artefact of how the array is indexed. */
+    const float rr_true  = 15.0f;
+    const float period_s = 60.0f / rr_true;
+    const float depth_ms = 40.0f;
+    float t = 0.0f;
+    for (size_t i = 0; i < N; i++) {
+        float phase = 2.0f * 3.14159265f * (t / period_s);
+        ibi[i] = mean_ibi + 0.5f * depth_ms * sinf(phase);
+        t += ibi[i] / 1000.0f;
+    }
+
+    memset(&rr, 0, sizeof(rr));
+    ppg_estimate_respiratory_rate(ibi, NULL, N, &rr);
+    printf("  RR real RSA : rr=%5.1f (true %.0f)  conf=%.2f  reliable=%d  rsa=%.1f ms\n",
+           rr.respiratory_rate_bpm, rr_true, rr.confidence, (int)rr.is_reliable,
+           rr.rsa_depth_ms);
+    assert(rr.is_reliable);
+    assert(fabsf(rr.respiratory_rate_bpm - rr_true) < 2.5f);
+    /* The equivalent-sinusoid depth should recover the injected 40 ms. */
+    assert(rr.rsa_depth_ms > 30.0f && rr.rsa_depth_ms < 50.0f);
+
+    /* Jitter with NO respiratory modulation, at a comparable magnitude. There is
+     * no periodicity here, so nothing may be published even though the raw
+     * variability is similar - which is exactly the trap the old depth measure
+     * (max minus min) fell into. */
+    int reliable_count = 0;
+    float worst_conf = 0.0f;
+    for (uint32_t s0 = 1; s0 <= 8; s0++) {
+        uint32_t seed = s0 * 7919u;
+        for (size_t i = 0; i < N; i++) {
+            seed = seed * 1103515245u + 12345u;
+            float j = ((float)((seed >> 16) & 0x7FFFu) / 32767.0f - 0.5f) * 40.0f;
+            ibi[i] = mean_ibi + j;
+        }
+        memset(&rr, 0, sizeof(rr));
+        ppg_estimate_respiratory_rate(ibi, NULL, N, &rr);
+        if (rr.is_reliable) reliable_count++;
+        if (rr.confidence > worst_conf) worst_conf = rr.confidence;
+    }
+    printf("  RR jitter x8: %d of 8 published, worst conf=%.2f\n",
+           reliable_count, worst_conf);
+    assert(reliable_count == 0);
+
+    printf("test_rr_confidence: PASS (real modulation published, jitter rejected)\n");
+}
+
 int main() {
     printf("Running unit tests for disaster_risk_engine...\n");
     test_heat_risk();
@@ -896,6 +971,7 @@ int main() {
     test_location_store();
     test_pressure_trend();
     test_cyclone_risk();
+    test_rr_confidence();
     printf("ALL TESTS PASSED.\n");
     return 0;
 }
