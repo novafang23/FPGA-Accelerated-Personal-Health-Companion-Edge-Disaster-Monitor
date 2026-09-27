@@ -16,10 +16,11 @@
 extern "C" {
 #endif
 
-/* Physiological floor. RAISED from 6.0 to 9.0 on measured evidence - see the
- * note below. Rates below this are now rejected outright, and because a value
- * that clamp_rr() has to move is never certified, they publish as unavailable
- * rather than as a bradypnoea finding.
+/* Physiological floor. Currently 6.0 - TEMPORARY, for the breath-hold test at the
+ * end of this block; it was raised from 6.0 to 9.0 on the evidence described below.
+ * Rates outside the band are rejected, and because a value that clamp_rr() has to
+ * move is never certified, they publish as unavailable rather than as a
+ * bradypnoea finding.
  *
  * WHY 9 AND NOT 6
  * A capture with a finger on the sensor published 6.6-7.3 br/min with a median
@@ -43,8 +44,24 @@ extern "C" {
  * settle it (15/min for 60 s, to see whether the rate follows) could not be
  * completed, because repeated captures failed on finger contact. This is a
  * judgement from the depth evidence, not a measurement, and it is reversible in
- * one line if paced breathing later shows the estimator does track respiration. */
-#define PPG_RR_MIN_BPM       9.0f    /* Physiological floor, above the Mayer band */
+ * one line if paced breathing later shows the estimator does track respiration.
+ *
+ * TEMPORARILY 6.0 FOR THE BREATH-HOLD TEST (2026-09-28). Paced breathing has since
+ * PROVEN that the estimator tracks respiration (cued 10 -> reported 11.3, cued 24 ->
+ * 26.9 in one run), which removes the main reason for the floor and removes the need
+ * for the judgement above. What is still unknown is whether the Mayer wave that
+ * justified it is real at all - the original evidence is equally consistent with an
+ * octave error that has since been fixed.
+ *
+ * The floor is temporarily at 6 so that a 6-7 br/min oscillation CAN be reported. At
+ * a floor of 9 the estimator would refuse it and the test could not tell the two
+ * apart. After the test: if a steady ~6-7 br/min appears while the subject is holding
+ * their breath (no respiration, so no respiratory sinus arrhythmia) it is a Mayer wave
+ * and the floor goes back to 9. If the output goes quiet or erratic during the hold,
+ * there is no Mayer wave to guard against and 6.0 becomes the permanent value.
+ *
+ * The original reasoning, retained because it is what the floor encodes: */
+#define PPG_RR_MIN_BPM       6.0f    /* TEMPORARY - breath-hold test; was 9.0f */
 #define PPG_RR_MAX_BPM       36.0f   /* Physiological ceiling: severe tachypnea */
 #define PPG_RR_DEFAULT_BPM   14.0f   /* Normal resting adult breathing rate */
 
