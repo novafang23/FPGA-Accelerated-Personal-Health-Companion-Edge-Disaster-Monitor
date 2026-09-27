@@ -188,6 +188,44 @@ but noisy. Gate the handover log, or suppress beats while `!optical_contact`. ~3
 
 ---
 
+### T3.4 — Rewrite the documents that still describe the retired 4-bit parallel link
+
+The FPGA↔MCU link is 4-wire SPI (mode 0, SPI2_HOST), which is what
+`firmware/shrikefi/shrikefi_link_driver.c` implements and what
+`hardware/shrikefi/forgefpga_ppg_top.v` declares (`i_ss_n`, `i_sck`, `i_mosi`,
+`o_miso`, `o_miso_oe`). Several documents still specify a synchronous 4-bit
+parallel nibble bus with a strobe, a direction line, a command map and a
+dedicated `irq_beat` pin. That design was retired before it was ever built.
+
+`firmware/shrikefi/shrikefi_pinmap.h` has been corrected and its eight dead
+parallel-bus aliases removed. The prose has not:
+
+| File | What is wrong |
+|---|---|
+| `docs/SHRIKEFI_LINK_PROTOCOL.md` | Stale end to end (lines 4-109). Invented `CMD_*` command map, wrong pins for every signal, wrong timing section. Its pin numbers **collide** with the real SPI pins, so it is worse than merely old. |
+| `docs/SHRIKEFI_HARDWARE_CONNECTIONS.md` | §1 pin table (lines 14-21) and §4 (127-138). GPIO 11 is listed as `rst_n` when it is actually MOSI — actively dangerous in a wiring guide. |
+| `README.md` | Lines 288-294 (pin table), 300-306, 89, 537, 573, 703. Also 293-294 swap I²C and UART1. |
+| `docs/MASTER_PROJECT_GUIDE.md` | Lines 111-138, 168, 184, 351, 805-807, 946. The headline is line 115/806: *"There is no AXI bus, no SPI controller, no I2C"* — in the judge-defence guide, for a link that **is** SPI. Line 807 then claims a command map is verified by the testbench; there is no command decode in the RTL and no `SHRIKEFI_CMD_*` use in the driver. |
+| `docs/theory/THEORY_NOTES.md` | Lines 65, 91-115, 159, 180-184, 244-288, 304-306, 410-411. |
+| `idea.md`, `ROADMAP.md` | Phase-2 text predates the ShrikeFi port. |
+
+Correct pin table (from `hardware/shrikefi/forgefpga_pins.pcf` and
+`shrikefi_pinmap.h`): ESP32 GPIO10→FPGA PIN_17 (CS), GPIO11→PIN_18 (MOSI),
+GPIO12→PIN_16 (SCK), GPIO13→PIN_19 (MISO); GPIO8 = EN, GPIO9 = PWR. There is no
+reset pin — the RTL resets from an internal power-on counter. The beat is bit 7
+of the MISO byte, not an interrupt line. Note that the `.pcf` inline comments
+append FPGA-side port designators (`-> GPIO3_IN` etc.) which are **not** ESP32
+GPIO numbers; that collision is the likely origin of the wrong tables.
+
+Also worth fixing while in here: `docs/MASTER_PROJECT_GUIDE.md:390` gives the IBI
+conversion as `ibi_cycles / 50` when 1 tick = 20 ns makes it `/ 50,000` — the
+same file prints it correctly at line 385, and the worked examples at 396-406
+are physically impossible as a result (a 3,281-tick interval is 65.62 **µs**, not
+65.62 ms). Its flash figures (744-745, 942) also still say 1 MB / 2 MB against
+the real 7 MB app partition and 8 MB device.
+
+---
+
 ## Tier 4 — Validation and evidence
 
 ### T4.1 — Validate against a reference device

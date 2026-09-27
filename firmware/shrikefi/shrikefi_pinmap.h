@@ -54,32 +54,43 @@
 /* =========================================================================
  * Renesas ForgeFPGA (SLG47910) Interconnect — Official Vicharak Shrike-Fi Traces
  * =========================================================================
- * These 6 pins are internal PCB copper traces on the Vicharak Shrike-Fi board:
+ * The link is a 4-wire SPI bus (mode 0), not a parallel bus. The ESP32-S3 is
+ * the controller, on SPI2_HOST; the ForgeFPGA is the target and takes its
+ * bitstream over the same bus. These 6 pins are internal PCB copper traces on
+ * the Vicharak Shrike-Fi board:
  *   - GPIO 9:  FPGA Power Control (PWR)
  *   - GPIO 8:  FPGA Hardware Enable (EN)
- *   - GPIO 10: SPI Chip Select (SS) / Dual-purpose Link Data 0
- *   - GPIO 11: SPI MOSI (SI) / Dual-purpose Link Data 1
- *   - GPIO 12: SPI Clock (SCK) / Dual-purpose Link Data 2
- *   - GPIO 13: SPI MISO (SO/CONFIG) / Dual-purpose Link Data 3 / Beat IRQ
+ *   - GPIO 10: SPI Chip Select (SS), driven manually around each transaction
+ *   - GPIO 11: SPI MOSI (SI)  — MCU to FPGA
+ *   - GPIO 12: SPI Clock (SCK)
+ *   - GPIO 13: SPI MISO (SO)  — FPGA to MCU
+ *
+ * The FPGA-side pad numbers and the matching Renesas constraints live in
+ * hardware/shrikefi/forgefpga_pins.pcf: spi_sck=PIN_16, spi_ss_n=PIN_17,
+ * spi_mosi=PIN_18, spi_miso=PIN_19 (with PIN_19_OE).
+ *
+ * Frame: one 8-bit full-duplex transaction per IR sample (50 Hz). The MCU
+ * sends the 8-bit sample; the FPGA returns {beat_latched, filt_sample[6:0]} —
+ * bit 7 is the beat flag and only the low 7 bits of the 8-tap average come
+ * back. There is no separate interrupt line: the beat arrives as that flag.
+ * The FPGA does not timestamp beats either; the MCU derives the IBI from its
+ * own esp_timer_get_time() deltas between rising beat flags.
+ *
+ * There is no parallel "link data" mode. Earlier revisions specified a 4-bit
+ * parallel nibble bus with a strobe and a direction line. That design was
+ * retired before it was ever implemented, and its pin aliases (PIN_FPGA_DATA0
+ * ..3, PIN_FPGA_STROBE, PIN_FPGA_DIR, PIN_FPGA_BEAT_IRQ) were declared here but
+ * never referenced by any code. They have been removed rather than left to
+ * suggest a bus that does not exist. See docs/SHRIKEFI_LINK_PROTOCOL.md.
  *
  * NOTE: These are completely internal to the Shrike-Fi PCB. No Zero PCB wiring needed!
  * ====================================================================== */
 #define PIN_FPGA_PWR         9    /* GPIO9  — FPGA Power Control (Schematic Sheet 5: PWR to GPIO9) */
 #define PIN_FPGA_EN          8    /* GPIO8  — FPGA Hardware Reset/Enable (Schematic Sheet 5: EN to GPIO8) */
-#define PIN_FPGA_SS          10   /* GPIO10 — SPI CS / Dual-Purpose Link D0 */
-#define PIN_FPGA_MOSI        11   /* GPIO11 — SPI MOSI / Dual-Purpose Link D1 */
-#define PIN_FPGA_SCK         12   /* GPIO12 — SPI SCK / Dual-Purpose Link D2 */
-#define PIN_FPGA_MISO        13   /* GPIO13 — SPI MISO / Dual-Purpose Link D3 / Beat IRQ */
-
-/* Dual-purpose link aliases */
-#define PIN_FPGA_DATA0       PIN_FPGA_SS
-#define PIN_FPGA_DATA1       PIN_FPGA_MOSI
-#define PIN_FPGA_DATA2       PIN_FPGA_SCK
-#define PIN_FPGA_DATA3       PIN_FPGA_MISO
-#define PIN_FPGA_BEAT_IRQ    PIN_FPGA_MISO
-#define PIN_FPGA_STROBE      PIN_FPGA_SCK
-#define PIN_FPGA_DIR         PIN_FPGA_SS
-#define PIN_FPGA_RST_N       PIN_FPGA_EN
+#define PIN_FPGA_SS          10   /* GPIO10 — SPI CS (manual chip select) */
+#define PIN_FPGA_MOSI        11   /* GPIO11 — SPI MOSI (MCU -> FPGA) */
+#define PIN_FPGA_SCK         12   /* GPIO12 — SPI SCK */
+#define PIN_FPGA_MISO        13   /* GPIO13 — SPI MISO (FPGA -> MCU) */
 
 /* =========================================================================
  * MAX30102 Interrupt (Optional — firmware uses polling at 50Hz instead)
