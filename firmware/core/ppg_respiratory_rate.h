@@ -147,6 +147,22 @@ typedef struct {
     float confidence;           /* Respiration estimation confidence [0.0, 1.0] */
     float rsa_depth_ms;         /* Respiratory Sinus Arrhythmia peak-to-peak amplitude (ms) */
     bool  is_reliable;          /* True if confidence >= 0.60 */
+
+    /* Diagnostics. What the estimator actually saw, so a published rate can be
+     * argued with instead of taken on trust.
+     *
+     * These exist because the rate alone cannot distinguish "found breathing"
+     * from "found something else". A breath hold - no respiration at all -
+     * produced a RELIABLE 27.4 br/min at an 82 bpm heart rate, i.e. a 3-beat
+     * rhythm, and the published confidence of 0.66 was carried mostly by the
+     * depth term while the periodicity behind it was only 0.36. Without the
+     * internals there is no way to tell which of the two the confidence rested
+     * on, and therefore no way to fix it. */
+    float diag_mean_ibi_ms;     /* mean interval the lags were converted with */
+    float diag_acf_peak_r;      /* autocorrelation at the winning lag */
+    int   diag_peak_lag;        /* winning lag, in beats (interpolated if float) */
+    float diag_peak_lag_f;      /* winning lag after parabolic interpolation */
+    int   diag_beats;           /* IBIs the estimate was computed from */
 } ppg_respiratory_result_t;
 
 /* --- Published-rate stabilisation -----------------------------------------

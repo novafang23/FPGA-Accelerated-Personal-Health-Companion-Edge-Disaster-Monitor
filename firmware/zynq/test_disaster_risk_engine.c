@@ -1188,6 +1188,17 @@ static void test_rr_band_edges(void) {
     assert(rr.is_reliable);
     assert(fabsf(est - inside) < 1.0f);
 
+    /* The diagnostics have to be genuinely populated, or the [RRDIAG] telemetry
+     * line is a comfort blanket that prints zeros and diagnoses nothing. */
+    printf("                  diag: beats=%d mean_ibi=%.0f lag=%d(%.2f) r=%.3f\n",
+           rr.diag_beats, rr.diag_mean_ibi_ms, rr.diag_peak_lag,
+           rr.diag_peak_lag_f, rr.diag_acf_peak_r);
+    assert(rr.diag_beats == (int)N);
+    assert(rr.diag_peak_lag > 0);
+    assert(rr.diag_peak_lag_f > 0.0f);
+    assert(rr.diag_acf_peak_r > 0.0f);
+    assert(fabsf(rr.diag_mean_ibi_ms - mean_ibi) < 25.0f);
+
     est = rr_synth(well_inside, mean_ibi, depth, N, &rr);
     printf("  RR band floor : true %4.1f -> est %5.2f  conf %.2f  reliable %d\n",
            well_inside, est, rr.confidence, (int)rr.is_reliable);

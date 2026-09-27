@@ -62,6 +62,13 @@ void ppg_estimate_respiratory_rate(
     result->confidence = 0.30f;
     result->rsa_depth_ms = 0.0f;
     result->is_reliable = false;
+    /* Diagnostics start cleared so every early return below leaves them defined
+     * rather than reading whatever was on the caller's stack. */
+    result->diag_mean_ibi_ms = 0.0f;
+    result->diag_acf_peak_r  = 0.0f;
+    result->diag_peak_lag    = -1;
+    result->diag_peak_lag_f  = 0.0f;
+    result->diag_beats       = 0;
 
     if (!ibi_ms || beat_count < 8) {
         return;
@@ -216,6 +223,7 @@ void ppg_estimate_respiratory_rate(
 
     float rr_from_fm = PPG_RR_DEFAULT_BPM;
     float conf_fm = 0.0f;
+    float peak_lag_f = (float)peak_lag;
 
     if (peak_lag > 0) {
         float lag_f = interp_peak_lag(r_lag, peak_lag, max_lag);
@@ -223,6 +231,7 @@ void ppg_estimate_respiratory_rate(
         if (breath_period_sec > 1.2f && breath_period_sec < 12.0f) {
             rr_from_fm = 60.0f / breath_period_sec;
             conf_fm = (peak_r > 0.90f) ? 0.90f : peak_r;
+            peak_lag_f = lag_f;
         }
     }
 
@@ -371,6 +380,16 @@ void ppg_estimate_respiratory_rate(
     result->respiratory_rate_bpm = clamp_rr(final_rr);
     result->confidence = final_conf;
     result->is_reliable = (final_conf >= PPG_RR_CONF_MIN) && !clipped;
+
+    /* Diagnostics - what was actually found, so a published rate can be argued
+     * with rather than taken on trust. Populated on every path, including the
+     * refusals, because the interesting case is usually the one that was
+     * refused or that should have been. */
+    result->diag_mean_ibi_ms = mean_ibi;
+    result->diag_acf_peak_r  = conf_fm;
+    result->diag_peak_lag    = peak_lag;
+    result->diag_peak_lag_f  = peak_lag_f;
+    result->diag_beats       = (int)N;
 }
 
 /* ------------------------------------------------------------------------- */
