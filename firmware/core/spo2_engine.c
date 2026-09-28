@@ -12,11 +12,6 @@ void spo2_init(spo2_state_t *state) {
         .red_sumsq         = 0.0,
         .ir_sum            = 0.0,
         .ir_sumsq          = 0.0,
-        .red_ewma_mean     = 0.0,
-        .red_ewma_var      = 0.0,
-        .ir_ewma_mean      = 0.0,
-        .ir_ewma_var       = 0.0,
-        .ewma_started      = 0,
         .sample_count      = 0,
         .ratio_r           = 0.0f,
         .perfusion_index   = 0.0f,
@@ -43,50 +38,34 @@ void spo2_init(spo2_state_t *state) {
 
 void spo2_add_samples(spo2_state_t *state, uint32_t red_filtered,
                       uint32_t ir_filtered) {
-    /* Per-window sums, used for the DC and as a fallback. */
+    /* Accumulate sums for the mean and the standard deviation over the window.
+     * Two running sums over 50 samples, rather than two extremes. */
     state->red_sum   += (double)red_filtered;
     state->red_sumsq += (double)red_filtered * (double)red_filtered;
     state->ir_sum    += (double)ir_filtered;
     state->ir_sumsq  += (double)ir_filtered * (double)ir_filtered;
 
-    /* Rolling mean and variance over ~2 s (SPO2_AC_TAU_SAMPLES).
-     *
-     * West's incremental form: the mean is updated first, then the variance from
-     * the same deviation, which keeps it numerically well behaved and needs no
-     * sample buffer. The point is that the amplitude no longer depends on where in
-     * the cardiac cycle the 0.5 s reporting window starts - see the note in the
-     * header for the measurement that showed this. */
-    const double alpha = 1.0 / (double)SPO2_AC_TAU_SAMPLES;
-    double rx = (double)red_filtered;
-    double ix = (double)ir_filtered;
-
-    if (!state->ewma_started) {
-        state->red_ewma_mean = rx;
-        state->ir_ewma_mean  = ix;
-        state->red_ewma_var  = 0.0;
-        state->ir_ewma_var   = 0.0;
-        state->ewma_started  = 1;
-    } else {
-        double rd = rx - state->red_ewma_mean;
-        state->red_ewma_mean += alpha * rd;
-        state->red_ewma_var   = (1.0 - alpha) * (state->red_ewma_var + alpha * rd * rd);
-
-        double id = ix - state->ir_ewma_mean;
-        state->ir_ewma_mean += alpha * id;
-        state->ir_ewma_var   = (1.0 - alpha) * (state->ir_ewma_var + alpha * id * id);
-    }
-
     state->sample_count++;
 
     /* Compute SpO2 at end of each measurement window */
     if (state->sample_count >= SPO2_WINDOW_SIZE) {
-        /* DC and AC both come from the rolling estimate, so neither depends on
-         * the window's phase within the cardiac cycle. */
+        double n = (double)state->sample_count;
+
+        double red_mean = state->red_sum / n;
+        double ir_mean  = state->ir_sum / n;
+        double red_var  = state->red_sumsq / n - red_mean * red_mean;
+        double ir_var   = state->ir_sumsq / n - ir_mean * ir_mean;
+        if (red_var < 0.0) red_var = 0.0;   /* rounding, not a negative variance */
+        if (ir_var  < 0.0) ir_var  = 0.0;
+
+        /* 2*sqrt(2)*sigma is the peak-to-peak of an equivalent sinusoid. Both
+         * channels use the same estimator, so their RATIO - which is all R is -
+         * stays unbiased and the calibration curve below still applies. */
         const double PP_FROM_SIGMA = 2.0 * 1.4142135623730951;
-        float red_dc = (float)state->red_ewma_mean;
-        float ir_dc  = (float)state->ir_ewma_mean;
-        float red_ac = (float)(PP_FROM_SIGMA * sqrt(state->red_ewma_var));
-        float ir_ac  = (float)(PP_FROM_SIGMA * sqrt(state->ir_ewma_var));
+        float red_ac = (float)(PP_FROM_SIGMA * sqrt(red_var));
+        float ir_ac  = (float)(PP_FROM_SIGMA * sqrt(ir_var));
+        float red_dc = (float)red_mean;
+        float ir_dc  = (float)ir_mean;
 
         /* Calculate Perfusion Index: PI = (AC / DC) * 100% */
         float pi_ir = (ir_dc > 0.0f) ? ((ir_ac / ir_dc) * 100.0f) : 0.0f;

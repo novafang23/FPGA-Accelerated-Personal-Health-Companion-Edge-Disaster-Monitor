@@ -56,22 +56,6 @@ extern "C" {
 #define SPO2_STABLE_MIN_WINDOWS      8     /* Windows compared for flatness (= MA depth) */
 #define SPO2_STABLE_SPREAD_PCT       2.0f  /* Max spread across those windows, in SpO2 % */
 
-/* Pulse amplitude is measured over a ROLLING span, not within the reporting window.
- *
- * The window is 0.5 s. At a resting 76 bpm one heartbeat is 0.79 s, so a window
- * contains 63% of ONE pulse, and how much of the pulse lands inside it depends on
- * where in the beat the window happens to start. Measured on hardware, the pulse
- * size from consecutive windows swung by a factor of 3 with nothing changed -
- * 662 to 2164 counts in one run. That is what made the ratio, and therefore SpO2,
- * wobble by +/-2.5% window to window, which in turn kept the settle gate from ever
- * passing: 46 consecutive valid windows were once held back by nothing else.
- *
- * An exponentially weighted mean and variance over ~2 s - about 2.5 beats at rest -
- * gives an amplitude that does not depend on where the window starts. It needs no
- * sample buffer and converges within a couple of seconds of contact, so acquisition
- * gets faster rather than slower. */
-#define SPO2_AC_TAU_SAMPLES 200    /* ~2 s at the ~100 samples/s optical rate */
-
 typedef struct {
     /* Per-window accumulators for the mean (DC) and standard deviation (AC).
      *
@@ -91,10 +75,6 @@ typedef struct {
      * depth in ppg_respiratory_rate.c, for the same reason. */
     double   red_sum, red_sumsq;
     double   ir_sum,  ir_sumsq;
-    /* Rolling mean and variance over SPO2_AC_TAU_SAMPLES - see the note above. */
-    double   red_ewma_mean, red_ewma_var;
-    double   ir_ewma_mean,  ir_ewma_var;
-    int      ewma_started;
     int      sample_count;
 
     float    ratio_r;
