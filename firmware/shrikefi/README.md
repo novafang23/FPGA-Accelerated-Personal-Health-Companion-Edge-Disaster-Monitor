@@ -89,6 +89,28 @@ are needed for it.
    `launch_dashboard.bat` (or `run_dashboard.bat`) on the PC against the same COM
    port.
 
+### ⚠ If the blue LED stops flickering: remove power, do not reset
+
+The onboard blue LED (D12) is driven **by the FPGA, not the ESP32**, from the same
+internal beat signal that MISO bit 7 carries back to the MCU. In the design it is
+lit for 50 ms per detected heartbeat and is off in between, so with a finger on the
+sensor it must flicker roughly once per second. A *steady* light means the FPGA is
+not running the design, not that the firmware is at fault.
+
+The ForgeFPGA is re-programmed on **every boot**, and re-programming it repeatedly
+without ever removing power can leave it wedged. Observed exactly once, after many
+consecutive `idf.py flash` cycles in a single session.
+
+**Fix:** unplug the USB cable completely, wait ~10 seconds, plug it back in (UART
+port only). A reset is *not* sufficient — and neither is `idf.py flash`, which ends
+in one: the FPGA keeps power throughout and is only re-streamed, which does not
+clear the wedged state. Power has to actually go away.
+
+**Confirm it worked:** the LED flickers once per beat. From the console, with a
+finger on, `[FPGA ACCEL] Systolic crest detected!` prints on every beat the FPGA
+reports — count those lines over a minute and you have the FPGA-detected rate,
+independently of anything the ESP32 does with it.
+
 ### Build configuration notes
 
 `sdkconfig` is gitignored (2400+ lines of derived state); `sdkconfig.defaults`
