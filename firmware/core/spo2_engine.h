@@ -69,6 +69,20 @@ typedef struct {
     int      spo2_hist_count;
     float    spo2;
     int      valid;
+
+    /* Diagnostics - why acquisition is taking as long as it is.
+     *
+     * The gate is deliberately conservative (8 consecutive valid windows AND a
+     * flat 8-window history), which is 4 s at 0.5 s per window, but the measured
+     * time to first reading was 22 s. Nothing in the published value can say
+     * which gate was failing for the intervening 18 s, so this records the
+     * running totals and the last window's measurements. */
+    uint32_t windows_total;        /* measurement windows completed */
+    uint32_t windows_valid;        /* of those, how many passed every gate */
+    uint8_t  last_reject;          /* 0 = accepted, 1 = DC, 2 = AC, 3 = PI, 4 = ratio R */
+    float    last_ir_dc, last_ir_ac, last_red_ac;
+    float    last_spread;          /* SpO2 spread across the compared history */
+    int      last_settled;
 } spo2_state_t;
 
 /* Initialize / reset SpO2 state */

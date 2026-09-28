@@ -18,7 +18,15 @@ void spo2_init(spo2_state_t *state) {
         .spo2_hist_idx     = 0,
         .spo2_hist_count   = 0,
         .spo2              = 0.0f,
-        .valid             = 0
+        .valid             = 0,
+        .windows_total     = 0,
+        .windows_valid     = 0,
+        .last_reject       = 0,
+        .last_ir_dc        = 0.0f,
+        .last_ir_ac        = 0.0f,
+        .last_red_ac       = 0.0f,
+        .last_spread       = 0.0f,
+        .last_settled      = 0
     };
     for(int i = 0; i < SPO2_MA_FILTER_SIZE; i++) {
         state->spo2_history[i] = 0.0f;
@@ -52,14 +60,32 @@ void spo2_add_samples(spo2_state_t *state, uint32_t red_filtered,
 
         int window_valid = 0;
 
-        /* Strict Signal Quality Criteria:
+        /* Record what this window actually measured, so a slow acquisition can be
+         * attributed to a specific gate rather than guessed at. */
+        state->windows_total++;
+        state->last_ir_dc  = ir_dc;
+        state->last_ir_ac  = ir_ac;
+        state->last_red_ac = red_ac;
+        state->last_reject = 0;
+
+        /* Strict Signal Quality Criteria, checked one at a time so a rejection
+         * can be attributed to the specific gate that caused it:
          * 1. Sufficient optical DC level (finger properly covering sensor)
          * 2. Minimum pulsatile AC amplitude (true arterial pulsation, not noise)
-         * 3. Physiological Perfusion Index (0.20% to 15.0%)
-         */
-        if (ir_dc >= SPO2_MIN_DC_IR && red_dc >= SPO2_MIN_DC_RED &&
-            ir_ac >= SPO2_MIN_AC_IR && red_ac >= SPO2_MIN_AC_RED &&
-            pi_ir >= SPO2_MIN_PERFUSION_INDEX && pi_ir <= SPO2_MAX_PERFUSION_INDEX) {
+         * 3. Physiological Perfusion Index (0.15% to 15.0%)
+         * 4. Physiological ratio R (0.35 to 1.65)
+         *
+         * Recording which one failed costs nothing here and saves guessing: the
+         * acquisition gate below is deliberately slow to satisfy, and without
+         * this there is no way to tell a sensor still settling from a finger
+         * that is not perfusing. */
+        if (ir_dc < SPO2_MIN_DC_IR || red_dc < SPO2_MIN_DC_RED) {
+            state->last_reject = 1;
+        } else if (ir_ac < SPO2_MIN_AC_IR || red_ac < SPO2_MIN_AC_RED) {
+            state->last_reject = 2;
+        } else if (pi_ir < SPO2_MIN_PERFUSION_INDEX || pi_ir > SPO2_MAX_PERFUSION_INDEX) {
+            state->last_reject = 3;
+        } else {
 
             float ratio_r = (red_ac / red_dc) / (ir_ac / ir_dc);
             state->ratio_r = ratio_r;
@@ -67,6 +93,7 @@ void spo2_add_samples(spo2_state_t *state, uint32_t red_filtered,
             /* Physiological R bound: human blood R is strictly between 0.35 and 1.65 */
             if (ratio_r >= SPO2_MIN_RATIO_R && ratio_r <= SPO2_MAX_RATIO_R) {
                 window_valid = 1;
+                state->windows_valid++;
 
                 /* Beer-Lambert empirical calibration curve */
                 float raw_spo2 = 110.0f - 25.0f * ratio_r;
@@ -133,11 +160,15 @@ void spo2_add_samples(spo2_state_t *state, uint32_t red_filtered,
                         if (h > hi) hi = h;
                     }
                     settled = ((hi - lo) <= SPO2_STABLE_SPREAD_PCT);
+                    state->last_spread = hi - lo;
                 }
+                state->last_settled = settled;
 
                 if (state->consecutive_valid >= SPO2_REQUIRED_VALID_WINDOWS && settled) {
                     state->valid = 1;
                 }
+            } else {
+                state->last_reject = 4;
             }
         }
 
