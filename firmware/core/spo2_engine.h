@@ -82,6 +82,7 @@ typedef struct {
     uint8_t  last_reject;          /* 0 = accepted, 1 = DC, 2 = AC, 3 = PI, 4 = ratio R */
     float    last_ir_dc, last_ir_ac, last_red_ac;
     float    last_spread;          /* SpO2 spread across the compared history */
+    float    last_spread_raw;      /* same, without discarding the extremes */
     int      last_settled;
 } spo2_state_t;
 

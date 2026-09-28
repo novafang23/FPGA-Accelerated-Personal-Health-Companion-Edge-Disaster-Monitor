@@ -1016,7 +1016,7 @@ static void task_ppg_accelerator(void *pvParameters) {
             if (!spo2_is_valid(&spo2_state)) {
                 ESP_LOGI("PPG_OPTICAL",
                          "[SPO2DIAG] windows=%lu valid=%lu consec=%d reject=%d "
-                         "ir_dc=%.0f ir_ac=%.0f red_ac=%.0f pi=%.3f R=%.3f hist=%d spread=%.2f settled=%d",
+                         "ir_dc=%.0f ir_ac=%.0f red_ac=%.0f pi=%.3f R=%.3f hist=%d spread=%.2f raw=%.2f settled=%d",
                          (unsigned long)spo2_state.windows_total,
                          (unsigned long)spo2_state.windows_valid,
                          spo2_state.consecutive_valid, (int)spo2_state.last_reject,
@@ -1024,7 +1024,9 @@ static void task_ppg_accelerator(void *pvParameters) {
                          (double)spo2_state.last_red_ac,
                          (double)spo2_get_perfusion_index(&spo2_state),
                          (double)spo2_state.ratio_r, spo2_state.spo2_hist_count,
-                         (double)spo2_state.last_spread, spo2_state.last_settled);
+                         (double)spo2_state.last_spread,
+                         (double)spo2_state.last_spread_raw,
+                         spo2_state.last_settled);
             }
         }
 

@@ -26,6 +26,7 @@ void spo2_init(spo2_state_t *state) {
         .last_ir_ac        = 0.0f,
         .last_red_ac       = 0.0f,
         .last_spread       = 0.0f,
+        .last_spread_raw   = 0.0f,
         .last_settled      = 0
     };
     for(int i = 0; i < SPO2_MA_FILTER_SIZE; i++) {
@@ -151,14 +152,52 @@ void spo2_add_samples(spo2_state_t *state, uint32_t red_filtered,
                  * test, so a genuine desaturation still tracks and displays. */
                 int settled = 0;
                 if (state->spo2_hist_count >= SPO2_STABLE_MIN_WINDOWS) {
-                    float lo = 1e9f, hi = -1e9f;
+                    float h[SPO2_MA_FILTER_SIZE];
+                    int n = 0;
                     for (int k = 0; k < SPO2_STABLE_MIN_WINDOWS; k++) {
                         int idx = (state->spo2_hist_idx - 1 - k + 2 * SPO2_MA_FILTER_SIZE)
                                   % SPO2_MA_FILTER_SIZE;
-                        float h = state->spo2_history[idx];
-                        if (h < lo) lo = h;
-                        if (h > hi) hi = h;
+                        h[n++] = state->spo2_history[idx];
                     }
+                    /* Plain max-min, kept for the diagnostic: this is what the
+                     * gate used to test. */
+                    float raw_lo = h[0], raw_hi = h[0];
+                    for (int i = 1; i < n; i++) {
+                        if (h[i] < raw_lo) raw_lo = h[i];
+                        if (h[i] > raw_hi) raw_hi = h[i];
+                    }
+                    state->last_spread_raw = raw_hi - raw_lo;
+
+                    /* Insertion sort (n = 8) so the extremes can be dropped. */
+                    for (int i = 1; i < n; i++) {
+                        float key = h[i];
+                        int j = i - 1;
+                        while (j >= 0 && h[j] > key) { h[j + 1] = h[j]; j--; }
+                        h[j + 1] = key;
+                    }
+
+                    /* Spread with the single lowest and highest entry discarded.
+                     *
+                     * The gate has to tell "still converging" from "settled", and
+                     * max-min cannot: it is decided by the single worst PAIR of
+                     * entries, so one noisy window blocks latching until that
+                     * entry falls out of the ring - up to 8 windows, 4 s, for one
+                     * outlier.
+                     *
+                     * Measured on hardware: 14 consecutive valid windows, twice
+                     * the 8 required, held back only by a 3.38% spread against the
+                     * 2% bar - and that spread collapsed below the bar within one
+                     * second. A signal still converging does not do that; an
+                     * outlier leaving the buffer at the end of its 8-window life
+                     * does exactly that.
+                     *
+                     * Dropping one entry from each end still catches a genuine
+                     * ramp, because a converging estimate is monotonic and the
+                     * span barely changes when its extremes are removed. What it
+                     * no longer does is let a single bad window veto the reading
+                     * for four seconds. */
+                    float lo = h[1];
+                    float hi = h[n - 2];
                     settled = ((hi - lo) <= SPO2_STABLE_SPREAD_PCT);
                     state->last_spread = hi - lo;
                 }
