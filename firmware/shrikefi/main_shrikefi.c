@@ -585,13 +585,38 @@ static void task_ppg_accelerator(void *pvParameters) {
                 ir_win_min = UINT32_MAX;
                 ir_win_max = 0;
                 ir_win_count = 0;
-
-                /* Adjust LED current every 50 samples to compensate for weak/saturated signals */
-                max30102_adjust_led_current(&s_max30102, ppg_sample.red, ppg_sample.ir);
             }
 
             /* Optical contact check: ambient air is IR<1000; tissue contact elevates levels to >50,000 */
             bool optical_contact = (ppg_sample.ir > 1500 || ppg_sample.red > 1500);
+
+            /* LED current hunting - and the reason SpO2 used to take 20+ seconds.
+             *
+             * This ran only on the 50-sample AC window boundary, i.e. once every
+             * 0.5 s, one step at a time. On the MAX30100 the current register is
+             * 4 bits - 16 levels - so reaching the 40000..220000 band from the
+             * reset value takes more than a dozen steps, and EVERY step moves the
+             * DC baseline, which moves the ratio-of-ratios the SpO2 engine is
+             * watching. Its acquisition gate asks "has the smoothed estimate
+             * stopped moving?", so it was waiting on the LED driver rather than on
+             * the finger. Measured 22 s to the first reading against a floor of
+             * 4 s (8 windows x 0.5 s).
+             *
+             * It was also ungated by contact, so with no finger on the sensor the
+             * sample reads ambient and the loop ramped the current to MAXIMUM -
+             * and then had to walk all the way back down when a finger arrived.
+             *
+             * So: do not hunt without a finger, hunt fast until the reading is in
+             * band, and fall back to the slow cadence once SpO2 has latched so a
+             * good reading is not disturbed. The band is wide enough to be its own
+             * hysteresis - inside it the adjustment stops entirely. */
+            static int led_adj_counter = 0;
+            if (!optical_contact) {
+                led_adj_counter = 0;
+            } else if (++led_adj_counter >= (spo2_is_valid(&spo2_state) ? 50 : 5)) {
+                led_adj_counter = 0;
+                max30102_adjust_led_current(&s_max30102, ppg_sample.red, ppg_sample.ir);
+            }
 
             /* Per-channel DC trackers. These MUST be separate: RED and IR sit
              * ~50-70k counts apart, and a shared baseline saturates the IR byte
