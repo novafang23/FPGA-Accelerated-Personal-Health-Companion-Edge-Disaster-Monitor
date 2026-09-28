@@ -98,17 +98,33 @@ sensor it must flicker roughly once per second. A *steady* light means the FPGA 
 not running the design, not that the firmware is at fault.
 
 The ForgeFPGA is re-programmed on **every boot**, and re-programming it repeatedly
-without ever removing power can leave it wedged. Observed exactly once, after many
-consecutive `idf.py flash` cycles in a single session.
+without ever removing power can leave it wedged. Observed twice on real hardware in
+one session.
 
-**Fix:** unplug the USB cable completely, wait ~10 seconds, plug it back in (UART
-port only). A reset is *not* sufficient — and neither is `idf.py flash`, which ends
-in one: the FPGA keeps power throughout and is only re-streamed, which does not
-clear the wedged state. Power has to actually go away.
+**The firmware now detects this and fixes it itself.** Every ~5 s it checks whether
+the FPGA is still driving MISO (a wedged chip answers from a frozen register with a
+constant byte that reads as a perfectly valid zero sample, so the replies alone
+cannot tell you). If MISO is floating, it re-programs the FPGA from the embedded
+bitstream, ~150 ms, and resets the HRV and respiration state that had been
+accumulated from a dead chip:
 
-**Confirm it worked:** the LED flickers once per beat. From the console, with a
-finger on, `[FPGA ACCEL] Systolic crest detected!` prints on every beat the FPGA
-reports — count those lines over a minute and you have the FPGA-detected rate,
+```
+E (…) SHRIKEFI_MAIN: [FPGA] MISO is floating - the FPGA has stopped executing
+                     (the blue LED will be stuck on). Re-programming it from the embedded bitstream.
+W (…) SHRIKEFI_MAIN: [FPGA] re-programmed; HRV and respiration state reset
+```
+
+**If you see that warning only once:** nothing to do, the device recovered.
+
+**If it repeats, or re-programming fails:** the FPGA is not merely wedged and the
+workaround still applies — unplug the USB cable completely, wait ~10 seconds, plug
+it back in (UART port only). A reset is *not* sufficient for that case, and neither
+is `idf.py flash`, which ends in one: the FPGA keeps power throughout and is only
+re-streamed, which does not clear a wedged state. Power has to actually go away.
+
+**Confirm the FPGA is running:** the LED flickers once per beat with a finger on.
+From the console, `[FPGA ACCEL] Systolic crest detected!` prints on every beat the
+FPGA reports — count those lines over a minute and you have the FPGA-detected rate,
 independently of anything the ESP32 does with it.
 
 ### Build configuration notes

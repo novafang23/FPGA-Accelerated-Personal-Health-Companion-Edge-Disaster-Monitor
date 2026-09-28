@@ -51,6 +51,38 @@ static bool     s_sim_irq = false;
 
 static bool s_initialized = false;
 
+/* Is the FPGA still holding MISO?
+ *
+ * A configured, running ForgeFPGA drives MISO, and that output overpowers the
+ * ESP32's weak internal pull, so pulling the pin both ways reads the same level
+ * whichever way it is pulled. An unconfigured or frozen chip leaves the pin
+ * floating, the pull decides the level, and the two reads disagree.
+ *
+ * This is the only way the MCU can see a dead FPGA, and it matters because
+ * reading the SPI replies cannot: a frozen chip still drives MISO from a frozen
+ * register, so it answers with a constant byte that looks like a perfectly valid
+ * zero sample. That is exactly how a wedged FPGA presents as a working device
+ * with a stuck LED and no error anywhere in the log.
+ *
+ * MISO's output enable is hardwired on in the RTL (assign spi_miso_oe = 1'b1), so
+ * this does not need chip-select asserted and can be run at any time. */
+bool shrikefi_link_fpga_alive(void) {
+#ifdef ESP_PLATFORM
+    gpio_set_pull_mode((gpio_num_t)PIN_FPGA_MISO, GPIO_PULLDOWN_ONLY);
+    esp_rom_delay_us(100);
+    int pd_val = gpio_get_level((gpio_num_t)PIN_FPGA_MISO);
+
+    gpio_set_pull_mode((gpio_num_t)PIN_FPGA_MISO, GPIO_PULLUP_ONLY);
+    esp_rom_delay_us(100);
+    int pu_val = gpio_get_level((gpio_num_t)PIN_FPGA_MISO);
+
+    gpio_set_pull_mode((gpio_num_t)PIN_FPGA_MISO, GPIO_FLOATING);
+    return (pd_val == pu_val);
+#else
+    return true;   /* host build: no FPGA to lose */
+#endif
+}
+
 shrikefi_err_t shrikefi_link_init(void) {
 #ifdef ESP_PLATFORM
     /* Keep SS de-asserted (HIGH) for runtime SPI communication */
@@ -88,17 +120,10 @@ shrikefi_err_t shrikefi_link_init(void) {
         }
 
         /* Test physical MISO drive state (overpowers weak pull-up/pull-down if actively driven by FPGA) */
-        gpio_set_pull_mode((gpio_num_t)PIN_FPGA_MISO, GPIO_PULLDOWN_ONLY);
-        esp_rom_delay_us(100);
-        int pd_val = gpio_get_level((gpio_num_t)PIN_FPGA_MISO);
-
-        gpio_set_pull_mode((gpio_num_t)PIN_FPGA_MISO, GPIO_PULLUP_ONLY);
-        esp_rom_delay_us(100);
-        int pu_val = gpio_get_level((gpio_num_t)PIN_FPGA_MISO);
-
-        gpio_set_pull_mode((gpio_num_t)PIN_FPGA_MISO, GPIO_FLOATING);
-        ESP_LOGI(LINK_TAG, "MISO Pin 13 Physical Line Test: Pulldown=%d, Pullup=%d (%s)",
-                 pd_val, pu_val, (pd_val == pu_val) ? "ACTIVELY DRIVEN BY FPGA" : "FLOATING/TRISTATE");
+        bool fpga_alive = shrikefi_link_fpga_alive();
+        ESP_LOGI(LINK_TAG, "MISO Pin %d Physical Line Test: %s", PIN_FPGA_MISO,
+                 fpga_alive ? "ACTIVELY DRIVEN BY FPGA"
+                            : "FLOATING/TRISTATE - FPGA NOT RUNNING");
     }
 #endif
 

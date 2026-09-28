@@ -530,6 +530,9 @@ static void task_ppg_accelerator(void *pvParameters) {
     static uint8_t  s_rail_ir  = 0;
 
     static int      raw_log_timer        = 0;
+    /* Counts the ~2 Hz debug-log ticks so the FPGA liveness check runs about
+     * every 5 s rather than on every one. */
+    static int      s_fpga_check_counter = 0;
 
     /* Perfusion & AC amplitude tracking over 1-second rolling windows */
     static uint32_t ir_win_min           = UINT32_MAX;
@@ -933,6 +936,39 @@ static void task_ppg_accelerator(void *pvParameters) {
         if (++raw_log_timer >= 50) {
             raw_log_timer = 0;
             ppg_update_respiration_and_sqi();
+
+            /* FPGA liveness, every ~5 s (this block runs about twice a second).
+             *
+             * A ForgeFPGA that has stopped executing still drives MISO from a
+             * frozen register, so it replies with a constant byte that reads as a
+             * perfectly valid zero sample. Everything downstream therefore looks
+             * fine: no error, no dropout, just no beats - and the board's blue LED
+             * sits lit instead of flickering, because the LED and this link come
+             * from the same signal inside the chip.
+             *
+             * Observed twice on real hardware in one session, both times cleared by
+             * a reset (which re-programs the FPGA at boot) or a power cycle. Until
+             * now nothing in the device noticed, so it silently reported a dead
+             * sensor. Re-programming takes ~150 ms and costs one gap in the PPG
+             * stream; the HRV and respiration state is dropped afterwards because
+             * it was accumulated from a chip that had stopped. */
+            s_fpga_check_counter++;
+            if (s_fpga_check_counter >= 10) {
+                s_fpga_check_counter = 0;
+                if (!shrikefi_link_fpga_alive()) {
+                    ESP_LOGE(TAG, "[FPGA] MISO is floating - the FPGA has stopped executing "
+                                  "(the blue LED will be stuck on). Re-programming it from the embedded bitstream.");
+                    if (shrikefi_fpga_flash_init() == SHRIKEFI_OK) {
+                        ESP_LOGW(TAG, "[FPGA] re-programmed; HRV and respiration state reset");
+                        hrv_init(&hrv_state);
+                        ibi_pipeline_reset(&ibi_pipe);
+                        ppg_history_reset();
+                    } else {
+                        ESP_LOGE(TAG, "[FPGA] re-programming FAILED - check the SPI link and the bitstream");
+                    }
+                }
+            }
+
             const char *status_str = (g_state.signal_status == SIGNAL_STATUS_LOW_PERFUSION) ? "LOW PERFUSION (PRESS FIRMER)" :
                                      (g_state.signal_status == SIGNAL_STATUS_ACQUIRING)     ? "ACQUIRING" :
                                      (g_state.signal_status == SIGNAL_STATUS_TRACKING)      ? "LOCKED" : "NO FINGER";

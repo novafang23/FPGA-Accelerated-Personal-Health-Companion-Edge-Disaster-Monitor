@@ -152,6 +152,12 @@ void shrikefi_clear_irq(void);
  */
 bool shrikefi_is_beat_detected(void);
 
+/* True while the FPGA is actually driving MISO - i.e. still configured and
+ * executing. False means it has stopped, which reading the SPI replies cannot
+ * detect, because a frozen chip answers from a frozen register with a constant
+ * byte that looks like a valid zero sample. */
+bool shrikefi_link_fpga_alive(void);
+
 #ifdef __cplusplus
 }
 #endif
