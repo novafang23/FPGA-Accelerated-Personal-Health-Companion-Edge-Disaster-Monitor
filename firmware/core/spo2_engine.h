@@ -57,8 +57,24 @@ extern "C" {
 #define SPO2_STABLE_SPREAD_PCT       2.0f  /* Max spread across those windows, in SpO2 % */
 
 typedef struct {
-    uint32_t red_min, red_max;
-    uint32_t ir_min, ir_max;
+    /* Per-window accumulators for the mean (DC) and standard deviation (AC).
+     *
+     * These replaced min/max tracking. Peak-to-peak is decided by exactly TWO of
+     * the 50 samples - the single highest and the single lowest - so it is the
+     * noisiest possible amplitude estimate, and the ratio of two noisy channels is
+     * what SpO2 is computed from. Measured on hardware: with max-min the raw
+     * reading wobbled about +/-2.5% window to window, giving an 8-window spread of
+     * 4-5% against the 2% settle bar - LARGER than the 2.4% drift that bar exists
+     * to catch, so the gate could never pass and acquisition took 20+ s despite 46
+     * consecutive valid windows.
+     *
+     * The AC is taken as 2*sqrt(2)*sigma, the equivalent peak-to-peak of a
+     * sinusoid. For a clean pulse that equals max-min exactly, so R and the
+     * calibration curve below are unchanged; the difference is that it is computed
+     * from all 50 samples instead of two. The same formula is already used for RSA
+     * depth in ppg_respiratory_rate.c, for the same reason. */
+    double   red_sum, red_sumsq;
+    double   ir_sum,  ir_sumsq;
     int      sample_count;
 
     float    ratio_r;

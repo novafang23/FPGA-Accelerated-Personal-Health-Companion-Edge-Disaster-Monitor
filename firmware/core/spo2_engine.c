@@ -4,13 +4,14 @@
  */
 #include "spo2_engine.h"
 #include <stdint.h>
+#include <math.h>
 
 void spo2_init(spo2_state_t *state) {
     *state = (spo2_state_t){
-        .red_min           = UINT32_MAX,
-        .red_max           = 0,
-        .ir_min            = UINT32_MAX,
-        .ir_max            = 0,
+        .red_sum           = 0.0,
+        .red_sumsq         = 0.0,
+        .ir_sum            = 0.0,
+        .ir_sumsq          = 0.0,
         .sample_count      = 0,
         .ratio_r           = 0.0f,
         .perfusion_index   = 0.0f,
@@ -37,24 +38,34 @@ void spo2_init(spo2_state_t *state) {
 
 void spo2_add_samples(spo2_state_t *state, uint32_t red_filtered,
                       uint32_t ir_filtered) {
-    /* Track min/max within the current measurement window */
-    if (red_filtered < state->red_min)
-        state->red_min = red_filtered;
-    if (red_filtered > state->red_max)
-        state->red_max = red_filtered;
-    if (ir_filtered < state->ir_min)
-        state->ir_min = ir_filtered;
-    if (ir_filtered > state->ir_max)
-        state->ir_max = ir_filtered;
+    /* Accumulate sums for the mean and the standard deviation over the window.
+     * Two running sums over 50 samples, rather than two extremes. */
+    state->red_sum   += (double)red_filtered;
+    state->red_sumsq += (double)red_filtered * (double)red_filtered;
+    state->ir_sum    += (double)ir_filtered;
+    state->ir_sumsq  += (double)ir_filtered * (double)ir_filtered;
 
     state->sample_count++;
 
     /* Compute SpO2 at end of each measurement window */
     if (state->sample_count >= SPO2_WINDOW_SIZE) {
-        float red_ac = (float)(state->red_max - state->red_min);
-        float red_dc = (float)(state->red_max + state->red_min) / 2.0f;
-        float ir_ac  = (float)(state->ir_max - state->ir_min);
-        float ir_dc  = (float)(state->ir_max + state->ir_min) / 2.0f;
+        double n = (double)state->sample_count;
+
+        double red_mean = state->red_sum / n;
+        double ir_mean  = state->ir_sum / n;
+        double red_var  = state->red_sumsq / n - red_mean * red_mean;
+        double ir_var   = state->ir_sumsq / n - ir_mean * ir_mean;
+        if (red_var < 0.0) red_var = 0.0;   /* rounding, not a negative variance */
+        if (ir_var  < 0.0) ir_var  = 0.0;
+
+        /* 2*sqrt(2)*sigma is the peak-to-peak of an equivalent sinusoid. Both
+         * channels use the same estimator, so their RATIO - which is all R is -
+         * stays unbiased and the calibration curve below still applies. */
+        const double PP_FROM_SIGMA = 2.0 * 1.4142135623730951;
+        float red_ac = (float)(PP_FROM_SIGMA * sqrt(red_var));
+        float ir_ac  = (float)(PP_FROM_SIGMA * sqrt(ir_var));
+        float red_dc = (float)red_mean;
+        float ir_dc  = (float)ir_mean;
 
         /* Calculate Perfusion Index: PI = (AC / DC) * 100% */
         float pi_ir = (ir_dc > 0.0f) ? ((ir_ac / ir_dc) * 100.0f) : 0.0f;
@@ -233,12 +244,12 @@ void spo2_add_samples(spo2_state_t *state, uint32_t red_filtered,
             }
         }
 
-        /* Reset window trackers for next measurement */
+        /* Reset window accumulators for next measurement */
         state->sample_count = 0;
-        state->red_min = UINT32_MAX;
-        state->red_max = 0;
-        state->ir_min = UINT32_MAX;
-        state->ir_max = 0;
+        state->red_sum   = 0.0;
+        state->red_sumsq = 0.0;
+        state->ir_sum    = 0.0;
+        state->ir_sumsq  = 0.0;
     }
 }
 
