@@ -327,3 +327,22 @@ int max30102_adjust_led_current(max30102_t *dev, uint32_t red_sample, uint32_t i
 
     return 0;
 }
+
+int max30102_get_led_current(max30102_t *dev, uint8_t *red_curr, uint8_t *ir_curr) {
+    if (!dev || !dev->initialized) return -1;
+
+    if (dev->is_max30100) {
+        int cfg = max30102_i2c_read_reg(dev, MAX30100_REG_LED_CONFIG);
+        if (cfg < 0) return -1;
+        if (red_curr) *red_curr = (uint8_t)((cfg >> 4) & 0x0F);
+        if (ir_curr)  *ir_curr  = (uint8_t)(cfg & 0x0F);
+        return 0;
+    }
+
+    int r = max30102_i2c_read_reg(dev, MAX30102_REG_LED1_PA);
+    int i = max30102_i2c_read_reg(dev, MAX30102_REG_LED2_PA);
+    if (r < 0 || i < 0) return -1;
+    if (red_curr) *red_curr = (uint8_t)r;
+    if (ir_curr)  *ir_curr  = (uint8_t)i;
+    return 0;
+}

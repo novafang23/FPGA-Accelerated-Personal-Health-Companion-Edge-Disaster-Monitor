@@ -196,6 +196,16 @@ int max30102_wakeup(max30102_t *dev);
 /* Adaptive LED Current Control */
 int max30102_adjust_led_current(max30102_t *dev, uint32_t red_sample, uint32_t ir_sample);
 
+/* Read back the programmed LED current levels.
+ *
+ * Diagnostics only, but they matter: SpO2 is the RATIO of the two channels'
+ * pulsatile amplitudes, so a channel whose LED current has been driven to an
+ * extreme does not present as an error - it presents as a biased ratio, and the
+ * reading slides toward a plausible-looking 100% while that channel's pulse
+ * collapses. Reading the register back is the only way to tell a badly driven
+ * LED from a badly coupled finger. Returns 0 on success. */
+int max30102_get_led_current(max30102_t *dev, uint8_t *red_curr, uint8_t *ir_curr);
+
 #ifdef __cplusplus
 }
 #endif

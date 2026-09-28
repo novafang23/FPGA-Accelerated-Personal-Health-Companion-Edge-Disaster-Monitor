@@ -81,6 +81,9 @@ typedef struct {
     uint32_t windows_valid;        /* of those, how many passed every gate */
     uint8_t  last_reject;          /* 0 = accepted, 1 = DC, 2 = AC, 3 = PI, 4 = ratio R */
     float    last_ir_dc, last_ir_ac, last_red_ac;
+    float    last_red_dc;          /* SpO2 is a ratio of the two channels: if this
+                                    * and ir_dc diverge, the ratio is biased by the
+                                    * light level rather than by the blood */
     float    last_spread;          /* SpO2 spread across the compared history */
     float    last_spread_raw;      /* same, without discarding the extremes */
     int      last_settled;

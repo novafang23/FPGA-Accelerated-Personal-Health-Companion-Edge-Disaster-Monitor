@@ -1014,16 +1014,23 @@ static void task_ppg_accelerator(void *pvParameters) {
              * reject: 0 accepted, 1 DC too low, 2 AC too small, 3 perfusion index
              * out of range, 4 ratio R out of range. */
             if (!spo2_is_valid(&spo2_state)) {
+                uint8_t led_r = 0, led_ir = 0;
+                if (max30102_get_led_current(&s_max30102, &led_r, &led_ir) != 0) {
+                    led_r = 0; led_ir = 0;
+                }
                 ESP_LOGI("PPG_OPTICAL",
                          "[SPO2DIAG] windows=%lu valid=%lu consec=%d reject=%d "
-                         "ir_dc=%.0f ir_ac=%.0f red_ac=%.0f pi=%.3f R=%.3f hist=%d spread=%.2f raw=%.2f settled=%d",
+                         "ir_dc=%.0f ir_ac=%.0f red_dc=%.0f red_ac=%.0f pi=%.3f R=%.3f "
+                         "led_r=%u led_ir=%u hist=%d spread=%.2f raw=%.2f settled=%d",
                          (unsigned long)spo2_state.windows_total,
                          (unsigned long)spo2_state.windows_valid,
                          spo2_state.consecutive_valid, (int)spo2_state.last_reject,
                          (double)spo2_state.last_ir_dc, (double)spo2_state.last_ir_ac,
-                         (double)spo2_state.last_red_ac,
+                         (double)spo2_state.last_red_dc, (double)spo2_state.last_red_ac,
                          (double)spo2_get_perfusion_index(&spo2_state),
-                         (double)spo2_state.ratio_r, spo2_state.spo2_hist_count,
+                         (double)spo2_state.ratio_r,
+                         (unsigned)led_r, (unsigned)led_ir,
+                         spo2_state.spo2_hist_count,
                          (double)spo2_state.last_spread,
                          (double)spo2_state.last_spread_raw,
                          spo2_state.last_settled);

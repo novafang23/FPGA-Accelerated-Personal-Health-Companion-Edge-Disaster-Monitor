@@ -25,6 +25,7 @@ void spo2_init(spo2_state_t *state) {
         .last_ir_dc        = 0.0f,
         .last_ir_ac        = 0.0f,
         .last_red_ac       = 0.0f,
+        .last_red_dc       = 0.0f,
         .last_spread       = 0.0f,
         .last_spread_raw   = 0.0f,
         .last_settled      = 0
@@ -67,6 +68,7 @@ void spo2_add_samples(spo2_state_t *state, uint32_t red_filtered,
         state->last_ir_dc  = ir_dc;
         state->last_ir_ac  = ir_ac;
         state->last_red_ac = red_ac;
+        state->last_red_dc = red_dc;
         state->last_reject = 0;
 
         /* Strict Signal Quality Criteria, checked one at a time so a rejection
