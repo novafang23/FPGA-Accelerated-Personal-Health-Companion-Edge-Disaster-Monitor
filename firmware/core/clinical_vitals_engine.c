@@ -51,7 +51,7 @@ static void append_condition(char *buf, size_t buf_size, size_t *len,
     }
 
     size_t avail = buf_size - *len;
-    int ret = snprintf(buf + *len, avail, fmt, (double)v);
+    int ret = snprintf(buf + *len, avail, fmt, v);
     if (ret < 0) {
         buf[*len] = '\0';
         return;

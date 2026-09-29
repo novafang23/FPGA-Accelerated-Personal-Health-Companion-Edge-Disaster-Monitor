@@ -143,7 +143,7 @@ static const char PAGE_HTML[] =
 "<div class='v'><span id='rr'>--</span><span class='u'>/min</span></div></div>"
 "<div class='card wide'><div class='k'>Signal quality</div>"
 "<div class='v'><span id='sqi'>--</span><span class='u'>%</span></div></div>"
-"<div class='card wide'><div class='k'>Deployment location</div>"
+"<div class='card wide'><label class='k' for='locin'>Deployment location</label>"
 "<form class='setloc' method='post' action='/location'>"
 "<input id='locin' name='loc' maxlength='31' placeholder='Village / Block / District'>"
 "<button type='submit'>Save</button></form>"

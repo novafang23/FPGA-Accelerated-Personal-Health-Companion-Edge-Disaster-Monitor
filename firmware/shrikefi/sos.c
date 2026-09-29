@@ -27,7 +27,7 @@ static uint32_t      s_cleared_ms   = 0;  /* when a stand-down was recorded   */
 
 void sos_default_config(sos_config_t *cfg) {
     if (!cfg) return;
-    cfg->critical_confirm_ms     = 3000u;
+    cfg->critical_confirm_ms     = 15000u; /* Increased from 3s to 15s to avoid transient false alarms */
     cfg->contact_lost_confirm_ms = 120000u;
     cfg->contact_lost_enabled    = false;  /* see sos.h - fingertip device */
     cfg->cancel_hold_ms          = 5000u;

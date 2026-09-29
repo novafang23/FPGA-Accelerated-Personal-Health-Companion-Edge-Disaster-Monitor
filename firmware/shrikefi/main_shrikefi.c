@@ -1025,14 +1025,14 @@ static void task_ppg_accelerator(void *pvParameters) {
                          (unsigned long)spo2_state.windows_total,
                          (unsigned long)spo2_state.windows_valid,
                          spo2_state.consecutive_valid, (int)spo2_state.last_reject,
-                         (double)spo2_state.last_ir_dc, (double)spo2_state.last_ir_ac,
-                         (double)spo2_state.last_red_dc, (double)spo2_state.last_red_ac,
-                         (double)spo2_get_perfusion_index(&spo2_state),
-                         (double)spo2_state.ratio_r,
+                         spo2_state.last_ir_dc, spo2_state.last_ir_ac,
+                         spo2_state.last_red_dc, spo2_state.last_red_ac,
+                         spo2_get_perfusion_index(&spo2_state),
+                         spo2_state.ratio_r,
                          (unsigned)led_r, (unsigned)led_ir,
                          spo2_state.spo2_hist_count,
-                         (double)spo2_state.last_spread,
-                         (double)spo2_state.last_spread_raw,
+                         spo2_state.last_spread,
+                         spo2_state.last_spread_raw,
                          spo2_state.last_settled);
             }
         }
@@ -1394,7 +1394,7 @@ static void task_disaster_monitor(void *pvParameters) {
                    "RRDEPTH=%.1f,RRCONF=%.2f\n",
                    hr, engine_spo2, hrv_snapshot.rmssd, env.ambient_temp_c,
                    env.humidity_pct, env.pm25, rr_for_news2, sqi_for_news2,
-                   (double)rr_depth_dbg, (double)rr_conf_dbg);
+                   rr_depth_dbg, rr_conf_dbg);
             fflush(stdout);
             /* Label which cold-risk path produced the flood figure, so the
              * ambient proxy is never mistaken for a measured skin temperature. */
@@ -1407,7 +1407,7 @@ static void task_disaster_monitor(void *pvParameters) {
                      risk_level_to_string(rule_risk.pollution_risk),
                      flood_str,
                      risk_level_to_string(rule_risk.cyclone_risk),
-                     (double)pressure_trend.slope_hpa_per_hr,
+                     pressure_trend.slope_hpa_per_hr,
                      risk_level_to_string(rule_risk.overall_risk));
             ESP_LOGI(TAG, "[TinyML INT8] Heat: %.3f (%s) | Poll: %.3f (%s) | Flood: %.3f (%s) => AI Overall: %s",
                      nn_out.heat_score, risk_level_to_string(nn_risk.heat_risk),
@@ -1457,7 +1457,7 @@ static void task_disaster_monitor(void *pvParameters) {
                    risk_level_to_string(rule_risk.flood_risk),
                    moran_psi, aha_strain,
                    risk_level_to_string(rule_risk.cyclone_risk),
-                   (double)pressure_trend.slope_hpa_per_hr);
+                   pressure_trend.slope_hpa_per_hr);
             fflush(stdout);
 
             /* Thread-safe state update for telemetry & system monitoring */

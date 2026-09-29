@@ -280,6 +280,7 @@
 </header>
 
 <!-- â”€â”€ Row 1: PPG scope + NEWS2 â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ -->
+<main>
 <div class="row row-1">
   <div class="card card-pad">
     <div class="card-head">
@@ -293,7 +294,11 @@
         <span class="chip" id="scope-src">--</span>
       </div>
     </div>
-    <div class="scope-frame"><canvas id="ppg"></canvas></div>
+    <div class="scope-frame">
+      <canvas id="ppg" aria-label="Real-Time Photoplethysmogram Oscilloscope" role="img">
+        Your browser does not support the canvas element.
+      </canvas>
+    </div>
     <!-- Real derived quantities only. The mock-up showed Systolic/Diastolic
          estimates and PTT here; this build measures none of those, so they are
          replaced with values the device actually produces. -->
@@ -333,14 +338,20 @@
         <span class="unit" style="font-size:14px;margin-left:5px">bpm</span>
       </div>
     </div>
-    <div style="margin:12px 0 4px;height:38px"><canvas id="ecg"></canvas></div>
+    <div style="margin:12px 0 4px;height:38px">
+      <canvas id="ecg" aria-label="ECG Decorative Sparkline" role="img">
+        Decorative ECG trace
+      </canvas>
+    </div>
     <div style="font-size:11px;color:#334155" id="hr-note">&nbsp;</div>
   </div>
 
   <div class="card card-pad">
     <div class="dim" style="margin-bottom:10px">SpO&#8322;</div>
     <div style="display:flex;align-items:center;gap:12px">
-      <canvas id="spo2-arc" width="112" height="112" style="width:56px;height:56px;flex:none"></canvas>
+      <canvas id="spo2-arc" width="112" height="112" style="width:56px;height:56px;flex:none" aria-label="Blood Oxygen Saturation Gauge" role="img">
+        SpO2 arc indicator
+      </canvas>
       <div>
         <span class="big" id="v-spo2" style="font-size:36px">--</span>
         <span class="unit">%</span>
@@ -366,8 +377,12 @@
       <span class="big" id="v-rr" style="font-size:36px">--</span>
       <span class="unit">br/min</span>
     </div>
-    <div style="height:44px"><canvas id="rr"></canvas></div>
-    <div style="margin-top:6px" class="dim">PPG-derived &middot; RSA modulation</div>
+    <div style="height:44px">
+      <canvas id="rr" aria-label="Respiratory Sinus Arrhythmia Trace" role="img">
+        Respiratory rate modulation trace
+      </canvas>
+    </div>
+    <div style="margin-top:6px" class="dim" id="rr-note">PPG-derived &middot; RSA modulation</div>
   </div>
 
   <div class="card" style="padding:18px 16px">
@@ -482,6 +497,7 @@
 <div class="faint" style="margin-top:14px;line-height:1.7">
   VALOR &middot; SIH26181 &middot; <span id="foot-note">simulation mode</span>
 </div>
+</main>
 
 <script>
 "use strict";
@@ -526,7 +542,7 @@ const C = {
    looking number, so every field starts at zero and render() prints "--" for it
    until a device connects or a simulation is explicitly started. */
 const V = {
-  hr: 0, spo2: 0, hrv: 0, rr: 0, sqi: 0,
+  hr: 0, spo2: 0, hrv: 0, rr: 0, rrConf: 0, sqi: 0,
   temp: 0, hum: 0, pmRaw: 0, pmCal: 0,
   psi: 0, aha: 0, heat: 0, poll: 0, flood: 0, news2: 0,
   pi: 0, level: 0, flags: 0, risk: 'UNKNOWN',
@@ -860,6 +876,7 @@ function renderIdle() {
   $('bar-hrv').style.width = '0%';
   $('hrv-note').textContent = '';
   $('v-rr').textContent = D;   $('v-rr').style.color = 'var(--text-faint)';
+  if ($('rr-note')) $('rr-note').textContent = 'PPG-derived &middot; RSA modulation';
   $('v-sqi').textContent = D;  $('v-sqi').style.color = 'var(--text-faint)';
   const sp = $('sqi-pill');
   sp.textContent = 'waiting for signal';
@@ -984,9 +1001,23 @@ function render() {
   $('hrv-note').textContent = !hrvOn ? 'needs 10 beats'
     : V.hrv < 20 ? 'Low vagal reserve' : V.hrv < 30 ? 'Reduced' : 'Adequate reserve';
 
-  $('v-rr').textContent = V.rr > 0 ? V.rr.toFixed(0) : '--';
-  $('v-rr').style.color = !(V.rr > 0) ? C.text
+  const rrOn = V.rr > 0;
+  $('v-rr').textContent = rrOn ? V.rr.toFixed(0) : '--';
+  $('v-rr').style.color = !rrOn ? C.text
     : (V.rr > 24 || V.rr < 10) ? C.crimson : C.text;
+
+  if ($('rr-note')) {
+    if (!hrOn) {
+      $('rr-note').textContent = 'acquiring';
+      $('rr-note').style.color = '';
+    } else if (!rrOn) {
+      $('rr-note').textContent = (V.rrConf > 0) ? 'low confidence (wait)' : 'calculating (takes 15s)';
+      $('rr-note').style.color = (V.rrConf > 0) ? C.amber : '';
+    } else {
+      $('rr-note').innerHTML = 'PPG-derived &middot; RSA modulation';
+      $('rr-note').style.color = '';
+    }
+  }
 
   const sqiColor = V.sqi < 50 ? C.crimson : V.sqi < 75 ? C.amber : C.mid;
   $('v-sqi').textContent = sqiPct;
@@ -1158,8 +1189,8 @@ function handleLine(line) {
   }
 
   if (line.startsWith('[TELEMETRY]')) {
-    if (line.indexOf('NO_FINGER') >= 0) {
-      V.hr = 0; V.spo2 = 0; V.hrv = 0; V.rr = 0; V.sqi = 0; V.pi = 0;
+    if (line.indexOf('NO_FINGER') >= 0 || line.indexOf('ACQUIRING') >= 0) {
+      V.hr = 0; V.spo2 = 0; V.hrv = 0; V.rr = 0; V.rrConf = 0; V.sqi = 0; V.pi = 0;
       const k = parseKV(line.replace('[TELEMETRY]', ''));
       if (k.TEMP) V.temp = num(k.TEMP);
       if (k.HUM)  V.hum  = num(k.HUM);
@@ -1171,6 +1202,7 @@ function handleLine(line) {
     if (k.SPO2)  V.spo2 = num(k.SPO2);
     if (k.RMSSD) V.hrv  = num(k.RMSSD);
     if (k.RR)    V.rr   = num(k.RR);
+    if (k.RRCONF) V.rrConf = num(k.RRCONF);
     if (k.SQI)   V.sqi  = num(k.SQI) * 100;
     if (k.TEMP)  V.temp = num(k.TEMP);
     if (k.HUM)   V.hum  = num(k.HUM);

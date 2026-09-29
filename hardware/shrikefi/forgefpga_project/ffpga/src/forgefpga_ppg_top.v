@@ -245,6 +245,7 @@ module spi_target #(
 
     reg [1:0] sck_sync;
     reg [1:0] ss_sync;
+    reg [1:0] mosi_sync;
     reg [2:0] bit_cnt;
     reg [WIDTH-1:0] rx_shift;
     reg [WIDTH-1:0] tx_shift;
@@ -255,11 +256,13 @@ module spi_target #(
 
     always @(posedge i_clk or negedge i_rst_n) begin
         if (!i_rst_n) begin
-            sck_sync <= 2'b00;
-            ss_sync  <= 2'b11;
+            sck_sync  <= 2'b00;
+            ss_sync   <= 2'b11;
+            mosi_sync <= 2'b00;
         end else begin
-            sck_sync <= {sck_sync[0], i_sck};
-            ss_sync  <= {ss_sync[0], i_ss_n};
+            sck_sync  <= {sck_sync[0], i_sck};
+            ss_sync   <= {ss_sync[0], i_ss_n};
+            mosi_sync <= {mosi_sync[0], i_mosi};
         end
     end
 
@@ -284,17 +287,17 @@ module spi_target #(
                 o_miso_oe <= 1'b1;
                 if (sck_r) begin
                     if (LSB)
-                        rx_shift <= {i_mosi, rx_shift[WIDTH-1:1]};
+                        rx_shift <= {mosi_sync[1], rx_shift[WIDTH-1:1]};
                     else
-                        rx_shift <= {rx_shift[WIDTH-2:0], i_mosi};
+                        rx_shift <= {rx_shift[WIDTH-2:0], mosi_sync[1]};
 
                     bit_cnt <= bit_cnt + 3'd1;
 
                     if (bit_cnt == BIT_MAX) begin
                         if (LSB)
-                            o_rx_data <= {i_mosi, rx_shift[WIDTH-1:1]};
+                            o_rx_data <= {mosi_sync[1], rx_shift[WIDTH-1:1]};
                         else
-                            o_rx_data <= {rx_shift[WIDTH-2:0], i_mosi};
+                            o_rx_data <= {rx_shift[WIDTH-2:0], mosi_sync[1]};
                         o_rx_data_valid <= 1'b1;
                     end
                 end
