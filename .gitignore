@@ -78,6 +78,9 @@ __pycache__/
 .clangd
 compile_commands.json
 
+# ── Large media exports (local only, avoids repo bloat) ───────
+docs/media/FINAL_FINAL_v6.mp4
+
 # ── AI models (binary, use Git LFS if needed) ───────────────
 *.dlc
 *.onnx

@@ -501,54 +501,54 @@ static void test_sos_state_machine(void) {
     sos_default_config(&cfg);
     assert(cfg.contact_lost_enabled == false);   /* fingertip device default */
 
-    /* A single critical second must NOT latch - it is inside the 3 s confirm. */
+    /* A single critical second must NOT latch - it is inside the 15 s confirm. */
     sos_init(&cfg);
     sos_update(0, true, true);
     assert(sos_get_state() == SOS_ARMED);
-    sos_update(1000, true, true);
+    sos_update(5000, true, true);
     assert(sos_get_state() == SOS_ARMED);
-    sos_update(2000, false, true);               /* artefact clears */
+    sos_update(10000, false, true);              /* artefact clears */
     assert(sos_get_state() == SOS_IDLE);
 
-    /* Sustained critical latches. */
+    /* Sustained critical latches after 15 s confirm window. */
     sos_init(&cfg);
     sos_update(0, true, true);
-    sos_update(3000, true, true);
+    sos_update(15000, true, true);
     assert(sos_get_state() == SOS_ACTIVE);
     assert(sos_get_trigger() == SOS_TRIGGER_CRITICAL_TRIAGE);
-    printf("  SOS: critical latched after %.0f ms confirm\n", 3000.0);
+    printf("  SOS: critical latched after %.0f ms confirm\n", 15000.0);
 
     /* A critical flag with no finger is stale data, not an emergency. */
     sos_init(&cfg);
     sos_update(0, true, false);
-    sos_update(10000, true, false);
+    sos_update(20000, true, false);
     assert(sos_get_state() == SOS_IDLE);
 
     /* Recovery stand-down after 30 s of continuous non-critical. */
     sos_init(&cfg);
     sos_update(0, true, true);
-    sos_update(3000, true, true);
+    sos_update(15000, true, true);
     assert(sos_get_state() == SOS_ACTIVE);
-    sos_update(31000, false, true);              /* recovery clock starts */
+    sos_update(45000, false, true);              /* recovery clock starts */
     assert(sos_get_state() == SOS_ACTIVE);
-    sos_update(60000, false, true);              /* 29 s - not yet */
+    sos_update(74000, false, true);              /* 29 s - not yet */
     assert(sos_get_state() == SOS_ACTIVE);
-    sos_update(62000, false, true);              /* 31 s -> stand down */
+    sos_update(76000, false, true);              /* 31 s -> stand down */
     /* The stand-down latches as CANCELLED rather than dropping straight to
      * IDLE: if the level oscillates around critical, going idle would let it
      * re-arm and re-latch every few seconds. It reaches IDLE on the next update
      * where nothing is pending, which is also what lets a genuine re-crash arm
      * a fresh emergency. */
     assert(sos_get_state() == SOS_CANCELLED);
-    sos_update(63000, false, true);
+    sos_update(77000, false, true);
     assert(sos_get_state() == SOS_IDLE);
 
     /* A brief recovery must not clear it. */
     sos_init(&cfg);
     sos_update(0, true, true);
-    sos_update(3000, true, true);
-    sos_update(10000, false, true);
-    sos_update(11000, true, true);               /* critical again */
+    sos_update(15000, true, true);
+    sos_update(20000, false, true);
+    sos_update(25000, true, true);               /* critical again */
     sos_update(90000, true, true);
     assert(sos_get_state() == SOS_ACTIVE);
 
@@ -581,7 +581,7 @@ static void test_sos_state_machine(void) {
     sos_update(2000, false, true);               /* nothing pending */
     assert(sos_get_state() == SOS_IDLE);
     sos_update(3000, true, true);
-    sos_update(7000, true, true);
+    sos_update(18000, true, true);
     assert(sos_get_state() == SOS_ACTIVE);
 
     /* A manual emergency is never auto-cleared: only a human stands it down. */
