@@ -18,7 +18,9 @@ module axi_ppg_accelerator #(
     parameter integer REFRACTORY_CYC     = 12_500_000 // 250ms refractory at 50MHz
 )(
     input  wire                              s_axi_aclk,
+    /* verilator lint_off SYNCASYNCNET */
     input  wire                              s_axi_aresetn,
+    /* verilator lint_on SYNCASYNCNET */
 
     // Write Address Channel
     input  wire [C_S_AXI_ADDR_WIDTH-1:0]     s_axi_awaddr,

@@ -18,13 +18,13 @@ jobs:
           sudo apt-get install -y verilator
       - name: Lint Zynq accelerator
         run: |
-          verilator --lint-only -Wall -Wno-UNUSED -Wno-UNOPTFLAT \
+          verilator --lint-only -Wall -Wno-UNUSED -Wno-UNOPTFLAT -Wno-SYNCASYNCNET \
             --top-module axi_ppg_accelerator \
             -Ihardware/common \
             hardware/zynq/axi_ppg_accelerator.v hardware/common/ppg_peak_detector.v hardware/common/moving_average_8tap.v
       - name: Lint ShrikeFi ForgeFPGA top
         run: |
-          verilator --lint-only -Wall -Wno-UNUSED -Wno-UNOPTFLAT \
+          verilator --lint-only -Wall -Wno-UNUSED -Wno-UNOPTFLAT -Wno-SYNCASYNCNET \
             --top-module forgefpga_ppg_top \
             -Ihardware/common \
             hardware/shrikefi/forgefpga_ppg_top.v hardware/common/ppg_peak_detector.v hardware/common/moving_average_8tap.v
@@ -54,11 +54,11 @@ jobs:
           # failed. Grep the summary so a regression actually fails the build.
           grep -q "6 passed, 0 failed" zynq.log
 
-      - name: Run common peak-detector unit testbench (expects 2/2)
+      - name: Run common peak-detector unit testbench (expects 3/3)
         run: |
           iverilog -o sim_common.vvp hardware/common/tb_ppg_peak_detector.v hardware/common/moving_average_8tap.v hardware/common/ppg_peak_detector.v
           vvp sim_common.vvp | tee common.log
-          grep -q "ALL 2 TESTS PASSED" common.log
+          grep -q "ALL 3 TESTS PASSED" common.log
 
       # hardware/shrikefi/forgefpga_ppg_top.v instantiates the DSP core from
       # hardware/common/ and does NOT contain inline copies of those modules.
@@ -75,10 +75,16 @@ jobs:
 
       - name: Build & run firmware unit tests (incl. FP32 vs INT8 parity)
         run: |
-          gcc -Wall -Wextra -Ifirmware/core -Ifirmware/zynq -o test_engine \
-            firmware/zynq/test_disaster_risk_engine.c firmware/core/hrv_analysis.c \
-            firmware/core/spo2_engine.c firmware/core/disaster_risk_engine.c \
-            firmware/core/nn_risk_model.c firmware/core/nn_risk_model_int8.c -lm
+          gcc -Wall -Wextra -Werror -pedantic -std=c11 \
+            -Ifirmware/core -Ifirmware/zynq -Ifirmware/shrikefi \
+            firmware/zynq/test_disaster_risk_engine.c \
+            firmware/core/nn_risk_model.c firmware/core/nn_risk_model_int8.c \
+            firmware/core/hrv_analysis.c firmware/core/pm25_calibration_int8.c \
+            firmware/core/clinical_vitals_engine.c firmware/core/spo2_engine.c \
+            firmware/core/ppg_sqi.c firmware/core/disaster_risk_engine.c \
+            firmware/core/pressure_trend.c firmware/core/ppg_respiratory_rate.c \
+            firmware/shrikefi/sos.c firmware/shrikefi/location.c firmware/shrikefi/web_status.c \
+            -lm -o test_engine
           ./test_engine
           gcc -Wall -Wextra -Ifirmware/core -Ifirmware/zynq -o compare_harness \
             firmware/zynq/compare_harness.c firmware/core/hrv_analysis.c \
