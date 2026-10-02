@@ -278,7 +278,7 @@ To scale beyond expensive development kits to an accessible disaster monitor (pr
 
 ### 1. Interconnect Architecture & Pin Mapping
 
-![ShrikeFi Pinout & Interconnect Diagram](docs/images/shrikefi_pinout.png)
+![ShrikeFi Pinout & Interconnect Diagram](docs/images/shrike_fi_pinouts.svg)
 
 > [!CAUTION]
 > **3.3V LVCMOS Electrical Boundary Warning:** All ESP32-S3 and Renesas ForgeFPGA pins operate strictly at **3.3V logic levels**. Exceeding 3.3V will permanently destroy the ICs.
