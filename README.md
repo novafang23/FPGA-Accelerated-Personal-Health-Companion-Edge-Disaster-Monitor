@@ -713,7 +713,7 @@ gtkwave hardware/shrikefi/shrikefi_sim.vcd hardware/shrikefi/presentation.gtkw
 ```
 
 ### What You'll See
-- **Zynq**: AXI4-Lite register transactions, single 8-tap moving average filter (0 DSP/0 BRAM), 4-state peak detector FSM, beat interrupt + IBI cycles (20 ns resolution)
+- **Zynq**: AXI4-Lite register transactions, dual 8-tap moving average filters (0 DSP/0 BRAM), 4-state peak detector FSM, beat interrupt + IBI cycles (20 ns resolution)
 - **ShrikeFi**: 8-bit SPI FPGA↔MCU link (mode 0, one byte per sample), same filter/peak detector RTL, beat flag in bit 7 of the MISO byte, IBI derived on the MCU
 
 For the commands that reproduce each waveform and test result, see [Reproducibility & Evidence Provenance](#-reproducibility--evidence-provenance)..
