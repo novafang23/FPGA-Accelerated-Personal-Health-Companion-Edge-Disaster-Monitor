@@ -1,14 +1,15 @@
 # SIH26181: VALOR (Vital and Atmospheric Logic for Offline Rescue)
 ### FPGA-Accelerated Personal Health Companion & Edge Disaster Monitor
 
-[![Verilog RTL](https://img.shields.io/badge/Hardware-Verilog%202001-blue.svg)](hardware/zynq/axi_ppg_accelerator.v)
-[![Bus Protocol](https://img.shields.io/badge/Interconnect-ARM%20AMBA%20AXI4--Lite-orange.svg)](docs/HARDWARE_ARCHITECTURE.md)
-[![Verification](https://img.shields.io/badge/Verification-6%2F6%20Passed%20(100%25)-brightgreen.svg)](hardware/zynq/tb_ppg_system.v)
-[![Static Timing](https://img.shields.io/badge/STA%20Timing-WNS%20%2B5.603ns%20(Met)-success.svg)](docs/HARDWARE_ARCHITECTURE.md)
+[![Verilog Core](https://img.shields.io/badge/Hardware-Verilog%202001-blue.svg)](hardware/common/)
+[![Target MCU](https://img.shields.io/badge/MCU-ESP32--S3-red.svg)](firmware/shrikefi/)
+[![Target FPGA](https://img.shields.io/badge/FPGA-Renesas%20ForgeFPGA-yellow.svg)](hardware/shrikefi/)
+[![Bus Protocol](https://img.shields.io/badge/Interconnect-SPI2%20Full--Duplex-orange.svg)](docs/SHRIKEFI_LINK_PROTOCOL.md)
+[![Verification](https://img.shields.io/badge/Verification-100%25%20Passing-brightgreen.svg)](hardware/zynq/tb_ppg_system.v)
 [![TinyML Engine](https://img.shields.io/badge/AI%20Engine-TinyML%20(6%E2%86%9224%E2%86%9216%E2%86%923)-purple.svg)](firmware/core/nn_risk_model_int8.c)
 [![Validation Accuracy](https://img.shields.io/badge/AI%20Accuracy-88.47%25%20(INT8)%20on%20synthetic%20val-brightgreen.svg)](firmware/core/nn_risk_model_int8.c)
-[![MIMIC-III Benchmark](https://img.shields.io/badge/MIMIC--III%20Benchmark-94.11%25%20(demo%20subset)-blueviolet.svg)](#clinical-triage-accuracy-on-mimic-iii--how-to-reproduce)
-[![GUI Dashboard](https://img.shields.io/badge/GUI%20Dashboard-Native%20Win32%20.exe-cyan.svg)](launch_dashboard.bat)
+[![MIMIC-III Benchmark](https://img.shields.io/badge/MIMIC--III%20Benchmark-94.11%25%20(demo%20subset)-blueviolet.svg)](#reproducible-claims)
+[![GUI Dashboard](https://img.shields.io/badge/GUI%20Dashboard-Web%20Serial%20%2B%20Win32-cyan.svg)](launch_dashboard.bat)
 
 An end-to-end heterogeneous System-on-Chip (SoC) combining **synthesizable Verilog hardware acceleration** and an **on-device TinyML INT8 neural network** to provide real-time, privacy-preserving, cloud-free physiological risk prediction during extreme environmental disasters (heat waves, air pollution smog, and floods).
 
