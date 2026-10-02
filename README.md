@@ -643,7 +643,7 @@ than one showing nothing.
 
 The companion includes a high-performance, native Windows desktop GUI application (`shrikefi_dashboard.exe`) written in pure C using Win32 GDI graphics (0 external runtime dependencies, 60 FPS refresh rate):
 
-![GUI Dashboard](docs/images/sih_hero_render.jpg)
+![GUI Dashboard](docs/images/valor_dashboard_gui.png)
 
 ### Key Dashboard Capabilities:
 * **Dual-Mode Operation:**
