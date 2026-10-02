@@ -18,7 +18,7 @@ An end-to-end heterogeneous System-on-Chip (SoC) combining **synthesizable Veril
 ## 🏷️ Platform Status & Roadmap
 
 * **Verified Baseline:** [Xilinx Zynq-7000 (`xc7z020`)](hardware/zynq/) — Fully verified with 6/6 passing self-checking tests and static timing closed at 69.45 MHz (permanently tagged at `v1.0-zynq-SIH`).
-* **Active Port:** [ShrikeFi (ESP32-S3 + Renesas ForgeFPGA)](hardware/shrikefi/) — Affordable edge hardware platform. Post-synthesis fitter reports **363 / 1120 LUT5s (32.41%)**, 202 FFs and 75/140 CLBs, with 5 passing self-checking link test groups. Raw synthesis logs: [`hardware/shrikefi/synthesis_evidence/`](hardware/shrikefi/synthesis_evidence/) (read its README — an older, superseded build's numbers are also in there). Includes **fully integrated ESP32-S3 firmware** that streams live health telemetry via **USB UART & WiFi/MQTT**. (The firmware also programs the FPGA over **SPI2** at every boot using the Vicharak `Web_FPGA_programmer.ino` sequence; the boot log reaches `configuration COMPLETE! (46408 bytes loaded)` and the runtime link then answers its `0x55` probe, which is the real proof a configured design is running. See [`firmware/shrikefi/README.md`](firmware/shrikefi/README.md#fpga-delivery-how-the-bitstream-reaches-the-fpga).)
+* **Active Port:** [ShrikeFi (ESP32-S3 + Renesas ForgeFPGA)](hardware/shrikefi/) — Affordable edge hardware platform. Post-synthesis fitter reports **364 / 1120 LUT5s (32.50%)**, 204 FFs and 73/140 CLBs, with 5 passing self-checking link test groups. Raw synthesis logs: [`hardware/shrikefi/synthesis_evidence/`](hardware/shrikefi/synthesis_evidence/) (read its README — an older, superseded build's numbers are also in there). Includes **fully integrated ESP32-S3 firmware** that streams live health telemetry via **USB UART & WiFi/MQTT**. (The firmware also programs the FPGA over **SPI2** at every boot using the Vicharak `Web_FPGA_programmer.ino` sequence; the boot log reaches `configuration COMPLETE! (46408 bytes loaded)` and the runtime link then answers its `0x55` probe, which is the real proof a configured design is running. See [`firmware/shrikefi/README.md`](firmware/shrikefi/README.md#fpga-delivery-how-the-bitstream-reaches-the-fpga).)
 * **Clinical Intelligence & Biomarkers:** Fuses **mNEWS2 Clinical Triage (Royal College of Physicians)**, **PPG-derived Respiratory Rate (Charlton 2018)**, **Signal Quality Index (Karlen 2012 / Elgendi 2016)**, **Moran's Physiological Strain Index (PSI)**, **AHA PM2.5-HRV Autonomic Strain (Brook 2010)**, and **Neural PM2.5 Humidity Calibration (Si et al. 2019)**.
 * **Interactive Graphical Dashboard:** Standalone Windows desktop GUI (`shrikefi_dashboard.exe`) featuring a 60 FPS real-time optical PPG oscilloscope, live vital displays, and dual-mode operation (Live Hardware streaming + 6 simulated disaster profiles).
 
@@ -57,7 +57,7 @@ CI (`.github/workflows/ci.yml`) runs the Zynq testbench, the ShrikeFi testbench,
 ## 📌 Key Architectural Highlights
 
 * **Cycle-Accurate Hardware Timing:** Dedicated 50 MHz FPGA timer measures heartbeat Inter-Beat Intervals (IBI) with **20 nanoseconds resolution**, eliminating the 5–20 ms operating system scheduling jitter that corrupts Heart Rate Variability (HRV).
-* **Area-Optimized DSP Architecture:** Dual-channel 8-tap moving average filter implemented using an **$O(1)$ running-sum algorithm with wire-shift division (`>> 3`)**, requiring **0 DSP48 multiplier slices and 0 Block RAMs**.
+* **Area-Optimized DSP Architecture:** Single 8-tap moving average filter implemented using an **$O(1)$ running-sum algorithm with wire-shift division (`>> 3`)**, requiring **0 DSP48 multiplier slices and 0 Block RAMs**.
 * **Robust Bus Interfacing:** Standard ARM AMBA AXI4-Lite slave engine with **decoupled `AW` and `W` channel handshakes**, eliminating bus deadlocks on out-of-order interconnects. Includes **Write-1-to-Clear (W1C)** status registers to prevent interrupt race conditions.
 * **High-Accuracy On-Device TinyML (INT8):** 2-hidden-layer micro-architecture ($6 \to 24 \to 16 \to 3$) requiring only **619 bytes** of parameter storage, reaching **88.47% validation accuracy** on a held-out synthetic validation set (see [Reproducibility](#-reproducibility--evidence-provenance)) with **97.32% FP32↔INT8 tier agreement**, and executing in **0.44 µs per inference** (measured, `-O2`, x86-64 host; ESP32-S3 target timing not yet measured) with zero cloud dependencies.
 * **Multi-Disaster Resilience (Tailored for India):**
@@ -88,7 +88,7 @@ The system operates across four coordinated processing tiers, moving from raw ph
 │                              FPGA PROGRAMMABLE LOGIC (50 MHz RTL CORE)                              │
 │                                                                                                      │
 │   ┌───────────────────────────────────┐    8-Bit SPI (mode 0)  ┌──────────────────────────────────┐  │
-│   │ Dual 8-Tap Moving Average Filters │◄───────────────────────┤ Memory-Mapped Register Interface │  │
+│   │ Single 8-Tap Moving Avg Filter    │◄───────────────────────┤ Memory-Mapped Register Interface │  │
 │   │ (O(1) Running Sum, 0 DSP Slices)  │                        │ 0x00: REG_RED_RAW                │  │
 │   └─────────────────┬─────────────────┘                        │ 0x04: REG_RED_FILTERED           │  │
 │                     │                                          │ 0x08: REG_IBI_CYCLES (20ns tick) │  │
@@ -116,7 +116,7 @@ The system operates across four coordinated processing tiers, moving from raw ph
 
 ## ⚙️ FPGA Hardware Microarchitecture (Vendor-Agnostic Core)
 
-### 1. Dual-Channel 8-Tap Moving Average Filter (`moving_average_8tap.v`)
+### 1. Single 8-Tap Moving Average Filter (`moving_average_8tap.v`)
 To eliminate optical baseline wandering and high-frequency motion artifacts from raw photoplethysmography (PPG) data, the accelerator implements a hardware moving-average FIR filter:
 
 * **Difference Equation:**
@@ -322,9 +322,9 @@ Post-synthesis compilation results from **Renesas ForgeFPGA Workshop v6.55** tar
 
 ![Renesas ForgeFPGA Resource Footprint](docs/images/forgefpga_utilization.png)
 
-* **Logic LUT5 Usage:** **363 / 1120 CLB LUT5s (32.41%)** — **67.59% of logic fabric remains free** for expanded DSP and filtering.
-* **Registers / Flip-Flops:** **202 Flip-Flops** (198 CLB FFs @ 17.68% + 4 IOB FFs @ 0.54%).
-* **CLB Macrocells:** **75 / 140 Blocks (53.57%)** — CLB occupancy is balanced. The SPI design runs from the on-chip oscillator, so the PLL is **free (0/1)**.
+* **Logic LUT5 Usage:** **364 / 1120 CLB LUT5s (32.50%)** — **67.50% of logic fabric remains free** for expanded DSP and filtering.
+* **Registers / Flip-Flops:** **204 Flip-Flops** (199 CLB FFs @ 17.77% + 5 IOB FFs @ 0.68%).
+* **CLB Macrocells:** **73 / 140 Blocks (52.14%)** — CLB occupancy is balanced. The SPI design runs from the on-chip oscillator, so the PLL is **free (0/1)**.
 * **DSP Multipliers & BRAM:** **0 DSP Multipliers, 0 Block RAMs** (synthesized purely from logic).
 
 > **Footnote — the 443-LUT figure quoted by older revisions of this file, the
@@ -341,6 +341,9 @@ Post-synthesis compilation results from **Renesas ForgeFPGA Workshop v6.55** tar
 
 #### Synthesized SLG47910C Macrocell Top-Level Core Schematic:
 ![Renesas ForgeFPGA SLG47910C Schematic](docs/images/forgefpga_chip_schematic.png)
+
+#### Device Floorplan & Block Placement:
+![Renesas ForgeFPGA Device Floorplan](docs/images/forgefpga_floorplan.png)
 
 ---
 
@@ -710,7 +713,7 @@ gtkwave hardware/shrikefi/shrikefi_sim.vcd hardware/shrikefi/presentation.gtkw
 ```
 
 ### What You'll See
-- **Zynq**: AXI4-Lite register transactions, dual 8-tap moving average filters (0 DSP/0 BRAM), 4-state peak detector FSM, beat interrupt + IBI cycles (20 ns resolution)
+- **Zynq**: AXI4-Lite register transactions, single 8-tap moving average filter (0 DSP/0 BRAM), 4-state peak detector FSM, beat interrupt + IBI cycles (20 ns resolution)
 - **ShrikeFi**: 8-bit SPI FPGA↔MCU link (mode 0, one byte per sample), same filter/peak detector RTL, beat flag in bit 7 of the MISO byte, IBI derived on the MCU
 
 For the commands that reproduce each waveform and test result, see [Reproducibility & Evidence Provenance](#-reproducibility--evidence-provenance)..
