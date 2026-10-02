@@ -35,6 +35,7 @@ REPO = HERE.parent.parent
 
 TOP = HERE / "forgefpga_ppg_top.v"
 FLAT = HERE / "forgefpga_project" / "ffpga" / "src" / "forgefpga_ppg_top.v"
+SPI_TARGET = HERE / "spi_target.v"
 
 # The Renesas project file (forgefpga_project/FPGA-SHRIKE.ffpga) references this
 # path, so the file has to exist -- but it must not be a second hand-maintained
@@ -133,6 +134,14 @@ def build() -> str:
         )
 
     parts = [BANNER, top]
+    if "spi_target" not in declared_modules(top):
+        parts.append(
+            "// ============================================================================\n"
+            "// From hardware/shrikefi/spi_target.v -- generated, do not edit here\n"
+            "// ============================================================================\n\n"
+        )
+        parts.append(normalise(read_text(SPI_TARGET)))
+        parts.append("\n")
     for module, path in COMMON_MODULES:
         if module not in declared_modules(top):  # only referenced, not defined
             parts.append(
@@ -188,3 +197,4 @@ def main() -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
+
