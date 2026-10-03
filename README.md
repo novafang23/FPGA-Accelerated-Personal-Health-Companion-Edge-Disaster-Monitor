@@ -73,6 +73,8 @@ CI (`.github/workflows/ci.yml`) runs the Zynq testbench, the ShrikeFi testbench,
 ### 1. High-Level Dataflow Pipeline
 The system operates across four coordinated processing tiers, moving from raw physical sensor acquisition to hardware-accelerated DSP, on-device TinyML inference, and local offline hazard advisory:
 
+![Overall Architecture Diagram](docs/images/overall_architecture_diagram.png)
+
 ![System Architecture & Dataflow](docs/images/data_flow.png)
 
 ### 2. Heterogeneous Hardware / Firmware Architecture
