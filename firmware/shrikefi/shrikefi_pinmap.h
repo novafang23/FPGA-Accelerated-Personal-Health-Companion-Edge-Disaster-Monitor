@@ -23,8 +23,11 @@
 /* =========================================================================
  * I2C BUS — Shared by OLED, MAX30102, BME280
  * =========================================================================
- * Physical wiring: SDA and SCL each need one 2.2kΩ pull-up to 3.3V.
- * On a custom PCB, place these pull-ups within 1cm of the connector.
+ * Physical wiring: Breakout boards typically include their own onboard I2C
+ * pull-up resistors (often 4.7kΩ or 10kΩ). When chained, these resistors act
+ * in parallel. Measure the effective resistance between SDA/SCL and 3.3V;
+ * it should be ~1.5kΩ to 3.3kΩ. Do NOT blindly add external 2.2kΩ pull-ups,
+ * as it may overload the bus sink current.
  * ====================================================================== */
 #define PIN_I2C_SDA          1    /* GPIO1  — SDA (all I2C devices share this) */
 #define PIN_I2C_SCL          2    /* GPIO2  — SCL (all I2C devices share this) */

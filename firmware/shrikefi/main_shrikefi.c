@@ -1037,7 +1037,7 @@ static void task_ppg_accelerator(void *pvParameters) {
             }
         }
 
-        vTaskDelay(pdMS_TO_TICKS(20)); // 50 Hz poll loop; the sensor delivers ~100 Hz
+        vTaskDelay(pdMS_TO_TICKS(10)); // 100 Hz poll loop to match sensor output, preventing 20ms IBI quantization jitter
     }
 }
 

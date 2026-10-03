@@ -47,6 +47,9 @@ The SSD1306 OLED, MAX30102/MAX30100 optical pulse sensor, and BME280 environment
 ```
 
 #### Device Addresses & Power:
+
+**Important:** I2C breakout boards (OLED, BME280, MAX30102) typically include their own onboard pull-up resistors (often 4.7kΩ or 10kΩ). When chained, these act in parallel. **Do not** add explicit external 2.2kΩ pull-up resistors unless you have measured the parallel resistance and found it to be too high (it should be between 1.5kΩ and 3.3kΩ). Adding extra pull-ups can overload the I2C bus sink current.
+
 1. **SSD1306 OLED (128x64 Display):**
    * `VCC` $\to$ **3.3V**
    * `GND` $\to$ **GND**
@@ -59,7 +62,7 @@ The SSD1306 OLED, MAX30102/MAX30100 optical pulse sensor, and BME280 environment
    * `GND` $\to$ **GND**
    * `SDA` $\to$ **GPIO 1**
    * `SCL` $\to$ **GPIO 2**
-   * `INT` $\to$ *Leave unconnected (FIFO is polled at 50Hz)*
+   * `INT` $\to$ *Leave unconnected (FIFO is polled at 100Hz)*
    * *I2C Address:* `0x57`
 
 3. **BME280 (Temperature, Humidity, Pressure):**

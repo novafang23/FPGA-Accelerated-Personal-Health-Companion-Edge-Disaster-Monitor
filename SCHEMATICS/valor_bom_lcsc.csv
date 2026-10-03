@@ -1,0 +1,28 @@
+Designator,Value,Footprint,LCSC Part Number,Manufacturer,Description,Quantity
+U1,ESP32-S3-WROOM-1-N16R8,RF_Module:ESP32-S3-WROOM-1,C2913203,Espressif Systems,Dual-Core Xtensa LX7 240MHz 16MB Flash 8MB PSRAM WiFi/BLE5,1
+U2,SLG47910V,Package_DFN_QFN:QFN-24-1EP_4x4mm_P0.5mm_EP2.6x2.6mm,C3005822,Renesas Electronics,ForgeFPGA 1120 LUT5 Low Power FPGA with On-Chip Oscillator,1
+U3,MAX30102EFD+T,Sensor_Optical:Maxim_OESIP-14_3.3x5.6mm_P0.8mm,C84175,Analog Devices / Maxim,Integrated Optical Biosensor (PPG Red + IR LEDs & Photodetector),1
+U4,BME280,Package_LGA:Bosch_LGA-8_2.5x2.5mm_P0.65mm_Clockwise,C92489,Bosch Sensortec,Digital Environmental Sensor (Pressure Temperature Humidity),1
+U5,AP2112K-3.3TRG1,Package_TO_SOT_SMD:SOT-23-5,C14397,Diodes Inc,600mA Low Dropout Voltage Regulator 3.3V Output,1
+DISP1,SSD1306_0.96_OLED_4PIN,Connector_PinHeader_2.54mm:PinHeader_1x04_P2.54mm_Vertical,C2920626,Generic,0.96 inch 128x64 I2C OLED Monochrome Display Module,1
+J1,PMS5003_HEADER_1X8,Connector_JST:JST_GH_BM08B-GHS-TBT_1x08-1MP_P1.25mm_Vertical,C2904675,JST,1.25mm Pitch 8-Pin Header for Plantower PMS5003 Sensor,1
+J2,USB_C_RECEPTACLE_16P,Connector_USB:USB_C_Receptacle_GCT_USB4105,C2835315,GCT,USB Type-C 16-Pin Power and Programming Receptacle,1
+R1,4.7k,Resistor_SMD:R_0603_1608Metric,C25900,YAGEO,4.7k Ohm 1% 1/10W I2C SDA Pull-Up Resistor,1
+R2,4.7k,Resistor_SMD:R_0603_1608Metric,C25900,YAGEO,4.7k Ohm 1% 1/10W I2C SCL Pull-Up Resistor,1
+R3,10k,Resistor_SMD:R_0603_1608Metric,C25804,YAGEO,10k Ohm 1% 1/10W ESP32 EN Pull-Up Resistor,1
+R4,1k,Resistor_SMD:R_0603_1608Metric,C21190,UNI-ROYAL,1k Ohm 1% 1/10W Blue Heartbeat LED Resistor,1
+R5,5.1k,Resistor_SMD:R_0603_1608Metric,C23186,YAGEO,5.1k Ohm 1% USB-C CC1 Pull-Down Resistor,1
+R6,5.1k,Resistor_SMD:R_0603_1608Metric,C23186,YAGEO,5.1k Ohm 1% USB-C CC2 Pull-Down Resistor,1
+D1,BLUE,LED_SMD:LED_0805_2012Metric,C2290,Everlight Elec,Blue LED (FPGA Hardware Systolic Beat Pulse D12),1
+D2,GREEN,LED_SMD:LED_0805_2012Metric,C2297,Everlight Elec,Green LED (3.3V Power Rail Indicator),1
+C1,10uF,Capacitor_SMD:C_0805_2012Metric,C15850,Murata Electronics,10uF 16V X5R ESP32 3.3V Bulk Decoupling,1
+C2,0.1uF,Capacitor_SMD:C_0603_1608Metric,C14663,Samsung Electro-Mechanics,0.1uF 50V X7R ESP32 High-Freq Decoupling,1
+C3,0.1uF,Capacitor_SMD:C_0603_1608Metric,C14663,Samsung Electro-Mechanics,0.1uF 50V X7R ForgeFPGA VDDIO Decoupling,1
+C4,0.1uF,Capacitor_SMD:C_0603_1608Metric,C14663,Samsung Electro-Mechanics,0.1uF 50V X7R ForgeFPGA VDDC Decoupling,1
+C5,4.7uF,Capacitor_SMD:C_0603_1608Metric,C19666,Murata Electronics,4.7uF 10V X5R ForgeFPGA 1.2V Core Regulator Cap,1
+C6,0.1uF,Capacitor_SMD:C_0603_1608Metric,C14663,Samsung Electro-Mechanics,0.1uF 50V X7R MAX30102 VDD Decoupling,1
+C7,10uF,Capacitor_SMD:C_0805_2012Metric,C15850,Murata Electronics,10uF 16V X5R MAX30102 VLED Decoupling,1
+C8,0.1uF,Capacitor_SMD:C_0603_1608Metric,C14663,Samsung Electro-Mechanics,0.1uF 50V X7R BME280 VDD Decoupling,1
+C9,10uF,Capacitor_SMD:C_0805_2012Metric,C15850,Murata Electronics,10uF 16V X5R OLED 3.3V Bulk Decoupling,1
+C10,10uF,Capacitor_SMD:C_0805_2012Metric,C15850,Murata Electronics,10uF 25V X5R 5V USB Input Bulk Decoupling,1
+C11,1uF,Capacitor_SMD:C_0603_1608Metric,C15849,Samsung Electro-Mechanics,1uF 16V X5R LDO 3.3V Output Stability Cap,1
