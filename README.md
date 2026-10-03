@@ -345,6 +345,14 @@ Post-synthesis compilation results from **Renesas ForgeFPGA Workshop v6.55** tar
 #### Device Floorplan & Block Placement:
 ![Renesas ForgeFPGA Device Floorplan](docs/images/forgefpga_floorplan.png)
 
+#### RTL Simulation Waveform (PPG Peak Detection)
+![Renesas ForgeFPGA RTL Waveform](docs/images/forgefpga_waveform.png)
+
+The waveform above validates the hardware-accelerated PPG systolic peak detection algorithm executing on the ShrikeFi FPGA. Key observations from the simulation:
+* **Digital Filtering:** The raw PPG input (`reg_red_raw`) is processed by the hardware filter to yield a smoother `red_filtered` signal.
+* **Adaptive Thresholding & State Machine:** As the filtered signal crosses the dynamic `reg_threshold`, the FSM (`current_state`) transitions appropriately to identify the systolic crest.
+* **Beat Detection & IBI Latching:** Upon confirming a valid peak, the system fires a single-cycle `peak_beat_detected` pulse. Simultaneously, the `peak_ibi_cycles` register latches the precise cycle count (e.g., `3279` cycles) to determine the Inter-Beat Interval (IBI), and the `interval_cnt` is reset for the subsequent beat.
+
 ---
 
 ## 📐 Performance Measurement & Benchmarking Methodology
