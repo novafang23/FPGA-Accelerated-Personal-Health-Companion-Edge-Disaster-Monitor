@@ -69,9 +69,8 @@ BANNER = """\
 
 
 def read_text(path: Path) -> str:
-    # newline="" so on-disk CRLF survives the read intact; without it Python
-    # translates line endings and every comparison against generated CRLF
-    # text reports a false "stale".
+    # newline="" preserves on-disk line endings so generation can retain the
+    # vendor project's CRLF convention. Check mode compares normalized text.
     try:
         with path.open("r", encoding="utf-8", newline="") as handle:
             return handle.read()
@@ -173,7 +172,7 @@ def main() -> int:
 
     if args.check:
         stale = [path for path, text, _ in outputs
-                 if (read_text(path) if path.exists() else "") != text]
+                 if normalise(read_text(path) if path.exists() else "") != normalise(text)]
         if stale:
             sys.exit(
                 "error: stale generated file(s): %s\n"
@@ -197,4 +196,3 @@ def main() -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
-

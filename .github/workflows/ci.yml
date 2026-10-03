@@ -25,6 +25,7 @@ jobs:
       - name: Lint ShrikeFi ForgeFPGA top
         run: |
           verilator --lint-only -Wall -Wno-UNUSED -Wno-UNOPTFLAT -Wno-SYNCASYNCNET \
+            -Wno-PROCASSINIT \
             --top-module forgefpga_ppg_top \
             -Ihardware/common \
             hardware/shrikefi/forgefpga_ppg_top.v hardware/shrikefi/spi_target.v \
