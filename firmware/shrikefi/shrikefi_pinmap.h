@@ -85,8 +85,8 @@
  *
  * NOTE: These are completely internal to the Shrike-Fi PCB. No Zero PCB wiring needed!
  * ====================================================================== */
-#define PIN_FPGA_PWR         9    /* GPIO9  — FPGA Power Control (Schematic Sheet 5: PWR to GPIO9) */
-#define PIN_FPGA_EN          8    /* GPIO8  — FPGA Hardware Reset/Enable (Schematic Sheet 5: EN to GPIO8) */
+#define PIN_FPGA_PWR         9    /* GPIO9  — FPGA Power Control (Schematic: PWR to GPIO9) */
+#define PIN_FPGA_EN          8    /* GPIO8  — FPGA Hardware Reset/Enable (Schematic: EN to GPIO8) */
 #define PIN_FPGA_SS          10   /* GPIO10 — SPI CS (manual chip select) */
 #define PIN_FPGA_MOSI        11   /* GPIO11 — SPI MOSI (MCU -> FPGA) */
 #define PIN_FPGA_SCK         12   /* GPIO12 — SPI SCK */
