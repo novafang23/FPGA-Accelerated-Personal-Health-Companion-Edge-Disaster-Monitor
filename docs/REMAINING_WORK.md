@@ -72,8 +72,11 @@ reads the patient's status directly.
   PM2.5, NEWS2, level, flags, fused risk, SOS state and trigger, location, uptime, contact.
 - The page **derives nothing** - every number is computed on the device, the same rule the
   desktop dashboard follows.
-- The AP is **open by design**: it is an emergency status page, and a passphrase would be a
-  credential a bystander does not have. Nothing confidential leaves the device over it.
+- The AP is **open by design** so a bystander does not need a credential in an emergency.
+  This is a privacy tradeoff: anyone in WiFi range can read the live vitals and location.
+  The `/location` form now requires a same-origin browser request to limit cross-site
+  drive-by changes, but this is not authentication; a client deliberately connected to
+  the AP can still read the status and change the location.
 - **Failure is never fatal.** Every init step is returned and logged rather than
   `ESP_ERROR_CHECK`'d, so a radio that will not come up leaves the device measuring.
 
@@ -112,6 +115,10 @@ location string in NVS and shows it on both the emergency card and the local sta
   UTF-8 continuation byte whose lead byte was dropped, would otherwise corrupt the display or
   split a glyph. Text that sanitises to nothing is **rejected with HTTP 400** and the stored
   value is left alone, rather than silently wiping a location already in use.
+- **Same-origin browser write.** `/location` rejects requests without the status page's
+  `Origin: http://192.168.4.1` header, blocking cross-site browser form submissions. This
+  preserves the phone workflow but is not an access-control boundary against a client that
+  joins the intentionally open AP.
 - **Persisted in spirit as well as in fact.** The in-memory value is updated before the NVS
   write, so a location set during an emergency is still visible this session even if the flash
   write fails; the failure is logged rather than swallowed.

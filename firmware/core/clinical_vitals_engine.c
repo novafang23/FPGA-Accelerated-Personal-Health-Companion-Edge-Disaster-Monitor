@@ -96,6 +96,7 @@ void clinical_vitals_assess_full(float hr, float spo2, float rmssd, float rr, fl
     /* 1. Input validation & NaN/Inf guard */
     if (!isfinite(hr) || !isfinite(spo2) ||
         !(hr > 0.0f && hr < 350.0f && spo2 > 0.0f && spo2 <= 100.0f)) {
+        out->level = CLINICAL_ELEVATED;
         snprintf(out->advisory, sizeof(out->advisory), "Clinical vitals: sensor calibrating or invalid");
         return;
     }

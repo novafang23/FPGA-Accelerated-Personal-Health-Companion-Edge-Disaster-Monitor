@@ -3,6 +3,7 @@
 #include <string.h>
 #include <math.h>
 #include "disaster_risk_engine.h"
+#include "clinical_vitals_engine.h"
 #include "spo2_engine.h"
 #include "nn_risk_model.h"
 #include "nn_risk_model_int8.h"
@@ -226,6 +227,21 @@ static void test_null_env() {
     assert(raw_telemetry.flood_score >= 0.0f && raw_telemetry.flood_score <= 1.0f);
 
     printf("test_null_env: PASS\n");
+}
+
+static void test_invalid_clinical_vitals_are_not_normal(void) {
+    clinical_assessment_t assessment;
+    clinical_vitals_assess(0.0f, 98.0f, 35.0f, &assessment);
+    assert(assessment.level == CLINICAL_ELEVATED);
+    assert(strstr(assessment.advisory, "invalid") != NULL);
+
+    clinical_vitals_assess(72.0f, NAN, 35.0f, &assessment);
+    assert(assessment.level == CLINICAL_ELEVATED);
+    assert(strstr(assessment.advisory, "invalid") != NULL);
+
+    clinical_vitals_assess(72.0f, 98.0f, 35.0f, &assessment);
+    assert(assessment.level == CLINICAL_NORMAL);
+    printf("test_invalid_clinical_vitals_are_not_normal: PASS\n");
 }
 
 /* Map a raw NN score [0,1] to the same 4-tier scale nn_score_to_risk() uses
@@ -646,6 +662,17 @@ static void test_web_status_json(void) {
     assert(strstr(buf, "\"pressure\":1013.2")    != NULL);
     assert(strstr(buf, "\"ptrend\":-1.25")       != NULL);
     assert(strstr(buf, "\"storm\":\"HIGH\"")     != NULL);
+
+    /* Dynamic strings must remain valid JSON even when they contain syntax or
+     * control characters. */
+    s.loc = "Ward \"3\"\\Kolar\nEast";
+    n = web_status_json(&s, buf, sizeof(buf));
+    assert(n > 0);
+    assert(strstr(buf, "\"loc\":\"Ward \\\"3\\\"\\\\Kolar\\nEast\"") != NULL);
+    s.loc = "A\x01" "B";
+    n = web_status_json(&s, buf, sizeof(buf));
+    assert(n > 0);
+    assert(strstr(buf, "\"loc\":\"A\\u0001B\"") != NULL);
 
     /* An active emergency must be distinguishable, since the page turns red on
      * exactly this field. */
@@ -1269,6 +1296,7 @@ int main() {
     test_flood_risk();
     test_hrv_not_ready();
     test_null_env();
+    test_invalid_clinical_vitals_are_not_normal();
     test_flood_ambient_proxy();    test_int8_matches_float_nn();
     test_spo2_clinical_rejection();
     test_rr_estimate_rejects_clamped_value();

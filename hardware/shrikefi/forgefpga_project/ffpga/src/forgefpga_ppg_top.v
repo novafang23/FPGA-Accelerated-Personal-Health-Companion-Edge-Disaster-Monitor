@@ -10,36 +10,6 @@
 // generator. Hand-editing this file reintroduces the drift it was created to
 // eliminate.
 // =============================================================================
-// =============================================================================
-// File: forgefpga_ppg_top.v
-// Module: forgefpga_ppg_top
-// Project: SIH26181 Health Companion & Disaster Monitor
-// Target: Renesas ForgeFPGA (SLG47910) / Vicharak Shrike-Fi Board
-// Description:
-//   Hardware accelerator for photoplethysmography (PPG).
-//   Interfaces with ESP32-S3 over full-duplex 4-wire SPI (mode 0, MSB first).
-//   Drives the onboard blue user LED on each detected heartbeat.
-//
-// Official Vicharak Shrike-Fi ForgeFPGA Architecture Implementation:
-//   1. Clocking: 'clk' (OSC_CLK) and 'clk_en' (OSC_EN = 1'b1) for internal 50MHz oscillator.
-//   2. Reset: Internally generated power-on reset (avoids floating undriven external pins).
-//   3. User LED: 'led_user' (PIN_7) and 'led_user_oe' (PIN_7_OE).
-//   4. SPI Target: spi_sck (PIN_16), spi_ss_n (PIN_17), spi_mosi (PIN_18),
-//                  spi_miso (PIN_19), spi_miso_oe (PIN_19_OE).
-//      Pin assignments are authoritative in forgefpga_pins.pcf.
-//
-// MAINTENANCE NOTICE -- READ BEFORE EDITING
-//   This file INSTANTIATES moving_average_8tap and ppg_peak_detector from
-//   hardware/common/. It deliberately does NOT contain inline copies of them:
-//   hardware/common/ is the single source of truth for both DSP modules.
-//
-//   The Renesas ForgeFPGA Workshop needs ONE flat source set, so
-//   forgefpga_project/ffpga/src/forgefpga_ppg_top.v is GENERATED from this file
-//   plus hardware/common/ by gen_flat_source.py. Never hand-edit the generated
-//   copy, and never paste the DSP modules back in here -- doing exactly that
-//   forked the detector once and the two copies silently diverged for months.
-// =============================================================================
-
 `timescale 1ns / 1ps
 
 (* top *)
@@ -217,11 +187,14 @@ module forgefpga_ppg_top #(
     end
 
 endmodule
-
 // ============================================================================
-// Submodule 1: Vicharak SPI Target (Slave) for Renesas ForgeFPGA
+// From hardware/shrikefi/spi_target.v -- generated, do not edit here
 // ============================================================================
+`timescale 1ns / 1ps
 
+// ---------------------------------------------------------------------------
+// Submodule: Vicharak SPI Target (Slave) for Renesas ForgeFPGA
+// ---------------------------------------------------------------------------
 module spi_target #(
     parameter CPOL = 1'b0,
     parameter CPHA = 1'b0,
@@ -316,6 +289,7 @@ module spi_target #(
     end
 
 endmodule
+
 // ============================================================================
 // From hardware/common/moving_average_8tap.v -- generated, do not edit here
 // ============================================================================
