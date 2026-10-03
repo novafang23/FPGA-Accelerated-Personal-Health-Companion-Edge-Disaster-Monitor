@@ -9,6 +9,8 @@
 #include "web_status.h"
 #include "location.h"
 
+#include <stdbool.h>
+#include <stdarg.h>
 #include <stdio.h>
 #include <string.h>
 
@@ -48,34 +50,96 @@ void web_status_snapshot(valor_status_t *out) {
 /* JSON                                                                       */
 /* ------------------------------------------------------------------------- */
 
+static bool json_append(char *buf, size_t cap, size_t *used,
+                        const char *text, size_t len) {
+    if (*used >= cap || len >= cap - *used) return false;
+    memcpy(buf + *used, text, len);
+    *used += len;
+    buf[*used] = '\0';
+    return true;
+}
+
+static bool json_append_format(char *buf, size_t cap, size_t *used,
+                               const char *fmt, ...) {
+    va_list args;
+    va_start(args, fmt);
+    int n = vsnprintf(buf + *used, cap - *used, fmt, args);
+    va_end(args);
+    if (n < 0 || (size_t)n >= cap - *used) {
+        buf[cap - 1] = '\0';
+        return false;
+    }
+    *used += (size_t)n;
+    return true;
+}
+
+static bool json_append_string(char *buf, size_t cap, size_t *used,
+                               const char *value) {
+    static const char hex[] = "0123456789abcdef";
+    if (!json_append(buf, cap, used, "\"", 1)) return false;
+
+    for (const unsigned char *p = (const unsigned char *)value; *p; p++) {
+        char escaped[6];
+        const char *text = (const char *)p;
+        size_t len = 1;
+        switch (*p) {
+            case '"':  text = "\\\""; len = 2; break;
+            case '\\': text = "\\\\"; len = 2; break;
+            case '\b': text = "\\b";  len = 2; break;
+            case '\f': text = "\\f";  len = 2; break;
+            case '\n': text = "\\n";  len = 2; break;
+            case '\r': text = "\\r";  len = 2; break;
+            case '\t': text = "\\t";  len = 2; break;
+            default:
+                if (*p < 0x20) {
+                    escaped[0] = '\\';
+                    escaped[1] = 'u';
+                    escaped[2] = '0';
+                    escaped[3] = '0';
+                    escaped[4] = hex[*p >> 4];
+                    escaped[5] = hex[*p & 0x0f];
+                    text = escaped;
+                    len = sizeof(escaped);
+                }
+                break;
+        }
+        if (!json_append(buf, cap, used, text, len)) return false;
+    }
+    return json_append(buf, cap, used, "\"", 1);
+}
+
 /* Pure: a struct in, a string out. No ESP-IDF, no locks, no I/O, so the wire
  * format is proved in the host test suite rather than by curling a live board. */
 size_t web_status_json(const valor_status_t *s, char *buf, size_t cap) {
     if (!s || !buf || cap == 0) return 0;
 
-    int n = snprintf(
-        buf, cap,
+    size_t used = 0;
+    buf[0] = '\0';
+    if (!json_append_format(
+        buf, cap, &used,
         "{\"hr\":%.1f,\"spo2\":%.1f,\"rr\":%.1f,\"sqi\":%.2f,\"rmssd\":%.1f,"
         "\"temp\":%.1f,\"hum\":%.1f,\"pm25\":%.1f,"
         "\"pressure\":%.1f,\"ptrend\":%.2f,"
         "\"news2\":%u,\"level\":%u,\"flags\":%u,"
-        "\"risk\":\"%s\",\"storm\":\"%s\",\"sos\":\"%s\",\"trigger\":\"%s\",\"loc\":\"%s\","
-        "\"contact\":%s,\"up\":%lu}",
+        "\"risk\":",
         (double)s->hr, (double)s->spo2, (double)s->rr, (double)s->sqi,
         (double)s->rmssd, (double)s->temp, (double)s->hum, (double)s->pm25,
         (double)s->pressure_hpa, (double)s->pressure_trend_hpa_per_hr,
-        s->news2, s->level, s->flags,
-        s->risk ? s->risk : "UNKNOWN",
-        s->storm ? s->storm : "UNKNOWN",
-        s->sos ? s->sos : "IDLE",
-        s->trigger ? s->trigger : "none",
-        s->loc ? s->loc : "UNSET",
-        s->contact ? "true" : "false",
-        (unsigned long)s->uptime_s);
-
-    if (n < 0) return 0;
-    if ((size_t)n >= cap) return 0;   /* truncated: report failure, never a partial document */
-    return (size_t)n;
+        s->news2, s->level, s->flags)) return 0;
+    if (!json_append_string(buf, cap, &used, s->risk ? s->risk : "UNKNOWN") ||
+        !json_append(buf, cap, &used, ",\"storm\":", sizeof(",\"storm\":") - 1) ||
+        !json_append_string(buf, cap, &used, s->storm ? s->storm : "UNKNOWN") ||
+        !json_append(buf, cap, &used, ",\"sos\":", sizeof(",\"sos\":") - 1) ||
+        !json_append_string(buf, cap, &used, s->sos ? s->sos : "IDLE") ||
+        !json_append(buf, cap, &used, ",\"trigger\":", sizeof(",\"trigger\":") - 1) ||
+        !json_append_string(buf, cap, &used, s->trigger ? s->trigger : "none") ||
+        !json_append(buf, cap, &used, ",\"loc\":", sizeof(",\"loc\":") - 1) ||
+        !json_append_string(buf, cap, &used, s->loc ? s->loc : "UNSET") ||
+        !json_append_format(buf, cap, &used, ",\"contact\":%s,\"up\":%lu}",
+                            s->contact ? "true" : "false", (unsigned long)s->uptime_s)) {
+        return 0;
+    }
+    return used;
 }
 
 #ifdef ESP_PLATFORM
@@ -234,12 +298,25 @@ static esp_err_t h_json(httpd_req_t *req) {
     return httpd_resp_send(req, buf, (ssize_t)n);
 }
 
+static bool location_request_is_same_origin(httpd_req_t *req) {
+    char origin[48];
+    return httpd_req_get_hdr_value_str(req, "Origin", origin, sizeof(origin)) == ESP_OK &&
+           strcmp(origin, "http://192.168.4.1") == 0;
+}
+
 /* POST /location — the caregiver records where this device is deployed.
  *
  * A phone on the access point is the only input device this system has. There
  * is no keypad, and a serial console needs a laptop and a cable, which is the
  * exact dependency the local page exists to remove. */
 static esp_err_t h_set_location(httpd_req_t *req) {
+    /* The AP stays open for emergency access. Requiring the page's same-origin
+     * Origin header blocks cross-site browser form submissions, but is not
+     * authentication: a client deliberately connected to the AP can still post. */
+    if (!location_request_is_same_origin(req)) {
+        return httpd_resp_send_err(req, HTTPD_403_FORBIDDEN, "same-origin request required");
+    }
+
     char body[160];
     int total = req->content_len;
 
@@ -329,9 +406,9 @@ esp_err_t web_status_start(void) {
     ap.ap.ssid_len       = (uint8_t)strlen(s_ssid);
     ap.ap.channel        = 6;
     ap.ap.max_connection = 4;
-    /* Open by design. This is an emergency status page: requiring a passphrase
-     * would be a credential a bystander does not have. Nothing confidential
-     * leaves the device over it - the cloud path stays off (requirement 5). */
+    /* Open by design so a bystander needs no credential in an emergency.
+     * This exposes live status to anyone in WiFi range; cloud publishing is
+     * independently disabled by default. */
     ap.ap.authmode       = WIFI_AUTH_OPEN;
 
     err = esp_wifi_set_mode(WIFI_MODE_AP);

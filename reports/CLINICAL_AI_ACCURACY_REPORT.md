@@ -30,7 +30,7 @@
 | **Positive predictive value** | **78.43%** | Of rows flagged, share actually labeled crisis |
 | **Negative predictive value** | **95.39%** | Of rows not flagged, share actually labeled stable |
 | **F1 score** | **66.80%** | Harmonic mean of precision and recall |
-| **FP32↔INT8 decision agreement** | **100.00%** | Tier agreement between float32 and INT8 models |
+| **FP32↔INT8 joint tier agreement** | **99.95%** | All three hazard outputs (heat, pollution, flood) land in the same risk tiers |
 
 > Sensitivity is deliberately the weakest axis here. With a 10.2%-positive label set (1,669 of 16,387), a triage rule tuned for low false alarms will under-call. If early-warning recall matters more than alarm fatigue for the intended use, the `CLINICAL_HIGH` thresholds in `clinical_vitals_engine.c` are the right place to trade specificity for sensitivity.
 
@@ -86,9 +86,14 @@ Measured by `accuracy_evaluator.c` over all 16,387 rows, comparing `nn_predict()
 | Heat strain | 0.00120 | 0.00796 |
 | Pollution / respiratory | 0.00122 | — |
 | Flood / cold exposure | 0.00139 | — |
-| **Tier decision agreement** | **100.00%** | — |
+| **Joint tier decision agreement** | **99.95%** | All three hazard-output tiers agree on each record |
 
 Errors are on a [0, 1] normalized probability scale. These are consistent with the model's own reported INT8 fidelity (`int8_mae` 0.0079, `int8_max_err` 0.0914 over the synthetic validation set) and with `test_int8_matches_float_nn()`, which asserts a 0.18 absolute-error budget in the C unit tests.
+
+The agreement metric is deliberately strict: a row counts only when FP32 and
+INT8 agree on the risk tier for **each** output head, using the same 0.25, 0.50
+and 0.70 thresholds as the deployed disaster-risk engine. It is not a heat-head
+only comparison.
 
 ---
 

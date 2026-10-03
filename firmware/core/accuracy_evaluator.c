@@ -6,6 +6,13 @@
 #include "nn_risk_model.h"
 #include "nn_risk_model_int8.h"
 
+static int score_to_tier(float score) {
+    if (score >= 0.70f) return 3;
+    if (score >= 0.50f) return 2;
+    if (score >= 0.25f) return 1;
+    return 0;
+}
+
 int main(int argc, char **argv) {
     if (argc < 2) return 1;
     FILE *f = fopen(argv[1], "r");
@@ -60,10 +67,23 @@ int main(int argc, char **argv) {
         if (err_p > max_err_poll) max_err_poll = err_p;
         if (err_f > max_err_flood) max_err_flood = err_f;
 
-        // Decision agreement: Do FP32 and INT8 models classify into the same risk tier?
-        int tier_fp32 = (out_fp32.heat_score > 0.6f) ? 3 : ((out_fp32.heat_score > 0.4f) ? 2 : 1);
-        int tier_int8 = (out_int8.heat_score > 0.6f) ? 3 : ((out_int8.heat_score > 0.4f) ? 2 : 1);
-        if (tier_fp32 == tier_int8) agreement_count++;
+        // Joint decision agreement: all three hazard outputs must map to the
+        // same tiers used by the deployed disaster-risk engine.
+        int tiers_fp32[3] = {
+            score_to_tier(out_fp32.heat_score),
+            score_to_tier(out_fp32.pollution_score),
+            score_to_tier(out_fp32.flood_score)
+        };
+        int tiers_int8[3] = {
+            score_to_tier(out_int8.heat_score),
+            score_to_tier(out_int8.pollution_score),
+            score_to_tier(out_int8.flood_score)
+        };
+        if (tiers_fp32[0] == tiers_int8[0] &&
+            tiers_fp32[1] == tiers_int8[1] &&
+            tiers_fp32[2] == tiers_int8[2]) {
+            agreement_count++;
+        }
     }
     fclose(f);
 

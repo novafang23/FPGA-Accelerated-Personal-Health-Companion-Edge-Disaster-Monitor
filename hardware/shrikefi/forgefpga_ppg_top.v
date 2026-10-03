@@ -71,6 +71,8 @@ module forgefpga_ppg_top #(
     wire [7:0] rx_data;
     wire       rx_valid;
     reg  [7:0] tx_data;
+    wire       spi_miso_oe_internal;
+    wire       tx_data_hold_internal;
     wire       beat_raw;
     reg        beat_latched;
     wire [7:0] filt_sample;
@@ -87,11 +89,11 @@ module forgefpga_ppg_top #(
         .i_sck(spi_sck),
         .i_mosi(spi_mosi),
         .o_miso(spi_miso),
-        .o_miso_oe(),
+        .o_miso_oe(spi_miso_oe_internal),
         .o_rx_data(rx_data),
         .o_rx_data_valid(rx_valid),
         .i_tx_data(tx_data),
-        .o_tx_data_hold()
+        .o_tx_data_hold(tx_data_hold_internal)
     );
 
     // -------------------------------------------------------------------------

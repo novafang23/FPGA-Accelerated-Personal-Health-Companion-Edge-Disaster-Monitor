@@ -23,8 +23,8 @@ menu "ShrikeFi configuration"
 
             The access point is deliberately OPEN. It is an emergency status
             page, and a passphrase would be a credential a bystander does not
-            have. Nothing confidential leaves the device over it: the cloud path
-            stays off unless SHRIKEFI_CLOUD_PUBLISH is separately enabled.
+            have. Anyone in WiFi range can read the live vitals and location.
+            Cloud publishing stays off unless SHRIKEFI_CLOUD_PUBLISH is enabled.
 
             THIS REPLACES THE WIFI STATION PATH. With this on, wifi_mqtt_init()
             is not called and the radio is used only for the access point. Two

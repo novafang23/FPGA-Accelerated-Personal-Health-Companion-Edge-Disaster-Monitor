@@ -10,7 +10,8 @@
  * So the device broadcasts its own network and serves its own page. No router,
  * no credentials, no association step, and nothing to fail: a phone joins
  * VALOR-xxxx and reads the patient's status. That is the requirement
- * *demonstrated* rather than asserted.
+ * *demonstrated* rather than asserted. Because the AP is open, anyone in range
+ * can read that status; this is a deliberate emergency-access/privacy tradeoff.
  *
  * WHY THE JSON FORMATTER IS SEPARATE FROM THE SERVER
  * web_status_json() is pure - a struct in, a string out - so the wire format is
@@ -71,8 +72,9 @@ void web_status_publish(const valor_status_t *s);
 /* Copy the current snapshot out. Safe to call from any task. */
 void web_status_snapshot(valor_status_t *out);
 
-/* Serialise to JSON. Pure and deterministic - bounded, NUL-terminated, and
- * returns the length written excluding the terminator (0 if it did not fit).
+/* Serialise to JSON. Pure and deterministic - strings are JSON-escaped, output
+ * is bounded and NUL-terminated, and the function returns the length written
+ * excluding the terminator (0 if it did not fit).
  * Kept in the JSON shape the page polls:
  *   {"hr":72.1,...,"sos":"IDLE","trigger":"none","loc":"UNSET","contact":true} */
 size_t web_status_json(const valor_status_t *s, char *buf, size_t cap);
