@@ -4,7 +4,7 @@
  * SIH26181 Health Companion & Edge Disaster Monitor
  *
  * Drop-in replacement for pms5003.h
- * UART: 9600 baud, 8N1, passive mode output
+ * UART: 9600 baud, 8N1, continuous streaming output (not passive mode)
  * Frame: 32 bytes, same start bytes (0x42 0x4D) as PMS5003
  * Key difference from PMS5003: Reserved bytes at offset 28-29 are always 0x00
  */

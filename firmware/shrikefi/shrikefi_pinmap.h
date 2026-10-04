@@ -12,7 +12,7 @@
  *  DO NOT apply 5V to any GPIO pin — this permanently
  *  damages the IC beyond repair (no warranty coverage).
  *
- *  5V is ONLY used for PMSA003 VCC (fan + laser power).
+ *  5V is ONLY used for PMS5003 VCC (fan + laser power).
  *  Source 5V from the USB-C VBUS rail only.
  * ============================================================
  */
@@ -41,18 +41,19 @@
 #define I2C_ADDR_BME280_ALT  0x77  /* (SDO=3.3V → 0x77)                           */
 
 /* =========================================================================
- * UART1 — PMSA003 Particulate Matter Sensor
+ * UART1 — PMS5003 Particulate Matter Sensor
  * =========================================================================
- * PMSA003 Power:
+ * PMS5003 Power:
  *   VCC pin → 5V VBUS only (fan motor + laser diode require 5V)
  *   TX/RX logic → 3.3V (safe for ESP32-S3 direct connection, no level shifter)
  * Baud: 9600, 8N1, no flow control
- * The sensor outputs frames continuously (~1 Hz) in passive mode.
+ * The sensor streams frames continuously (~1 Hz); the driver only receives.
  * ====================================================================== */
-#define PIN_PMSA003_RX       14   /* GPIO14 — UART1 RX (connects to PMSA003 TX pin) */
-#define PIN_PMSA003_TX       18   /* GPIO18 — UART1 TX (connects to PMSA003 RX pin, optional) */
-#define PMSA003_UART_NUM     1    /* UART peripheral number (UART_NUM_1) */
-#define PMSA003_BAUD         9600
+#define PIN_PMS5003_RX       14   /* GPIO14 — UART1 RX (connects to PMS5003 TXD pin) */
+/* Not wired in prototype; driver never transmits. */
+#define PIN_PMS5003_TX       18   /* GPIO18 — UART1 TX (PMS5003 RXD pin, left unwired) */
+#define PMS5003_UART_NUM     1    /* UART peripheral number (UART_NUM_1) */
+#define PMS5003_BAUD         9600
 
 /* =========================================================================
  * Renesas ForgeFPGA (SLG47910) Interconnect — Official Vicharak Shrike-Fi Traces
@@ -88,6 +89,10 @@
  *
  * NOTE: These are completely internal to the Shrike-Fi PCB. No Zero PCB wiring needed!
  * ====================================================================== */
+/* Vicharak docs list EN=GPIO9, PWR=GPIO8; this repo uses the reverse names.
+ * Both are always driven to the same level in shrikefi_fpga_flash_init(), so
+ * behaviour is unaffected. Verify against ShrikeFi schematic sheet 5.
+ * (Vicharak claim NOT VERIFIED from this repo; values deliberately not swapped.) */
 #define PIN_FPGA_PWR         9    /* GPIO9  — FPGA Power Control (Schematic: PWR to GPIO9) */
 #define PIN_FPGA_EN          8    /* GPIO8  — FPGA Hardware Reset/Enable (Schematic: EN to GPIO8) */
 #define PIN_FPGA_SS          10   /* GPIO10 — SPI CS (manual chip select) */
@@ -110,8 +115,8 @@
  * =========================================================================
  *  Net Name    Voltage    Powers
  *  ----------  ---------  -----------------------------------------------
- *  VBUS        5.0V       PMSA003 VCC (Pin 1) only
- *  3V3         3.3V       ESP32-S3, ForgeFPGA, MAX30102, BME280, OLED, PMSA003 logic
+ *  VBUS        5.0V       PMS5003 VCC (Pin 1) only
+ *  3V3         3.3V       ESP32-S3, ForgeFPGA, MAX30100/MAX30102, BME280, OLED, PMS5003 logic
  *  GND         0V         Common ground for all components
  * ====================================================================== */
 
