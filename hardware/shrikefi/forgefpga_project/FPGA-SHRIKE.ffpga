@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<GPDProject version="42" oldestCompatibleVersion="32" GPDVersion="6.55.001" lastChange="28 Sep 2026 19:17:02" projectChecksumState="1" projectChecksum="1de4ce87">
+<GPDProject version="42" oldestCompatibleVersion="32" GPDVersion="6.55.001" lastChange="6 Oct 2026 01:20:50" projectChecksumState="1" projectChecksum="db4719e5">
     <Metadata>
         <LegalNotice>This Design was generated using Renesas' proprietary Go Configure Software Hub and is provided for use solely in connection with Renesas GreenPAK integrated circuits. Any unauthorized use, reproduction, distribution, or manufacture of this Design is prohibited. This Design is provided 'AS IS' without warranties of any kind.</LegalNotice>
     </Metadata>
@@ -117,10 +117,10 @@
         <wire output="86" input="88" autoRouting="1" pen="#ff8000ff;1.00;1;32;128" lineType="2" protected="1" CWLid="3" wireText="NET3" wireState="0">
             <points>(220.00,70.00); (320.00,70.00)</points>
         </wire>
-        <wire output="79" input="38" autoRouting="1" pen="#0293fdff;1.00;1;32;128" lineType="7" protected="1" CWLid="4" wireText="NET4" wireState="0">
+        <wire output="79" input="38" autoRouting="1" pen="#ff8000ff;1.00;1;32;128" lineType="2" protected="1" CWLid="4" wireText="NET4" wireState="0">
             <points>(220.00,80.00); (314.00,80.00); (314.00,87.00); (320.00,87.00)</points>
         </wire>
-        <wire output="39" input="63" autoRouting="1" pen="#0293fdff;1.00;1;32;128" lineType="7" protected="1" CWLid="5" wireText="NET5" wireState="0">
+        <wire output="39" input="63" autoRouting="1" pen="#ff8000ff;1.00;1;32;128" lineType="2" protected="1" CWLid="5" wireText="NET5" wireState="0">
             <points>(320.00,54.00); (116.00,54.00); (116.00,75.00); (129.00,75.00)</points>
         </wire>
         <wire output="20" input="62" autoRouting="1" pen="#ff8000ff;1.00;1;32;128" lineType="2" protected="1" CWLid="6" wireText="NET6" wireState="0">
@@ -658,7 +658,7 @@
             </pipelineStageState>
             <pipelineStageState>
                 <pipelineStage>1</pipelineStage>
-                <pipelineState>1</pipelineState>
+                <pipelineState>0</pipelineState>
             </pipelineStageState>
         </pipelineStagesStates>
         <modules>

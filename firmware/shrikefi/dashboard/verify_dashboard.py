@@ -61,6 +61,8 @@ window.onerror = function (m) { window.__err = String(m); };
       spo2: txt('v-spo2'), spo2Note: txt('spo2-note'), spo2NumCol: col('v-spo2'),
       hrv: txt('v-hrv'), hrvNote: txt('hrv-note'), hrvNumCol: col('v-hrv'),
       rr: txt('v-rr'), rrNumCol: col('v-rr'),
+      histMeanHr: txt('h-mean-hr'),
+      histSampleCount: txt('h-sample-count'),
       n2: grid ? Array.from(grid.children).map((c) =>
         c.querySelector('.k').textContent + '=' + c.querySelector('.v').textContent
       ) : ['<missing>'],
@@ -157,6 +159,7 @@ for case in ("zero", "healthy"):
             "hr": "--", "spo2": "--", "hrv": "--", "rr": "--",
             "hrNote": "acquiring", "spo2Note": "calibrating",
             "hrvNote": "needs 10 beats",
+            "histMeanHr": "--", "histSampleCount": "0/24",
             "n2": ["RR=--", "SpO2=--", "HR=--", "SBP=n/a", "Temp=n/a", "Consc=n/a"],
         }
     else:
@@ -164,6 +167,7 @@ for case in ("zero", "healthy"):
             "hr": "72", "spo2": "98.0", "hrv": "42.0", "rr": "15",
             "hrNote": "normal sinus rhythm", "spo2Note": "normal",
             "hrvNote": "Adequate reserve",
+            "histMeanHr": "72 bpm", "histSampleCount": "1/24",
             "n2": ["RR=+0", "SpO2=+0", "HR=+0", "SBP=n/a", "Temp=n/a", "Consc=n/a"],
         }
 

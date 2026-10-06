@@ -206,14 +206,16 @@ strengthens 2 and 3.**
 
 ---
 
-### T2.2 — SOS button + buzzer
+### T2.2 — SOS button + buzzer (Hardware pending; Software done)
 
-- Button: any spare GPIO (`3, 4, 5, 6, 7, 15, 16, 17, 21`), input with pull-up.
+- Button: any spare GPIO (`3, 4, 5, 6, 7, 15, 16, 17, 21`), input with pull-up. The BOOT button (GPIO0) is supported via `CONFIG_SHRIKEFI_SOS_CANCEL_GPIO` out of the box.
 - Buzzer: any spare GPIO (passive buzzer on LEDC for a two-tone alarm).
 - Pattern: intermittent tone + LED strobe, distinct from the normal heartbeat LED.
 
 Reaches people **physically nearby** — in a disaster, that is exactly who matters. ~1 hour plus
 ₹50 of parts.
+
+**Software implementation DONE (2026-10-04):** `CONFIG_SHRIKEFI_SOS_CANCEL_GPIO` supports hardware cancel with 5s hold. Simulated in `host_test`.
 
 ---
 
@@ -305,11 +307,14 @@ live-only.
 
 ---
 
-### T3.3 — Cosmetic: log spam on repeated handover
+### T3.3 — Cosmetic: log spam on repeated handover  ✅ **DONE (2026-10-06)**
 
-When the finger is off, the FPGA still reports spurious crests (the scaler toggles between 0 and
-120 around the `raw < 1000` threshold), and each one re-triggers a handover log line. Harmless,
-but noisy. Gate the handover log, or suppress beats while `!optical_contact`. ~30 minutes.
+When the finger is off, the FPGA still reported spurious crests (the scaler toggling between 0 and
+120 around the `raw < 1000` threshold), and each one re-triggered a handover log line.
+**Fixed:**
+- In `main_shrikefi.c`, `ibi_pipeline_submit()` now gates the handover log on `old_source != IBI_SRC_NONE`, so waking up from finger-disconnect reset never logs spurious handovers.
+- The sample stream writes zero (`shrikefi_write_red_sample(0)`, `shrikefi_write_ir_sample(0)`) whenever `!optical_contact`, preventing ambient sensor noise around threshold from driving the FPGA filter and peak detector.
+- `shrikefi_link_reset_beat_tracking()` and `shrikefi_clear_irq()` clear any residual beat state on contact loss.
 
 ---
 

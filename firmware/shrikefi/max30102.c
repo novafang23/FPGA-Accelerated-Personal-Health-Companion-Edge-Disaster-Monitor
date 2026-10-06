@@ -170,23 +170,26 @@ int max30102_init(max30102_t *dev, esp32_i2c_handle_t *i2c) {
 }
 
 /* FIFO Operations */
-int max30102_fifo_available(max30102_t *dev) {
+int max30102_fifo_available(max30102_t *dev, int *dropped, int *saturated) {
     if (!dev || !dev->initialized) return -1;
 
     uint8_t wr_reg  = dev->is_max30100 ? MAX30100_REG_FIFO_WR_PTR : MAX30102_REG_FIFO_WR_PTR;
     uint8_t rd_reg  = dev->is_max30100 ? MAX30100_REG_FIFO_RD_PTR : MAX30102_REG_FIFO_RD_PTR;
+    uint8_t ovf_reg = dev->is_max30100 ? MAX30100_REG_OVF_COUNTER : MAX30102_REG_OVF_COUNTER;
+
+    int ovf = max30102_i2c_read_reg(dev, ovf_reg);
     int wr  = max30102_i2c_read_reg(dev, wr_reg);
     int rd  = max30102_i2c_read_reg(dev, rd_reg);
     if (wr < 0 || rd < 0) return -1;
 
+    int max_ovf = dev->is_max30100 ? 15 : 31;
+    if (saturated) *saturated = (ovf == max_ovf) ? 1 : 0;
+    if (dropped) *dropped = (ovf > 0 && ovf < max_ovf) ? ovf : 0;
+
     int mask = dev->is_max30100 ? 15 : 31;
     int count = (wr - rd) & mask;
-    if (count == 0) {
-        uint8_t ovf_reg = dev->is_max30100 ? MAX30100_REG_OVF_COUNTER : MAX30102_REG_OVF_COUNTER;
-        int ovf = max30102_i2c_read_reg(dev, ovf_reg);
-        if (ovf > 0) {
-            count = dev->is_max30100 ? 16 : 32;
-        }
+    if (count == 0 && ovf > 0) {
+        count = dev->is_max30100 ? 16 : 32;
     }
     return count;
 }
@@ -224,7 +227,7 @@ int max30102_read_sample(max30102_t *dev, max30102_sample_t *sample) {
 int max30102_read_fifo(max30102_t *dev, max30102_sample_t *buf, int max_samples) {
     if (!dev || !buf || max_samples <= 0) return -1;
 
-    int available = max30102_fifo_available(dev);
+    int available = max30102_fifo_available(dev, NULL, NULL);
     if (available <= 0) return available;
 
     int to_read = (available < max_samples) ? available : max_samples;

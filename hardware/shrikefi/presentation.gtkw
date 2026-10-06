@@ -1,6 +1,6 @@
 [*]
-[*] GTKWave Analyzer — SIH26181 ShrikeFi (ESP32-S3 + ForgeFPGA) 4-Bit Link
-[*] Post-Synthesis: 222/1120 LUT5s (19.82%), 121 FFs, 40 CLBs, 5/5 link tests passing
+[*] GTKWave Analyzer — SIH26181 ShrikeFi (ESP32-S3 + ForgeFPGA) SPI Mode 0 Link
+[*] Post-Synthesis: 363/1120 LUT5s (32.41%), 202 FFs, 75 CLBs, 10/10 checks passing
 [*]
 [dumpfile] "shrikefi_sim.vcd"
 [savefile] "presentation.gtkw"
@@ -13,92 +13,73 @@
 @c00022
 [color] 4
 #{═══════════════════════════════════════════}
-#{   GLOBAL CLOCK & RESET}
+#{   GLOBAL CLOCK & CONTROL}
 #{═══════════════════════════════════════════}
 @28
 [color] 2
 tb_forgefpga_system.clk
-tb_forgefpga_system.rst_n
-tb_forgefpga_system.dut.clk
-tb_forgefpga_system.dut.rst_n
+tb_forgefpga_system.clk_en
 @1401200
 -group_end
 @c00022
 [color] 5
 #{═══════════════════════════════════════════}
-#{   4-BIT PARALLEL LINK (FPGA ↔ ESP32-S3)}
+#{   4-WIRE SPI MODE 0 LINK (ESP32-S3 ↔ ForgeFPGA)}
 #{═══════════════════════════════════════════}
 @28
 [color] 1
-tb_forgefpga_system.link_strobe
-tb_forgefpga_system.link_dir
-@22
-[color] 21
-tb_forgefpga_system.link_din[3:0]
-tb_forgefpga_system.link_dout[3:0]
-@28
-tb_forgefpga_system.dut.link_dout_oe
-tb_forgefpga_system.dut.strobe_rise
-tb_forgefpga_system.dut.strobe_sync[2:0]
+tb_forgefpga_system.spi_sck
+tb_forgefpga_system.spi_ss_n
+tb_forgefpga_system.spi_mosi
+tb_forgefpga_system.spi_miso
+tb_forgefpga_system.dut.spi_miso_oe
 @1401200
 -group_end
 @c00022
 [color] 7
 #{═══════════════════════════════════════════}
-#{   FILTER OUTPUTS (Validated on ForgeFPGA)}
+#{   8-TAP FILTER & DATA}
 #{═══════════════════════════════════════════}
-@24
+@22
 [color] 7
-#{RED Channel}
-tb_forgefpga_system.dut.reg_red_raw[7:0]
-tb_forgefpga_system.dut.red_filtered[7:0]
-tb_forgefpga_system.dut.red_valid_pulse
-tb_forgefpga_system.dut.red_filtered_valid
-[color] 3
-#{IR Channel}
-tb_forgefpga_system.dut.reg_ir_raw[7:0]
-tb_forgefpga_system.dut.ir_filtered[7:0]
-tb_forgefpga_system.dut.ir_valid_pulse
-tb_forgefpga_system.dut.ir_filtered_valid
+tb_forgefpga_system.dut.rx_data[7:0]
+tb_forgefpga_system.dut.filt_sample[7:0]
 @1401200
 -group_end
 @c00022
 [color] 1
 #{═══════════════════════════════════════════}
-#{   PEAK DETECTOR FSM & IBI TIMING}
+#{   PEAK DETECTOR FSM & BEAT LATCH}
 #{═══════════════════════════════════════════}
 @22
 [color] 1
-tb_forgefpga_system.dut.state[4:0]
 tb_forgefpga_system.dut.u_peak_det.current_state[1:0]
-tb_forgefpga_system.dut.peak_beat_detected
-@24
-[color] 3
-tb_forgefpga_system.dut.reg_threshold[7:0]
-tb_forgefpga_system.dut.peak_ibi_cycles[31:0]
-tb_forgefpga_system.dut.reg_ibi_latched[31:0]
+@28
+tb_forgefpga_system.dut.beat_latched
+@22
+tb_forgefpga_system.dut.tx_data[7:0]
+tb_forgefpga_system.dut.u_peak_det.ibi_cycles[31:0]
 @1401200
 -group_end
 @c00022
 [color] 2
 #{═══════════════════════════════════════════}
-#{   OUTPUT: BEAT INTERRUPT TO ESP32-S3}
+#{   OBSERVABLE OUTPUT (BLUE LED D12)}
 #{═══════════════════════════════════════════}
 @28
 [color] 1
-tb_forgefpga_system.irq_beat
-tb_forgefpga_system.dut.irq_beat
+tb_forgefpga_system.led_user
+tb_forgefpga_system.dut.led_user_oe
 @1401200
 -group_end
 @c00022
 [color] 8
 #{═══════════════════════════════════════════}
-#{   TESTBENCH SCOREBOARD (5/5 TESTS)}
+#{   TESTBENCH SCOREBOARD (10/10 CHECKS)}
 #{═══════════════════════════════════════════}
 @22
 tb_forgefpga_system.tests_passed[31:0]
 tb_forgefpga_system.tests_failed[31:0]
-tb_forgefpga_system.total_tests[31:0]
 @1401200
 -group_end
 [pattern_trace] 1

@@ -47,7 +47,7 @@
  *   VCC pin → 5V VBUS only (fan motor + laser diode require 5V)
  *   TX/RX logic → 3.3V (safe for ESP32-S3 direct connection, no level shifter)
  * Baud: 9600, 8N1, no flow control
- * The sensor streams frames continuously (~1 Hz); the driver only receives.
+ * The sensor streams frames continuously (2.3 seconds in stable mode, 200-800 ms in fast mode); the driver only receives.
  * ====================================================================== */
 #define PIN_PMS5003_RX       14   /* GPIO14 — UART1 RX (connects to PMS5003 TXD pin) */
 /* Not wired in prototype; driver never transmits. */

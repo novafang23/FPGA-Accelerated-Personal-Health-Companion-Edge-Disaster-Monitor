@@ -10,6 +10,12 @@
 #include <stdint.h>
 #include <stdbool.h>
 
+#ifdef ESP_PLATFORM
+#include <sdkconfig.h>
+#endif
+
+#if defined(CONFIG_SHRIKEFI_DEV_MQTT)
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -41,5 +47,15 @@ void cloud_publish_health_data(float hr, float rmssd, float spo2, float temp, fl
 #ifdef __cplusplus
 }
 #endif
+
+#else // !CONFIG_SHRIKEFI_DEV_MQTT
+
+static inline void wifi_mqtt_init(void) {}
+static inline bool mqtt_is_connected(void) { return false; }
+static inline void cloud_publish_health_data(float hr, float rmssd, float spo2, float temp, float pm25, const char* risk_level) {
+    (void)hr; (void)rmssd; (void)spo2; (void)temp; (void)pm25; (void)risk_level;
+}
+
+#endif // CONFIG_SHRIKEFI_DEV_MQTT
 
 #endif // WIFI_MQTT_MANAGER_H

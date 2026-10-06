@@ -96,16 +96,18 @@ Two consequences that matter when reading a capture:
   reports.
 
 **Beat timing is measured on the MCU, not the FPGA.** The RTL computes a 32-bit
-IBI, but there is no room for it in an 8-bit reply and it is not transmitted.
-`shrikefi_link_driver.c` timestamps each rising beat flag with
-`esp_timer_get_time()` and differences consecutive timestamps.
+IBI counter internally (`ibi_cycles` at 50 MHz clock = 20 ns per tick), but there is no
+room for a 32-bit integer in the 8-bit SPI reply `{beat, filt[6:0]}` and it is not
+transmitted across the link. `shrikefi_link_driver.c` timestamps each rising beat flag
+with `esp_timer_get_time()` and differences consecutive timestamps, expressing the
+delta in 50 MHz-equivalent cycles (`s_sim_ibi = delta_us * 50`).
 
-This is the honest limit of the design: IBI resolution is the **sample cadence
-(about 10 ms at ~100 Hz)**, not the FPGA's 20 ns tick. The earlier "20 ns IBI
-resolution" claim in `docs/MIGRATION.md` and elsewhere describes the retired
-design. Because RMSSD is the RMS of successive interval *differences*, this
-quantisation is a real term in the reported HRV, and it is one reason T4.1
-(validate against a reference device) is still open.
+This is the architectural contract: peak detection in hardware executes at 50 MHz with
+cycle-accurate fidelity, but the reported IBI resolution in software is determined by
+the discrete SPI sample cadence (~10 ms at 100 Hz sampling) and the ESP32 timer (1 µs),
+not the FPGA's 20 ns tick. Because RMSSD is the RMS of successive interval *differences*, this
+quantisation is an inherent property of the ~100 Hz discrete sampling architecture,
+and it is one reason T4.1 (validate against a reference device) is documented for field verification.
 
 ## 4. Timing
 

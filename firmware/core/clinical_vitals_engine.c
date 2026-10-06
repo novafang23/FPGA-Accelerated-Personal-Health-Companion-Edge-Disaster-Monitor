@@ -123,10 +123,11 @@ void clinical_vitals_assess_full(float hr, float spo2, float rmssd, float rr, fl
                               (rr_i >= 30) || (rr_i <= 6);
 
     /* 4. Motion artifact rejection & Warm-up check (Elgendi 2016 / Karlen 2012):
-     * If signal quality is low BUT patient is NOT in life-threatening collapse,
-     * hold previous reliable reading to prevent false alarms.
-     * BUT if an absolute crisis is detected, DO NOT suppress the emergency! */
-    if (out->sqi == 0.0f && !is_absolute_crisis) {
+     * If signal quality is zero (sensor disconnected or uncalibrated warmup),
+     * hold triage unconditionally to prevent noise from hallucinating emergency alarms.
+     * If signal quality is low (0.0 < SQI < 0.70) due to motion, hold triage UNLESS
+     * patient is in genuine life-threatening collapse (crisis override preserved). */
+    if (out->sqi == 0.0f) {
         out->level = CLINICAL_ELEVATED;
         out->alert_flags = ALERT_SIGNAL_NOISE;
         snprintf(out->advisory, sizeof(out->advisory),

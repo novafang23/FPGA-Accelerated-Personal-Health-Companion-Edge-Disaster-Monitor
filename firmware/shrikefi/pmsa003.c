@@ -6,7 +6,7 @@
  * Protocol Notes:
  *   - Frame format: identical to PMS5003 (32 bytes, 0x42 0x4D start, big-endian)
  *   - UART: 9600 baud, 8N1, no flow control
- *   - The sensor streams frames continuously at ~1 Hz after power-up (not passive mode)
+ *   - The sensor streams frames continuously (2.3 seconds in stable mode, 200-800 ms in fast mode) after power-up (not passive mode)
  *   - Hardware wiring: VCC=5V (fan+laser), TX/RX logic = 3.3V (safe for ESP32-S3)
  *   - Warm-up time: ~30 seconds after power-on for stable readings
  */

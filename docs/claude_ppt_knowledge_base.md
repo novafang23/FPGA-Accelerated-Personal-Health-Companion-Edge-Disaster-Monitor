@@ -44,13 +44,13 @@ The system does not blindly trust ML. It uses a layered, defensively-coded appro
 * **Pressure Trend:** Least-squares barograph (30-min window) to track cyclone pressure drops.
 
 ### B. TinyML Models (INT8 Quantized)
-The neural networks are quantized to INT8, deploying in just 619 bytes of flash, bypassing the ESP32's lack of a 64-bit FPU.
+The neural networks use int8 weight storage in just 619 bytes of flash. The 1-month offline rolling risk dataset occupies less than 200 KB in SPIFFS, whereas 1.5 MB of static space is reserved for the PM2.5 calibration profile and ML feature tables.
 1. **Risk Model (6→24→16→3 MLP):**
    * **Inputs:** HR, RMSSD, SpO2, Temp, Hum, PM2.5.
    * **Outputs:** Heat, Pollution, Flood risk scores.
    * *Trained via teacher-distillation (70k synthetic samples).*
 2. **PM2.5 Calibrator (3→8→4→1 MLP):**
-   * Integer-only math. Debiases PMS5003 optical scattering errors caused by high humidity.
+   * int8 weight storage, float math on the FPU. Debiases PMS5003 optical scattering errors caused by high humidity.
 
 ### C. Clinical & Disaster Rule Engines
 * **Clinical Engine (`clinical_vitals_engine.c`):** Uses modified **mNEWS2 scoring**. It has absolute crisis overrides (e.g., HR > 150 bpm immediately flags CRITICAL). 

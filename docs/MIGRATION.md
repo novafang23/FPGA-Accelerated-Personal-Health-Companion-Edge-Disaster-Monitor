@@ -18,7 +18,7 @@ For interface-level physical and framing details of the FPGA↔MCU link, see [`d
 | **Application code (HRV, SpO2, NN, risk engine)** | Runs on ARM Cortex-A9 (Zynq PS) | Runs on ESP32-S3 (ESP-IDF / FreeRTOS) | **Implemented & Verified:** Dual-core FreeRTOS `main_shrikefi.c` |
 | **Toolchain** | Vivado ML 2022.2 | Renesas ForgeFPGA design software (free, HDL mode) | **Configured:** `forgefpga_pins.pcf` + simulation flow |
 | **Connectivity** | None | WiFi 4 + BLE 5 (onboard ESP32-S3) | **Supported:** Native on ESP32-S3 SoC |
-| **Timing figures** | 50 MHz clock, 20 ns IBI resolution, 69.45 MHz Fmax | 50 MHz clock, 20 ns IBI resolution | **Verified in Simulation:** Cycle-accurate IBI timestamping |
+| **Timing figures** | 50 MHz clock, 20 ns IBI resolution, 69.45 MHz Fmax | 50 MHz clock, 20 ns internal RTL resolution (`ibi_cycles`); firmware samples beats at ~10 ms SPI transaction boundary | **Verified in Simulation:** Cycle-accurate internal RTL counter (`ibi_cycles`), ~10 ms discrete sampling in MCU firmware |
 
 ---
 

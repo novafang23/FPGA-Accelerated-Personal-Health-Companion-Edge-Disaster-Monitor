@@ -35,7 +35,7 @@ if %errorlevel% neq 0 (
 :: from ../common/ - it does NOT contain inline copies, so both the top and the
 :: two common sources must be listed here. Do not add duplicates.
 :: ---------------------------------------------------------------------------
-set "RTL_SRCS=tb_forgefpga_system.v forgefpga_ppg_top.v ../common/moving_average_8tap.v ../common/ppg_peak_detector.v"
+set "RTL_SRCS=tb_forgefpga_system.v forgefpga_ppg_top.v spi_target.v ../common/moving_average_8tap.v ../common/ppg_peak_detector.v"
 
 :: 1. Compile ShrikeFi Verilog RTL with Icarus Verilog
 echo [1/3] Compiling ForgeFPGA SPI Link RTL with Icarus Verilog...

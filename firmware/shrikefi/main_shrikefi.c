@@ -12,7 +12,9 @@
 #include <stdlib.h>
 #include <string.h>
 #include <math.h>
-
+#ifdef ESP_PLATFORM
+#include <sdkconfig.h>
+#endif
 #include "shrikefi_pinmap.h"
 #include "shrikefi_link_driver.h"
 #include "esp32_i2c_hal.h"
@@ -42,8 +44,24 @@
 #include "esp_log.h"
 #include "esp_timer.h"   /* microsecond beat timestamps - see the PPG task */
 #include "driver/uart.h"
+#else
+#define pdMS_TO_TICKS(ms) (ms)
+#define pdTRUE 1
+typedef void* SemaphoreHandle_t;
+static inline int xSemaphoreTake(SemaphoreHandle_t s, int t) { (void)s; (void)t; return 1; }
+static inline void xSemaphoreGive(SemaphoreHandle_t s) { (void)s; }
+#ifndef ESP_LOGI
+#define ESP_LOGI(tag, fmt, ...) do { } while(0)
+#endif
+#ifndef ESP_LOGW
+#define ESP_LOGW(tag, fmt, ...) printf("[WARN] " fmt "\n", ##__VA_ARGS__)
+#endif
+#ifndef ESP_LOGE
+#define ESP_LOGE(tag, fmt, ...) printf("[ERROR] " fmt "\n", ##__VA_ARGS__)
+#endif
+#endif
 
-static const char *TAG = "SHRIKEFI_MAIN";
+static const char *TAG __attribute__((unused)) = "SHRIKEFI_MAIN";
 static SemaphoreHandle_t s_data_mutex = NULL;
 
 /* Signal quality and contact status */
@@ -82,6 +100,7 @@ typedef struct {
 
 static health_system_state_t g_state;
 
+#ifdef ESP_PLATFORM
 /* Sensor driver instances */
 static max30102_t s_max30102;
 static bme280_t s_bme280;
@@ -98,6 +117,7 @@ static ssd1306_t s_ssd1306;
  * enough span to mean anything. */
 static pressure_trend_t s_pressure_trend;
 static uint32_t         s_pressure_next_due_ms = 0;
+#endif
 
 /* ---------------------------------------------------------------------------
  * IBI acceptance pipeline - the single door every heartbeat interval passes
@@ -176,7 +196,7 @@ static uint32_t         s_pressure_next_due_ms = 0;
  * 2020;17(9):960-965 measured it staying within a 5% change with up to 36% of
  * intervals removed. Keeping MIS-TIMED beats is what is expensive: the same
  * study puts the threshold at ~16 ms of beat-picking error. */
-#define IBI_MIN_MS    400.0f   /* hard floor: below this the detector double-fired  */
+#define IBI_MIN_MS    272.0f   /* hard floor (220 BPM): allows tachycardia >= 150 BPM; above 250 ms FPGA blanking */
 #define IBI_MAX_MS   1500.0f   /* hard ceiling: above this a whole cycle was lost  */
 #define IBI_LOW_RATIO  0.70f   /* reject below this x the reference median         */
 #define IBI_HIGH_RATIO 1.30f   /* reject above this x the reference median         */
@@ -252,10 +272,11 @@ static void ibi_pipeline_reset(ibi_pipeline_t *p) {
  * resting subject, on every other assessment. 30 beats is about 23 s at rest,
  * roughly five cycles - enough for the confidence figure to mean something. */
 #define PPG_RR_MIN_IBIS  30
-#define PPG_SQI_RAW_WIN 100    /* raw IR samples fed to the SQI (1 s at 100 Hz) */
+#define PPG_SQI_RAW_WIN PPG_SAMPLE_RATE_HZ    /* raw IR samples fed to the SQI (1 s) */
 
 static float    s_rr_ibis[PPG_RR_HISTORY];
 static int      s_rr_ibi_n = 0;
+#ifdef ESP_PLATFORM
 static uint32_t s_sqi_raw[PPG_SQI_RAW_WIN];
 static int      s_sqi_raw_n = 0;
 
@@ -263,6 +284,7 @@ static int      s_sqi_raw_n = 0;
  * hardware crossed its own confidence bar in 4 frames out of 118, which
  * flickers the display and flips the triage; see ppg_rr_tracker_update(). */
 static ppg_rr_tracker_t s_rr_tracker;
+#endif
 
 static void ppg_history_push_f(float *buf, int *n, int cap, float v) {
     if (*n < cap) {
@@ -273,6 +295,7 @@ static void ppg_history_push_f(float *buf, int *n, int cap, float v) {
     }
 }
 
+#ifdef ESP_PLATFORM
 static void ppg_history_push_u32(uint32_t *buf, int *n, int cap, uint32_t v) {
     if (*n < cap) {
         buf[(*n)++] = v;
@@ -344,6 +367,7 @@ static void ppg_update_respiration_and_sqi(void) {
         xSemaphoreGive(s_data_mutex);
     }
 }
+#endif
 
 /**
  * @brief Validate, artifact-filter and record one heartbeat interval.
@@ -360,6 +384,7 @@ static bool ibi_pipeline_submit(ibi_pipeline_t *p, hrv_state_t *hrv,
     if (!(ibi_ms > 0.0f)) return false;
 
     if (p->source != source) {
+        int old_source = p->source;
         p->source = source;
         hrv_init(hrv);
         hrv_median_init(&p->ref);
@@ -375,9 +400,11 @@ static bool ibi_pipeline_submit(ibi_pipeline_t *p, hrv_state_t *hrv,
             g_state.hrv_sample_count   = 0;
             xSemaphoreGive(s_data_mutex);
         }
-        ESP_LOGI(TAG, "IBI detector handover -> %s; HRV window flushed so the "
-                      "two detectors' intervals are never averaged together",
-                 (source == IBI_SRC_FPGA) ? "ForgeFPGA" : "software fallback");
+        if (old_source != IBI_SRC_NONE) {
+            ESP_LOGI(TAG, "IBI detector handover -> %s; HRV window flushed so the "
+                          "two detectors' intervals are never averaged together",
+                     (source == IBI_SRC_FPGA) ? "ForgeFPGA" : "software fallback");
+        }
     }
 
     bool accepted = false;
@@ -470,11 +497,13 @@ static bool ibi_pipeline_submit(ibi_pipeline_t *p, hrv_state_t *hrv,
         hrv_median_init(&p->ref);
         p->skip_next = false;
         p->reject_streak = 0;
+        p->prime_count = 0;
     }
 
     return accepted;
 }
 
+#ifdef ESP_PLATFORM
 static int read_bme280_env(bme280_data_t *data) {
     return bme280_read(&s_bme280, data);
 }
@@ -508,7 +537,8 @@ static void task_ppg_accelerator(void *pvParameters) {
     static uint32_t sw_peak_val          = 0;
     static uint8_t  sw_fall_count        = 0;
     static uint32_t sw_refractory_end_ms = 0;
-    static uint32_t sw_last_peak_time_ms = 0;
+    static uint64_t sw_last_peak_sample  = 0;
+    static uint64_t s_total_samples      = 0;
     static uint32_t sw_last_valid_ibi_ms = 0;
     static int      sw_beat_streak       = 0;
     static uint32_t sw_finger_start_ms   = 0;
@@ -543,8 +573,16 @@ static void task_ppg_accelerator(void *pvParameters) {
     ESP_LOGI(TAG, "Core 0: PPG Accelerator Task Started (FPGA hardware + Software DSP fallback).");
 
     while (1) {
-        int avail = max30102_fifo_available(&s_max30102);
+        int dropped = 0;
+        int saturated = 0;
+        int avail = max30102_fifo_available(&s_max30102, &dropped, &saturated);
         int samples_read = 0;
+
+        if (saturated) {
+            s_total_samples = 0;
+        } else if (dropped > 0) {
+            s_total_samples += dropped;
+        }
 
         /* Drain available samples from FIFO (prevents buffer overflow & lag) */
         while (avail > 0 && samples_read < 8) {
@@ -553,23 +591,18 @@ static void task_ppg_accelerator(void *pvParameters) {
             }
             samples_read++;
             avail--;
+            s_total_samples++;
 
-            /* Beat timestamps must not come from the RTOS tick.
-             *
-             * xTaskGetTickCount() * portTICK_PERIOD_MS is quantised to one tick
-             * - 10 ms at CONFIG_FREERTOS_HZ=100 - so every software-detected
-             * interval was necessarily a multiple of 10 ms. RMSSD is the RMS of
-             * successive interval *differences*, so it is maximally sensitive to
-             * exactly that kind of independent per-sample error, and this path
-             * is the only source of intervals for the first beats of every
-             * contact and after any FPGA dropout. esp_timer is the microsecond
-             * source shrikefi_link_driver.c already times FPGA beats with. */
-            uint32_t now_ms = (uint32_t)(esp_timer_get_time() / 1000);
+            /* Timestamps must not come from the RTOS tick OR esp_timer, because
+             * FreeRTOS scheduling jitter makes timer-based intervals noisy. RMSSD
+             * is highly sensitive to per-sample error. We use OVF_COUNTER and 
+             * the sample count to generate perfect sample-synchronous timestamps. */
+            uint32_t now_ms = (uint32_t)((s_total_samples * 1000) / PPG_SAMPLE_RATE_HZ);
 
-            /* Track min/max over 50 samples (1 sec) to measure pulsatile AC amplitude */
+            /* Track min/max over 0.5 sec to measure pulsatile AC amplitude */
             if (ppg_sample.ir < ir_win_min) ir_win_min = ppg_sample.ir;
             if (ppg_sample.ir > ir_win_max) ir_win_max = ppg_sample.ir;
-            if (++ir_win_count >= 50) {
+            if (++ir_win_count >= (PPG_SAMPLE_RATE_HZ / 2)) {
                 uint32_t ac = (ir_win_max > ir_win_min) ? (ir_win_max - ir_win_min) : 0;
                 /* Plausibility gate. The pulsatile (AC) component of a real PPG is
                  * the perfusion index - roughly 0.2-10% of the DC level. Lifting or
@@ -592,7 +625,7 @@ static void task_ppg_accelerator(void *pvParameters) {
 
             /* LED current hunting - and the reason SpO2 used to take 20+ seconds.
              *
-             * This ran only on the 50-sample AC window boundary, i.e. once every
+             * This ran only on the AC window boundary, i.e. once every
              * 0.5 s, one step at a time. On the MAX30100 the current register is
              * 4 bits - 16 levels - so reaching the 40000..220000 band from the
              * reset value takes more than a dozen steps, and EVERY step moves the
@@ -613,7 +646,7 @@ static void task_ppg_accelerator(void *pvParameters) {
             static int led_adj_counter = 0;
             if (!optical_contact) {
                 led_adj_counter = 0;
-            } else if (++led_adj_counter >= (spo2_is_valid(&spo2_state) ? 50 : 5)) {
+            } else if (++led_adj_counter >= (spo2_is_valid(&spo2_state) ? (PPG_SAMPLE_RATE_HZ / 2) : (PPG_SAMPLE_RATE_HZ / 20))) {
                 led_adj_counter = 0;
                 max30102_adjust_led_current(&s_max30102, ppg_sample.red, ppg_sample.ir);
             }
@@ -650,8 +683,9 @@ static void task_ppg_accelerator(void *pvParameters) {
              * adopt the current sample) instead of integrating for seconds. */
             s_rail_red = (raw_red == 0 || raw_red == 255) ? (uint8_t)(s_rail_red + 1) : 0;
             s_rail_ir  = (raw_ir  == 0 || raw_ir  == 255) ? (uint8_t)(s_rail_ir  + 1) : 0;
-            if (s_rail_red > 30) { s_base_red = 0; s_rail_red = 0; }
-            if (s_rail_ir  > 30) { s_base_ir  = 0; s_rail_ir  = 0; }
+            const uint8_t rail_limit = (uint8_t)(PPG_SAMPLE_RATE_HZ * 3 / 10); /* 300 ms */
+            if (s_rail_red > rail_limit) { s_base_red = 0; s_rail_red = 0; }
+            if (s_rail_ir  > rail_limit) { s_base_ir  = 0; s_rail_ir  = 0; }
 
             /* Raw 18-bit IR window for the signal-quality index. Fed only while
              * there is optical contact, so a finger-lift cannot poison it. */
@@ -682,8 +716,13 @@ static void task_ppg_accelerator(void *pvParameters) {
 #endif
 
             /* 2. Stream to the ForgeFPGA over the SPI link */
-            shrikefi_write_red_sample(raw_red);
-            shrikefi_write_ir_sample(raw_ir);
+            if (optical_contact) {
+                shrikefi_write_red_sample(raw_red);
+                shrikefi_write_ir_sample(raw_ir);
+            } else {
+                shrikefi_write_red_sample(0);
+                shrikefi_write_ir_sample(0);
+            }
 
             /* 3. Compute 8-tap running-sum moving average filter */
             red_sum = red_sum - red_history[hist_idx] + raw_red;
@@ -715,10 +754,14 @@ static void task_ppg_accelerator(void *pvParameters) {
             }
 
             /* 5. Systolic Peak Detection (FPGA Interrupt with Software Fallback) */
-            if (shrikefi_is_beat_detected()) {
-                /* Hardware beat detected by ForgeFPGA on GPIO 10 */
-                uint32_t ibi_cycles = shrikefi_read_ibi_cycles();
+            bool fpga_beat = shrikefi_is_beat_detected();
+            if (fpga_beat) {
                 shrikefi_clear_irq();
+            }
+
+            if (fpga_beat && optical_contact) {
+                /* Hardware beat detected by ForgeFPGA on MISO Bit 7 with verified optical tissue contact */
+                uint32_t ibi_cycles = shrikefi_read_ibi_cycles();
                 /* Latch liveness from the RAW beat flag, here, before the
                  * plausibility pipeline runs.
                  *
@@ -848,13 +891,13 @@ static void task_ppg_accelerator(void *pvParameters) {
                         if (++sw_fall_count >= 2) {
                             /* Crest confirmed: check peak prominence over baseline */
                             if (sw_peak_val > (sw_running_mean + 10)) {
-                                uint32_t ibi_ms = now_ms - sw_last_peak_time_ms;
-                                sw_last_peak_time_ms = now_ms;
+                                float ibi_ms = (float)(s_total_samples - sw_last_peak_sample) * (1000.0f / PPG_SAMPLE_RATE_HZ);
+                                sw_last_peak_sample = s_total_samples;
                                 sw_state = SW_REFRACTORY;
                                 sw_refractory_end_ms = now_ms + 400; /* 400ms refractory blanking */
 
                                 /* Apply 800ms stabilization window after initial finger contact */
-                                if ((now_ms - sw_finger_start_ms) > 800 && ibi_ms >= 400 && ibi_ms <= 1500) {
+                                if ((now_ms - sw_finger_start_ms) > 800 && ibi_ms >= 300.0f && ibi_ms <= 2000.0f) {
                                     /* Plausibility check: reject sudden motion twitches */
                                     bool beat_plausible = true;
                                     if (sw_last_valid_ibi_ms > 0) {
@@ -923,7 +966,7 @@ static void task_ppg_accelerator(void *pvParameters) {
                 /* No optical contact (IR <= 1500) */
                 s_last_fpga_beat_ms  = 0;   /* FPGA liveness is scoped to one contact session */
                 sw_finger_start_ms   = 0;
-                sw_last_peak_time_ms = 0;
+                sw_last_peak_sample  = 0;
                 sw_last_valid_ibi_ms = 0;
                 sw_beat_streak       = 0;
                 sw_peak_val          = 0;
@@ -936,6 +979,7 @@ static void task_ppg_accelerator(void *pvParameters) {
 
                 hrv_init(&hrv_state);   /* Reset HRV history on finger removal */
                 ibi_pipeline_reset(&ibi_pipe); /* ...and the detector-handover state */
+                shrikefi_link_reset_beat_tracking(); /* Clear inter-beat timing baseline */
                 ppg_history_reset();  /* ...and the respiration/SQI windows */
                 spo2_init(&spo2_state); /* Reset SpO2 history on finger removal */
                 s_rail_red = 0;
@@ -958,7 +1002,7 @@ static void task_ppg_accelerator(void *pvParameters) {
         }
 
         /* Periodic optical debug log (about once a second at the ~100 Hz optical rate) */
-        if (++raw_log_timer >= 50) {
+        if (++raw_log_timer >= (PPG_SAMPLE_RATE_HZ / 2)) {
             raw_log_timer = 0;
             ppg_update_respiration_and_sqi();
 
@@ -1034,6 +1078,16 @@ static void task_ppg_accelerator(void *pvParameters) {
                          spo2_state.last_spread,
                          spo2_state.last_spread_raw,
                          spo2_state.last_settled);
+            }
+            
+            static int s_10s_diag_counter = 0;
+            if (++s_10s_diag_counter >= 20) { /* 20 * 0.5s = 10s */
+                s_10s_diag_counter = 0;
+                ESP_LOGI("PPG_DIAG", "[10s Summary] HR: %.1f BPM (Conf: %.2f), SpO2: %.1f%% (Valid: %d), RR: %.1f br/min (Conf: %.2f), SDNN: %.1f ms",
+                         g_state.heart_rate, g_state.ppg_sqi,
+                         g_state.spo2_percent, g_state.spo2_valid,
+                         g_state.respiratory_rate_bpm, g_state.rr_confidence,
+                         hrv_state.sdnn);
             }
         }
 
@@ -1556,6 +1610,23 @@ static void task_disaster_monitor(void *pvParameters) {
             st.uptime_s = sos_now_ms / 1000u;
             st.contact  = contact_present;
             web_status_publish(&st);
+
+            /* Periodically publish hourly history summary for WebSerial (every 30s) */
+            static uint32_t s_hist_print_sec = 0;
+            if (++s_hist_print_sec >= 30) {
+                s_hist_print_sec = 0;
+                valor_history_point_t all_pts[VALOR_HISTORY_HOURS];
+                web_status_history_snapshot(all_pts, VALOR_HISTORY_HOURS);
+                for (size_t h = 0; h < VALOR_HISTORY_HOURS; h++) {
+                    if (all_pts[h].valid) {
+                        printf("[HISTORY] H%u,HR=%.1f,SPO2=%.1f,RMSSD=%.1f,NEWS2=%u,PM25=%.1f\n",
+                               (unsigned)all_pts[h].hour_offset,
+                               all_pts[h].avg_hr, all_pts[h].avg_spo2, all_pts[h].avg_rmssd,
+                               all_pts[h].max_news2, all_pts[h].peak_pm25);
+                    }
+                }
+                fflush(stdout);
+            }
         }
 
         /* 3. Render the OLED: the emergency card replaces the dashboard
@@ -1625,7 +1696,21 @@ static void task_disaster_monitor(void *pvParameters) {
             ssd1306_update(&s_ssd1306);
         }
 
+#if defined(CONFIG_SHRIKEFI_SOS_CANCEL_GPIO) && CONFIG_SHRIKEFI_SOS_CANCEL_GPIO >= 0
+        for (int i = 0; i < 20; i++) {
+            uint32_t tick_ms = (uint32_t)(esp_timer_get_time() / 1000);
+            /* Active low. 30ms debounce implicitly handled by polling at 50ms intervals. */
+            if (gpio_get_level(CONFIG_SHRIKEFI_SOS_CANCEL_GPIO) == 0) {
+                sos_cancel_press(tick_ms);
+                sos_update(tick_ms, triage_level == (int)CLINICAL_CRITICAL, contact_present);
+            } else {
+                sos_cancel_release();
+            }
+            vTaskDelay(pdMS_TO_TICKS(50));
+        }
+#else
         vTaskDelay(pdMS_TO_TICKS(1000)); // 1 Hz assessment rate
+#endif
     }
 }
 
@@ -1780,6 +1865,18 @@ void app_main(void) {
     gpio_set_pull_mode(14, GPIO_PULLUP_ONLY); // Prevent floating noise when sensor disconnected
     uart_driver_install(UART_NUM_1, 1024, 0, 0, NULL, 0);
 
+#if defined(CONFIG_SHRIKEFI_SOS_CANCEL_GPIO) && CONFIG_SHRIKEFI_SOS_CANCEL_GPIO >= 0
+    gpio_config_t btn_cfg = {
+        .pin_bit_mask = (1ULL << CONFIG_SHRIKEFI_SOS_CANCEL_GPIO),
+        .mode = GPIO_MODE_INPUT,
+        .pull_up_en = GPIO_PULLUP_ENABLE,
+        .pull_down_en = GPIO_PULLDOWN_DISABLE,
+        .intr_type = GPIO_INTR_DISABLE
+    };
+    gpio_config(&btn_cfg);
+    ESP_LOGI(TAG, "SOS hardware cancel button configured on GPIO%d", CONFIG_SHRIKEFI_SOS_CANCEL_GPIO);
+#endif
+
     /* Spawn Dual-Core FreeRTOS Tasks.
      *
      * Stack sizes are not arbitrary. task_disaster_monitor alone puts roughly
@@ -1805,6 +1902,18 @@ void app_main(void) {
     xTaskCreatePinnedToCore(task_ppg_accelerator, "PPG_Accel",    7168, NULL, 5, NULL, 0); // Core 0
     xTaskCreatePinnedToCore(task_disaster_monitor, "Risk_Monitor", 10240, NULL, 2, NULL, 1); // Core 1
     xTaskCreatePinnedToCore(task_pms5003_uart, "PMS5003_UART",     4096, NULL, 3, NULL, 1); // Core 1
+
+    ESP_LOGI(TAG, "Task Affinities Configured:");
+    ESP_LOGI(TAG, " - PPG_Accel (Acquisition): Core 0");
+    ESP_LOGI(TAG, " - Risk_Monitor (Processing): Core 1");
+    ESP_LOGI(TAG, " - PMS5003_UART: Core 1");
+#if defined(CONFIG_ESP_WIFI_TASK_PINNED_TO_CORE_1) || (defined(CONFIG_ESP_WIFI_TASK_PINNED_TO_CORE) && CONFIG_ESP_WIFI_TASK_PINNED_TO_CORE == 1)
+    ESP_LOGI(TAG, " - Wi-Fi Driver: Core 1");
+#else
+    ESP_LOGI(TAG, " - Wi-Fi Driver: Core 0 (WARNING: May jitter PPG timing)");
+#endif
+    ESP_LOGI(TAG, " - TCP/IP (lwIP): Core 1");
+    ESP_LOGI(TAG, " - HTTPD Web Server: Core 1");
 }
 #endif
 
@@ -1979,6 +2088,95 @@ int main(void) {
     float aha_strain = disaster_calculate_aha_autonomic_strain(125.0f, 14.0f);
     printf("  [AHA Statement] PM2.5-HRV Autonomic Strain: %.2f / 1.0 (PM2.5: 125 ug/m3, RMSSD: 14 ms) -> %s\n",
            aha_strain, (aha_strain >= 0.70f) ? "SEVERE AUTONOMIC DEPRESSION ALERT" : "NORMAL");
+
+    /* Profile 7: SOS Cancel via Button */
+    printf("\nHost Test - SOS Cancel via Button:\n");
+    sos_init(NULL);
+    sos_manual_trigger(1000);
+    printf("  [SOS Button] Triggered manual emergency. State: %s\n", sos_state_name(sos_get_state()));
+    sos_cancel_press(2000);
+    sos_update(2000 + 2500, false, true);
+    printf("  [SOS Button] Held for 2.5s (Progress: %u%%). State: %s\n", sos_cancel_progress_pct(4500), sos_state_name(sos_get_state()));
+    sos_update(2000 + 5000, false, true);
+    printf("  [SOS Button] Held for 5.0s (Progress: %u%%). State: %s\n", sos_cancel_progress_pct(7000), sos_state_name(sos_get_state()));
+
+    /* Profile 8: Requirement 7 — 24-Hour Rolling Health History and Trends */
+    printf("\nHost Test - Requirement 7: 24-Hour Rolling Health History & Trends:\n");
+    web_status_history_init();
+    valor_status_t sim_stat = {
+        .hr = 74.0f,
+        .spo2 = 98.0f,
+        .rmssd = 45.0f,
+        .pm25 = 18.0f,
+        .news2 = 1,
+        .contact = true,
+        .uptime_s = 100
+    };
+    web_status_publish(&sim_stat);
+
+    /* Simulate 1 hour later with moderate hypoxia & smoke spike */
+    sim_stat.hr = 105.0f;
+    sim_stat.spo2 = 91.0f;
+    sim_stat.rmssd = 22.0f;
+    sim_stat.pm25 = 85.0f;
+    sim_stat.news2 = 4;
+    sim_stat.uptime_s = 3705;
+    web_status_publish(&sim_stat);
+
+    char hist_json[2048];
+    size_t hist_len = web_status_history_json(hist_json, sizeof(hist_json));
+    printf("  [History JSON] Serialized %zu bytes across 24 hourly slots\n", hist_len);
+    printf("  [Sample Trend] %.*s ...]\n", 130, hist_json);
+
+    /* Profile 9: Sustained Tachycardia Acceptance & IBI Pipeline Verification */
+    printf("\nHost Test - Profile 9: Sustained Tachycardia Acceptance & IBI Pipeline:\n");
+    ibi_pipeline_t tachy_pipe;
+    ibi_pipeline_reset(&tachy_pipe);
+    hrv_state_t tachy_hrv;
+    hrv_init(&tachy_hrv);
+
+    /* Sequence of 350 ms intervals (171.4 BPM) */
+    float tachy_ibi = 350.0f;
+    int tachy_accepted = 0;
+    for (int i = 0; i < 12; i++) {
+        bool ok = ibi_pipeline_submit(&tachy_pipe, &tachy_hrv, IBI_SRC_FPGA, tachy_ibi);
+        if (ok) {
+            tachy_accepted++;
+            float inst_hr = 60000.0f / tachy_ibi;
+            g_state.r_peak_interval_ms = tachy_ibi;
+            g_state.heart_rate = (g_state.heart_rate > 30.0f) ?
+                                 (0.70f * g_state.heart_rate + 0.30f * inst_hr) : inst_hr;
+        }
+    }
+    printf("  [Tachycardia Stimulus] 12 beats @ %.0f ms (%.1f BPM) -> Accepted: %d (after %d priming beats)\n",
+           tachy_ibi, 60000.0f / tachy_ibi, tachy_accepted, IBI_PRIME_N);
+    printf("  [Pipeline State]       g_state.heart_rate = %.1f BPM (Ceiling unblocked: %s)\n",
+           g_state.heart_rate, (g_state.heart_rate > 150.0f) ? "YES" : "NO");
+
+    /* Clinical assessment for this tachycardia */
+    clinical_assessment_t tachy_triage;
+    clinical_vitals_assess(g_state.heart_rate, 96.0f, 15.0f, &tachy_triage);
+    printf("  [Clinical Assessment]  Risk Level: %s | Flags: 0x%02X (%s) | NEWS2 Score: %u\n",
+           risk_level_to_string((risk_level_t)tachy_triage.level),
+           tachy_triage.alert_flags,
+           (tachy_triage.alert_flags & ALERT_TACHYCARDIA) ? "TACHYCARDIA" : "NONE",
+           tachy_triage.news2_score);
+
+    /* Also verify zero-SQI warmup holding in clinical triage */
+    clinical_assessment_t warmup_triage;
+    clinical_vitals_assess_full(165.0f, 82.0f, 8.0f, 32.0f, 0.0f, &warmup_triage);
+    printf("  [Sensor Warmup Check]  SQI=0.0 Holds Crisis Triage: %s | Status: %s\n",
+           (warmup_triage.alert_flags & ALERT_SIGNAL_NOISE) ? "YES" : "NO", warmup_triage.advisory);
+
+    if (tachy_accepted == 0 || g_state.heart_rate <= 150.0f) {
+        printf("  [FAIL] Tachycardia failed acceptance or HR did not exceed 150 BPM!\n");
+        return 1;
+    }
+    if ((warmup_triage.alert_flags & ALERT_SIGNAL_NOISE) == 0) {
+        printf("  [FAIL] Zero-SQI failed to hold triage!\n");
+        return 1;
+    }
+    printf("  [PASS] Profile 9 Tachycardia Acceptance & Zero-SQI Warmup Succeeded!\n");
 
     printf("\n>>> ShrikeFi Host Test Completed Successfully <<<\n");
     return 0;

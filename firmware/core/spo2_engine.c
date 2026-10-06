@@ -61,9 +61,9 @@ void spo2_add_samples(spo2_state_t *state, uint32_t red_filtered,
         /* 2*sqrt(2)*sigma is the peak-to-peak of an equivalent sinusoid. Both
          * channels use the same estimator, so their RATIO - which is all R is -
          * stays unbiased and the calibration curve below still applies. */
-        const double PP_FROM_SIGMA = 2.0 * 1.4142135623730951;
-        float red_ac = (float)(PP_FROM_SIGMA * sqrt(red_var));
-        float ir_ac  = (float)(PP_FROM_SIGMA * sqrt(ir_var));
+        const float PP_FROM_SIGMA = 2.0f * 1.41421356f;
+        float red_ac = PP_FROM_SIGMA * sqrtf((float)red_var);
+        float ir_ac  = PP_FROM_SIGMA * sqrtf((float)ir_var);
         float red_dc = (float)red_mean;
         float ir_dc  = (float)ir_mean;
 

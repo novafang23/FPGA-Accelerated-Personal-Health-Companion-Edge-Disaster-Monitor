@@ -20,6 +20,23 @@
 
 static valor_status_t s_snap;
 
+/* ------------------------------------------------------------------------- */
+/* 24-Hour Rolling History (Requirement 7 / T3.2)                            */
+/* ------------------------------------------------------------------------- */
+
+static valor_history_point_t s_history[VALOR_HISTORY_HOURS];
+static uint32_t s_last_hour_s = 0;
+static bool     s_last_hour_init = false;
+static uint32_t s_accum_count = 0;
+static float    s_accum_hr = 0.0f;
+static float    s_accum_spo2 = 0.0f;
+static float    s_accum_rmssd = 0.0f;
+static float    s_accum_pm25 = 0.0f;
+static unsigned s_accum_news2 = 0;
+static bool     s_history_initialized = false;
+
+static void history_feed_locked(const valor_status_t *s);
+
 #ifdef ESP_PLATFORM
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
@@ -36,6 +53,7 @@ void web_status_publish(const valor_status_t *s) {
     if (!s) return;
     WS_LOCK();
     s_snap = *s;
+    history_feed_locked(s);
     WS_UNLOCK();
 }
 
@@ -118,12 +136,23 @@ size_t web_status_json(const valor_status_t *s, char *buf, size_t cap) {
     if (!json_append_format(
         buf, cap, &used,
         "{\"hr\":%.1f,\"spo2\":%.1f,\"rr\":%.1f,\"sqi\":%.2f,\"rmssd\":%.1f,"
-        "\"temp\":%.1f,\"hum\":%.1f,\"pm25\":%.1f,"
+        "\"temp\":%.1f,",
+        (double)s->hr, (double)s->spo2, (double)s->rr, (double)s->sqi,
+        (double)s->rmssd, (double)s->temp)) return 0;
+
+    if (s->hum < 0.0f) {
+        if (!json_append(buf, cap, &used, "\"hum\":null,", 11)) return 0;
+    } else {
+        if (!json_append_format(buf, cap, &used, "\"hum\":%.1f,", (double)s->hum)) return 0;
+    }
+
+    if (!json_append_format(
+        buf, cap, &used,
+        "\"pm25\":%.1f,"
         "\"pressure\":%.1f,\"ptrend\":%.2f,"
         "\"news2\":%u,\"level\":%u,\"flags\":%u,"
         "\"risk\":",
-        (double)s->hr, (double)s->spo2, (double)s->rr, (double)s->sqi,
-        (double)s->rmssd, (double)s->temp, (double)s->hum, (double)s->pm25,
+        (double)s->pm25,
         (double)s->pressure_hpa, (double)s->pressure_trend_hpa_per_hr,
         s->news2, s->level, s->flags)) return 0;
     if (!json_append_string(buf, cap, &used, s->risk ? s->risk : "UNKNOWN") ||
@@ -139,6 +168,161 @@ size_t web_status_json(const valor_status_t *s, char *buf, size_t cap) {
                             s->contact ? "true" : "false", (unsigned long)s->uptime_s)) {
         return 0;
     }
+    return used;
+}
+
+/* ------------------------------------------------------------------------- */
+/* 24-Hour History Implementation                                             */
+/* ------------------------------------------------------------------------- */
+
+void web_status_history_init(void) {
+    WS_LOCK();
+    for (size_t i = 0; i < VALOR_HISTORY_HOURS; i++) {
+        s_history[i].hour_offset = (uint32_t)i;
+        s_history[i].avg_hr = 0.0f;
+        s_history[i].avg_spo2 = 0.0f;
+        s_history[i].avg_rmssd = 0.0f;
+        s_history[i].peak_pm25 = 0.0f;
+        s_history[i].max_news2 = 0;
+        s_history[i].valid = false;
+    }
+    s_last_hour_s = 0;
+    s_last_hour_init = false;
+    s_accum_count = 0;
+    s_accum_hr = 0.0f;
+    s_accum_spo2 = 0.0f;
+    s_accum_rmssd = 0.0f;
+    s_accum_pm25 = 0.0f;
+    s_accum_news2 = 0;
+    s_history_initialized = true;
+    WS_UNLOCK();
+}
+
+static void history_feed_locked(const valor_status_t *s) {
+    if (!s_history_initialized) {
+        for (size_t i = 0; i < VALOR_HISTORY_HOURS; i++) {
+            s_history[i].hour_offset = (uint32_t)i;
+            s_history[i].avg_hr = 0.0f;
+            s_history[i].avg_spo2 = 0.0f;
+            s_history[i].avg_rmssd = 0.0f;
+            s_history[i].peak_pm25 = 0.0f;
+            s_history[i].max_news2 = 0;
+            s_history[i].valid = false;
+        }
+        s_history_initialized = true;
+    }
+
+    if (!s_last_hour_init) {
+        s_last_hour_s = s->uptime_s;
+        s_last_hour_init = true;
+    }
+
+    /* Accumulate vitals when tissue contact is present */
+    if (s->contact && s->hr >= 30.0f && s->hr <= 240.0f) {
+        s_accum_hr += s->hr;
+        s_accum_spo2 += s->spo2;
+        s_accum_rmssd += s->rmssd;
+        s_accum_count++;
+        if (s->news2 > s_accum_news2) {
+            s_accum_news2 = s->news2;
+        }
+    }
+    if (s->pm25 > s_accum_pm25) {
+        s_accum_pm25 = s->pm25;
+    }
+
+    /* Check if 1 hour (3600 seconds) has elapsed to shift the rolling window */
+    while (s->uptime_s >= s_last_hour_s + 3600) {
+        for (int i = VALOR_HISTORY_HOURS - 1; i > 0; i--) {
+            s_history[i] = s_history[i - 1];
+            s_history[i].hour_offset = (uint32_t)i;
+        }
+        s_history[0].hour_offset = 0;
+        if (s_accum_count > 0) {
+            s_history[0].avg_hr = s_accum_hr / (float)s_accum_count;
+            s_history[0].avg_spo2 = s_accum_spo2 / (float)s_accum_count;
+            s_history[0].avg_rmssd = s_accum_rmssd / (float)s_accum_count;
+            s_history[0].peak_pm25 = s_accum_pm25;
+            s_history[0].max_news2 = s_accum_news2;
+            s_history[0].valid = true;
+        } else {
+            s_history[0].avg_hr = 0.0f;
+            s_history[0].avg_spo2 = 0.0f;
+            s_history[0].avg_rmssd = 0.0f;
+            s_history[0].peak_pm25 = s_accum_pm25;
+            s_history[0].max_news2 = 0;
+            s_history[0].valid = (s_accum_pm25 > 0.0f);
+        }
+        s_last_hour_s += 3600;
+        s_accum_count = 0;
+        s_accum_hr = 0.0f;
+        s_accum_spo2 = 0.0f;
+        s_accum_rmssd = 0.0f;
+        s_accum_pm25 = 0.0f;
+        s_accum_news2 = 0;
+        
+        /* Prevent infinite loop on massive jumps (e.g. sleep/wake) */
+        if (s->uptime_s >= s_last_hour_s + (3600 * VALOR_HISTORY_HOURS)) {
+            s_last_hour_s = s->uptime_s;
+            break;
+        }
+    }
+
+    /* Update slot 0 live with running averages for the current hour */
+    s_history[0].hour_offset = 0;
+    if (s_accum_count > 0) {
+        s_history[0].avg_hr = s_accum_hr / (float)s_accum_count;
+        s_history[0].avg_spo2 = s_accum_spo2 / (float)s_accum_count;
+        s_history[0].avg_rmssd = s_accum_rmssd / (float)s_accum_count;
+        s_history[0].peak_pm25 = s_accum_pm25;
+        s_history[0].max_news2 = s_accum_news2;
+        s_history[0].valid = true;
+    } else if (s->contact && s->hr >= 30.0f) {
+        s_history[0].avg_hr = s->hr;
+        s_history[0].avg_spo2 = s->spo2;
+        s_history[0].avg_rmssd = s->rmssd;
+        s_history[0].peak_pm25 = s->pm25;
+        s_history[0].max_news2 = s->news2;
+        s_history[0].valid = true;
+    }
+}
+
+void web_status_history_snapshot(valor_history_point_t *out, size_t max_points) {
+    if (!out || max_points == 0) return;
+    WS_LOCK();
+    size_t n = (max_points < VALOR_HISTORY_HOURS) ? max_points : VALOR_HISTORY_HOURS;
+    for (size_t i = 0; i < n; i++) {
+        out[i] = s_history[i];
+    }
+    WS_UNLOCK();
+}
+
+size_t web_status_history_json(char *buf, size_t cap) {
+    if (!buf || cap < 4) return 0;
+    size_t used = 0;
+
+    WS_LOCK();
+    if (!json_append(buf, cap, &used, "[", 1)) { WS_UNLOCK(); return 0; }
+
+    for (size_t i = 0; i < VALOR_HISTORY_HOURS; i++) {
+        const valor_history_point_t *p = &s_history[i];
+        if (i > 0) {
+            if (!json_append(buf, cap, &used, ",", 1)) { WS_UNLOCK(); return 0; }
+        }
+        if (!json_append_format(buf, cap, &used,
+                                "{\"hour\":%u,\"hr\":%.1f,\"spo2\":%.1f,\"rmssd\":%.1f,"
+                                "\"pm25\":%.1f,\"news2\":%u,\"valid\":%s}",
+                                (unsigned)p->hour_offset,
+                                p->avg_hr, p->avg_spo2, p->avg_rmssd,
+                                p->peak_pm25, p->max_news2,
+                                p->valid ? "true" : "false")) {
+            WS_UNLOCK();
+            return 0;
+        }
+    }
+
+    if (!json_append(buf, cap, &used, "]", 1)) { WS_UNLOCK(); return 0; }
+    WS_UNLOCK();
     return used;
 }
 
@@ -298,6 +482,18 @@ static esp_err_t h_json(httpd_req_t *req) {
     return httpd_resp_send(req, buf, (ssize_t)n);
 }
 
+static esp_err_t h_history(httpd_req_t *req) {
+    static char buf[2048];
+    size_t n = web_status_history_json(buf, sizeof(buf));
+    if (n == 0) {
+        return httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "history json format failed");
+    }
+    httpd_resp_set_type(req, "application/json");
+    httpd_resp_set_hdr(req, "Cache-Control", "no-store");
+    httpd_resp_set_hdr(req, "Access-Control-Allow-Origin", "*");
+    return httpd_resp_send(req, buf, (ssize_t)n);
+}
+
 static bool location_request_is_same_origin(httpd_req_t *req) {
     char origin[48];
     return httpd_req_get_hdr_value_str(req, "Origin", origin, sizeof(origin)) == ESP_OK &&
@@ -420,7 +616,8 @@ esp_err_t web_status_start(void) {
 
     httpd_config_t hcfg = HTTPD_DEFAULT_CONFIG();
     hcfg.lru_purge_enable = true;
-    hcfg.max_uri_handlers = 6;
+    hcfg.max_uri_handlers = 8;
+    hcfg.core_id = 1;
     err = httpd_start(&s_server, &hcfg);
     if (err != ESP_OK) {
         ESP_LOGE(TAG, "httpd_start failed (%s); AP is up but has no page", esp_err_to_name(err));
@@ -431,9 +628,13 @@ esp_err_t web_status_start(void) {
     httpd_uri_t uri_root = { .uri = "/",            .method = HTTP_GET, .handler = h_root };
     httpd_uri_t uri_json = { .uri = "/status.json", .method = HTTP_GET, .handler = h_json };
     httpd_uri_t uri_loc  = { .uri = "/location",    .method = HTTP_POST, .handler = h_set_location };
+    httpd_uri_t uri_hist = { .uri = "/history.json",.method = HTTP_GET, .handler = h_history };
+    httpd_uri_t uri_api  = { .uri = "/api/history", .method = HTTP_GET, .handler = h_history };
     httpd_register_uri_handler(s_server, &uri_root);
     httpd_register_uri_handler(s_server, &uri_json);
     httpd_register_uri_handler(s_server, &uri_loc);
+    httpd_register_uri_handler(s_server, &uri_hist);
+    httpd_register_uri_handler(s_server, &uri_api);
     httpd_register_err_handler(s_server, HTTPD_404_NOT_FOUND, h_404);
 
     s_ap_active = true;

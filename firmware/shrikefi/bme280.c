@@ -262,11 +262,11 @@ int bme280_read(bme280_t *dev, bme280_data_t *data) {
     data->pressure_hpa  = bme280_compensate_pressure(dev, adc_P);
 
     if (dev->is_bmp280) {
-        data->humidity_pct = 50.0f; /* Nominal humidity fallback for BMP280 */
+        data->humidity_pct = -1.0f; /* Invalid humidity fallback for BMP280 */
     } else {
         int32_t adc_H = ((int32_t)buf[6] << 8) | (int32_t)buf[7];
         if (adc_H == 0x8000) {
-            data->humidity_pct = 50.0f;
+            data->humidity_pct = -1.0f;
         } else {
             data->humidity_pct  = bme280_compensate_humidity(dev, adc_H);
         }
@@ -361,7 +361,7 @@ int bme280_read_normal(bme280_t *dev, bme280_data_t *data) {
     data->pressure_hpa  = bme280_compensate_pressure(dev, adc_P);
 
     if (dev->is_bmp280) {
-        data->humidity_pct = 50.0f;
+        data->humidity_pct = -1.0f;
     } else {
         int32_t adc_H = ((int32_t)buf[6] << 8) | (int32_t)buf[7];
         data->humidity_pct  = bme280_compensate_humidity(dev, adc_H);
