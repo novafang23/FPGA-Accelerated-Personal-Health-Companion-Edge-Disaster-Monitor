@@ -78,6 +78,6 @@
 
 **Purpose**: Documentation synchronization and review alignment.
 
-- [ ] T020 Review all items in [`checklists/hardware.md`](file:///C:/Users/abhin\OneDrive\Desktop\verilog\specs\001-ppg-systolic-detector\checklists\hardware.md) for requirements quality sign-off
+- [x] T020 Review all items in [`checklists/hardware.md`](file:///C:/Users/abhin/OneDrive/Desktop/verilog/specs/001-ppg-systolic-detector/checklists/hardware.md) for requirements quality sign-off
 - [x] T021 [P] Ensure `docs/HARDWARE_ARCHITECTURE.md` and `docs/SHRIKEFI_LINK_PROTOCOL.md` stay synchronized with RTL register maps
 - [x] T022 [P] Audit C firmware link driver (`firmware/shrikefi/shrikefi_link_driver.c`) with `c-firmware-safety` for single-precision FPU and mutex safety

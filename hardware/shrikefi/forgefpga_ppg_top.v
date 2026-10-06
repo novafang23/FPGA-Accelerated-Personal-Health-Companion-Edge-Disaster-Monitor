@@ -155,7 +155,7 @@ module forgefpga_ppg_top #(
     end
 
     // -------------------------------------------------------------------------
-    // 5. Observable Output: Pulse Stretcher for User LED (Pin 16)
+    // 5. Observable Output: Pulse Stretcher for User LED (Package PIN_7 / Macro GPIO16)
     // -------------------------------------------------------------------------
     // Hardware Circuit is Active-HIGH (Schematic Sheet 5: Pin 7 -> R16 -> D12 Anode -> GND):
     //   1'b0 = Pin LOW  (0.0V) -> LED is OFF (Dark between heartbeats)

@@ -1861,8 +1861,8 @@ void app_main(void) {
         .source_clk = UART_SCLK_DEFAULT,
     };
     uart_param_config(UART_NUM_1, &uart_cfg);
-    uart_set_pin(UART_NUM_1, 18, 14, UART_PIN_NO_CHANGE, UART_PIN_NO_CHANGE);
-    gpio_set_pull_mode(14, GPIO_PULLUP_ONLY); // Prevent floating noise when sensor disconnected
+    uart_set_pin(UART_NUM_1, PIN_PMS5003_TX, PIN_PMS5003_RX, UART_PIN_NO_CHANGE, UART_PIN_NO_CHANGE);
+    gpio_set_pull_mode((gpio_num_t)PIN_PMS5003_RX, GPIO_PULLUP_ONLY); // Prevent floating noise when sensor disconnected
     uart_driver_install(UART_NUM_1, 1024, 0, 0, NULL, 0);
 
 #if defined(CONFIG_SHRIKEFI_SOS_CANCEL_GPIO) && CONFIG_SHRIKEFI_SOS_CANCEL_GPIO >= 0

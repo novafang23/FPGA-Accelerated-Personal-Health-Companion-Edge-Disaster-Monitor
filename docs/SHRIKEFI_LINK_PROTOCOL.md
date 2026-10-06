@@ -23,7 +23,7 @@ detector, and the whole interface is one byte in each direction.
 
 > **WARNING — 3.3 V ONLY.** Every I/O pin on both the ESP32-S3 and the ForgeFPGA
 > is 3.3 V LVCMOS. Applying 5 V to any GPIO permanently destroys the IC. 5 V is
-> used only for the PMSA003 sensor's VCC rail, sourced from USB VBUS.
+> used only for the PMS5003 sensor's VCC rail, sourced from USB VBUS.
 
 ## 2. Physical interface and pin assignment
 

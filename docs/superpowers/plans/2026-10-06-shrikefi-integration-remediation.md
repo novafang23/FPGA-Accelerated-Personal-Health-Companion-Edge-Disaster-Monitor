@@ -165,13 +165,13 @@ void shrikefi_link_reset_beat_tracking(void) {
 - Consumes: `ibi_pipeline_submit(ibi_pipeline_t *p, hrv_state_t *hrv, int source, float ibi_ms)`
 - Produces: `g_state.heart_rate` valid up to 220 BPM; `IBI_MIN_MS = 272.0f`.
 
-- [ ] **Step 1: Write host test for tachycardia acceptance**
+- [x] **Step 1: Write host test for tachycardia acceptance**
 Add test case in `main_shrikefi.c` (`#ifndef ESP_PLATFORM`) verifying that a sequence of 350 ms intervals (171 BPM) passes through `ibi_pipeline_submit()`, yields `verdict = "ok"`, and computes `inst_hr > 150`.
-- [ ] **Step 2: Update `IBI_MIN_MS` to `272.0f` and `p->prime_count = 0` on escape**
+- [x] **Step 2: Update `IBI_MIN_MS` to `272.0f` and `p->prime_count = 0` on escape**
 Apply changes to [`main_shrikefi.c`](file:///C:/Users/abhin/OneDrive/Desktop/verilog/firmware/shrikefi/main_shrikefi.c).
-- [ ] **Step 3: Compile and run host tests**
+- [x] **Step 3: Compile and run host tests**
 Run: `gcc -O2 -Wall -I. -I../core -o shrikefi_host.exe main_shrikefi.c ../core/hrv_analysis.c ../core/spo2_engine.c ../core/disaster_risk_engine.c ../core/nn_risk_model.c ../core/nn_risk_model_int8.c ../core/pm25_calibration_int8.c ../core/clinical_vitals_engine.c ../core/ppg_respiratory_rate.c ../core/ppg_sqi.c ../core/pressure_trend.c sos.c location.c web_status.c shrikefi_link_driver.c -lm && ./shrikefi_host.exe`
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 `git commit -am "fix(firmware): lower IBI_MIN_MS to 272ms to unblock clinical tachycardia"`
 
 ---
@@ -186,11 +186,11 @@ Run: `gcc -O2 -Wall -I. -I../core -o shrikefi_host.exe main_shrikefi.c ../core/h
 - Consumes: `clinical_vitals_assess_full(float hr, float spo2, float rmssd, float rr, float sqi, clinical_assessment_t *out)`
 - Produces: `CLINICAL_CRITICAL` when $HR \ge 150$; holds triage with `"SENSOR WARMUP"` when $SQI == 0.0$.
 
-- [ ] **Step 1: Update SQI evaluation in `clinical_vitals_engine.c`**
+- [x] **Step 1: Update SQI evaluation in `clinical_vitals_engine.c`**
 Modify lines 129–134 so that `out->sqi == 0.0f` returns warmup status unconditionally.
-- [ ] **Step 2: Verify existing Profile 3 and Profile 4 clinical benchmarks**
+- [x] **Step 2: Verify existing Profile 3 and Profile 4 clinical benchmarks**
 Run host test suite and verify all ICU emergency and motion artifact assertions pass.
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 `git commit -am "fix(clinical): harden SQI warmup gate and verify critical tachycardia alerts"`
 
 ---
@@ -206,13 +206,13 @@ Run host test suite and verify all ICU emergency and motion artifact assertions 
 - Produces: `void shrikefi_link_reset_beat_tracking(void);`
 - Consumes: Called in `main_shrikefi.c` whenever `!optical_contact`.
 
-- [ ] **Step 1: Declare and implement `shrikefi_link_reset_beat_tracking`**
+- [x] **Step 1: Declare and implement `shrikefi_link_reset_beat_tracking`**
 Add declaration in `shrikefi_link_driver.h` and implementation in `shrikefi_link_driver.c`.
-- [ ] **Step 2: Call reset in `main_shrikefi.c` and fix comment at line 731**
+- [x] **Step 2: Call reset in `main_shrikefi.c` and fix comment at line 731**
 Call `shrikefi_link_reset_beat_tracking()` in finger removal block. Correct line 731 comment.
-- [ ] **Step 3: Compile and run host tests**
+- [x] **Step 3: Compile and run host tests**
 Verify build succeeds with zero compiler warnings.
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 `git commit -am "fix(driver): reset beat timing on touch disconnect and clarify SPI comments"`
 
 ---
@@ -223,12 +223,12 @@ Verify build succeeds with zero compiler warnings.
 - Modify: [`hardware/shrikefi/shrikefi_sim.gtkw`](file:///C:/Users/abhin/OneDrive/Desktop/verilog/hardware/shrikefi/shrikefi_sim.gtkw)
 - Modify: [`hardware/shrikefi/presentation.gtkw`](file:///C:/Users/abhin/OneDrive/Desktop/verilog/hardware/shrikefi/presentation.gtkw)
 
-- [ ] **Step 1: Re-structure GTKWave signal groups for SPI link**
+- [x] **Step 1: Re-structure GTKWave signal groups for SPI link**
 Update `shrikefi_sim.gtkw` and `presentation.gtkw` to reference `tb_forgefpga_system.spi_*` signals.
-- [ ] **Step 2: Run Verilog RTL simulation**
+- [x] **Step 2: Run Verilog RTL simulation**
 Run: `iverilog -o sim_shrikefi.vvp -s tb_forgefpga_system tb_forgefpga_system.v forgefpga_ppg_top.v spi_target.v ../common/moving_average_8tap.v ../common/ppg_peak_detector.v && vvp sim_shrikefi.vvp`
 Verify 10/10 tests pass and `shrikefi_sim.vcd` is generated.
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 `git commit -am "chore(sim): update GTKWave save files for 8-bit SPI mode 0 signals"`
 
 ---
@@ -239,9 +239,9 @@ Verify 10/10 tests pass and `shrikefi_sim.vcd` is generated.
 - Modify: [`docs/MIGRATION.md`](file:///C:/Users/abhin/OneDrive/Desktop/verilog/docs/MIGRATION.md)
 - Modify: [`docs/SHRIKEFI_LINK_PROTOCOL.md`](file:///C:/Users/abhin/OneDrive/Desktop/verilog/docs/SHRIKEFI_LINK_PROTOCOL.md)
 
-- [ ] **Step 1: Synchronize timing and resource documentation**
+- [x] **Step 1: Synchronize timing and resource documentation**
 Align timing rows in comparison table with ~10 ms SPI sampling reality; re-verify 363 LUT5 utilization citations.
-- [ ] **Step 2: Commit**
+- [x] **Step 2: Commit**
 `git commit -am "docs(migration): align timing resolution specifications and resource tables"`
 
 ---
