@@ -7,6 +7,7 @@ agent/
 skills-lock.json
 data/skills/
 .planning/
+.superpowers/
 
 # ── Code-graph / review tooling output ───────────────────────
 # graphify emits a multi-MB self-contained graph.html; the TypeSafe/Jev bridge
