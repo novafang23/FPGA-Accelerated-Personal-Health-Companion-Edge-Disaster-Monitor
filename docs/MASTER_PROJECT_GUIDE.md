@@ -96,7 +96,7 @@ That is not a performance problem you can optimise away. It is a *category* prob
 | HRV usable? | Only for very large variations | **Yes, down to single milliseconds** |
 
 > [!IMPORTANT]
-> **Say this out loud:** "Our HRV is only valid because the *beat detection* happens in hardware. In software, detection would be quantised to the 10 ms scheduler tick and jittered by the Wi-Fi stack — error larger than the signal. The FPGA finds the crest in synchronous logic with no scheduler in the loop, and the interval between those hardware-set flags is then timed by a 1 µs hardware timer on the MCU."
+> **Say this out loud:** "Our HRV is only valid because the *beat detection* happens in hardware. In software, detection would be quantised to the 10 ms scheduler tick. Wi-Fi shares Core 1, and the FPGA exposes a beat flag for the MCU to read. The MCU then reads the flag and its own 1 µs hardware timer."
 
 ### Why can't the FPGA do it alone?
 
@@ -661,7 +661,7 @@ Together with the NOAA heat index, these are what let VALOR say *"stop exerting 
 
 **Analogy:** you're packing a suitcase with a strict weight limit. You *could* bring 32-bit precision for everything. But if you convert every item into a compact travel version that's 4× smaller and works just as well for the trip, you fit **four times as much** in the same bag.
 
-Quantization shrinks each 32-bit float to an 8-bit integer. Our **619 parameters become 619 bytes** — about the size of a tweet — and a full forward pass is **576 multiply-accumulates** (6×24 + 24×16 + 16×3 = 144 + 384 + 48).
+Quantization shrinks each 32-bit float weight to an 8-bit integer for storage. Our **619 parameters become 619 bytes** — about the size of a tweet — and a full forward pass is **576 float multiply-accumulates on the FPU** (6×24 + 24×16 + 16×3 = 144 + 384 + 48).
 
 > [!NOTE]
 > **Two different numbers, two different things.** 619 is the *storage* count (weights + biases, one byte each). 576 is the *arithmetic* count (one MAC per weight, biases added free). Quote whichever the question is about — "619 parameters" for memory, "576 int8 MACs" for compute. Measured inference time is **0.44 µs on an x86-64 host at `-O2`**; the ESP32-S3 figure has **not** been measured, so do not quote 0.44 µs as an on-device number.
@@ -684,7 +684,7 @@ real_value ≈ scale × (integer − zero_point)
 | Tensor | Scheme | Zero-point | Reasoning |
 |---|---|---|---|
 | Weights | **Symmetric** | 0 | Weights are roughly centred on zero; symmetry saves a term |
-| Activations | **Asymmetric (uint8)** | 0–255 | ReLU outputs are ≥ 0, so the range is one-sided — an asymmetric map fits it better |
+| Activations | **Float32 (dequantised)** | Float | Inputs are multiplied as floats. What is int8 is the stored weights. |
 
 **Measured fidelity** (this is the number that matters, and the C unit test enforces it):
 
@@ -713,7 +713,7 @@ A tiny INT8 network learns the correction from the sensor's own humidity and tem
 | | Before (FP32) | After (INT8) |
 |---|---|---|
 | Parameter storage | 2,476 bytes | **619 bytes** |
-| Arithmetic | Float multiply | Integer multiply-accumulate |
+| Arithmetic | Float multiply | int8 weight storage, float math on the FPU |
 | Target support | Needs FPU | Native on ESP32-S3 / any MCU |
 | Accuracy cost | — | ~0.008 mean error, 97.3 % tier agreement |
 
@@ -721,7 +721,7 @@ A tiny INT8 network learns the correction from the sensor's own humidity and tem
 > **Note the honesty here:** the INT8 kernel stores weights as bytes but **dequantises to float for the multiply-accumulate.** So "619 bytes" describes *storage*, not a float-free compute core. Older decks claimed "zero floating point in core" — that is not accurate and should not be repeated.
 
 > [!TIP]
-> **Judge Defence Tip:** for "why INT8?", answer in one breath: "619 bytes of storage, integer MACs, 97% tier agreement with the float model, enforced by a unit test with a hard error budget." Numbers, not adjectives.
+> **Judge Defence Tip:** for "why INT8?", answer in one breath: "619 bytes of storage, float math on the FPU, 97% tier agreement with the float model, enforced by a unit test with a hard error budget." Numbers, not adjectives.
 
 ---
 
@@ -796,7 +796,7 @@ A standalone Win32 GDI application — no Python, no browser, no dependencies. I
 **Q1. "Why did you use an FPGA when the ESP32-S3 has two 160 MHz cores?"**
 
 - **Elevator:** "Because the measurement we need is smaller than the timing error a software timestamp would introduce."
-- **Technical:** "HRV needs beat-to-beat intervals accurate to a few milliseconds. If the ESP32 timestamped beats inside a FreeRTOS task, the reading would be quantised to the 10 ms scheduler tick *plus* whatever jitter Wi-Fi and flash caching add — error larger than the signal. So detection happens in hardware: the FPGA's peak detector finds the systolic crest in synchronous logic at 50 MHz with no scheduler in the loop, and sets a beat flag. The MCU then only has to notice that flag and read its own 1 µs hardware timer, which is a 10,000× finer quantum than the RTOS tick — and the detection step has no jitter at all. What we do **not** claim is that the FPGA hands the MCU a 20 ns timestamp: the interval is timed by the MCU."
+- **Technical:** "HRV needs beat-to-beat intervals accurate to a few milliseconds. If the ESP32 timestamped beats inside a FreeRTOS task, the reading would be quantised to the 10 ms scheduler tick. Wi-Fi shares core 0, and the FPGA latches every beat, ensuring no beat is lost despite interrupt jitter on the MCU. The MCU reads its own 1 µs hardware timer."
 - **Evidence:** "`CONFIG_FREERTOS_HZ=100` in our sdkconfig; the RTL detects the peak at 50 MHz and returns the beat as **bit 7 of the MISO byte**; `shrikefi_link_driver.c` times the interval with `esp_timer_get_time()` on rising beat flags, so its resolution is 1 µs. The 6/6 and 5/5 testbenches verify the peak detector and the beat flag."
 
 ---

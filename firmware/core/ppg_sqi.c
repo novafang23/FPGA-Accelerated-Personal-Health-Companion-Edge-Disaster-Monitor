@@ -70,7 +70,7 @@ void ppg_calculate_sqi(
             double diff = (double)raw_ir_samples[i] - mean;
             var_sum += diff * diff;
         }
-        double std_dev = sqrt(var_sum / (double)sample_count);
+        double std_dev = (double)sqrtf((float)(var_sum / (double)sample_count));
 
         if (std_dev > 1e-4) {
             double m3_sum = 0.0;

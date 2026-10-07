@@ -14,6 +14,10 @@
 extern "C" {
 #endif
 
+/* Standardized PPG Sample Rate */
+#define PPG_SAMPLE_RATE_HZ 100
+
+
 /* I2C Address */
 #define MAX30102_I2C_ADDR   0x57
 
@@ -107,7 +111,7 @@ int max30102_reset(max30102_t *dev);
  * Read number of available samples in the FIFO.
  * Returns sample count (0-32), or -1 on error.
  */
-int max30102_fifo_available(max30102_t *dev);
+int max30102_fifo_available(max30102_t *dev, int *dropped, int *saturated);
 
 /*
  * Read one Red+IR sample pair from the FIFO.
@@ -156,7 +160,7 @@ float max30102_read_temperature(max30102_t *dev);
  * `baseline` MUST be a distinct variable per optical channel. Do NOT collapse this
  * back into a shared function-static.
  *
- * The tracker time constant is 64 samples (~0.64 s at 100 Hz): slow enough not to
+ * The tracker time constant is (PPG_SAMPLE_RATE_HZ * 0.64) samples (~0.64 s at 100 Hz): slow enough not to
  * follow the ~1 Hz pulse, fast enough to track finger pressure and perfusion.
  */
 #define MAX30102_AC_CENTRE 120  /* Must match the FPGA's dyn_threshold (8'd120) */
@@ -179,7 +183,8 @@ static inline uint8_t max30102_scale_to_8bit_ch(uint32_t raw_18bit, uint32_t *ba
     if (*baseline == 0) {
         *baseline = raw_18bit;
     } else {
-        *baseline = (*baseline * 63 + raw_18bit) / 64;
+        const uint32_t tc = (uint32_t)(PPG_SAMPLE_RATE_HZ * 0.64f);
+        *baseline = (*baseline * (tc - 1) + raw_18bit) / tc;
     }
 
     int32_t ac     = (int32_t)raw_18bit - (int32_t)*baseline;

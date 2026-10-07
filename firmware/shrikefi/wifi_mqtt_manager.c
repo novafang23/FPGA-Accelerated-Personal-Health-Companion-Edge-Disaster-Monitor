@@ -6,6 +6,7 @@
 #include "wifi_mqtt_manager.h"
 
 #ifdef ESP_PLATFORM
+#if defined(CONFIG_SHRIKEFI_DEV_MQTT)
 #include <string.h>
 #include <strings.h>
 #include <stdio.h>
@@ -59,10 +60,10 @@
 /* All MQTT broker identity and client state exists only when cloud publishing
  * is explicitly compiled in. Keeping it behind the same guard as the code that
  * uses it avoids -Wunused-variable / -Wunused-function on the default build,
- * where the entire cloud path is removed. See CONFIG_SHRIKEFI_CLOUD_PUBLISH
+ * where the entire cloud path is removed. See CONFIG_SHRIKEFI_DEV_MQTT
  * in main/Kconfig.projbuild -- it defaults to n for patient privacy. */
-#ifdef CONFIG_SHRIKEFI_CLOUD_PUBLISH
-#define MQTT_BROKER_URI "mqtt://broker.hivemq.com"  // Free public test broker
+#ifdef CONFIG_SHRIKEFI_DEV_MQTT
+#define MQTT_BROKER_URI "mqtt://dev.broker.local"  // DEV ONLY: Replace with actual secure broker. broker.hivemq.com removed for privacy.
 #define MQTT_TOPIC     "sih26181/shrikefi/health"
 
 static esp_mqtt_client_handle_t mqtt_client = NULL;
@@ -280,7 +281,7 @@ static void wifi_event_handler(void* arg, esp_event_base_t event_base,
         ESP_LOGI(TAG, "Got IP: " IPSTR, IP2STR(&event->ip_info.ip));
         
         // Connect to MQTT broker now that we have WiFi
-#ifdef CONFIG_SHRIKEFI_CLOUD_PUBLISH
+#ifdef CONFIG_SHRIKEFI_DEV_MQTT
         if (mqtt_client != NULL && !s_mqtt_started) {
             esp_mqtt_client_start(mqtt_client);
             s_mqtt_started = true;
@@ -289,7 +290,7 @@ static void wifi_event_handler(void* arg, esp_event_base_t event_base,
     }
 }
 
-#ifdef CONFIG_SHRIKEFI_CLOUD_PUBLISH
+#ifdef CONFIG_SHRIKEFI_DEV_MQTT
 /* Event handler for MQTT events */
 static void mqtt_event_handler(void *handler_args, esp_event_base_t base, int32_t event_id, void *event_data) {
     esp_mqtt_event_handle_t event = (esp_mqtt_event_handle_t)event_data;
@@ -312,7 +313,7 @@ static void mqtt_event_handler(void *handler_args, esp_event_base_t base, int32_
             break;
     }
 }
-#endif /* CONFIG_SHRIKEFI_CLOUD_PUBLISH */
+#endif /* CONFIG_SHRIKEFI_DEV_MQTT */
 
 void wifi_mqtt_init(void) {
     /* Compile-time check: an empty SSID string literal has size 1. */
@@ -358,7 +359,7 @@ void wifi_mqtt_init(void) {
     ESP_ERROR_CHECK(esp_wifi_start());
 
     // Initialize MQTT
-#ifdef CONFIG_SHRIKEFI_CLOUD_PUBLISH
+#ifdef CONFIG_SHRIKEFI_DEV_MQTT
     ESP_LOGI(TAG, "Initializing MQTT Client...");
     esp_mqtt_client_config_t mqtt_cfg = {
         .broker.address.uri = MQTT_BROKER_URI,
@@ -378,7 +379,7 @@ bool mqtt_is_connected(void) {
 }
 
 void cloud_publish_health_data(float hr, float rmssd, float spo2, float temp, float pm25, const char* risk_level) {
-#ifdef CONFIG_SHRIKEFI_CLOUD_PUBLISH
+#ifdef CONFIG_SHRIKEFI_DEV_MQTT
     if (!s_mqtt_connected || mqtt_client == NULL) {
         return;
     }
@@ -393,13 +394,5 @@ void cloud_publish_health_data(float hr, float rmssd, float spo2, float temp, fl
 #endif
 }
 
-#else
-
-// Stubs for non-ESP compilation (e.g. Host testing)
-void wifi_mqtt_init(void) {}
-bool mqtt_is_connected(void) { return false; }
-void cloud_publish_health_data(float hr, float rmssd, float spo2, float temp, float pm25, const char* risk_level) {
-    (void)hr; (void)rmssd; (void)spo2; (void)temp; (void)pm25; (void)risk_level;
-}
-
+#endif // CONFIG_SHRIKEFI_DEV_MQTT
 #endif // ESP_PLATFORM

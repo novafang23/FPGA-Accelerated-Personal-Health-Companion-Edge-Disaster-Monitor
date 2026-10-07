@@ -24,7 +24,7 @@ menu "ShrikeFi configuration"
             The access point is deliberately OPEN. It is an emergency status
             page, and a passphrase would be a credential a bystander does not
             have. Anyone in WiFi range can read the live vitals and location.
-            Cloud publishing stays off unless SHRIKEFI_CLOUD_PUBLISH is enabled.
+            Cloud publishing stays off unless SHRIKEFI_DEV_MQTT is enabled.
 
             THIS REPLACES THE WIFI STATION PATH. With this on, wifi_mqtt_init()
             is not called and the radio is used only for the access point. Two
@@ -34,8 +34,8 @@ menu "ShrikeFi configuration"
             station associates on, which would drop a connected phone
             mid-demonstration. Turn this off to get the station path back.
 
-    config SHRIKEFI_CLOUD_PUBLISH
-        bool "Enable MQTT cloud publishing of health telemetry"
+    config SHRIKEFI_DEV_MQTT
+        bool "Enable MQTT cloud publishing (DEV ONLY)"
         default n
         help
             Enables publishing of health data (HR, SpO2, RMSSD, triage status, etc.)
@@ -44,6 +44,7 @@ menu "ShrikeFi configuration"
 
             When enabled, the device will connect to the broker specified in
             wifi_mqtt_manager.c and broadcast telemetry. Use with caution.
+            WARNING: DEV ONLY.
 
     config SHRIKEFI_STREAM_PPG
         bool "Stream per-sample PPG and FPGA link debug over the console"
@@ -97,5 +98,13 @@ menu "ShrikeFi configuration"
         help
             WPA2 passphrase for the SSID above. Stored in sdkconfig (gitignored).
             Never commit this value to the repository.
+
+    config SHRIKEFI_SOS_CANCEL_GPIO
+        int "GPIO pin for SOS hardware cancel (Default -1 to disable, BOOT is 0)"
+        default -1
+        help
+            Physical button to cancel an active SOS emergency without needing a
+            phone connection. If set to 0, uses the ESP32-S3 BOOT button.
+            Debounce is 30ms, hold time is 5s.
 
 endmenu

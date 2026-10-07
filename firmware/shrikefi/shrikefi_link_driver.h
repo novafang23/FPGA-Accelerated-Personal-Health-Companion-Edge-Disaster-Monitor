@@ -97,12 +97,19 @@ shrikefi_err_t shrikefi_link_init(void);
 /**
  * @brief Set systolic peak detection threshold on FPGA
  * @param threshold Threshold value (e.g. 120)
+ *
+ * NOTE: The systolic peak detection threshold is currently hardwired/strapped
+ * to 120 in ForgeFPGA RTL (forgefpga_ppg_top.v). This function updates the
+ * software driver register.
  */
 shrikefi_err_t shrikefi_set_threshold(uint8_t threshold);
 
 /**
  * @brief Write raw 8-bit Red PPG optical sample to FPGA filter
  * @param sample 8-bit raw sample
+ *
+ * NOTE: Red optical samples are currently software-buffered on the MCU host.
+ * The ForgeFPGA hardware SPI link processes the IR optical stream on MOSI.
  */
 shrikefi_err_t shrikefi_write_red_sample(uint8_t sample);
 
@@ -157,6 +164,15 @@ bool shrikefi_is_beat_detected(void);
  * detect, because a frozen chip answers from a frozen register with a constant
  * byte that looks like a valid zero sample. */
 bool shrikefi_link_fpga_alive(void);
+
+/**
+ * @brief Reset beat tracking state on finger disconnect or optical contact loss
+ *
+ * Clears s_last_beat_time_us = 0, s_last_beat = false, s_beat_detected_latched = false,
+ * and s_sim_ibi = 0. Prevents spurious multi-second IBI deltas when optical contact
+ * is re-established after finger removal.
+ */
+void shrikefi_link_reset_beat_tracking(void);
 
 #ifdef __cplusplus
 }

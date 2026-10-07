@@ -62,7 +62,7 @@ echo.
 
 :: 5. Compile and Run Unit Tests
 echo [5/5] Compiling Unit Tests...
-%CC% -Wall -Wextra -I../../firmware/core -I../../firmware/zynq -o test_engine.exe ../../firmware/zynq/test_disaster_risk_engine.c ../../firmware/core/hrv_analysis.c ../../firmware/core/spo2_engine.c ../../firmware/core/disaster_risk_engine.c ../../firmware/core/nn_risk_model.c ../../firmware/core/nn_risk_model_int8.c -lm
+%CC% -Wall -Wextra -I../../firmware/core -I../../firmware/zynq -I../../firmware/shrikefi -o test_engine.exe ../../firmware/zynq/test_disaster_risk_engine.c ../../firmware/core/hrv_analysis.c ../../firmware/core/spo2_engine.c ../../firmware/core/disaster_risk_engine.c ../../firmware/core/nn_risk_model.c ../../firmware/core/nn_risk_model_int8.c ../../firmware/core/clinical_vitals_engine.c ../../firmware/core/ppg_sqi.c ../../firmware/core/ppg_respiratory_rate.c ../../firmware/core/pressure_trend.c ../../firmware/core/pm25_calibration_int8.c ../../firmware/shrikefi/sos.c ../../firmware/shrikefi/web_status.c ../../firmware/shrikefi/location.c -lm
 if %errorlevel% neq 0 (
     echo [ERROR] Unit test compilation failed!
     pause

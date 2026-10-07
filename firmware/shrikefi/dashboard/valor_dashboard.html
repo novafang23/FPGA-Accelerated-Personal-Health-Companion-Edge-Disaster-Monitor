@@ -494,6 +494,52 @@
   </div>
 </div>
 
+<!-- ── Row 5: 24-Hour Clinical & Environmental Trends ───────────────────── -->
+<div class="card card-pad" style="margin-top:12px">
+  <div class="card-head" style="margin-bottom:14px;flex-wrap:wrap;gap:10px">
+    <div>
+      <div class="card-title">24-Hour Clinical &amp; Environmental Trajectory</div>
+      <div class="dim">On-device rolling hourly summaries &middot; 24-point circular buffer &middot; zero cloud</div>
+    </div>
+    <div style="display:flex;gap:14px;align-items:center;flex-wrap:wrap">
+      <div style="display:flex;gap:12px;align-items:center;font-size:11px;font-family:var(--mono)">
+        <span style="display:flex;align-items:center;gap:4px;color:var(--emerald)">
+          <i style="display:inline-block;width:8px;height:8px;border-radius:2px;background:var(--emerald)"></i>HR (bpm)
+        </span>
+        <span style="display:flex;align-items:center;gap:4px;color:var(--cyan)">
+          <i style="display:inline-block;width:8px;height:8px;border-radius:2px;background:var(--cyan)"></i>SpO&#8322; (%)
+        </span>
+        <span style="display:flex;align-items:center;gap:4px;color:var(--violet)">
+          <i style="display:inline-block;width:8px;height:8px;border-radius:2px;background:var(--violet)"></i>RMSSD (ms)
+        </span>
+        <span style="display:flex;align-items:center;gap:4px;color:var(--amber)">
+          <i style="display:inline-block;width:8px;height:8px;border-radius:2px;background:var(--amber)"></i>PM2.5 (&micro;g/m&sup3;)
+        </span>
+        <span style="display:flex;align-items:center;gap:4px;color:var(--crimson)">
+          <i style="display:inline-block;width:8px;height:8px;border-radius:2px;background:var(--crimson)"></i>NEWS2
+        </span>
+      </div>
+      <span class="chip" id="hist-span">24h ROLLING</span>
+    </div>
+  </div>
+
+  <div style="height:170px;position:relative;border-radius:8px;overflow:hidden;border:1px solid #111c33;background:#05080f">
+    <canvas id="hist-canvas" aria-label="24-Hour Clinical Trends Chart" role="img">
+      24-hour health and hazard trend chart
+    </canvas>
+    <div id="hist-tooltip" style="position:absolute;display:none;pointer-events:none;background:rgba(11,17,32,0.92);border:1px solid #2d3f5c;border-radius:6px;padding:6px 10px;font-family:var(--mono);font-size:10px;color:#e2e8f0;box-shadow:0 4px 12px rgba(0,0,0,0.5);z-index:10"></div>
+  </div>
+
+  <div class="metric-row" style="margin-top:14px;justify-content:space-between">
+    <div class="metric"><div class="k">24h Mean HR</div><div class="v" id="h-mean-hr">--</div></div>
+    <div class="metric"><div class="k">24h SpO&#8322; Nadir</div><div class="v" id="h-min-spo2">--</div></div>
+    <div class="metric"><div class="k">24h Mean RMSSD</div><div class="v" id="h-mean-rmssd">--</div></div>
+    <div class="metric"><div class="k">24h Peak NEWS2</div><div class="v" id="h-peak-news2">--</div></div>
+    <div class="metric"><div class="k">24h Peak PM2.5</div><div class="v" id="h-peak-pm25">--</div></div>
+    <div class="metric"><div class="k">Hourly Samples</div><div class="v" id="h-sample-count">--/24</div></div>
+  </div>
+</div>
+
 <div class="faint" style="margin-top:14px;line-height:1.7">
   VALOR &middot; SIH26181 &middot; <span id="foot-note">simulation mode</span>
 </div>
@@ -834,10 +880,287 @@ function drawArc() {
 }
 
 /* ==========================================================================
+   3b. 24-Hour History Chart (Requirement 7)
+   ========================================================================== */
+function makeHistory() {
+  const N = 24;
+  const H = Array.from({ length: N }, (_, i) => ({
+    hour: i, hr: 0, spo2: 0, rmssd: 0, pm25: 0, news2: 0, valid: false
+  }));
+  let hoverHour = -1;
+
+  function reset() {
+    for (let i = 0; i < N; i++) {
+      H[i].valid = false;
+      H[i].hr = 0; H[i].spo2 = 0; H[i].rmssd = 0; H[i].pm25 = 0; H[i].news2 = 0;
+    }
+    hoverHour = -1;
+    updateSummary();
+  }
+
+  function setPoint(h, pt) {
+    if (h >= 0 && h < N) {
+      H[h].hr = pt.hr;
+      H[h].spo2 = pt.spo2;
+      H[h].rmssd = pt.rmssd;
+      H[h].pm25 = pt.pm25;
+      H[h].news2 = pt.news2;
+      H[h].valid = pt.valid !== undefined ? pt.valid : true;
+      updateSummary();
+    }
+  }
+
+  function setLivePoint(v) {
+    if (v.hr > 0) {
+      H[0].hr = v.hr;
+      H[0].spo2 = v.spo2;
+      H[0].rmssd = v.hrv;
+      H[0].pm25 = v.pmCal;
+      H[0].news2 = v.news2;
+      H[0].valid = true;
+      updateSummary();
+    }
+  }
+
+  function generateSim(name) {
+    const b = PROFILES[name] || PROFILES['Normal Baseline'];
+    for (let i = 0; i < N; i++) {
+      const hAgo = i; // 0 = Now, 23 = 23h ago
+      let hr = b.hr, spo2 = b.spo2, rmssd = b.hrv, pm25 = b.pmCal, news2 = b.news2;
+      if (name === 'Normal Baseline') {
+        const circ = Math.sin((hAgo - 6) / 24 * Math.PI * 2);
+        hr = Math.round(b.hr + circ * 6);
+        rmssd = Math.round(b.hrv - circ * 7);
+        spo2 = Number((b.spo2 + (Math.sin(hAgo) * 0.4)).toFixed(1));
+        pm25 = Number((b.pmCal + (Math.cos(hAgo) * 3)).toFixed(1));
+        news2 = 0;
+      } else if (name === 'Heat Wave & Dehydration') {
+        const prog = clamp((23 - hAgo) / 23, 0, 1);
+        hr = Math.round(78 + prog * (b.hr - 78));
+        spo2 = Number((98.0 - prog * 2.0).toFixed(1));
+        rmssd = Math.round(42 - prog * (42 - b.hrv));
+        pm25 = Number((20 + prog * (b.pmCal - 20)).toFixed(1));
+        news2 = prog > 0.7 ? 4 : prog > 0.4 ? 2 : 0;
+      } else if (name === 'Severe Smog / PM2.5 Crisis') {
+        const prog = clamp((23 - hAgo) / 23, 0, 1);
+        pm25 = Number((35 + prog * (b.pmCal - 35)).toFixed(1));
+        spo2 = Number((98.0 - prog * (98.0 - b.spo2)).toFixed(1));
+        hr = Math.round(74 + prog * (b.hr - 74));
+        rmssd = Math.round(38 - prog * (38 - b.hrv));
+        news2 = prog > 0.6 ? 3 : prog > 0.3 ? 1 : 0;
+      } else if (name === 'Flash Flood / Hypothermia') {
+        if (hAgo <= 6) {
+          const prog = (6 - hAgo) / 6;
+          hr = Math.round(72 - prog * (72 - b.hr));
+          spo2 = Number((98.0 - prog * (98.0 - b.spo2)).toFixed(1));
+          rmssd = Math.round(40 + prog * (b.hrv - 40));
+          news2 = Math.round(prog * 5);
+        } else {
+          hr = 72; spo2 = 98.0; rmssd = 40; news2 = 0;
+        }
+        pm25 = b.pmCal;
+      } else if (name === 'Cardiopulmonary ICU Emergency') {
+        const jitter = Math.sin(hAgo * 1.5);
+        hr = Math.round(b.hr + jitter * 6);
+        spo2 = Number((b.spo2 + jitter * 1.2).toFixed(1));
+        rmssd = Math.round(b.hrv + Math.abs(jitter) * 2);
+        news2 = Math.min(9, Math.max(5, Math.round(b.news2 + jitter)));
+        pm25 = b.pmCal;
+      } else {
+        hr = b.hr; spo2 = b.spo2; rmssd = b.hrv; pm25 = b.pmCal; news2 = b.news2;
+      }
+      H[i] = { hour: i, hr, spo2, rmssd, pm25, news2, valid: true };
+    }
+    updateSummary();
+  }
+
+  function updateSummary() {
+    const validPts = H.filter((p) => p.valid);
+    const n = validPts.length;
+    if (n === 0) {
+      ['h-mean-hr', 'h-min-spo2', 'h-mean-rmssd', 'h-peak-news2', 'h-peak-pm25'].forEach((id) => {
+        const el = $(id); if (el) el.textContent = '--';
+      });
+      const cnt = $('h-sample-count');
+      if (cnt) cnt.textContent = '0/24';
+      return;
+    }
+
+    let sumHr = 0, minSpo2 = 100, sumRmssd = 0, peakN2 = 0, peakPm = 0;
+    validPts.forEach((p) => {
+      sumHr += p.hr;
+      if (p.spo2 < minSpo2) minSpo2 = p.spo2;
+      sumRmssd += p.rmssd;
+      if (p.news2 > peakN2) peakN2 = p.news2;
+      if (p.pm25 > peakPm) peakPm = p.pm25;
+    });
+
+    const mHr = $('h-mean-hr'); if (mHr) mHr.textContent = Math.round(sumHr / n) + ' bpm';
+    const mSp = $('h-min-spo2'); if (mSp) mSp.textContent = minSpo2.toFixed(1) + ' %';
+    const mRm = $('h-mean-rmssd'); if (mRm) mRm.textContent = (sumRmssd / n).toFixed(1) + ' ms';
+    const pN2 = $('h-peak-news2'); if (pN2) pN2.textContent = peakN2 + (peakN2 >= 5 ? ' (HIGH)' : ' pts');
+    const pPm = $('h-peak-pm25'); if (pPm) pPm.textContent = peakPm.toFixed(0) + ' \u00b5g/m\u00b3';
+    const cnt = $('h-sample-count'); if (cnt) cnt.textContent = n + '/24';
+  }
+
+  function draw() {
+    const cv = $('hist-canvas');
+    if (!cv) return;
+    const { ctx, w, h } = fitCanvas(cv);
+
+    ctx.fillStyle = '#05080f';
+    ctx.fillRect(0, 0, w, h);
+
+    const padL = 36, padR = 24, padT = 20, padB = 26;
+    const plotW = Math.max(1, w - padL - padR);
+    const plotH = Math.max(1, h - padT - padB);
+
+    // Grid lines
+    ctx.strokeStyle = 'rgba(30,41,59,0.4)';
+    ctx.lineWidth = 0.5;
+    for (let r = 0; r <= 3; r++) {
+      const y = padT + (r / 3) * plotH;
+      ctx.beginPath(); ctx.moveTo(padL, y); ctx.lineTo(w - padR, y); ctx.stroke();
+    }
+    const gridHours = [23, 18, 12, 6, 0];
+    const gridLabels = ['-23h', '-18h', '-12h', '-6h', 'Now'];
+    ctx.fillStyle = 'rgba(100,116,139,0.7)';
+    ctx.font = '10px ' + getComputedStyle(document.body).fontFamily;
+    ctx.textAlign = 'center';
+
+    gridHours.forEach((gh, i) => {
+      const x = padL + ((23 - gh) / 23) * plotW;
+      ctx.beginPath();
+      ctx.moveTo(x, padT);
+      ctx.lineTo(x, padT + plotH);
+      ctx.stroke();
+      ctx.fillText(gridLabels[i], x, padT + plotH + 16);
+    });
+    ctx.textAlign = 'left';
+
+    if (mode === 'idle') {
+      ctx.strokeStyle = 'rgba(100,116,139,0.35)';
+      ctx.lineWidth = 1;
+      ctx.setLineDash([6, 6]);
+      ctx.beginPath(); ctx.moveTo(padL, h / 2); ctx.lineTo(w - padR, h / 2); ctx.stroke();
+      ctx.setLineDash([]);
+      ctx.fillStyle = 'rgba(100,116,139,0.85)';
+      ctx.font = '12px ' + getComputedStyle(document.body).fontFamily;
+      ctx.textAlign = 'center';
+      ctx.fillText('NO HISTORICAL DATA \u2014 connect a device or start a simulation', w / 2, h / 2 - 8);
+      ctx.textAlign = 'left';
+      return;
+    }
+
+    const xAt = (hIdx) => padL + ((23 - hIdx) / 23) * plotW;
+
+    // PM2.5 bars in background
+    for (let i = 0; i < N; i++) {
+      const pt = H[i];
+      if (!pt.valid) continue;
+      const x = xAt(i);
+      const barW = Math.max(2, plotW / N * 0.7);
+      const barH = clamp(pt.pm25 / 350, 0, 1) * plotH;
+      ctx.fillStyle = 'rgba(245, 158, 11, 0.16)';
+      ctx.fillRect(x - barW / 2, padT + plotH - barH, barW, barH);
+    }
+
+    function plotTrace(getter, minVal, maxVal, strokeCol, glow) {
+      ctx.beginPath();
+      let started = false;
+      for (let i = N - 1; i >= 0; i--) {
+        const pt = H[i];
+        if (!pt.valid) continue;
+        const val = getter(pt);
+        const norm = clamp((val - minVal) / (maxVal - minVal), 0, 1);
+        const x = xAt(i);
+        const y = padT + (1 - norm) * plotH;
+        if (!started) { ctx.moveTo(x, y); started = true; }
+        else ctx.lineTo(x, y);
+      }
+      if (started) {
+        ctx.strokeStyle = strokeCol;
+        ctx.lineWidth = 1.6;
+        if (glow) { ctx.shadowColor = strokeCol; ctx.shadowBlur = 6; }
+        ctx.stroke();
+        ctx.shadowBlur = 0;
+      }
+    }
+
+    // Traces
+    plotTrace((p) => p.spo2, 80, 100, C.cyan, false);
+    plotTrace((p) => p.rmssd, 0, 80, C.violet, false);
+    plotTrace((p) => p.hr, 40, 160, C.emerald, true);
+
+    // NEWS2 dots
+    for (let i = 0; i < N; i++) {
+      const pt = H[i];
+      if (!pt.valid || pt.news2 === 0) continue;
+      const x = xAt(i);
+      const normN2 = clamp(pt.news2 / 9, 0, 1);
+      const y = padT + (1 - normN2) * plotH;
+      ctx.fillStyle = pt.news2 >= 5 ? C.crimson : C.amber;
+      ctx.beginPath();
+      ctx.arc(x, y, 3.5, 0, Math.PI * 2);
+      ctx.fill();
+    }
+
+    // Hover vertical guideline
+    if (hoverHour >= 0 && hoverHour < N && H[hoverHour].valid) {
+      const x = xAt(hoverHour);
+      ctx.strokeStyle = 'rgba(255,255,255,0.4)';
+      ctx.lineWidth = 1;
+      ctx.setLineDash([3, 3]);
+      ctx.beginPath(); ctx.moveTo(x, padT); ctx.lineTo(x, padT + plotH); ctx.stroke();
+      ctx.setLineDash([]);
+    }
+  }
+
+  function initEvents() {
+    const cv = $('hist-canvas');
+    const tt = $('hist-tooltip');
+    if (!cv || !tt) return;
+
+    cv.addEventListener('mousemove', (e) => {
+      if (mode === 'idle') return;
+      const rect = cv.getBoundingClientRect();
+      const padL = 36, padR = 24;
+      const plotW = Math.max(1, rect.width - padL - padR);
+      const mx = e.clientX - rect.left - padL;
+      const frac = clamp(mx / plotW, 0, 1);
+      const hIdx = clamp(Math.round(23 - frac * 23), 0, 23);
+      hoverHour = hIdx;
+      const pt = H[hIdx];
+      if (pt && pt.valid) {
+        tt.style.display = 'block';
+        tt.style.left = clamp(e.clientX - rect.left + 12, 10, rect.width - 170) + 'px';
+        tt.style.top = '14px';
+        tt.innerHTML =
+          '<b>T' + (hIdx === 0 ? ' (Now)' : ' -' + hIdx + 'h') + '</b><br>' +
+          'HR: <span style="color:' + C.emerald + '">' + Math.round(pt.hr) + ' bpm</span><br>' +
+          'SpO2: <span style="color:' + C.cyan + '">' + pt.spo2.toFixed(1) + '%</span><br>' +
+          'RMSSD: <span style="color:' + C.violet + '">' + pt.rmssd.toFixed(1) + ' ms</span><br>' +
+          'NEWS2: <span style="color:' + (pt.news2 >= 5 ? C.crimson : C.amber) + '">' + pt.news2 + '</span><br>' +
+          'PM2.5: <span style="color:' + C.amber + '">' + pt.pm25.toFixed(0) + ' &micro;g/m&sup3;</span>';
+      } else {
+        tt.style.display = 'none';
+      }
+    });
+
+    cv.addEventListener('mouseleave', () => {
+      hoverHour = -1;
+      if (tt) tt.style.display = 'none';
+    });
+  }
+
+  return { reset, setPoint, setLivePoint, generateSim, draw, initEvents, getPoints: () => H };
+}
+
+/* ==========================================================================
    4. UI update
    ========================================================================== */
 
-const PPG = makePPG(), ECG = makeECG(), RRC = makeRR();
+const PPG = makePPG(), ECG = makeECG(), RRC = makeRR(), HIST = makeHistory();
 
 function setStatus(kind, text) {
   const pill = $('status-pill');
@@ -905,6 +1228,7 @@ function renderIdle() {
     $('g-' + k).style.width = '0%';
     $('g-' + k + '-sub').textContent = '';
   }
+  if (typeof HIST !== 'undefined') HIST.reset();
 }
 
 function render() {
@@ -913,19 +1237,20 @@ function render() {
      than one showing nothing. */
   if (mode === 'idle') { renderIdle(); return; }
   /* â”€â”€ PPG card header + derived metrics â”€â”€ */
+  const sqiOn = (V.hr > 0 && V.sqi > 0);
   const sqiPct = Math.round(V.sqi);
-  $('scope-sqi').textContent = 'SQI ' + sqiPct + '%';
-  $('scope-sqi').style.color = V.sqi < 50 ? C.crimson : C.mid;
+  $('scope-sqi').textContent = sqiOn ? 'SQI ' + sqiPct + '%' : 'SQI --';
+  $('scope-sqi').style.color = !sqiOn ? '' : (V.sqi < 50 ? C.crimson : C.mid);
   $('scope-rate').textContent = (mode === 'live' ? (sampleRate || '--') : '50') + ' Hz';
   $('scope-src').textContent = (mode === 'live') ? (ppgSeen ? 'LIVE' : 'GATED') : (mode === 'sim' ? 'SIM' : 'NONE');
   $('scope-sub').textContent = mode === 'live'
-    ? 'AC-coupled reflectance Â· live MAX30102 Â· auto-ranged'
-    : 'AC-coupled reflectance Â· ring buffer Â· auto-ranged';
+    ? 'AC-coupled reflectance · live MAX30102 · auto-ranged'
+    : 'AC-coupled reflectance · ring buffer · auto-ranged';
 
   $('m-pi').textContent  = V.pi > 0 ? V.pi.toFixed(2) + ' %' : '--';
   $('m-rr').textContent  = V.rr > 0 ? V.rr.toFixed(1) + ' br/min' : '--';
   $('m-hrv').textContent = V.hrv > 0 ? V.hrv.toFixed(1) + ' ms' : '--';
-  $('m-sqi').textContent = sqiPct + ' %';
+  $('m-sqi').textContent = sqiOn ? sqiPct + ' %' : '--';
 
   /* â”€â”€ NEWS2 â”€â”€ */
   const band = news2Band(V.news2);
@@ -1019,12 +1344,14 @@ function render() {
     }
   }
 
-  const sqiColor = V.sqi < 50 ? C.crimson : V.sqi < 75 ? C.amber : C.mid;
-  $('v-sqi').textContent = sqiPct;
+  const sqiColor = !sqiOn ? C.text : V.sqi < 50 ? C.crimson : V.sqi < 75 ? C.amber : C.mid;
+  $('v-sqi').textContent = sqiOn ? sqiPct : '--';
   $('v-sqi').style.color = sqiColor;
   const pill = $('sqi-pill');
-  pill.textContent = V.sqi < 50 ? 'artifact detected â€” triage held' : 'clean signal';
-  pill.className = 'pill' + (V.sqi < 50 ? ' bad' : '');
+  pill.textContent = !hrOn ? 'waiting for contact'
+    : !sqiOn ? 'calibrating baseline'
+    : (V.sqi < 50 ? 'artifact detected \u2014 triage held' : 'clean signal');
+  pill.className = 'pill' + ((sqiOn && V.sqi < 50) ? ' bad' : '');
 
   /* â”€â”€ Environment â”€â”€ */
   const tempColor = V.temp > 38 ? C.crimson : V.temp > 35 ? C.amber : '#e2e8f0';
@@ -1077,6 +1404,10 @@ function render() {
   setGauge('heat', heat, C.crimson, V.rHeat);
   setGauge('poll', poll, C.amber, V.rPoll);
   setGauge('flood', flood, C.sky, V.rFlood);
+
+  if (mode === 'live' && V.hr > 0 && typeof HIST !== 'undefined') {
+    HIST.setLivePoint(V);
+  }
 }
 
 function setGauge(id, value, color, ruleRisk) {
@@ -1107,6 +1438,7 @@ function applyProfile(name) {
     nnHeat: null, nnPoll: null, nnFlood: null,
     rHeat: 'NORMAL', rPoll: 'NORMAL', rFlood: 'UNKNOWN',
   });
+  if (typeof HIST !== 'undefined') HIST.generateSim(name);
   [...$('profile-buttons').children].forEach((b) =>
     b.classList.toggle('active', b.dataset.p === name));
 }
@@ -1189,7 +1521,7 @@ function handleLine(line) {
   }
 
   if (line.startsWith('[TELEMETRY]')) {
-    if (line.indexOf('NO_FINGER') >= 0 || line.indexOf('ACQUIRING') >= 0) {
+    if (line.indexOf('NO_FINGER') >= 0) {
       V.hr = 0; V.spo2 = 0; V.hrv = 0; V.rr = 0; V.rrConf = 0; V.sqi = 0; V.pi = 0;
       const k = parseKV(line.replace('[TELEMETRY]', ''));
       if (k.TEMP) V.temp = num(k.TEMP);
@@ -1224,6 +1556,27 @@ function handleLine(line) {
     if (k.RFLOOD) V.rFlood = k.RFLOOD;
     if (k.PSI)    V.psi    = num(k.PSI);
     if (k.AHA)    V.aha    = num(k.AHA);
+    return;
+  }
+
+  if (line.startsWith('[HISTORY]')) {
+    const raw = line.replace('[HISTORY]', '').trim();
+    const comma = raw.indexOf(',');
+    if (comma > 0) {
+      const hStr = raw.slice(0, comma).trim();
+      const hIdx = parseInt(hStr.replace(/^H/, ''), 10);
+      if (hIdx >= 0 && hIdx < 24 && typeof HIST !== 'undefined') {
+        const k = parseKV(raw.slice(comma + 1));
+        HIST.setPoint(hIdx, {
+          hr: k.HR !== undefined ? num(k.HR) : 0,
+          spo2: k.SPO2 !== undefined ? num(k.SPO2) : 0,
+          rmssd: k.RMSSD !== undefined ? num(k.RMSSD) : 0,
+          news2: k.NEWS2 !== undefined ? (parseInt(k.NEWS2, 10) || 0) : 0,
+          pm25: k.PM25 !== undefined ? num(k.PM25) : 0,
+          valid: true,
+        });
+      }
+    }
     return;
   }
 }
@@ -1342,6 +1695,7 @@ function enterIdle() {
     rHeat: 'UNKNOWN', rPoll: 'UNKNOWN', rFlood: 'UNKNOWN',
     nnHeat: null, nnPoll: null, nnFlood: null,
   });
+  if (typeof HIST !== 'undefined') HIST.reset();
   setStatus('idle', 'NOT CONNECTED \u00b7 no data');
   $('foot-note').textContent = 'no data \u2014 connect a device or start a simulation';
 }
@@ -1390,6 +1744,7 @@ if (!('serial' in navigator)) {
 }
 
 buildControls();
+HIST.initEvents();
 enterIdle();
 
 /* Kiosk / automated start.
@@ -1421,42 +1776,55 @@ if (qs.has('sim') || qs.has('full')) {
 simStep();
 simPPG(16);
 ECG.tick(16); RRC.tick(16);
-PPG.draw(); ECG.draw(); RRC.draw(); drawArc();
+PPG.draw(); ECG.draw(); RRC.draw(); drawArc(); HIST.draw();
 render();
 
 let last = performance.now();
 let simAccum = 0;          /* simulated vitals update accumulator */
 let ppgCount = 0;          /* live PPG samples seen this second */
 let ppgWindow = last;
+let lastHistPoll = 0;
+
+function pollHttpHistory() {
+  if (mode !== 'live' || (location.protocol !== 'http:' && location.protocol !== 'https:')) return;
+  const now = performance.now();
+  if (now - lastHistPoll < 12000) return;
+  lastHistPoll = now;
+  fetch('/api/history', { cache: 'no-store' })
+    .then((r) => r.json())
+    .then((arr) => {
+      if (Array.isArray(arr) && typeof HIST !== 'undefined') {
+        arr.forEach((p) => {
+          const h = parseInt(p.hour, 10);
+          if (h >= 0 && h < 24) {
+            HIST.setPoint(h, {
+              hr: num(p.hr), spo2: num(p.spo2), rmssd: num(p.rmssd),
+              pm25: num(p.pm25), news2: parseInt(p.news2, 10) || 0,
+              valid: p.valid
+            });
+          }
+        });
+      }
+    })
+    .catch(() => {});
+}
 
 function frame(ts) {
   const dt = Math.min(ts - last, 60);
   last = ts;
 
   if (mode === 'sim') {
-    /* Numeric vitals tick at 1 Hz, NOT once per animation frame.
-     *
-     * The device paces its assessment task with vTaskDelay(pdMS_TO_TICKS(1000))
-     * in main_shrikefi.c, so [TELEMETRY] and [TRIAGE] arrive once a second.
-     * Jittering the readouts at 60 Hz made the simulation look nothing like the
-     * hardware - a flickering blur instead of a patient monitor. The waveforms
-     * below still animate every frame, because a scrolling trace is not a
-     * number. */
     simAccum += dt;
     while (simAccum >= 1000) { simAccum -= 1000; simStep(); }
     simPPG(dt);
   }
 
-  /* Measure the live sample rate rather than asserting one. The PPG task runs
-   * at 50 Hz (vTaskDelay(20 ms)), not the 100 Hz the design mock-up claimed. */
   if (mode === 'live' && lastSerialLine && ts - ppgWindow >= 1000) {
     sampleRate = ppgCount;
     ppgCount = 0;
     ppgWindow = ts;
   }
 
-  /* Live mode with no data for 3s means the board stopped emitting; say so
-     rather than freezing on stale numbers. */
   if (mode === 'live' && lastSerialLine && ts - lastSerialLine > 3000) {
     setStatus('err', 'NO DATA â€” board connected, no telemetry');
   }
@@ -1467,6 +1835,8 @@ function frame(ts) {
   ECG.draw();
   RRC.draw();
   drawArc();
+  HIST.draw();
+  pollHttpHistory();
   render();
 
   requestAnimationFrame(frame);

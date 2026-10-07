@@ -215,6 +215,9 @@ module tb_forgefpga_system;
     end
 
     initial begin
+        $dumpfile("shrikefi_sim.vcd");
+        $dumpvars(0, tb_forgefpga_system);
+
         $display("================================================================");
         $display("  tb_forgefpga_system -- ShrikeFi SPI link + PPG accelerator");
         $display("================================================================");

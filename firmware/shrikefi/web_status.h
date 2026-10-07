@@ -79,6 +79,28 @@ void web_status_snapshot(valor_status_t *out);
  *   {"hr":72.1,...,"sos":"IDLE","trigger":"none","loc":"UNSET","contact":true} */
 size_t web_status_json(const valor_status_t *s, char *buf, size_t cap);
 
+#define VALOR_HISTORY_HOURS 24
+
+typedef struct {
+    uint32_t hour_offset; /* 0 = current hour, 1 = 1 hour ago, ... up to 23 */
+    float    avg_hr;
+    float    avg_spo2;
+    float    avg_rmssd;
+    float    peak_pm25;
+    unsigned max_news2;
+    bool     valid;
+} valor_history_point_t;
+
+/* Initialize or clear the 24-hour history tracker */
+void web_status_history_init(void);
+
+/* Copy 24-hour history points out thread-safely */
+void web_status_history_snapshot(valor_history_point_t *out, size_t max_points);
+
+/* Serialise 24-hour history points to JSON array:
+ * [{"hour":0,"hr":72.5,"spo2":98.0,"rmssd":42.1,"pm25":14.2,"news2":0,"valid":true},...] */
+size_t web_status_history_json(char *buf, size_t cap);
+
 #ifdef ESP_PLATFORM
 #include "esp_err.h"
 

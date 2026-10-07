@@ -56,7 +56,6 @@ idf_component_register(
         # Barometric pressure trend -> storm advisory (T3.1). Pure arithmetic, so
         # the windowing and the least-squares fit are host-testable.
         "${CORE_DIR}/pressure_trend.c"
-        "${SHRIKEFI_DIR}/wifi_mqtt_manager.c"
         # Emergency assist state machine (requirement 6). Deliberately free of
         # hardware and FreeRTOS so firmware/zynq/test_disaster_risk_engine.c can
         # exercise its timers on the host.
@@ -80,6 +79,8 @@ idf_component_register(
         mqtt
         esp_http_server
 )
+
+target_sources(${COMPONENT_LIB} PRIVATE "${SHRIKEFI_DIR}/wifi_mqtt_manager.c")
 
 target_compile_definitions(${COMPONENT_LIB} PRIVATE ${SHRIKEFI_WIFI_MODE_DEF})
 

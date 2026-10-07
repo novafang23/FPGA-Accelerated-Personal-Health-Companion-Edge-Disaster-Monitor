@@ -39,13 +39,13 @@ static uint8_t  s_last_filtered_red = 0;
 static bool     s_beat_detected_latched = false;
 static bool     s_last_beat = false;
 static uint64_t s_last_beat_time_us = 0;
-static uint32_t s_sim_ibi = 3280;
+static uint32_t s_sim_ibi = 0;
 static uint8_t  s_sim_reg_th = 120;
 #else
 static uint8_t  s_sim_reg_th = 120;
 static uint8_t  s_sim_reg_red = 0;
 static uint8_t  s_sim_reg_ir = 0;
-static uint32_t s_sim_ibi = 3280;
+static uint32_t s_sim_ibi = 0;
 static bool     s_sim_irq = false;
 #endif
 
@@ -131,11 +131,16 @@ shrikefi_err_t shrikefi_link_init(void) {
     return SHRIKEFI_OK;
 }
 
+/* Note: The systolic peak detection threshold is currently hardwired/strapped
+ * to 120 in ForgeFPGA RTL (forgefpga_ppg_top.v). This function updates the
+ * software driver register. */
 shrikefi_err_t shrikefi_set_threshold(uint8_t threshold) {
     s_sim_reg_th = threshold;
     return SHRIKEFI_OK;
 }
 
+/* Note: Red optical samples are currently software-buffered on the MCU host.
+ * The ForgeFPGA hardware SPI link processes the IR optical stream on MOSI. */
 shrikefi_err_t shrikefi_write_red_sample(uint8_t sample) {
 #ifdef ESP_PLATFORM
     s_last_filtered_red = sample;
@@ -266,6 +271,18 @@ bool shrikefi_is_beat_detected(void) {
     return s_beat_detected_latched;
 #else
     return s_sim_irq;
+#endif
+}
+
+void shrikefi_link_reset_beat_tracking(void) {
+#ifdef ESP_PLATFORM
+    s_last_beat_time_us = 0;
+    s_last_beat = false;
+    s_beat_detected_latched = false;
+    s_sim_ibi = 0;
+#else
+    s_sim_ibi = 0;
+    s_sim_irq = false;
 #endif
 }
 
