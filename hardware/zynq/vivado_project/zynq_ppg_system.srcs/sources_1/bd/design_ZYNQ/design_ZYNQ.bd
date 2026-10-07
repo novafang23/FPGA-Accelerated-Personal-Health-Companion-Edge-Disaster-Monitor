@@ -3,7 +3,7 @@
     "design_info": {
       "boundary_crc": "0xCC6CFA53F622E079",
       "device": "xc7z020clg400-1",
-      "gen_directory": "../../../../FPGA MEDTECH DEVICE ZYNQ-7000.gen/sources_1/bd/design_ZYNQ",
+      "gen_directory": "../../../../zynq_ppg_system.gen/sources_1/bd/design_ZYNQ",
       "name": "design_ZYNQ",
       "rev_ctrl_bd_flag": "RevCtrlBdOff",
       "synth_flow_mode": "Hierarchical",

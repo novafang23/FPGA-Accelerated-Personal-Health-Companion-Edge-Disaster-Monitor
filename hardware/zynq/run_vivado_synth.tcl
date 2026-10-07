@@ -23,30 +23,11 @@ set_param general.maxThreads 4
 if {$mode == "sim"} {
     # ---- SIMULATION MODE ----
     puts ">> Running Behavioral Simulation (xsim)..."
-    create_project -in_memory -part $part
-    # The filter and peak detector are vendor-agnostic and live in
-    # hardware/common/ (they are shared with the ShrikeFi target), so they must
-    # be read with a ../common/ prefix. Reading them bare worked when every file
-    # sat in one flat folder; after the platform split it silently read nothing
-    # from that directory and the flow failed.
-    read_verilog ../common/moving_average_8tap.v
-    read_verilog ../common/ppg_peak_detector.v
-    read_verilog axi_ppg_accelerator.v
-    read_verilog tb_ppg_system.v
-    
-    # Compile & elaborate
-    puts ">> Compiling..."
-    xvlog -sv -work xil_defaultlib [glob *.v ../common/*.v]
-    
-    # Elaborate
-    puts ">> Elaborating..."
-    xelab -debug typical -top tb_ppg_system -s sim_snapshot -timescale 1ns/1ps
-    
-    # Run simulation
-    puts ">> Simulating..."
-    xsim sim_snapshot -runall -testplusarg VERBOSE
-    
+    open_project vivado_project/zynq_ppg_system.xpr
+    launch_simulation
+    run all
     puts ">> Simulation complete"
+    close_project
     exit
 }
 
@@ -91,9 +72,9 @@ puts [format "  Worst Negative Slack (WNS / Setup): %6.3f ns" $wns]
 puts [format "  Worst Hold Slack     (WHS / Hold) : %6.3f ns" $whs]
 
 if {$wns >= 0.0} {
-    puts "  [TIMING STATUS]: >>> TIMING MET (NO VIOLATIONS) <<<"
+    puts "  \[TIMING STATUS\]: >>> TIMING MET (NO VIOLATIONS) <<<"
 } else {
-    puts "  [TIMING STATUS]: >>> TIMING VIOLATION DETECTED <<<"
+    puts "  \[TIMING STATUS\]: >>> TIMING VIOLATION DETECTED <<<"
 }
 puts "=========================================================================="
 puts "  Reports generated in working directory:"

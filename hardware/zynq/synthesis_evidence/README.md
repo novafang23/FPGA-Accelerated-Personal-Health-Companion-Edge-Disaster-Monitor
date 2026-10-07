@@ -6,7 +6,7 @@ evidence — they are byte-identical to the Vivado-generated originals.
 
 ## 1. `ooc_utilization_synth.rpt` — out-of-context accelerator utilization
 
-Source: `vivado_project/FPGA MEDTECH DEVICE ZYNQ-7000.runs/design_ZYNQ_axi_ppg_accelerator_0_0_synth_1/`
+Source: `vivado_project/zynq_ppg_system.runs/design_ZYNQ_axi_ppg_accelerator_0_0_synth_1/`
 
 | Field | Value |
 |---|---|
@@ -20,7 +20,7 @@ Source: `vivado_project/FPGA MEDTECH DEVICE ZYNQ-7000.runs/design_ZYNQ_axi_ppg_a
 
 ## 2. `post_route_timing_summary.rpt` — integrated post-route timing
 
-Source: `vivado_project/FPGA MEDTECH DEVICE ZYNQ-7000.runs/impl_1/`
+Source: `vivado_project/zynq_ppg_system.runs/impl_1/`
 
 This is the **full block design** (`design_ZYNQ_wrapper`: PS7 + AXI SmartConnect
 + accelerator), post place-and-route — not the out-of-context accelerator.

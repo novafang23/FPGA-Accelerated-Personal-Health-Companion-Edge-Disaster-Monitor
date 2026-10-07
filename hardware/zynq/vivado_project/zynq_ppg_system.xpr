@@ -4,7 +4,7 @@
 <!-- Copyright 1986-2022 Xilinx, Inc. All Rights Reserved.                   -->
 <!-- Copyright 2022-2026 Advanced Micro Devices, Inc. All Rights Reserved.   -->
 
-<Project Product="Vivado" Version="7" Minor="72" Path="C:/Users/abhin/OneDrive/Desktop/verilog/FPGA MEDTECH DEVICE ZYNQ-7000/FPGA MEDTECH DEVICE ZYNQ-7000.xpr">
+<Project Product="Vivado" Version="7" Minor="72" Path="C:/Users/abhin/OneDrive/Desktop/verilog/hardware/zynq/vivado_project/zynq_ppg_system.xpr">
   <DefaultLaunch Dir="$PRUNDIR"/>
   <Configuration>
     <Option Name="Id" Val="ca90d5b8d1fb4f5b9d7b01f058d1dec1"/>
@@ -75,21 +75,21 @@
   <FileSets Version="1" Minor="32">
     <FileSet Name="sources_1" Type="DesignSrcs" RelSrcDir="$PSRCDIR/sources_1" RelGenDir="$PGENDIR/sources_1">
       <Filter Type="Srcs"/>
-      <File Path="$PPRDIR/../hardware/common/moving_average_8tap.v">
+      <File Path="$PPRDIR/../../common/moving_average_8tap.v">
         <FileInfo>
           <Attr Name="UsedIn" Val="synthesis"/>
           <Attr Name="UsedIn" Val="implementation"/>
           <Attr Name="UsedIn" Val="simulation"/>
         </FileInfo>
       </File>
-      <File Path="$PPRDIR/../hardware/common/ppg_peak_detector.v">
+      <File Path="$PPRDIR/../../common/ppg_peak_detector.v">
         <FileInfo>
           <Attr Name="UsedIn" Val="synthesis"/>
           <Attr Name="UsedIn" Val="implementation"/>
           <Attr Name="UsedIn" Val="simulation"/>
         </FileInfo>
       </File>
-      <File Path="$PPRDIR/../hardware/zynq/axi_ppg_accelerator.v">
+      <File Path="$PPRDIR/../axi_ppg_accelerator.v">
         <FileInfo>
           <Attr Name="UsedIn" Val="synthesis"/>
           <Attr Name="UsedIn" Val="implementation"/>
@@ -129,7 +129,7 @@
     </FileSet>
     <FileSet Name="constrs_1" Type="Constrs" RelSrcDir="$PSRCDIR/constrs_1" RelGenDir="$PGENDIR/constrs_1">
       <Filter Type="Constrs"/>
-      <File Path="$PPRDIR/../hardware/zynq/ppg_accelerator.xdc">
+      <File Path="$PPRDIR/../ppg_accelerator.xdc">
         <FileInfo>
           <Attr Name="UsedIn" Val="synthesis"/>
           <Attr Name="UsedIn" Val="implementation"/>
@@ -140,7 +140,7 @@
       </Config>
     </FileSet>
     <FileSet Name="sim_1" Type="SimulationSrcs" RelSrcDir="$PSRCDIR/sim_1" RelGenDir="$PGENDIR/sim_1">
-      <File Path="$PPRDIR/../hardware/zynq/tb_ppg_system.v">
+      <File Path="$PPRDIR/../tb_ppg_system.v">
         <FileInfo>
           <Attr Name="UsedIn" Val="synthesis"/>
           <Attr Name="UsedIn" Val="implementation"/>

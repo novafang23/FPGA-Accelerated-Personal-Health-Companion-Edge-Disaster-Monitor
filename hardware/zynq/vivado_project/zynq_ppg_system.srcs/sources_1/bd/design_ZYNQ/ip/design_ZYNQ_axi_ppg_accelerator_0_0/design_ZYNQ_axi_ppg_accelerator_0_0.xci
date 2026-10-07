@@ -5,7 +5,7 @@
     "cell_name": "axi_ppg_accelerator_0",
     "component_reference": "xilinx.com:module_ref:axi_ppg_accelerator:1.0",
     "ip_revision": "1",
-    "gen_directory": "../../../../../../FPGA MEDTECH DEVICE ZYNQ-7000.gen/sources_1/bd/design_ZYNQ/ip/design_ZYNQ_axi_ppg_accelerator_0_0",
+    "gen_directory": "../../../../../../zynq_ppg_system.gen/sources_1/bd/design_ZYNQ/ip/design_ZYNQ_axi_ppg_accelerator_0_0",
     "parameters": {
       "component_parameters": {
         "C_S_AXI_DATA_WIDTH": [ { "value": "32", "resolve_type": "user", "format": "long", "usage": "all" } ],
@@ -35,7 +35,7 @@
         "IPCONTEXT": [ { "value": "IP_Integrator" } ],
         "IPREVISION": [ { "value": "1" } ],
         "MANAGED": [ { "value": "TRUE" } ],
-        "OUTPUTDIR": [ { "value": "../../../../../../FPGA MEDTECH DEVICE ZYNQ-7000.gen/sources_1/bd/design_ZYNQ/ip/design_ZYNQ_axi_ppg_accelerator_0_0" } ],
+        "OUTPUTDIR": [ { "value": "../../../../../../zynq_ppg_system.gen/sources_1/bd/design_ZYNQ/ip/design_ZYNQ_axi_ppg_accelerator_0_0" } ],
         "SELECTEDSIMMODEL": [ { "value": "" } ],
         "SHAREDDIR": [ { "value": "../../ipshared" } ],
         "SWVERSION": [ { "value": "2026.1" } ],
