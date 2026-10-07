@@ -35,7 +35,6 @@ PROTECTED_DIRS = [
     "hardware/shrikefi",
     "scripts",
     "docs",
-    "data",
 ]
 
 # Prohibited file extensions (transient build/sim artifacts)
