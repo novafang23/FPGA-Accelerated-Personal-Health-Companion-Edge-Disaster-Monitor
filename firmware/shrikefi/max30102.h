@@ -8,6 +8,7 @@
 #define MAX30102_H
 
 #include <stdint.h>
+#include <stddef.h>
 #include "esp32_i2c_hal.h"
 
 #ifdef __cplusplus
