@@ -104,7 +104,7 @@ jobs:
           ./acc_eval data/mimic/mimic_eval_feed.csv | tee acc.log
           # Floors sit below the measured triage accuracy and require FP32/INT8
           # to agree on all three hazard tiers for at least 99% of records.
-          python3 -c "import json; m=json.loads(next(l for l in open('acc.log') if l.startswith('METRICS_JSON:')).split('METRICS_JSON:',1)[1]); print(m); assert m['total']==16387, m['total']; assert m['accuracy']>=93.0, m['accuracy']; assert m['agreement_pct']>=99.0, m['agreement_pct']; print('OK accuracy=%s%% int8_agreement=%s%%' % (m['accuracy'], m['agreement_pct']))"
+          python3 -c "import json, sys; lines=[l for l in open('acc.log') if l.startswith('METRICS_JSON:')]; sys.exit('ERROR: acc_eval emitted no METRICS_JSON') if not lines else None; m=json.loads(lines[0].split('METRICS_JSON:',1)[1]); print(m); assert m['total']==16387, m['total']; assert m['accuracy']>=93.0, m['accuracy']; assert m['agreement_pct']>=99.0, m['agreement_pct']; print('OK accuracy=%s%% int8_agreement=%s%%' % (m['accuracy'], m['agreement_pct']))"
 
   synthesize:
     name: Synthesize (Zynq-7000)

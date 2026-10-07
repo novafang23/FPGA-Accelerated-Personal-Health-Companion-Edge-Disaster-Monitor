@@ -24,6 +24,7 @@ PROTECTED_FILES = [
     "firmware/shrikefi/wifi_credentials.h",
     "hardware/zynq/vivado_project/FPGA MEDTECH DEVICE ZYNQ-7000.xpr",
     "shrike_fpga/shrike_fpga.xpr",
+    "data/mimic/mimic_eval_feed.csv",
 ]
 
 # Core source directories that must have intact source trees
