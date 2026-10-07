@@ -42,7 +42,7 @@ window.onerror = function (m) { window.__err = String(m); };
       V.hr = 0; V.spo2 = 0; V.hrv = 0; V.rr = 0; V.sqi = 0; V.pi = 0;
       V.news2 = 0; V.level = 0; V.flags = 0;
     } else {
-      V.hr = 72; V.spo2 = 98; V.hrv = 42; V.rr = 15; V.sqi = 0.95; V.pi = 1.2; V.news2 = 0;
+      V.hr = 72; V.spo2 = 98; V.hrv = 42; V.rr = 15; V.sqi = 95; V.pi = 1.2; V.news2 = 0;
     }
     render();
     const txt = (id) => {
@@ -61,6 +61,7 @@ window.onerror = function (m) { window.__err = String(m); };
       spo2: txt('v-spo2'), spo2Note: txt('spo2-note'), spo2NumCol: col('v-spo2'),
       hrv: txt('v-hrv'), hrvNote: txt('hrv-note'), hrvNumCol: col('v-hrv'),
       rr: txt('v-rr'), rrNumCol: col('v-rr'),
+      sqi: txt('v-sqi'), sqiPill: txt('sqi-pill'), sqiNumCol: col('v-sqi'),
       histMeanHr: txt('h-mean-hr'),
       histSampleCount: txt('h-sample-count'),
       n2: grid ? Array.from(grid.children).map((c) =>
@@ -129,8 +130,8 @@ def check(case, r, expect):
     bad = []
     if r.get("error"):
         bad.append("  JS error: %s" % r["error"])
-    for k in ("hr", "hrNote", "spo2", "spo2Note", "hrv", "hrvNote", "rr", "hrNumCol",
-              "spo2NumCol", "hrvNumCol", "rrNumCol"):
+    for k in ("hr", "hrNote", "spo2", "spo2Note", "hrv", "hrvNote", "rr", "sqi", "sqiPill",
+              "hrNumCol", "spo2NumCol", "hrvNumCol", "rrNumCol", "sqiNumCol"):
         print("  %-12s %s" % (k, r.get(k)))
     print("  %-12s %s" % ("n2-grid", "  ".join(r.get("n2", []))))
 
@@ -156,17 +157,17 @@ for case in ("zero", "healthy"):
 
     if case == "zero":
         expect = {
-            "hr": "--", "spo2": "--", "hrv": "--", "rr": "--",
+            "hr": "--", "spo2": "--", "hrv": "--", "rr": "--", "sqi": "--",
             "hrNote": "acquiring", "spo2Note": "calibrating",
-            "hrvNote": "needs 10 beats",
+            "hrvNote": "needs 10 beats", "sqiPill": "waiting for contact",
             "histMeanHr": "--", "histSampleCount": "0/24",
             "n2": ["RR=--", "SpO2=--", "HR=--", "SBP=n/a", "Temp=n/a", "Consc=n/a"],
         }
     else:
         expect = {
-            "hr": "72", "spo2": "98.0", "hrv": "42.0", "rr": "15",
+            "hr": "72", "spo2": "98.0", "hrv": "42.0", "rr": "15", "sqi": "95",
             "hrNote": "normal sinus rhythm", "spo2Note": "normal",
-            "hrvNote": "Adequate reserve",
+            "hrvNote": "Adequate reserve", "sqiPill": "clean signal",
             "histMeanHr": "72 bpm", "histSampleCount": "1/24",
             "n2": ["RR=+0", "SpO2=+0", "HR=+0", "SBP=n/a", "Temp=n/a", "Consc=n/a"],
         }
@@ -175,7 +176,7 @@ for case in ("zero", "healthy"):
 
     # An absent reading must not be painted in an alarm colour.
     if case == "zero" and neutral:
-        for k in ("hrNumCol", "spo2NumCol", "hrvNumCol", "rrNumCol"):
+        for k in ("hrNumCol", "spo2NumCol", "hrvNumCol", "rrNumCol", "sqiNumCol"):
             if r.get(k) != neutral:
                 bad.append("  %s: absent reading painted %s, expected neutral %s"
                            % (k, r.get(k), neutral))

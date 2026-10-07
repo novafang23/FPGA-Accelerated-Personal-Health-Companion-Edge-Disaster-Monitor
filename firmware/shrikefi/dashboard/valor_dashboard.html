@@ -1237,19 +1237,20 @@ function render() {
      than one showing nothing. */
   if (mode === 'idle') { renderIdle(); return; }
   /* â”€â”€ PPG card header + derived metrics â”€â”€ */
+  const sqiOn = (V.hr > 0 && V.sqi > 0);
   const sqiPct = Math.round(V.sqi);
-  $('scope-sqi').textContent = 'SQI ' + sqiPct + '%';
-  $('scope-sqi').style.color = V.sqi < 50 ? C.crimson : C.mid;
+  $('scope-sqi').textContent = sqiOn ? 'SQI ' + sqiPct + '%' : 'SQI --';
+  $('scope-sqi').style.color = !sqiOn ? '' : (V.sqi < 50 ? C.crimson : C.mid);
   $('scope-rate').textContent = (mode === 'live' ? (sampleRate || '--') : '50') + ' Hz';
   $('scope-src').textContent = (mode === 'live') ? (ppgSeen ? 'LIVE' : 'GATED') : (mode === 'sim' ? 'SIM' : 'NONE');
   $('scope-sub').textContent = mode === 'live'
-    ? 'AC-coupled reflectance Â· live MAX30102 Â· auto-ranged'
-    : 'AC-coupled reflectance Â· ring buffer Â· auto-ranged';
+    ? 'AC-coupled reflectance · live MAX30102 · auto-ranged'
+    : 'AC-coupled reflectance · ring buffer · auto-ranged';
 
   $('m-pi').textContent  = V.pi > 0 ? V.pi.toFixed(2) + ' %' : '--';
   $('m-rr').textContent  = V.rr > 0 ? V.rr.toFixed(1) + ' br/min' : '--';
   $('m-hrv').textContent = V.hrv > 0 ? V.hrv.toFixed(1) + ' ms' : '--';
-  $('m-sqi').textContent = sqiPct + ' %';
+  $('m-sqi').textContent = sqiOn ? sqiPct + ' %' : '--';
 
   /* â”€â”€ NEWS2 â”€â”€ */
   const band = news2Band(V.news2);
@@ -1343,12 +1344,14 @@ function render() {
     }
   }
 
-  const sqiColor = V.sqi < 50 ? C.crimson : V.sqi < 75 ? C.amber : C.mid;
-  $('v-sqi').textContent = sqiPct;
+  const sqiColor = !sqiOn ? C.text : V.sqi < 50 ? C.crimson : V.sqi < 75 ? C.amber : C.mid;
+  $('v-sqi').textContent = sqiOn ? sqiPct : '--';
   $('v-sqi').style.color = sqiColor;
   const pill = $('sqi-pill');
-  pill.textContent = V.sqi < 50 ? 'artifact detected â€” triage held' : 'clean signal';
-  pill.className = 'pill' + (V.sqi < 50 ? ' bad' : '');
+  pill.textContent = !hrOn ? 'waiting for contact'
+    : !sqiOn ? 'calibrating baseline'
+    : (V.sqi < 50 ? 'artifact detected \u2014 triage held' : 'clean signal');
+  pill.className = 'pill' + ((sqiOn && V.sqi < 50) ? ' bad' : '');
 
   /* â”€â”€ Environment â”€â”€ */
   const tempColor = V.temp > 38 ? C.crimson : V.temp > 35 ? C.amber : '#e2e8f0';
@@ -1518,7 +1521,7 @@ function handleLine(line) {
   }
 
   if (line.startsWith('[TELEMETRY]')) {
-    if (line.indexOf('NO_FINGER') >= 0 || line.indexOf('ACQUIRING') >= 0) {
+    if (line.indexOf('NO_FINGER') >= 0) {
       V.hr = 0; V.spo2 = 0; V.hrv = 0; V.rr = 0; V.rrConf = 0; V.sqi = 0; V.pi = 0;
       const k = parseKV(line.replace('[TELEMETRY]', ''));
       if (k.TEMP) V.temp = num(k.TEMP);

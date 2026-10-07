@@ -272,7 +272,7 @@ static void ibi_pipeline_reset(ibi_pipeline_t *p) {
  * resting subject, on every other assessment. 30 beats is about 23 s at rest,
  * roughly five cycles - enough for the confidence figure to mean something. */
 #define PPG_RR_MIN_IBIS  30
-#define PPG_SQI_RAW_WIN PPG_SAMPLE_RATE_HZ    /* raw IR samples fed to the SQI (1 s) */
+#define PPG_SQI_RAW_WIN (3 * PPG_SAMPLE_RATE_HZ) /* raw IR samples fed to the SQI (3 s) */
 
 static float    s_rr_ibis[PPG_RR_HISTORY];
 static int      s_rr_ibi_n = 0;
@@ -359,7 +359,11 @@ static void ppg_update_respiration_and_sqi(void) {
          * worse here than something absent, because tachypnoea is the most
          * sensitive term in the score. */
         g_state.respiratory_rate_bpm = rr.is_reliable ? rr.respiratory_rate_bpm : 0.0f;
-        g_state.ppg_sqi               = sqi.overall_sqi;
+        if (g_state.ppg_sqi > 0.0f && sqi.overall_sqi > 0.0f) {
+            g_state.ppg_sqi = 0.80f * g_state.ppg_sqi + 0.20f * sqi.overall_sqi;
+        } else {
+            g_state.ppg_sqi = sqi.overall_sqi;
+        }
         /* Published even when unreliable, so the gate can be judged against what
          * the estimator actually saw. */
         g_state.rr_confidence         = rr.confidence;
@@ -620,8 +624,23 @@ static void task_ppg_accelerator(void *pvParameters) {
                 ir_win_count = 0;
             }
 
-            /* Optical contact check: ambient air is IR<1000; tissue contact elevates levels to >50,000 */
-            bool optical_contact = (ppg_sample.ir > 1500 || ppg_sample.red > 1500);
+            /* Optical contact check with 15-sample (150 ms) debounce:
+             * Ambient air is IR < 1000; tissue contact elevates levels to > 50,000.
+             * A momentary 1-sample optical glitch or movement must not wipe the 300-beat
+             * HRV and SpO2 history buffers immediately. We require 15 consecutive missing
+             * samples before declaring contact lost. */
+            bool raw_contact = (ppg_sample.ir > 1500 || ppg_sample.red > 1500);
+            static int s_disconnect_samples = 0;
+            bool optical_contact;
+            if (raw_contact) {
+                s_disconnect_samples = 0;
+                optical_contact = true;
+            } else {
+                if (s_disconnect_samples < 15) {
+                    s_disconnect_samples++;
+                }
+                optical_contact = (s_disconnect_samples < 15);
+            }
 
             /* LED current hunting - and the reason SpO2 used to take 20+ seconds.
              *
@@ -644,7 +663,7 @@ static void task_ppg_accelerator(void *pvParameters) {
              * good reading is not disturbed. The band is wide enough to be its own
              * hysteresis - inside it the adjustment stops entirely. */
             static int led_adj_counter = 0;
-            if (!optical_contact) {
+            if (!raw_contact) {
                 led_adj_counter = 0;
             } else if (++led_adj_counter >= (spo2_is_valid(&spo2_state) ? (PPG_SAMPLE_RATE_HZ / 2) : (PPG_SAMPLE_RATE_HZ / 20))) {
                 led_adj_counter = 0;
@@ -688,8 +707,8 @@ static void task_ppg_accelerator(void *pvParameters) {
             if (s_rail_ir  > rail_limit) { s_base_ir  = 0; s_rail_ir  = 0; }
 
             /* Raw 18-bit IR window for the signal-quality index. Fed only while
-             * there is optical contact, so a finger-lift cannot poison it. */
-            if (optical_contact) {
+             * there is direct optical contact, so a momentary glitch cannot poison it. */
+            if (raw_contact) {
                 ppg_history_push_u32(s_sqi_raw, &s_sqi_raw_n, PPG_SQI_RAW_WIN,
                                      ppg_sample.ir);
             }
@@ -716,7 +735,7 @@ static void task_ppg_accelerator(void *pvParameters) {
 #endif
 
             /* 2. Stream to the ForgeFPGA over the SPI link */
-            if (optical_contact) {
+            if (raw_contact) {
                 shrikefi_write_red_sample(raw_red);
                 shrikefi_write_ir_sample(raw_ir);
             } else {
@@ -737,7 +756,7 @@ static void task_ppg_accelerator(void *pvParameters) {
             hist_idx = (hist_idx + 1) & 7;
 
             /* 4. Feed 18-bit samples into SpO2 engine when tissue contact is present */
-            if (optical_contact) {
+            if (raw_contact) {
                 spo2_add_samples(&spo2_state, ppg_sample.red, ppg_sample.ir);
                 if (spo2_is_valid(&spo2_state)) {
                     if (xSemaphoreTake(s_data_mutex, pdMS_TO_TICKS(10)) == pdTRUE) {
@@ -820,8 +839,15 @@ static void task_ppg_accelerator(void *pvParameters) {
                         g_state.r_peak_interval_ms = ibi_ms;
                         g_state.heart_rate = (g_state.heart_rate > 30.0f) ?
                                              (0.70f * g_state.heart_rate + 0.30f * inst_hr) : inst_hr;
-                        g_state.hrv_rmssd = hrv_state.rmssd;
-                        g_state.hrv_sdnn = hrv_state.sdnn;
+                        if (hrv_is_ready(&hrv_state)) {
+                            g_state.hrv_rmssd = (g_state.hrv_rmssd > 0.0f) ?
+                                                (0.85f * g_state.hrv_rmssd + 0.15f * hrv_state.rmssd) : hrv_state.rmssd;
+                            g_state.hrv_sdnn  = (g_state.hrv_sdnn > 0.0f) ?
+                                                (0.85f * g_state.hrv_sdnn + 0.15f * hrv_state.sdnn) : hrv_state.sdnn;
+                        } else {
+                            g_state.hrv_rmssd = 0.0f;
+                            g_state.hrv_sdnn  = 0.0f;
+                        }
                         g_state.hrv_sample_count = hrv_state.count;
                         xSemaphoreGive(s_data_mutex);
                     }
@@ -925,8 +951,15 @@ static void task_ppg_accelerator(void *pvParameters) {
                                                     g_state.heart_rate = (g_state.heart_rate > 30.0f) ?
                                                                          (0.70f * g_state.heart_rate + 0.30f * inst_hr) : inst_hr;
                                                 }
-                                                g_state.hrv_rmssd = hrv_state.rmssd;
-                                                g_state.hrv_sdnn = hrv_state.sdnn;
+                                                if (hrv_is_ready(&hrv_state)) {
+                                                    g_state.hrv_rmssd = (g_state.hrv_rmssd > 0.0f) ?
+                                                                        (0.85f * g_state.hrv_rmssd + 0.15f * hrv_state.rmssd) : hrv_state.rmssd;
+                                                    g_state.hrv_sdnn  = (g_state.hrv_sdnn > 0.0f) ?
+                                                                        (0.85f * g_state.hrv_sdnn + 0.15f * hrv_state.sdnn) : hrv_state.sdnn;
+                                                } else {
+                                                    g_state.hrv_rmssd = 0.0f;
+                                                    g_state.hrv_sdnn  = 0.0f;
+                                                }
                                                 g_state.hrv_sample_count = hrv_state.count;
                                                 xSemaphoreGive(s_data_mutex);
                                             }
@@ -963,7 +996,8 @@ static void task_ppg_accelerator(void *pvParameters) {
                     xSemaphoreGive(s_data_mutex);
                 }
             } else {
-                /* No optical contact (IR <= 1500) */
+                /* No optical contact (debounced: 15 consecutive missing samples IR <= 1500) */
+                s_disconnect_samples = 15;
                 s_last_fpga_beat_ms  = 0;   /* FPGA liveness is scoped to one contact session */
                 sw_finger_start_ms   = 0;
                 sw_last_peak_sample  = 0;
