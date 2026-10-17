@@ -132,6 +132,20 @@ c4f90a7 fix: resolve four correctness/safety defects found in the A-to-Z audit
   `RHEAT/RPOLL/RFLOOD=NORMAL` and `RISK=MODERATE` (clinical level with no valid
   vitals), not UNKNOWN. `[PPG]` is decimated to 1 Hz and the redundant
   `[RuleEngine]`/`[TinyML]` logs removed so `[TRIAGE]` reaches the UART.
+- **Literature-based environmental condition (2026-10-18):** the status page now
+  shows the environment as the published standards classify it, not only as a
+  patient-response risk:
+  - PM2.5 -> US EPA AQI (2024 revision) category and AQI value, plus the WHO
+    2021 24-h guideline (15 ug/m3) exceedance;
+  - temperature/humidity -> NWS heat-index category (Normal / Caution /
+    Extreme Caution / Danger / Extreme Danger).
+  Implemented in `disaster_risk_engine.c` (host-tested), published as `env` in
+  `/status.json`, shown on the SoftAP "Environmental condition" card, and
+  printed as `[ENV]` at 1 Hz. Example: "PM2.5 37.7 ug/m3: Unhealthy for
+  Sensitive Groups (EPA AQI 106, 2024). WHO 2021 24-h guideline 15 ug/m3
+  exceeded (2.5x). Heat index 30.7 C: Caution (NWS)." The `RHEAT`/`RPOLL`
+  rule-engine levels remain the patient-response scores; aligning them to the
+  AQI/NWS categories is a policy choice.
 - **A2 safety**: an absolute-crisis override requires SQI ≥ 0.70 or two
   independent crisis criteria, so one noisy SpO2 cannot fire the SOS.
 - **C1**: GPS location is published from static storage (was a dangling

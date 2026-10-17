@@ -172,6 +172,21 @@ const char* risk_level_to_string(risk_level_t level);
 /* Get ANSI color escape code for the risk level */
 const char* risk_level_to_color(risk_level_t level);
 
+/* --- Literature-based environmental condition -----------------------------
+ * These classify the environment the way the published standards do, rather
+ * than as a patient-response score:
+ *   - PM2.5 -> US EPA AQI breakpoints (2024 revision) and the WHO 2021 24-h
+ *     guideline (15 ug/m3).
+ *   - Temperature/humidity -> NWS heat-index categories.
+ * Host-testable and stateless. */
+float       disaster_calculate_heat_index_c(float temp_c, float humidity_pct);
+int         disaster_epa_pm25_aqi(float pm25_ugm3);
+const char *disaster_epa_pm25_category(int aqi);
+const char *disaster_nws_heat_category(float heat_index_c);
+/* Combined human-readable sentence for the status page / logs. */
+void        disaster_environment_condition_text(const env_sensors_t *env,
+                                                char *out, size_t cap);
+
 /*
  * Run multi-disaster health risk assessment (rule-based).
  */

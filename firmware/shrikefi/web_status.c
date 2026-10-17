@@ -187,6 +187,8 @@ size_t web_status_json(const valor_status_t *s, char *buf, size_t cap) {
         !json_append_string(buf, cap, &used, s->trigger ? s->trigger : "none") ||
         !json_append(buf, cap, &used, ",\"loc\":", sizeof(",\"loc\":") - 1) ||
         !json_append_string(buf, cap, &used, s->loc ? s->loc : "UNSET") ||
+        !json_append(buf, cap, &used, ",\"env\":", sizeof(",\"env\":") - 1) ||
+        !json_append_string(buf, cap, &used, s->env ? s->env : "") ||
         !json_append_format(buf, cap, &used, ",\"motion\":%.2f,\"fall\":", (double)s->motion) ||
         !json_append_string(buf, cap, &used, s->fall ? s->fall : "MONITORING") ||
         !json_append_format(buf, cap, &used, ",\"contact\":%s,\"up\":%lu}",
@@ -367,7 +369,7 @@ size_t web_status_history_json(char *buf, size_t cap) {
 static const char PAGE_HTML[] =
 "<!DOCTYPE html><html lang='en'><head><meta charset='utf-8'>"
 "<meta name='viewport' content='width=device-width,initial-scale=1'>"
-"<meta http-equiv='Content-Security-Policy' content=\"default-src 'none'; script-src 'sha256-NW4PFfe+sgYBb73by+q2PvmczyhOaEfLA0fEvrzSaPc='; style-src 'unsafe-inline'; connect-src 'self'; form-action 'self'; base-uri 'none'; object-src 'none'\">"
+"<meta http-equiv='Content-Security-Policy' content=\"default-src 'none'; script-src 'sha256-lTKpMP1iZ49frhvBexcwoLthxsrXD9dE/3Y6F11yhk0='; style-src 'unsafe-inline'; connect-src 'self'; form-action 'self'; base-uri 'none'; object-src 'none'\">"
 "<title>VALOR - local status</title><style>"
 ":root{--bg:#070B14;--card:#0E1626;--line:#1C2740;--text:#E6EDF7;--dim:#8A9AB5;"
 "--cyan:#00E5FF;--emerald:#00FFAA;--amber:#FFB020;--crimson:#FF3B5C}"
@@ -439,6 +441,8 @@ static const char PAGE_HTML[] =
 "<div class='card wide'><div class='k'>Storm watch &middot; barometric trend</div>"
 "<div class='v' style='font-size:19px'><span id='storm'>--</span></div>"
 "<div id='pnote'>&nbsp;</div></div>"
+"<div class='card wide'><div class='k'>Environmental condition &middot; EPA AQI / NWS</div>"
+"<div id='envcond' style='font-size:12.5px;line-height:1.45'>--</div></div>"
 "</div>"
 "<div class='foot'>"
 "<span><span class='dot'></span><span id='link'>live</span></span>"
@@ -452,6 +456,7 @@ static const char PAGE_HTML[] =
 "function clearReadings(){document.body.className='';t('risk','NO CONNECTION');"
 "t('msg','Live status unavailable; current readings cleared.');"
 "['hr','spo2','rmssd','rr','sqi','temp','hum','pm','storm'].forEach(function(i){t(i,D)});"
+"t('envcond',D);"
 "t('news2','NEWS2 --');t('pnote','');t('link','reconnecting');"
 "t('sos-note','Device connection lost; check the WiFi link')}"
 "function poll(){"
@@ -466,6 +471,7 @@ static const char PAGE_HTML[] =
 "t('rr',positive(s.rr,0));t('sqi',s.contact&&typeof s.sqi==='number'?(s.sqi*100).toFixed(0):D);"
 "t('temp',num(s.temp,1));t('hum',num(s.hum,0));t('pm',num(s.pm25,0));"
 "t('storm',s.storm);"
+"t('envcond',typeof s.env==='string'&&s.env?s.env:D);"
 /* The trend is the number that carries the signal; the absolute pressure is
    shown beside it only so a reader can see the barometer they are reading. */
 "t('pnote','Pressure '+(s.pressure>0?s.pressure.toFixed(1):D)+' hPa, trend '"
@@ -522,7 +528,7 @@ static esp_err_t h_root(httpd_req_t *req) {
      * re-fetch every second on a network with one client. */
     httpd_resp_set_hdr(req, "Cache-Control", "no-store");
     httpd_resp_set_hdr(req, "Content-Security-Policy",
-        "default-src 'none'; script-src 'sha256-NW4PFfe+sgYBb73by+q2PvmczyhOaEfLA0fEvrzSaPc='; style-src 'unsafe-inline'; connect-src 'self'; form-action 'self'; base-uri 'none'; object-src 'none'; frame-ancestors 'none'");
+        "default-src 'none'; script-src 'sha256-lTKpMP1iZ49frhvBexcwoLthxsrXD9dE/3Y6F11yhk0='; style-src 'unsafe-inline'; connect-src 'self'; form-action 'self'; base-uri 'none'; object-src 'none'; frame-ancestors 'none'");
     httpd_resp_set_hdr(req, "X-Content-Type-Options", "nosniff");
     httpd_resp_set_hdr(req, "X-Frame-Options", "DENY");
     httpd_resp_set_hdr(req, "Referrer-Policy", "same-origin");

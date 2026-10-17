@@ -158,6 +158,36 @@ static void test_flood_risk() {
     printf("test_flood_risk: PASS\n");
 }
 
+/* Literature-based environmental condition: EPA AQI 2024, WHO 2021 PM2.5,
+ * NWS heat index. */
+static void test_environmental_condition(void) {
+    int aqi = disaster_epa_pm25_aqi(35.7f);
+    printf("  ENV: PM2.5 35.7 -> AQI %d (%s)\n", aqi, disaster_epa_pm25_category(aqi));
+    assert(aqi >= 101 && aqi <= 150);
+    assert(strcmp(disaster_epa_pm25_category(aqi), "Unhealthy for Sensitive Groups") == 0);
+
+    aqi = disaster_epa_pm25_aqi(5.0f);
+    assert(aqi <= 50);
+    assert(strcmp(disaster_epa_pm25_category(aqi), "Good") == 0);
+
+    assert(strcmp(disaster_nws_heat_category(25.0f), "Normal") == 0);
+    assert(strcmp(disaster_nws_heat_category(29.0f), "Caution") == 0);
+    assert(strcmp(disaster_nws_heat_category(35.0f), "Extreme Caution") == 0);
+    assert(strcmp(disaster_nws_heat_category(45.0f), "Danger") == 0);
+    assert(strcmp(disaster_nws_heat_category(55.0f), "Extreme Danger") == 0);
+
+    env_sensors_t env = { .ambient_temp_c = 28.2f, .humidity_pct = 67.0f,
+                          .pm25 = 35.7f, .skin_temp_c = 0.0f };
+    char text[192];
+    disaster_environment_condition_text(&env, text, sizeof(text));
+    printf("  ENV: %s\n", text);
+    assert(strstr(text, "EPA AQI") != NULL);
+    assert(strstr(text, "NWS") != NULL);
+    assert(strstr(text, "exceeded") != NULL);
+
+    printf("test_environmental_condition: PASS\n");
+}
+
 /* Missing HRV must not hide the environment.
  *
  * The old contract forced every environmental risk to RISK_UNKNOWN when the
@@ -1819,6 +1849,7 @@ int main() {
     test_heat_risk();
     test_pollution_risk();
     test_flood_risk();
+    test_environmental_condition();
     test_hrv_not_ready();
     test_null_env();
     test_invalid_clinical_vitals_are_not_normal();

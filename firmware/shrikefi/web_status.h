@@ -42,6 +42,9 @@ typedef struct {
     float    temp;
     float    hum;
     float    pm25;
+    /* Literature-based environmental condition sentence (EPA AQI / WHO 2021 /
+     * NWS heat index). Pointer to static storage owned by the publisher. */
+    const char *env;
 
     /* Barometric pressure and its fitted trend (T3.1). The trend is the useful
      * number: absolute pressure varies with altitude and season, so the page

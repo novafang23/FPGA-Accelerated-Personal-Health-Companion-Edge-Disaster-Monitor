@@ -93,6 +93,7 @@ source, page = embedded_page()
 script = re.search(r"<script>(.*?)</script>", page, re.S).group(1)
 script_hash = sha256_source(script)
 if "'sha256-%s'" % script_hash not in page:
+    print("EXPECTED_HASH=sha256-%s" % script_hash)
     raise RuntimeError("embedded page CSP hash does not match its script")
 if "'sha256-%s'" % script_hash not in source:
     raise RuntimeError("HTTP response CSP hash does not match the embedded script")

@@ -2011,6 +2011,12 @@ static void task_disaster_monitor(void *pvParameters) {
              
             st.hum      = env.humidity_pct;
             st.pm25     = env.pm25;
+            /* Literature-based environmental condition (EPA AQI 2024 / WHO 2021
+             * PM2.5 guideline / NWS heat index). Static storage: the published
+             * snapshot keeps the pointer after this frame. */
+            static char s_env_text[192];
+            disaster_environment_condition_text(&env, s_env_text, sizeof(s_env_text));
+            st.env      = s_env_text;
             st.pressure_hpa = pressure_trend.pressure_hpa;
             st.pressure_trend_hpa_per_hr = pressure_trend.slope_hpa_per_hr;
             st.news2    = clin_news2;
@@ -2048,6 +2054,8 @@ static void task_disaster_monitor(void *pvParameters) {
             /* 1 Hz location line for the USB dashboard: live GNSS when fixed,
              * otherwise the stored location. */
             printf("[LOC] %s\n", (st.loc && st.loc[0]) ? st.loc : "UNSET");
+            fflush(stdout);
+            printf("[ENV] %s\n", s_env_text);
             fflush(stdout);
 
             /* Periodically publish hourly history summary for WebSerial (every 30s) */

@@ -85,6 +85,80 @@ static float calculate_nws_heat_index(float temp_c, float hum_pct) {
     return (hi_c > temp_c) ? hi_c : temp_c;
 }
 
+/* -------------------------------------------------------------------------
+ * Literature-based environmental condition
+ * ------------------------------------------------------------------------- */
+
+float disaster_calculate_heat_index_c(float temp_c, float humidity_pct) {
+    return calculate_nws_heat_index(temp_c, humidity_pct);
+}
+
+int disaster_epa_pm25_aqi(float pm25_ugm3) {
+    if (!(pm25_ugm3 > 0.0f)) return 0;
+    /* US EPA AQI technical assistance document, PM2.5 breakpoints effective
+     * 2024-05-06 (the 2024 revision lowered the Good/Moderate boundary to
+     * 9.0 ug/m3). Above 325.4 ug/m3 the AQI is capped at 500. */
+    static const float c_lo[6] = {0.0f,   9.1f,   35.5f,  55.5f,  125.5f, 225.5f};
+    static const float c_hi[6] = {9.0f,   35.4f,  55.4f,  125.4f, 225.4f, 325.4f};
+    static const int   i_lo[6] = {0,      51,     101,    151,    201,    301};
+    static const int   i_hi[6] = {50,     100,    150,    200,    300,    500};
+
+    for (int i = 0; i < 6; i++) {
+        if (pm25_ugm3 <= c_hi[i]) {
+            float c = pm25_ugm3;
+            if (c < c_lo[i]) c = c_lo[i];
+            float aqi = ((float)(i_hi[i] - i_lo[i]) / (c_hi[i] - c_lo[i])) *
+                            (c - c_lo[i]) + (float)i_lo[i];
+            int a = (int)(aqi + 0.5f);
+            if (a < 0) a = 0;
+            if (a > 500) a = 500;
+            return a;
+        }
+    }
+    return 500;
+}
+
+const char *disaster_epa_pm25_category(int aqi) {
+    if (aqi <= 50)  return "Good";
+    if (aqi <= 100) return "Moderate";
+    if (aqi <= 150) return "Unhealthy for Sensitive Groups";
+    if (aqi <= 200) return "Unhealthy";
+    if (aqi <= 300) return "Very Unhealthy";
+    return "Hazardous";
+}
+
+const char *disaster_nws_heat_category(float heat_index_c) {
+    /* NWS heat-index categories, converted from the published Fahrenheit
+     * bands: 80/90/103/125 F = 26.7/32.2/39.4/51.7 C. */
+    if (heat_index_c < 26.7f) return "Normal";
+    if (heat_index_c < 32.2f) return "Caution";
+    if (heat_index_c < 39.4f) return "Extreme Caution";
+    if (heat_index_c < 51.1f) return "Danger";
+    return "Extreme Danger";
+}
+
+void disaster_environment_condition_text(const env_sensors_t *env,
+                                         char *out, size_t cap) {
+    if (!out || cap == 0) return;
+    out[0] = '\0';
+    if (!env) return;
+
+    int aqi = disaster_epa_pm25_aqi(env->pm25);
+    const char *pcat = disaster_epa_pm25_category(aqi);
+    float hi = disaster_calculate_heat_index_c(env->ambient_temp_c, env->humidity_pct);
+    const char *hcat = disaster_nws_heat_category(hi);
+    const float who_24h = 15.0f;
+    float who_x = (who_24h > 0.0f) ? env->pm25 / who_24h : 0.0f;
+
+    snprintf(out, cap,
+             "PM2.5 %.1f ug/m3: %s (EPA AQI %d, 2024). "
+             "WHO 2021 24-h guideline 15 ug/m3 %s (%.1fx). "
+             "Heat index %.1f C: %s (NWS).",
+             env->pm25, pcat, aqi,
+             (who_x > 1.0f) ? "exceeded" : "met", who_x,
+             hi, hcat);
+}
+
 /* Heat Wave — Cardio-Thermal Strain Index (CTSI) */
 static risk_level_t assess_heat_risk(float bpm, float rmssd, float ambient_temp_c,
                                      float humidity_pct, const char **advisory) {
