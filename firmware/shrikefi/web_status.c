@@ -13,6 +13,7 @@
 #include <stdbool.h>
 #include <stdarg.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 
 /* ------------------------------------------------------------------------- */
@@ -366,7 +367,7 @@ size_t web_status_history_json(char *buf, size_t cap) {
 static const char PAGE_HTML[] =
 "<!DOCTYPE html><html lang='en'><head><meta charset='utf-8'>"
 "<meta name='viewport' content='width=device-width,initial-scale=1'>"
-"<meta http-equiv='Content-Security-Policy' content=\"default-src 'none'; script-src 'sha256-Xvs0iA3Eui62afmq1ENjhb7IPyFMNHudlEFFYxdk+uY='; style-src 'unsafe-inline'; connect-src 'self'; form-action 'self'; base-uri 'none'; object-src 'none'\">"
+"<meta http-equiv='Content-Security-Policy' content=\"default-src 'none'; script-src 'sha256-NW4PFfe+sgYBb73by+q2PvmczyhOaEfLA0fEvrzSaPc='; style-src 'unsafe-inline'; connect-src 'self'; form-action 'self'; base-uri 'none'; object-src 'none'\">"
 "<title>VALOR - local status</title><style>"
 ":root{--bg:#070B14;--card:#0E1626;--line:#1C2740;--text:#E6EDF7;--dim:#8A9AB5;"
 "--cyan:#00E5FF;--emerald:#00FFAA;--amber:#FFB020;--crimson:#FF3B5C}"
@@ -477,12 +478,20 @@ static const char PAGE_HTML[] =
 "if(el&&s.loc!=='UNSET'){el.value=s.loc}locFilled=true}"
 "}).catch(clearReadings);"
 "}"
-"function postEmergency(path,action){t('sos-note','Sending '+action+' request...');"
-"fetch(path,{method:'POST'}).then(function(r){if(!r.ok)throw new Error('HTTP '+r.status);return r.json()})"
+"function postEmergency(path,action,holdMs){t('sos-note','Sending '+action+' request...');"
+"var o={method:'POST'};if(holdMs){o.headers={'Content-Type':'application/x-www-form-urlencoded'};o.body='hold_ms='+holdMs;}"
+"fetch(path,o).then(function(r){if(!r.ok)throw new Error('HTTP '+r.status);return r.json()})"
 ".then(function(){t('sos-note',action+' request sent');poll()})"
 ".catch(function(){t('sos-note',action+' request failed; check the connection')})}"
 "document.getElementById('sos-trigger').addEventListener('click',function(){postEmergency('/api/emergency/trigger','SOS trigger')});"
-"document.getElementById('sos-cancel').addEventListener('click',function(){postEmergency('/api/emergency/cancel','SOS cancel')});"
+"(function(){var b=document.getElementById('sos-cancel'),tm=null,ok=false;"
+"function start(e){if(ok)return;if(e&&e.preventDefault)e.preventDefault();t('sos-note','Hold for 3 s to cancel...');"
+"tm=setTimeout(function(){ok=true;postEmergency('/api/emergency/cancel','SOS cancel',3000)},3000)}"
+"function stop(){if(tm){clearTimeout(tm);tm=null}if(!ok)t('sos-note','Cancel aborted - hold for 3 s')}"
+"b.addEventListener('pointerdown',start);b.addEventListener('pointerup',stop);"
+"b.addEventListener('pointerleave',stop);b.addEventListener('pointercancel',stop);"
+"b.addEventListener('keydown',function(e){if(e.key===' '||e.key==='Enter')start(e)});"
+"b.addEventListener('keyup',stop);})();"
 "poll();setInterval(poll,1000);"
 "</script></body></html>";
 
@@ -513,7 +522,7 @@ static esp_err_t h_root(httpd_req_t *req) {
      * re-fetch every second on a network with one client. */
     httpd_resp_set_hdr(req, "Cache-Control", "no-store");
     httpd_resp_set_hdr(req, "Content-Security-Policy",
-        "default-src 'none'; script-src 'sha256-Xvs0iA3Eui62afmq1ENjhb7IPyFMNHudlEFFYxdk+uY='; style-src 'unsafe-inline'; connect-src 'self'; form-action 'self'; base-uri 'none'; object-src 'none'; frame-ancestors 'none'");
+        "default-src 'none'; script-src 'sha256-NW4PFfe+sgYBb73by+q2PvmczyhOaEfLA0fEvrzSaPc='; style-src 'unsafe-inline'; connect-src 'self'; form-action 'self'; base-uri 'none'; object-src 'none'; frame-ancestors 'none'");
     httpd_resp_set_hdr(req, "X-Content-Type-Options", "nosniff");
     httpd_resp_set_hdr(req, "X-Frame-Options", "DENY");
     httpd_resp_set_hdr(req, "Referrer-Policy", "same-origin");
@@ -580,6 +589,26 @@ static esp_err_t h_sos_trigger(httpd_req_t *req) {
 static esp_err_t h_sos_cancel(httpd_req_t *req) {
     if (!location_request_is_same_origin(req)) {
         return httpd_resp_send_err(req, HTTPD_403_FORBIDDEN, "same-origin request required");
+    }
+    /* A single forged request must not be able to silence an emergency. The page
+     * sends hold_ms=3000 only after a 3-second held press; anything shorter (or a
+     * bare POST) is refused. This is not authentication - a determined client on
+     * the open AP can still hold the button - but it stops accidental taps and
+     * trivial drive-by cancels. */
+    char body[32];
+    int len = req->content_len;
+    if (len <= 0 || len >= (int)sizeof(body)) {
+        return httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "hold_ms required");
+    }
+    int got = httpd_req_recv(req, body, (size_t)len);
+    if (got != len) {
+        return httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "incomplete body");
+    }
+    body[len] = '\0';
+    char *eq = strchr(body, '=');
+    int hold_ms = atoi(eq ? eq + 1 : body);
+    if (hold_ms < 3000) {
+        return httpd_resp_send_err(req, HTTPD_403_FORBIDDEN, "hold for 3 s to cancel");
     }
     uint32_t now_ms = (uint32_t)(esp_timer_get_time() / 1000);
     sos_lock();
