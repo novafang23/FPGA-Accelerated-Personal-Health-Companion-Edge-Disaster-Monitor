@@ -256,6 +256,29 @@ void ppg_estimate_respiratory_rate(
         }
     }
 
+    /* A peak pinned to the minimum admissible lag is the short-lag artifact
+     * PPG_RR_MIN_LAG exists to exclude: a 3-beat pattern at ~90 bpm reads as
+     * 34 br/min. The harmonic walk above can land there by taking a
+     * sub-multiple of the strongest lag, so when it does, fall back to the
+     * strongest lag - that is the fundamental the walk was supposed to prefer.
+     * If the strongest lag is also pinned to the boundary, refuse the
+     * measurement instead of publishing the boundary value. The baseline path
+     * applies the same rule to its own ACF. */
+    /* Only refuse when the STRONGEST lag itself is pinned to the boundary. If
+     * the harmonic walk selected a shorter lag that is the fundamental of a
+     * longer strongest lag (e.g. a true 3.5-beat period whose second multiple
+     * at lag 7 has the largest ACF), that is a real measurement and must be
+     * kept. This is what separates a 3-beat artifact at 34 br/min from a
+     * genuine 21.9 br/min near the band edge. */
+    if (peak_lag == PPG_RR_MIN_LAG && best_lag == PPG_RR_MIN_LAG) {
+        peak_lag = -1;
+        peak_r   = 0.0f;
+    }
+    if (peak_lag == (int)max_lag && best_lag == (int)max_lag) {
+        peak_lag = -1;
+        peak_r   = 0.0f;
+    }
+
     float rr_from_fm = PPG_RR_DEFAULT_BPM;
     float conf_fm = 0.0f;
     float peak_lag_f = (float)peak_lag;

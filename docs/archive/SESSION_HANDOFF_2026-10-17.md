@@ -92,6 +92,13 @@ c4f90a7 fix: resolve four correctness/safety defects found in the A-to-Z audit
     confidence 0.69** via the baseline path. The RSA/FM path locks onto a 3-beat
     harmonic (34 br/min, conf 0.54) and is correctly not published. HR reads
     ~108 during the paced run (86 at rest).
+  - **FM boundary rule:** a winning lag pinned to `PPG_RR_MIN_LAG` (or to the top
+    of the search) is now refused when the STRONGEST lag itself is the boundary,
+    so a 3-beat artifact can no longer be published as ~34 br/min. A fundamental
+    selected by the harmonic walk is kept, so the genuine 21.9 br/min near the
+    band edge still resolves. Tests: resolution 0/10 outside 1.5 br/min (worst
+    0.27). On hardware the FM now reports `lag=-1` when only the artifact is
+    present, and RR stays unavailable rather than inventing tachypnoea.
 - **A2 safety**: an absolute-crisis override requires SQI ≥ 0.70 or two
   independent crisis criteria, so one noisy SpO2 cannot fire the SOS.
 - **C1**: GPS location is published from static storage (was a dangling
