@@ -1700,8 +1700,8 @@ static void test_rr_baseline_path(void) {
         ppg_baseline_rr_init(&s);
         /* 60 s at 25 Hz: 180k DC, a 1.2 Hz cardiac pulse, and the respiratory
          * baseline modulation. */
-        for (int i = 0; i < 25 * 60; i++) {
-            float t = (float)i / 25.0f;
+        for (int i = 0; i < 100 * 60; i++) {
+            float t = (float)i / 100.0f;
             float v = 180000.0f
                     + 2000.0f * sinf(2.0f * 3.14159265f * 1.2f * t)
                     +  400.0f * sinf(2.0f * 3.14159265f * true_hz * t);
@@ -1717,8 +1717,8 @@ static void test_rr_baseline_path(void) {
 
     /* Pulse only: no respiratory modulation. */
     ppg_baseline_rr_init(&s);
-    for (int i = 0; i < 25 * 60; i++) {
-        float t = (float)i / 25.0f;
+    for (int i = 0; i < 100 * 60; i++) {
+        float t = (float)i / 100.0f;
         float v = 180000.0f + 2000.0f * sinf(2.0f * 3.14159265f * 1.2f * t);
         ppg_baseline_rr_add(&s, v);
     }

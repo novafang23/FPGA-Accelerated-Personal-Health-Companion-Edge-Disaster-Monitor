@@ -12,10 +12,10 @@
 extern "C" {
 #endif
 
-/* Realign measurement window to 1.0s. With MAX30102_FIFO_SMP_AVE_4 active
- * in max30102.c, the sensor FIFO delivers 25 Hz (100 Hz ADC / 4).
- * Thus 25 samples = 1.0 s per window, giving an 8-second smoothing window. */
-#define SPO2_WINDOW_SIZE (PPG_SAMPLE_RATE_HZ / 4)
+/* Realign measurement window to 1.0 s. The FIFO now runs at the full 100 Hz
+ * (SMP_AVE_1 in max30102.c), so 100 samples = 1.0 s, still giving an
+ * 8-second smoothing window at one SpO2 value per window. */
+#define SPO2_WINDOW_SIZE (PPG_FIFO_RATE_HZ)
 #define SPO2_MA_FILTER_SIZE 8 /* Moving average history size (8-second smoothing window) */
 
 /* Clinical validity thresholds calibrated for MAX30102 18-bit optical levels */

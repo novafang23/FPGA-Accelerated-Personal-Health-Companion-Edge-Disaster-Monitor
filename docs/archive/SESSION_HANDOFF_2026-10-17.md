@@ -77,12 +77,21 @@ c4f90a7 fix: resolve four correctness/safety defects found in the A-to-Z audit
     respiratory SNR on the 25 Hz FIFO + peak-detector path is marginal. This is
     the honest limit; a dedicated respiration sensor remains the most reliable
     option.
-  - **IBI-over-SPI burst (RTL, awaiting re-fit):** after a beat byte the FPGA now
-    queues `0xC3` + the 32-bit 20 ns IBI counter (MSB first); the driver reads it
-    and falls back to the timer only if the magic is absent. The five dummy burst
-    bytes are gated out of the filter. Simulation: 13/13, including a check that
-    the counter equals the simulated beat interval. The bitstream is embedded in
-    `forgefpga_bitstream.h`, so re-fit and regenerate it before flashing.
+  - **IBI-over-SPI burst (RTL, verified on hardware):** after a beat byte the
+    FPGA queues `0xC3` + the 32-bit 20 ns IBI counter (MSB first); the driver
+    reads it and falls back to the timer only if the magic is absent. The five
+    dummy burst bytes are gated out of the filter. Simulation 13/13; on hardware
+    the log shows `IBI FPGA=...` with the counter matching the beat interval.
+  - **100 Hz FIFO + 320 ms pre-smoothing:** the MAX30102 now runs SMP_AVE_1
+    (100 Hz), so the peak detector is quantised to 10 ms instead of 40 ms. The
+    8-bit IR is pre-smoothed over 32 samples (320 ms) on the ESP32 to reproduce
+    the old 25 Hz waveform shaping (the FPGA's 8-tap filter is only 80 ms at
+    100 Hz). The software detector (full 18-bit, 400 ms refractory) is the IBI
+    source for RSA; it removed the alternans (`r1` +0.27 vs -0.43).
+  - **RR now publishes on hardware:** paced 12 br/min -> **11.7 br/min at
+    confidence 0.69** via the baseline path. The RSA/FM path locks onto a 3-beat
+    harmonic (34 br/min, conf 0.54) and is correctly not published. HR reads
+    ~108 during the paced run (86 at rest).
 - **A2 safety**: an absolute-crisis override requires SQI ≥ 0.70 or two
   independent crisis criteria, so one noisy SpO2 cannot fire the SOS.
 - **C1**: GPS location is published from static storage (was a dangling

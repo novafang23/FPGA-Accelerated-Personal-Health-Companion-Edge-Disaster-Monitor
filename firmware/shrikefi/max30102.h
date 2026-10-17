@@ -15,9 +15,12 @@
 extern "C" {
 #endif
 
-/* Standardized PPG Sample Rate (100 Hz internal ADC; 25 Hz FIFO output with SMP_AVE_4) */
+/* Standardized PPG Sample Rate. The FIFO runs at the full 100 Hz (SMP_AVE_1),
+ * not 25 Hz (SMP_AVE_4): the FPGA peak detector sees one sample every 10 ms
+ * instead of 40 ms, which is what RSA needs (20-60 ms of IBI modulation on a
+ * 700-900 ms interval). */
 #define PPG_SAMPLE_RATE_HZ 100
-#define PPG_FIFO_RATE_HZ   (PPG_SAMPLE_RATE_HZ / 4)
+#define PPG_FIFO_RATE_HZ   PPG_SAMPLE_RATE_HZ
 
 
 /* I2C Address */

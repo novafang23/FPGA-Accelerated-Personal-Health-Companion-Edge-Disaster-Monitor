@@ -26,9 +26,9 @@
 #include <stdbool.h>
 #include <stdint.h>
 
-#define PPG_BASE_RR_SAMPLE_HZ  25                                  /* FIFO rate */
-#define PPG_BASE_RR_DECIM      5
-#define PPG_BASE_RR_FS         (PPG_BASE_RR_SAMPLE_HZ / PPG_BASE_RR_DECIM) /* 5 Hz */
+#define PPG_BASE_RR_SAMPLE_HZ  100                                 /* FIFO rate */
+#define PPG_BASE_RR_FS         5                                   /* decimated rate */
+#define PPG_BASE_RR_DECIM      (PPG_BASE_RR_SAMPLE_HZ / PPG_BASE_RR_FS) /* 20 */
 #define PPG_BASE_RR_MA_LEN     PPG_BASE_RR_SAMPLE_HZ               /* 1 s baseline */
 #define PPG_BASE_RR_WIN        150                                 /* 30 s at 5 Hz */
 

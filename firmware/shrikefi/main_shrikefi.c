@@ -292,7 +292,18 @@ static void ibi_pipeline_reset(ibi_pipeline_t *p) {
  * resting subject, on every other assessment. 30 beats is about 23 s at rest,
  * roughly five cycles - enough for the confidence figure to mean something. */
 #define PPG_RR_MIN_IBIS  30
-#define PPG_SQI_RAW_WIN (3 * PPG_FIFO_RATE_HZ) /* raw IR samples fed to the SQI (3 s at 25 Hz FIFO rate) */
+#define PPG_SQI_RAW_WIN (3 * PPG_FIFO_RATE_HZ) /* raw IR samples fed to the SQI (3 s) */
+
+/* IBI source for the respiratory (RSA) estimator.
+ * 0 = ForgeFPGA beat: 20 ns timestamp, but the RTL detector's 250 ms
+ *     refractory can let the dicrotic notch cause a split beat.
+ * 1 = software detector on the full 18-bit samples: 400 ms refractory and finer
+ *     waveform resolution, at 10 ms sample-count timing.
+ * RSA needs a clean IBI series more than a 20 ns timestamp, so this is
+ * switchable while the two detectors are compared on hardware. */
+#ifndef SHRIKEFI_IBI_SOFTWARE
+#define SHRIKEFI_IBI_SOFTWARE 1
+#endif
 
 static float    s_rr_ibis[PPG_RR_HISTORY];
 static float    s_rr_amps[PPG_RR_HISTORY]; /* pulse height per beat, aligned with s_rr_ibis */
@@ -792,6 +803,37 @@ static void task_ppg_accelerator(void *pvParameters) {
             uint8_t raw_red = max30102_scale_to_8bit_ch(ppg_sample.red, &s_base_red);
             uint8_t raw_ir  = max30102_scale_to_8bit_ch(ppg_sample.ir,  &s_base_ir);
 
+            /* The FIFO now runs at 100 Hz, but the FPGA's 8-tap filter is only
+             * 80 ms wide. At 25 Hz the same 8 taps covered 320 ms, which is what
+             * suppressed the dicrotic notch and prevented split-beat detections.
+             * Smooth the 8-bit IR over the same 320 ms here (32 samples at
+             * 100 Hz) before handing it to the FPGA: timing resolution stays
+             * 10 ms, waveform shaping matches the old path. */
+            static uint8_t  ir_smooth_buf[32];
+            static uint32_t ir_smooth_sum = 0;
+            static int      ir_smooth_idx = 0;
+            static int      ir_smooth_n   = 0;
+            uint8_t fg_ir = raw_ir;
+            if (raw_contact) {
+                if (ir_smooth_n < 32) {
+                    ir_smooth_buf[ir_smooth_n++] = raw_ir;
+                    ir_smooth_sum += raw_ir;
+                } else {
+                    ir_smooth_sum -= ir_smooth_buf[ir_smooth_idx];
+                    ir_smooth_buf[ir_smooth_idx] = raw_ir;
+                    ir_smooth_sum += raw_ir;
+                    ir_smooth_idx = (ir_smooth_idx + 1) & 31;
+                }
+                fg_ir = (uint8_t)(ir_smooth_sum / (uint32_t)ir_smooth_n);
+            } else {
+                fg_ir = 0;
+                if (!optical_contact) {
+                    ir_smooth_n = 0;
+                    ir_smooth_sum = 0;
+                    ir_smooth_idx = 0;
+                }
+            }
+
             /* --- Re-seed a baseline that has stopped tracking --------------
              * max30102_scale_to_8bit_ch() centres its output on 120 and clamps
              * to [0,255], so at DIV=8 it can express only +/-120 counts of AC.
@@ -850,7 +892,7 @@ static void task_ppg_accelerator(void *pvParameters) {
             /* 2. Stream to the ForgeFPGA over the SPI link */
             if (raw_contact) {
                 shrikefi_write_red_sample(raw_red);
-                shrikefi_write_ir_sample(raw_ir);
+                shrikefi_write_ir_sample(fg_ir);
             } else {
                 shrikefi_write_red_sample(0);
                 shrikefi_write_ir_sample(0);
@@ -951,7 +993,8 @@ static void task_ppg_accelerator(void *pvParameters) {
                  * removes the residual one-in-N split with a median filter. */
                 float beat_amp = (float)s_ir_peak_since_beat;
                 s_ir_peak_since_beat = 0;
-                if (ibi_pipeline_submit(&ibi_pipe, &hrv_state, IBI_SRC_FPGA, ibi_ms, beat_amp)) {
+                if (!SHRIKEFI_IBI_SOFTWARE &&
+                    ibi_pipeline_submit(&ibi_pipe, &hrv_state, IBI_SRC_FPGA, ibi_ms, beat_amp)) {
                     float inst_hr = 60000.0f / ibi_ms;
                     if (xSemaphoreTake(s_data_mutex, pdMS_TO_TICKS(10)) == pdTRUE) {
                         g_state.r_peak_interval_ms = ibi_ms;
@@ -1064,7 +1107,7 @@ static void task_ppg_accelerator(void *pvParameters) {
                                          * the FPGA has already reported. */
                                         float beat_amp = (float)s_ir_peak_since_beat;
                                         s_ir_peak_since_beat = 0;
-                                        if (!fpga_alive &&
+                                        if ((SHRIKEFI_IBI_SOFTWARE || !fpga_alive) &&
                                             ibi_pipeline_submit(&ibi_pipe, &hrv_state,
                                                                 IBI_SRC_SOFTWARE, (float)ibi_ms, beat_amp)) {
                                             float inst_hr = 60000.0f / (float)ibi_ms;

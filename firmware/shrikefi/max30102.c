@@ -179,9 +179,11 @@ int max30102_init(max30102_t *dev, esp32_i2c_handle_t *i2c) {
                  r_mode, r_spo2, r_led, r_wr, r_rd);
         (void)r_mode; (void)r_spo2; (void)r_led; (void)r_wr; (void)r_rd;
     } else {
-        /* FIFO Configuration: 4-sample averaging (smooth 25 Hz / noise filtering), rollover enabled, A_FULL at 17 */
+        /* FIFO Configuration: no averaging (full 100 Hz FIFO), rollover enabled, A_FULL at 17.
+         * 100 Hz cuts the peak-detection quantisation from 40 ms to 10 ms, which is what
+         * RSA needs (20-60 ms of IBI modulation); the ADC is already at 100 Hz below. */
         if (max30102_i2c_write_reg(dev, MAX30102_REG_FIFO_CONFIG,
-                        MAX30102_FIFO_SMP_AVE_4 | MAX30102_FIFO_ROLLOVER_EN | MAX30102_FIFO_A_FULL_17) != 0) {
+                        MAX30102_FIFO_SMP_AVE_1 | MAX30102_FIFO_ROLLOVER_EN | MAX30102_FIFO_A_FULL_17) != 0) {
             return -1;
         }
 
