@@ -146,3 +146,21 @@ mimic-iii-clinical-database-demo-1.4/
 # deliberately not part of this project's repository.
 data/scopus_analysis/
 
+# Scratch test files
+test_temp*.c
+
+# ── Python virtualenv (developer-local) ──────────────────────
+.venv/
+
+# ── Vivado generated output (regenerable, never commit) ──────
+*.gen/
+
+# ── Misc build/test artifacts ────────────────────────────────
+*.bak
+*.orig
+*.rej
+.pytest_cache/
+htmlcov/
+*.egg-info/
+
+
