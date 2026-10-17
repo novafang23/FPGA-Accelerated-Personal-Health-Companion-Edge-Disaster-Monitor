@@ -125,13 +125,16 @@ static risk_level_t assess_heat_risk(float bpm, float rmssd, float ambient_temp_
     else if (bpm > HEAT_BPM_MODERATE)
         ctsi += 10.0f;
 
-    /* HRV depression component (0-30 points) */
-    if (rmssd < HEAT_RMSSD_CRITICAL)
-        ctsi += 30.0f;
-    else if (rmssd < HEAT_RMSSD_HIGH)
-        ctsi += 20.0f;
-    else if (rmssd < HEAT_RMSSD_MODERATE)
-        ctsi += 10.0f;
+    /* HRV depression component (0-30 points). rmssd == 0 means "no valid HRV",
+     * not "maximally suppressed". */
+    if (rmssd > 0.0f) {
+        if (rmssd < HEAT_RMSSD_CRITICAL)
+            ctsi += 30.0f;
+        else if (rmssd < HEAT_RMSSD_HIGH)
+            ctsi += 20.0f;
+        else if (rmssd < HEAT_RMSSD_MODERATE)
+            ctsi += 10.0f;
+    }
 
     /* Map score to risk level */
     if (ctsi >= HEAT_CTSI_CRITICAL) {
@@ -193,11 +196,14 @@ static risk_level_t assess_pollution_risk(float bpm, float spo2, float pm25, flo
     else if (bpm > POLLUTION_BPM_HIGH)
         prsi += 8.0f;
 
-    /* Autonomic stress response (0-10 points) */
-    if (rmssd < POLLUTION_RMSSD_CRIT)
-        prsi += 10.0f;
-    else if (rmssd < POLLUTION_RMSSD_HIGH)
-        prsi += 5.0f;
+    /* Autonomic stress response (0-10 points). rmssd == 0 means "no valid
+     * HRV", not "maximal suppression". */
+    if (rmssd > 0.0f) {
+        if (rmssd < POLLUTION_RMSSD_CRIT)
+            prsi += 10.0f;
+        else if (rmssd < POLLUTION_RMSSD_HIGH)
+            prsi += 5.0f;
+    }
 
     /* Map score to risk level */
     if (prsi >= POLLUTION_PRSI_CRITICAL) {
@@ -230,19 +236,24 @@ static risk_level_t assess_skin_hypothermia(float bpm, float skin_temp_c, float 
     else if (skin_temp_c < FLOOD_SKIN_TEMP_MOD)
         score += 10.0f;
 
-    /* Cardiac stress: bradycardia in hypothermia OR extreme tachycardia (0-30 points) */
-    if (bpm < FLOOD_BPM_BRADYCARDIA)
-        score += 30.0f;
-    else if (bpm > FLOOD_BPM_TACHY_EXTREME)
-        score += 30.0f;
-    else if (bpm > FLOOD_BPM_TACHY_MOD)
-        score += 15.0f;
+    /* Cardiac stress: bradycardia in hypothermia OR extreme tachycardia (0-30 points).
+     * bpm == 0 means "no valid vitals", not bradycardia. */
+    if (bpm > 0.0f) {
+        if (bpm < FLOOD_BPM_BRADYCARDIA)
+            score += 30.0f;
+        else if (bpm > FLOOD_BPM_TACHY_EXTREME)
+            score += 30.0f;
+        else if (bpm > FLOOD_BPM_TACHY_MOD)
+            score += 15.0f;
+    }
 
-    /* Autonomic collapse (0-20 points) */
-    if (rmssd < FLOOD_RMSSD_CRITICAL)
-        score += 20.0f;
-    else if (rmssd < FLOOD_RMSSD_HIGH)
-        score += 10.0f;
+    /* Autonomic collapse (0-20 points). rmssd == 0 means "no valid HRV". */
+    if (rmssd > 0.0f) {
+        if (rmssd < FLOOD_RMSSD_CRITICAL)
+            score += 20.0f;
+        else if (rmssd < FLOOD_RMSSD_HIGH)
+            score += 10.0f;
+    }
 
     /* Map score to risk level */
     if (score >= FLOOD_SCORE_CRITICAL) {
@@ -298,19 +309,27 @@ static risk_level_t assess_cold_stress_proxy(float bpm, const env_sensors_t *env
 
     /* Cardiac stress (0-30 points). Cold exposure is U-shaped: shivering
      * thermogenesis drives early tachycardia, while deep hypothermia drives
-     * bradycardia. Both ends are warning signs. */
-    if (bpm < FLOOD_BPM_BRADYCARDIA)
-        score += 30.0f;
-    else if (bpm > FLOOD_BPM_TACHY_EXTREME)
-        score += 30.0f;
-    else if (bpm > FLOOD_BPM_TACHY_MOD)
-        score += 15.0f;
+     * bradycardia. Both ends are warning signs.
+     * bpm == 0 means "no valid vitals", not bradycardia: without this guard a
+     * missing finger scored +30 here and +20 below and produced a false flood
+     * warning on a warm day. */
+    if (bpm > 0.0f) {
+        if (bpm < FLOOD_BPM_BRADYCARDIA)
+            score += 30.0f;
+        else if (bpm > FLOOD_BPM_TACHY_EXTREME)
+            score += 30.0f;
+        else if (bpm > FLOOD_BPM_TACHY_MOD)
+            score += 15.0f;
+    }
 
-    /* Autonomic strain (0-20 points): cold reduces parasympathetic tone. */
-    if (rmssd < FLOOD_RMSSD_CRITICAL)
-        score += 20.0f;
-    else if (rmssd < FLOOD_RMSSD_HIGH)
-        score += 10.0f;
+    /* Autonomic strain (0-20 points): cold reduces parasympathetic tone.
+     * rmssd == 0 means "no valid HRV", not maximal suppression. */
+    if (rmssd > 0.0f) {
+        if (rmssd < FLOOD_RMSSD_CRITICAL)
+            score += 20.0f;
+        else if (rmssd < FLOOD_RMSSD_HIGH)
+            score += 10.0f;
+    }
 
     if (score >= FLOOD_SCORE_CRITICAL) {
         *advisory = "DANGER: severe cold-stress exposure (ambient estimate). Dry, insulate and shelter the patient now";
@@ -434,17 +453,24 @@ void disaster_assess(const hrv_state_t *hrv, float spo2, float bpm, const env_se
     result->cyclone_risk = RISK_UNKNOWN;
     result->cyclone_advisory = "Storm risk not evaluated: no pressure trend";
 
-    /* Require valid HRV data (minimum samples) and a valid env pointer */
-    if (hrv == NULL || env == NULL || !hrv_is_ready(hrv)) {
+    /* A valid env pointer is required. HRV is NOT: the environmental hazards do
+     * not depend on the patient, and a missing finger must not hide a heat,
+     * pollution or flood warning (observed on hardware: the phone showed
+     * UNKNOWN with valid BME280/PMS readings whenever the finger was off).
+     * The physiological terms are treated as unavailable: rmssd = 0, and
+     * bpm/spo2 arrive as 0 when there is no contact. The sub-assessors guard
+     * rmssd > 0 so an absent HRV is not scored as a collapsed one. */
+    if (env == NULL) {
         result->heat_risk = RISK_UNKNOWN;
         result->pollution_risk = RISK_UNKNOWN;
         result->flood_risk = RISK_UNKNOWN;
         result->overall_risk = RISK_UNKNOWN;
-        snprintf(result->overall_advisory, sizeof(result->overall_advisory), "Insufficient HRV data for risk assessment");
+        snprintf(result->overall_advisory, sizeof(result->overall_advisory), "Environmental sensor unavailable");
         return;
     }
 
-    rmssd = hrv->rmssd;
+    const bool vitals_valid = (hrv != NULL && hrv_is_ready(hrv));
+    rmssd = vitals_valid ? hrv->rmssd : 0.0f;
 
     /* Run each disaster-specific assessment engine */
     result->heat_risk = assess_heat_risk(bpm, rmssd, env->ambient_temp_c, env->humidity_pct,

@@ -158,20 +158,33 @@ static void test_flood_risk() {
     printf("test_flood_risk: PASS\n");
 }
 
-/* Test RISK_UNKNOWN when HRV not ready */
+/* Missing HRV must not hide the environment.
+ *
+ * The old contract forced every environmental risk to RISK_UNKNOWN when the
+ * HRV window was not ready (no finger on the PPG). On a disaster monitor that
+ * is backwards: the BME280/PMS readings are independent of the patient, and a
+ * heat or pollution warning must still be reported. The new contract assesses
+ * a valid env with the physiological terms treated as unavailable (rmssd=0,
+ * bpm/spo2 zero), and those zeros must not be scored as bradycardia or HRV
+ * collapse. */
 static void test_hrv_not_ready() {
     hrv_state_t hrv;
     hrv_init(&hrv);  /* Only 0 samples - not ready */
     env_sensors_t env = { .ambient_temp_c = 25.0f, .humidity_pct = 30.0f, .pm25 = 10.0f, .skin_temp_c = 36.0f };
     risk_assessment_t result;
 
-    disaster_assess(&hrv, 98.0f, 75.0f, &env, &result);
-    assert(result.heat_risk == RISK_UNKNOWN);
-    assert(result.pollution_risk == RISK_UNKNOWN);
-    assert(result.flood_risk == RISK_UNKNOWN);
+    disaster_assess(&hrv, 0.0f, 0.0f, &env, &result);
+    assert(result.heat_risk != RISK_UNKNOWN);
+    assert(result.pollution_risk != RISK_UNKNOWN);
+    assert(result.flood_risk != RISK_UNKNOWN);
+    assert(result.flood_risk == RISK_NORMAL);   /* bpm/rmssd == 0 are not cold stress */
+    assert(result.overall_risk == RISK_NORMAL); /* cool, clean air */
+
+    /* The env pointer is still mandatory. */
+    disaster_assess(&hrv, 0.0f, 0.0f, NULL, &result);
     assert(result.overall_risk == RISK_UNKNOWN);
 
-    printf("test_hrv_not_ready: PASS\n");
+    printf("test_hrv_not_ready: PASS (environment assessed without HRV)\n");
 }
 
 /* Cold-stress handling when no skin-temperature sensor is present.

@@ -884,7 +884,7 @@ static void task_ppg_accelerator(void *pvParameters) {
              * disappeared entirely while [TELEMETRY] and [PPG] kept flowing).
              * One in four keeps the old 25 Hz oscilloscope rate. */
             static uint32_t s_ppg_log_decim = 0;
-            if ((s_ppg_log_decim++ & 3u) == 0u) {
+            if ((s_ppg_log_decim++ % 100u) == 0u) {
                 printf("[PPG] %lu\n", (unsigned long)ppg_sample.ir);
             }
 #endif
@@ -1848,26 +1848,11 @@ static void task_disaster_monitor(void *pvParameters) {
                    env.humidity_pct, env.pm25, rr_for_news2, sqi_for_news2,
                    rr_depth_dbg, rr_conf_dbg);
             fflush(stdout);
-            /* Label which cold-risk path produced the flood figure, so the
-             * ambient proxy is never mistaken for a measured skin temperature. */
-            char flood_str[40];
-            snprintf(flood_str, sizeof(flood_str), "%s%s",
-                     risk_level_to_string(rule_risk.flood_risk),
-                     (env.skin_temp_c > 0.0f) ? "" : " (ambient proxy)");
-            ESP_LOGI(TAG, "[RuleEngine] Heat: %s | Poll: %s | Flood: %s | Storm: %s (%.2f hPa/hr) => Overall: %s",
-                     risk_level_to_string(rule_risk.heat_risk),
-                     risk_level_to_string(rule_risk.pollution_risk),
-                     flood_str,
-                     risk_level_to_string(rule_risk.cyclone_risk),
-                     pressure_trend.slope_hpa_per_hr,
-                     risk_level_to_string(rule_risk.overall_risk));
-            ESP_LOGI(TAG, "[TinyML INT8] Heat: %.3f (%s) | Poll: %.3f (%s) | Flood: %.3f (%s) => AI Overall: %s",
-                     nn_out.heat_score, risk_level_to_string(nn_risk.heat_risk),
-                     nn_out.pollution_score, risk_level_to_string(nn_risk.pollution_risk),
-                     nn_out.flood_score, risk_level_to_string(nn_risk.flood_risk),
-                     risk_level_to_string(nn_risk.overall_risk));
-            ESP_LOGI(TAG, "[Unified Triage] Final Condition: %s | %s",
-                     risk_level_to_string(final_risk.overall_risk), final_risk.overall_advisory);
+            /* The human-readable [RuleEngine]/[TinyML]/[Unified Triage] lines
+             * used to sit here. They duplicate every field in [TRIAGE], and
+             * their ESP_LOGI path was swallowing the monitor task's structured
+             * verdict line on hardware (telemetry printed, [TRIAGE] never did).
+             * [TRIAGE] below is the machine-readable source of truth. */
 
             /* Structured verdict line for any dashboard that is not this device.
              *
