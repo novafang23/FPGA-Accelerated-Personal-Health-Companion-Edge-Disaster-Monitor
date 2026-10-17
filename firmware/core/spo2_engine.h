@@ -117,6 +117,8 @@ typedef struct {
     float    last_red_dc;          /* SpO2 is a ratio of the two channels: if this
                                     * and ir_dc diverge, the ratio is biased by the
                                     * light level rather than by the blood */
+    float    prev_ir_dc;           /* DC of the PREVIOUS window, for the seating-
+                                    * transient step test */
     float    last_spread;          /* SpO2 spread across the compared history */
     float    last_spread_raw;      /* same, without discarding the extremes */
     int      last_settled;

@@ -560,10 +560,16 @@ static esp_err_t h_sos_trigger(httpd_req_t *req) {
         return httpd_resp_send_err(req, HTTPD_403_FORBIDDEN, "same-origin request required");
     }
     uint32_t now_ms = (uint32_t)(esp_timer_get_time() / 1000);
+    /* The SOS state has its own lock: the monitor task also mutates it, and the
+     * status-page lock does not cover that. */
+    sos_lock();
     sos_manual_trigger(now_ms);
+    const char *sos_name  = sos_state_name(sos_get_state());
+    const char *trig_name = sos_trigger_name(sos_get_trigger());
+    sos_unlock();
     WS_LOCK();
-    s_snap.sos = sos_state_name(sos_get_state());
-    s_snap.trigger = sos_trigger_name(sos_get_trigger());
+    s_snap.sos = sos_name;
+    s_snap.trigger = trig_name;
     WS_UNLOCK();
     const char *resp = "{\"status\":\"ok\",\"sos\":\"ACTIVE\"}\n";
     httpd_resp_set_type(req, "application/json");
@@ -576,10 +582,14 @@ static esp_err_t h_sos_cancel(httpd_req_t *req) {
         return httpd_resp_send_err(req, HTTPD_403_FORBIDDEN, "same-origin request required");
     }
     uint32_t now_ms = (uint32_t)(esp_timer_get_time() / 1000);
+    sos_lock();
     sos_cancel_now(now_ms);
+    const char *sos_name  = sos_state_name(sos_get_state());
+    const char *trig_name = sos_trigger_name(sos_get_trigger());
+    sos_unlock();
     WS_LOCK();
-    s_snap.sos = sos_state_name(sos_get_state());
-    s_snap.trigger = sos_trigger_name(sos_get_trigger());
+    s_snap.sos = sos_name;
+    s_snap.trigger = trig_name;
     WS_UNLOCK();
     const char *resp = "{\"status\":\"ok\",\"sos\":\"CANCELLED\"}\n";
     httpd_resp_set_type(req, "application/json");

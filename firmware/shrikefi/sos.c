@@ -25,6 +25,17 @@ static uint32_t      s_ok_since     = 0;  /* since the level was last critical *
 static uint32_t      s_press_ms     = 0;  /* cancel press start, 0 = released */
 static uint32_t      s_cleared_ms   = 0;  /* when a stand-down was recorded   */
 
+/* One lock for the whole state machine. See sos.h. */
+#ifdef ESP_PLATFORM
+#include "freertos/FreeRTOS.h"
+static portMUX_TYPE s_sos_mux = portMUX_INITIALIZER_UNLOCKED;
+void sos_lock(void)   { taskENTER_CRITICAL(&s_sos_mux); }
+void sos_unlock(void) { taskEXIT_CRITICAL(&s_sos_mux); }
+#else
+void sos_lock(void)   { }
+void sos_unlock(void) { }
+#endif
+
 void sos_default_config(sos_config_t *cfg) {
     if (!cfg) return;
     cfg->critical_confirm_ms     = 15000u; /* Increased from 3s to 15s to avoid transient false alarms */

@@ -310,6 +310,66 @@ static void test_clinical_sqi_crisis_corroboration(void) {
     printf("test_clinical_sqi_crisis_corroboration: PASS\n");
 }
 
+/* Regression: an environmental assessment that never ran (RISK_UNKNOWN) must
+ * not be reported as an all-clear just because the vital signs are normal.
+ * RISK_UNKNOWN is -1, so the old max() test turned (clinical NORMAL,
+ * environmental UNKNOWN) into NORMAL and dropped the unknown advisory. */
+static void test_fuse_triage_preserves_unknown(void) {
+    clinical_assessment_t clin;
+    memset(&clin, 0, sizeof(clin));
+    clin.level = CLINICAL_NORMAL;
+    snprintf(clin.advisory, sizeof(clin.advisory), "Vitals normal");
+
+    risk_assessment_t env;
+    memset(&env, 0, sizeof(env));
+    env.overall_risk = RISK_UNKNOWN;
+    snprintf(env.overall_advisory, sizeof(env.overall_advisory), "Insufficient data");
+
+    risk_assessment_t fused;
+    clinical_fuse_triage(&clin, &env, &fused);
+    assert(fused.overall_risk == RISK_UNKNOWN);
+
+    /* A measured critical vital is a finding, so it must still override. */
+    clin.level = CLINICAL_CRITICAL;
+    snprintf(clin.advisory, sizeof(clin.advisory), "Vitals critical");
+    clinical_fuse_triage(&clin, &env, &fused);
+    assert(fused.overall_risk == RISK_CRITICAL);
+
+    printf("test_fuse_triage_preserves_unknown: PASS\n");
+}
+
+/* Regression: the DC-seating gate compared the current window's DC against a
+ * field that had just been overwritten with the same value, so the >15% step
+ * test could never fire. The previous window's DC is now stored separately. */
+static void test_spo2_dc_step_rejected(void) {
+    spo2_state_t s;
+    spo2_init(&s);
+
+    for (int w = 0; w < 3; w++) {
+        for (int i = 0; i < SPO2_WINDOW_SIZE; i++) {
+            float ph = (float)i / (float)SPO2_WINDOW_SIZE * 6.283185f;
+            uint32_t red = (uint32_t)(25000.0f + 62.5f * sinf(ph));
+            uint32_t ir  = (uint32_t)(30000.0f + 150.0f * sinf(ph));
+            spo2_add_samples(&s, red, ir);
+        }
+    }
+    uint32_t valid_before = s.windows_valid;
+
+    /* The next window's DC jumps by ~27%: a finger re-seating transient. */
+    for (int i = 0; i < SPO2_WINDOW_SIZE; i++) {
+        float ph = (float)i / (float)SPO2_WINDOW_SIZE * 6.283185f;
+        uint32_t red = (uint32_t)(20000.0f + 62.5f * sinf(ph));
+        uint32_t ir  = (uint32_t)(22000.0f + 150.0f * sinf(ph));
+        spo2_add_samples(&s, red, ir);
+    }
+    printf("  SpO2 DC step: reject=%d valid_windows %u -> %u\n",
+           (int)s.last_reject, valid_before, s.windows_valid);
+    assert(s.last_reject == 1);
+    assert(s.windows_valid == valid_before);
+
+    printf("test_spo2_dc_step_rejected: PASS\n");
+}
+
 /* Map a raw NN score [0,1] to the same 4-tier scale nn_score_to_risk() uses
  * in disaster_risk_engine.c, so we can catch the specific failure mode of
  * "float and int8 land in different risk tiers" -- not just "the numbers
@@ -1704,6 +1764,8 @@ int main() {
     test_null_env();
     test_invalid_clinical_vitals_are_not_normal();
     test_clinical_sqi_crisis_corroboration();
+    test_fuse_triage_preserves_unknown();
+    test_spo2_dc_step_rejected();
     test_flood_ambient_proxy();
     test_int8_matches_float_nn();
     test_spo2_clinical_rejection();

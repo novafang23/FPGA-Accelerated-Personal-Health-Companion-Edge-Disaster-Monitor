@@ -308,8 +308,23 @@ void clinical_fuse_triage(const clinical_assessment_t *clinical,
         case CLINICAL_CRITICAL: clin_level = RISK_CRITICAL; break;
     }
 
-    /* Maximum risk wins */
-    if (clin_level > disaster_level) {
+    /* Maximum risk wins - but an UNKNOWN environmental assessment must not be
+     * laundered into an all-clear just because the clinical side is normal.
+     * RISK_UNKNOWN is -1, so the plain `clin_level > disaster_level` test turned
+     * (clinical NORMAL, environmental UNKNOWN) into NORMAL and dropped the
+     * unknown advisory. A measured critical vital still overrides, because that
+     * is a finding rather than an absent one. */
+    if (disaster_level == RISK_UNKNOWN) {
+        if (clin_level > RISK_NORMAL) {
+            fused->overall_risk = clin_level;
+            snprintf(fused->overall_advisory, sizeof(fused->overall_advisory),
+                     "%.240s | Environmental: not assessed", clinical->advisory);
+        } else {
+            fused->overall_risk = RISK_UNKNOWN;
+            snprintf(fused->overall_advisory, sizeof(fused->overall_advisory),
+                     "Environmental risk not assessed; %.240s", disaster_adv);
+        }
+    } else if (clin_level > disaster_level) {
         fused->overall_risk = clin_level;
         if (disaster_level > RISK_NORMAL) {
             snprintf(fused->overall_advisory, sizeof(fused->overall_advisory), "%.240s | Environmental: %.240s",

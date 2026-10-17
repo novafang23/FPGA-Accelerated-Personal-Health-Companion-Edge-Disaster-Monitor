@@ -125,6 +125,16 @@ void sos_cancel_release(void);
  * dashboard, where the operator's intent is unambiguous. */
 void sos_cancel_now(uint32_t now_ms);
 
+/* Serialise access to the state machine.
+ *
+ * The monitor task and the HTTP handler both touch this state, and historically
+ * used *different* locks (s_data_mutex vs the status-page lock) - i.e. no common
+ * lock at all. These take one dedicated critical section, so a remote
+ * trigger/cancel cannot tear the state or lose the 1 Hz update. They are
+ * no-ops on the host, where the tests are single-threaded. */
+void sos_lock(void);
+void sos_unlock(void);
+
 sos_state_t   sos_get_state(void);
 sos_trigger_t sos_get_trigger(void);
 

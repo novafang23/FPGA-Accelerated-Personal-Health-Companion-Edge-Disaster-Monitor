@@ -99,12 +99,13 @@ void spo2_add_samples(spo2_state_t *state, uint32_t red_filtered,
          * If the DC baseline jumped by >15% since the last window, the finger is
          * still physically compressing or shifting on the optical sensor. */
         int dc_stable = 1;
-        if (state->last_ir_dc > 0.0f) {
-            float dc_step = fabsf(ir_dc - state->last_ir_dc) / state->last_ir_dc;
+        if (state->prev_ir_dc > 0.0f) {
+            float dc_step = fabsf(ir_dc - state->prev_ir_dc) / state->prev_ir_dc;
             if (dc_step > 0.15f) {
                 dc_stable = 0;
             }
         }
+        state->prev_ir_dc = ir_dc; /* remember THIS window for the next comparison */
 
         if (ir_dc < SPO2_MIN_DC_IR || red_dc < SPO2_MIN_DC_RED) {
             state->last_reject = 1;

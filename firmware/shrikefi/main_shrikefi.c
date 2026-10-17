@@ -1898,6 +1898,7 @@ static void task_disaster_monitor(void *pvParameters) {
         uint32_t sos_act_ms = 0;
 
         if (xSemaphoreTake(s_data_mutex, pdMS_TO_TICKS(20)) == pdTRUE) {
+            sos_lock();
             sos_was = sos_get_state();
             sos_update(sos_now_ms, triage_level == (int)CLINICAL_CRITICAL, contact_present);
             sos_now = sos_get_state();
@@ -1907,6 +1908,7 @@ static void task_disaster_monitor(void *pvParameters) {
             } else if (sos_now == SOS_ARMED && sos_trig == SOS_TRIGGER_FALL) {
                 sos_rem_ms = sos_armed_remaining_ms(sos_now_ms);
             }
+            sos_unlock();
             xSemaphoreGive(s_data_mutex);
         }
 
@@ -1946,7 +1948,12 @@ static void task_disaster_monitor(void *pvParameters) {
             st.sos      = sos_state_name(sos_now);
             st.trigger  = sos_trigger_name(sos_trig);
             const char *loc_str = location_is_set() ? location_get() : NULL;
-            char live_gps_buf[GNSS_COORD_STR_LEN];
+            /* Static, not automatic: the published status snapshot stores this
+             * pointer and the HTTP task dereferences it after this task's stack
+             * frame is gone. A stack buffer here was a use-after-scope (the
+             * snapshot's loc pointer outlived the block). Static storage makes
+             * the pointer valid for the program's lifetime. */
+            static char live_gps_buf[GNSS_COORD_STR_LEN];
             live_gps_buf[0] = '\0';
             st.uptime_s = sos_now_ms / 1000u;
             st.contact  = contact_present;
@@ -2131,12 +2138,14 @@ static void task_disaster_monitor(void *pvParameters) {
             uint32_t tick_ms = (uint32_t)(esp_timer_get_time() / 1000);
             /* Active low. 30ms debounce implicitly handled by polling at 50ms intervals. */
             if (xSemaphoreTake(s_data_mutex, pdMS_TO_TICKS(10)) == pdTRUE) {
+                sos_lock();
                 if (gpio_get_level(CONFIG_SHRIKEFI_SOS_CANCEL_GPIO) == 0) {
                     sos_cancel_press(tick_ms);
                     sos_update(tick_ms, triage_level == (int)CLINICAL_CRITICAL, contact_present);
                 } else {
                     sos_cancel_release();
                 }
+                sos_unlock();
                 xSemaphoreGive(s_data_mutex);
             }
 
