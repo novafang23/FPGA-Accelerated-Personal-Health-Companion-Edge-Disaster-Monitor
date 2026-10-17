@@ -206,6 +206,13 @@ c4f90a7 fix: resolve four correctness/safety defects found in the A-to-Z audit
 - `verify_dashboard.py` and `verify_softap_page.py`: PASS.
 - Hardware captures:
   - SpO2 rest 98.8 vs 98; nadir 96.6 vs 96.
+  - **SpO2/HR vs a commercial oximeter (2026-10-18, 100 Hz + 4-tap SpO2
+    pre-filter):** HR 73-82 matches; SpO2 rest 96.4-97.9 (mean 96.9) vs 98-99;
+    hold nadir 94.0 vs 97; recovery peak 98.9; SQI 0.82-0.83. The same firmware
+    read 94.8 on a poorer placement, so the residual is contact-dependent. Do
+    not fit the slope to the 1.5 % reference drop: with the R gate 2.20 a
+    shallow curve would cap severe desaturation at ~93 %. Standardise the
+    contact with the enclosure/clip, then recalibrate at that contact.
   - No false Tachypnea/CRITICAL/SOS after the RR hardening.
   - RR unavailable at rest (see above).
   - **SOS web path (2026-10-17):** TRIGGER SOS latched "medical emergency";

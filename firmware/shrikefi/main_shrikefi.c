@@ -803,6 +803,18 @@ static void task_ppg_accelerator(void *pvParameters) {
             uint8_t raw_red = max30102_scale_to_8bit_ch(ppg_sample.red, &s_base_red);
             uint8_t raw_ir  = max30102_scale_to_8bit_ch(ppg_sample.ir,  &s_base_ir);
 
+            /* SpO2 pre-filter. The FIFO now runs at 100 Hz (SMP_AVE_1), but the
+             * SpO2 engine previously saw the sensor's own 4-sample average at
+             * 25 Hz. That average nulled 50/60 Hz ambient and cut broadband
+             * noise; without it the variance-based AC estimate was biased high,
+             * so R was high and SpO2 read ~94 % against a 98 % reference.
+             * Re-apply the same 4-tap boxcar to the raw 18-bit samples for the
+             * SpO2 path only; the FPGA and RR paths keep the full-rate samples. */
+            static uint32_t s_spo2_red_buf[4];
+            static uint32_t s_spo2_ir_buf[4];
+            static int      s_spo2_ma_idx = 0;
+            static int      s_spo2_ma_n   = 0;
+
             /* The FIFO now runs at 100 Hz, but the FPGA's 8-tap filter is only
              * 80 ms wide. At 25 Hz the same 8 taps covered 320 ms, which is what
              * suppressed the dicrotic notch and prevented split-beat detections.
@@ -896,6 +908,8 @@ static void task_ppg_accelerator(void *pvParameters) {
             } else {
                 shrikefi_write_red_sample(0);
                 shrikefi_write_ir_sample(0);
+                s_spo2_ma_n   = 0;
+                s_spo2_ma_idx = 0;
             }
 
             /* 3. Compute 8-tap running-sum moving average filter */
@@ -912,7 +926,18 @@ static void task_ppg_accelerator(void *pvParameters) {
 
             /* 4. Feed 18-bit samples into SpO2 engine when tissue contact is present */
             if (raw_contact) {
-                spo2_add_samples(&spo2_state, ppg_sample.red, ppg_sample.ir);
+                s_spo2_red_buf[s_spo2_ma_idx] = ppg_sample.red;
+                s_spo2_ir_buf[s_spo2_ma_idx]  = ppg_sample.ir;
+                s_spo2_ma_idx = (s_spo2_ma_idx + 1) & 3;
+                if (s_spo2_ma_n < 4) s_spo2_ma_n++;
+                uint32_t red_sum = 0, ir_sum = 0;
+                for (int i = 0; i < s_spo2_ma_n; i++) {
+                    red_sum += s_spo2_red_buf[i];
+                    ir_sum  += s_spo2_ir_buf[i];
+                }
+                uint32_t red_ma = red_sum / (uint32_t)s_spo2_ma_n;
+                uint32_t ir_ma  = ir_sum  / (uint32_t)s_spo2_ma_n;
+                spo2_add_samples(&spo2_state, red_ma, ir_ma);
                 ppg_baseline_rr_add(&s_base_rr, (float)ppg_sample.ir);
                 if (spo2_is_valid(&spo2_state)) {
                     if (xSemaphoreTake(s_data_mutex, pdMS_TO_TICKS(10)) == pdTRUE) {
