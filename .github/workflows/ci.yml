@@ -30,6 +30,26 @@ jobs:
             hardware/shrikefi/forgefpga_ppg_top.v hardware/shrikefi/spi_target.v \
             hardware/common/ppg_peak_detector.v hardware/common/moving_average_8tap.v
 
+  secret-scan:
+    name: Secret scan (tracked tree)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Reject committed Wi-Fi credentials
+        # History cannot be rewritten safely, and an older revision did once
+        # expose the Wi-Fi credentials. This gate protects the CURRENT tree;
+        # rotate any credential that ever appeared in history.
+        run: |
+          if git ls-files --error-unmatch firmware/shrikefi/wifi_credentials.h >/dev/null 2>&1; then
+            echo "::error::firmware/shrikefi/wifi_credentials.h must never be tracked"
+            exit 1
+          fi
+          if git grep -nE 'SHRIKEFI_WIFI_PASS[[:space:]]+"[^"]+"' -- . ':!*.example' ':!*.md'; then
+            echo "::error::a literal Wi-Fi password is committed"
+            exit 1
+          fi
+          echo "No tracked Wi-Fi credentials found."
+
   simulate:
     name: Simulate RTL & Firmware
     runs-on: ubuntu-latest
@@ -46,6 +66,18 @@ jobs:
         # gen_flat_source.py, so it cannot drift. This fails if someone edits a
         # source and forgets to re-run the generator.
         run: python3 hardware/shrikefi/gen_flat_source.py --check
+
+      - name: Verify ForgeFPGA bitstream header (when the vendor .bin is present)
+        # The vendor .bin is produced by Renesas ForgeFPGA Workshop and is
+        # gitignored, so a clean clone cannot run --check. When a developer has
+        # generated it locally, this verifies the committed header is current.
+        run: |
+          BIN=hardware/shrikefi/forgefpga_project/ffpga/build/bitstream/FPGA_bitstream_MCU.bin
+          if [ -f "$BIN" ]; then
+            python3 hardware/shrikefi/convert_bitstream.py --check
+          else
+            echo "::warning::Vendor bitstream not present; skipping header freshness check"
+          fi
 
       - name: Run Zynq RTL testbench (expects 6 passed, 0 failed)
         run: |
@@ -160,7 +192,7 @@ jobs:
         run: |
           set -o pipefail
           cd firmware/core
-          python3 train_nn_risk_model.py --min-accuracy 86.0 2>&1 | tee /tmp/nn.log
+          python3 train_nn_risk_model.py --min-accuracy 88.0 2>&1 | tee /tmp/nn.log
       - name: Assert reported architecture and parameter count
         # The C side of this contract (sizeof(nn_model_int8_t) == 619 and the
         # 6/24/16/3 layer sizes) is enforced by _Static_assert in
