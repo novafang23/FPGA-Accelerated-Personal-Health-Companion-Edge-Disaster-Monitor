@@ -1430,13 +1430,12 @@ static void sos_render_card(ssd1306_t *d, uint32_t active_ms, sos_trigger_t trig
     snprintf(line, sizeof(line), "CONDITION: %s", condition);
     ssd1306_draw_string(d, 0, 36, line);
 
-    /* Shortened for the panel if it does not fit, with a marker so a reader
-     * knows to check the phone page for the full string.
-     * Displays manual location if set, otherwise falls back to live GNSS fix if available. */
+    /* LIVE GNSS TAKES PRECEDENCE over the stored location when a fix exists:
+     * a rescuer needs where the patient is NOW, not where the device was
+     * deployed. The stored NVS location is only a fallback for when there is no
+     * fix. */
     char loc[LOCATION_MAX_LEN];
-    if (location_is_set()) {
-        location_card_text(location_get(), loc, sizeof(loc));
-    } else if (s_has_gps_fix) {
+    if (s_has_gps_fix) {
         char temp_coord[GNSS_COORD_STR_LEN];
         temp_coord[0] = '\0';
         if (xSemaphoreTake(s_data_mutex, pdMS_TO_TICKS(10)) == pdTRUE) {
@@ -1947,7 +1946,7 @@ static void task_disaster_monitor(void *pvParameters) {
             st.risk     = risk_level_to_string(final_risk.overall_risk);
             st.sos      = sos_state_name(sos_now);
             st.trigger  = sos_trigger_name(sos_trig);
-            const char *loc_str = location_is_set() ? location_get() : NULL;
+            const char *loc_str = NULL;
             /* Static, not automatic: the published status snapshot stores this
              * pointer and the HTTP task dereferences it after this task's stack
              * frame is gone. A stack buffer here was a use-after-scope (the
@@ -1960,15 +1959,22 @@ static void task_disaster_monitor(void *pvParameters) {
             if (xSemaphoreTake(s_data_mutex, pdMS_TO_TICKS(10)) == pdTRUE) {
                 st.motion = g_state.imu_motion_energy;
                 st.fall   = fall_state_name(g_state.fall_state);
-                if (!loc_str && s_has_gps_fix) {
+                /* Live GNSS takes precedence over the stored location. */
+                if (s_has_gps_fix && s_last_gps_coord[0] != '\0') {
                     strncpy(live_gps_buf, s_last_gps_coord, sizeof(live_gps_buf));
                     live_gps_buf[sizeof(live_gps_buf) - 1] = '\0';
                     loc_str = live_gps_buf;
                 }
                 xSemaphoreGive(s_data_mutex);
             }
-            st.loc      = loc_str ? loc_str : location_get();
+            if (loc_str == NULL) loc_str = location_get(); /* stored / "UNSET" */
+            st.loc      = loc_str;
             web_status_publish(&st);
+
+            /* 1 Hz location line for the USB dashboard: live GNSS when fixed,
+             * otherwise the stored location. */
+            printf("[LOC] %s\n", (st.loc && st.loc[0]) ? st.loc : "UNSET");
+            fflush(stdout);
 
             /* Periodically publish hourly history summary for WebSerial (every 30s) */
             static uint32_t s_hist_print_sec = 0;

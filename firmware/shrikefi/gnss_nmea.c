@@ -153,7 +153,12 @@ static void parse_gga(gnss_nmea_t *dev, char *fields[], int num_fields) {
     if (num_fields < 8) return;
 
     int quality = fields[6][0] ? (fields[6][0] - '0') : 0;
-    bool valid = (quality > 0);
+    /* A GGA that claims fix quality but reports zero satellites is not a usable
+     * fix. This was seen right after boot, before the receiver re-acquired: the
+     * device briefly reported a 3-D fix with Sats 0 / Alt 0 / HDOP 0 and would
+     * have published a bogus coordinate. Require a real satellite count too. */
+    int sats = (num_fields > 7 && fields[7][0] != '\0') ? atoi(fields[7]) : 0;
+    bool valid = (quality > 0) && (sats > 0);
 
     GNSS_LOCK();
     dev->data.fix_quality = (uint8_t)(quality > 0 ? quality : 0);

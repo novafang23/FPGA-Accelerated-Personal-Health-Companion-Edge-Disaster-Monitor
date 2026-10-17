@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'sha256-7l+zjdwkbcQfdTsy/KIvc/EJnPhZ/7Zf8FSx70ygAmI='; style-src 'unsafe-inline'; connect-src 'self'; form-action 'self'; base-uri 'none'; object-src 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'sha256-aD2Zhsl+20JZ4NH0QHZ5y6nxgS7RnuCyIFty2Wk6T+M='; style-src 'unsafe-inline'; connect-src 'self'; form-action 'self'; base-uri 'none'; object-src 'none'">
 <title>VALOR â€” Edge Health &amp; Disaster Triage</title>
 <!--
   VALOR dashboard â€” single self-contained file.
@@ -273,6 +273,7 @@
       </div>
     </div>
     <div class="board-sub">ShrikeFi ESP32-S3 + Renesas ForgeFPGA SLG47910</div>
+    <div class="board-sub" id="v-loc" style="margin-top:2px">LOC --</div>
   </div>
   <div class="controls">
     <button id="btn-connect" class="primary">Connect to device</button>
@@ -612,7 +613,7 @@ const C = {
    until a device connects or a simulation is explicitly started. */
 const V = {
   hr: 0, spo2: 0, hrv: 0, rr: 0, rrConf: 0, sqi: 0,
-  temp: 0, hum: 0, pmRaw: 0, pmCal: 0,
+  temp: 0, hum: 0, pmRaw: 0, pmCal: 0, loc: '',
   psi: 0, aha: 0, heat: 0, poll: 0, flood: 0, storm: 0, news2: 0,
   pi: 0, level: 0, flags: 0, risk: 'UNKNOWN',
   rHeat: 'UNKNOWN', rPoll: 'UNKNOWN', rFlood: 'UNKNOWN',
@@ -1216,7 +1217,7 @@ function setStatus(kind, text) {
 function clearLiveReadings() {
   Object.assign(V, {
     hr: 0, spo2: 0, hrv: 0, rr: 0, rrConf: 0, sqi: 0, pi: 0,
-    temp: 0, hum: 0, pmRaw: 0, pmCal: 0,
+    temp: 0, hum: 0, pmRaw: 0, pmCal: 0, loc: '',
     psi: 0, aha: 0, heat: 0, poll: 0, flood: 0, storm: 0, news2: 0,
     level: 0, flags: 0, risk: 'UNKNOWN', rHeat: 'UNKNOWN',
     rPoll: 'UNKNOWN', rFlood: 'UNKNOWN', cyclone: 'UNKNOWN', ptrend: null,
@@ -1224,6 +1225,8 @@ function clearLiveReadings() {
   });
   ppgSeen = false;
   PPG.clear();
+  const locEl = document.getElementById('v-loc');
+  if (locEl) locEl.textContent = 'LOC --';
 }
 
 /* Everything the dashboard knows how to show, blanked. */
@@ -1626,6 +1629,13 @@ function parseKV(line) {
 function handleLine(line) {
   lastSerialLine = performance.now();
 
+  if (line.startsWith('[LOC]')) {
+    V.loc = line.slice(5).trim();
+    const el = document.getElementById('v-loc');
+    if (el) el.textContent = 'LOC ' + (V.loc && V.loc !== 'UNSET' ? V.loc : '--');
+    return;
+  }
+
   if (line.startsWith('[TELEMETRY]')) {
     lastTelemetryAt = lastSerialLine;
     if (liveNoData) {
@@ -1816,7 +1826,7 @@ function enterIdle() {
   mode = 'idle';
   Object.assign(V, {
     hr: 0, spo2: 0, hrv: 0, rr: 0, sqi: 0,
-    temp: 0, hum: 0, pmRaw: 0, pmCal: 0,
+    temp: 0, hum: 0, pmRaw: 0, pmCal: 0, loc: '',
     psi: 0, aha: 0, heat: 0, poll: 0, flood: 0, news2: 0,
     pi: 0, level: 0, flags: 0, risk: 'UNKNOWN',
     rHeat: 'UNKNOWN', rPoll: 'UNKNOWN', rFlood: 'UNKNOWN',

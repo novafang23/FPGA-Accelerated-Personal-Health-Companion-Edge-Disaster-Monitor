@@ -165,6 +165,16 @@ Boot log after the final flash confirmed:
 - MAX30102 Part ID `0x15`; BME280 Chip ID `0x60`; PMS5003 UART task; GNSS
   NEO-M8N NMEA; MPU6050 (fall detection) — all initialized OK.
 - BME280 live: ~28.8 °C / 63.8 % RH. PMS5003 live: PM2.5 ~49.6 µg/m³.
+- **Location priority:** live GNSS now takes precedence over the stored NVS
+  location in both the SOS card and the status JSON/page; the stored location is
+  only the fallback when there is no fix. The USB dashboard shows a `[LOC]` line
+  (live coordinate when fixed, otherwise the stored location). The GNSS parser
+  additionally requires `satellites > 0` before it will declare a fix, so a
+  transient GGA cannot publish a bogus coordinate.
+- **Current GNSS wiring issue (2026-10-17, after a later reset):** the module
+  stopped sending NMEA (`[NO UART DATA] ... GPIO16`). Firmware behaviour is
+  correct; check NEO-M8N TX->GPIO16, VCC=3.3 V and GND. The earlier 3-D fix
+  proves the parser/format path.
 - GNSS: **3-D fix acquired** — `28.56046N, 77.44006E`, 5–7 satellites,
   altitude 167.5 m, HDOP 1.8–8.1. Cold start to first fix took ~9.5 minutes
   (normal for a cold u-blox NEO-M8N at a window). The parser/UART path and the
