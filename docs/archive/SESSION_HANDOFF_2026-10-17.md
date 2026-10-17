@@ -213,6 +213,8 @@ c4f90a7 fix: resolve four correctness/safety defects found in the A-to-Z audit
     not fit the slope to the 1.5 % reference drop: with the R gate 2.20 a
     shallow curve would cap severe desaturation at ~93 %. Standardise the
     contact with the enclosure/clip, then recalibrate at that contact.
+    **Decision (2026-10-18): A** - print the cradle first, then recalibrate at
+    the fixed contact; no intercept shift for the bare sensor.
   - No false Tachypnea/CRITICAL/SOS after the RR hardening.
   - RR unavailable at rest (see above).
   - **SOS web path (2026-10-17):** TRIGGER SOS latched "medical emergency";
