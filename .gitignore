@@ -164,3 +164,6 @@ htmlcov/
 *.egg-info/
 
 
+
+# Presentation PDFs are not tracked
+docs/presentation/*.pdf
