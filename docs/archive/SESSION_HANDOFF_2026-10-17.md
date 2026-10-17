@@ -153,6 +153,22 @@ python firmware/shrikefi/dashboard/verify_dashboard.py
 python firmware/shrikefi/dashboard/verify_softap_page.py
 ```
 
+## Hardware verification (2026-10-17, all sensors connected)
+
+Boot log after the final flash confirmed:
+
+- I2C scan: `0x3C` SSD1306, `0x57` MAX30102, `0x68` MPU6050, `0x76` BME280.
+- MAX30102 Part ID `0x15`; BME280 Chip ID `0x60`; PMS5003 UART task; GNSS
+  NEO-M8N NMEA; MPU6050 (fall detection) — all initialized OK.
+- BME280 live: ~28.8 °C / 63.8 % RH. PMS5003 live: PM2.5 ~49.6 µg/m³.
+- GNSS: NMEA parsed continuously but `Sats: 0`, `Fix: NO` indoors — the UART
+  path works; a fix needs sky view/antenna placement.
+- SpO2/HR: validated earlier (rest 98.8 vs 98; nadir 96.6 vs 96).
+- No false CRITICAL/SOS during the sensor pass.
+
+Not yet exercised end-to-end: an actual GNSS fix, a physical fall event, and
+the PMS5003 response to a known particulate source.
+
 ## Compaction note
 
 OpenCode automatic compaction is **on by default** (`compaction.auto = true`,

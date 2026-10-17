@@ -173,7 +173,7 @@ int mpu6050_init(mpu6050_t *dev, esp32_i2c_handle_t *i2c, uint8_t addr) {
     if (mpu6050_write_config_reg(dev, MPU6050_REG_INT_PIN_CFG, 0x00) != 0) return -1;
     if (mpu6050_write_config_reg(dev, MPU6050_REG_INT_ENABLE, 0x00) != 0) return -1;
 
-    ESP_LOGI(TAG, "MPU6050 initialized OK at 0x%02X (Accel: ±8g, Gyro: ±2000 dps, DLPF: 44Hz)", dev->addr);
+    ESP_LOGI(TAG, "MPU6050 initialized OK at 0x%02X (Accel: +/-8g, Gyro: +/-2000 dps, DLPF: 44Hz)", dev->addr);
 #endif
 
     dev->initialized = 1;
