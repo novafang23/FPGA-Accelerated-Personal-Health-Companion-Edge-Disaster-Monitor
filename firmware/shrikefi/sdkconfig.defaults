@@ -40,7 +40,6 @@ CONFIG_ESP_DEFAULT_CPU_FREQ_MHZ=160
 # --- Core Affinity ------------------------------------------------------------
 # Move WiFi and TCP/IP driver to Core 1 to protect PPG timing on Core 0
 CONFIG_ESP_WIFI_TASK_PINNED_TO_CORE_1=y
-CONFIG_ESP_WIFI_TASK_PINNED_TO_CORE=1
 CONFIG_LWIP_TCPIP_TASK_AFFINITY_CPU1=y
 CONFIG_LWIP_TCPIP_TASK_AFFINITY=0x1
 
