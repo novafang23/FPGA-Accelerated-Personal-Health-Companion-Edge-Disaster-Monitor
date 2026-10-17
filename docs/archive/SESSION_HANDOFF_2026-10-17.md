@@ -117,6 +117,21 @@ c4f90a7 fix: resolve four correctness/safety defects found in the A-to-Z audit
     baseline is erratic. Perfusion/contact (SpO2 92-95, SQI 0.3-0.5) is the
     limiting factor. Above ~19 the device withholds; 27 is outside the finger
     sensor's reach without a dedicated respiration sensor.
+- **Environmental risk without a finger (2026-10-18):** three separate gates
+  made the heat/pollution/flood verdict UNKNOWN whenever the finger was off:
+  1. `disaster_assess()` forced every environmental risk to UNKNOWN when the HRV
+     window was not ready;
+  2. the whole risk/status block sat inside `if (vitals_ready)`, so the
+     BME280/PMS readings were never assessed or published and the phone kept a
+     stale snapshot;
+  3. `bpm == 0` / `rmssd == 0` were scored as bradycardia / HRV collapse,
+     producing a false flood warning on a warm day.
+  Fixed: the environment is assessed unconditionally (a missing env pointer is
+  still UNKNOWN), zero vitals mean "unavailable", and the block runs when
+  `vitals_ready || ambient_valid`. With the finger off the device reports
+  `RHEAT/RPOLL/RFLOOD=NORMAL` and `RISK=MODERATE` (clinical level with no valid
+  vitals), not UNKNOWN. `[PPG]` is decimated to 1 Hz and the redundant
+  `[RuleEngine]`/`[TinyML]` logs removed so `[TRIAGE]` reaches the UART.
 - **A2 safety**: an absolute-crisis override requires SQI ≥ 0.70 or two
   independent crisis criteria, so one noisy SpO2 cannot fire the SOS.
 - **C1**: GPS location is published from static storage (was a dangling
