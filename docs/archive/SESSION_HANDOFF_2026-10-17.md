@@ -165,8 +165,13 @@ Boot log after the final flash confirmed:
 - MAX30102 Part ID `0x15`; BME280 Chip ID `0x60`; PMS5003 UART task; GNSS
   NEO-M8N NMEA; MPU6050 (fall detection) — all initialized OK.
 - BME280 live: ~28.8 °C / 63.8 % RH. PMS5003 live: PM2.5 ~49.6 µg/m³.
-- GNSS: NMEA parsed continuously but `Sats: 0`, `Fix: NO` indoors — the UART
-  path works; a fix needs sky view/antenna placement.
+- GNSS: **3-D fix acquired** — `28.56046N, 77.44006E`, 5–7 satellites,
+  altitude 167.5 m, HDOP 1.8–8.1. Cold start to first fix took ~9.5 minutes
+  (normal for a cold u-blox NEO-M8N at a window). The parser/UART path and the
+  coordinate formatting are verified.
+  Note: a stored NVS location (`SRM IST DELIHI-NCR`) takes precedence over the
+  live GNSS coordinate on the SOS card and status page; clear it to exercise
+  the live-GPS fallback.
 - SpO2/HR: validated earlier (rest 98.8 vs 98; nadir 96.6 vs 96).
 - No false CRITICAL/SOS during the sensor pass.
 
