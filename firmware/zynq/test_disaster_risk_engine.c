@@ -986,11 +986,22 @@ static void test_web_status_json(void) {
     s.risk = "NORMAL"; s.sos = "IDLE"; s.trigger = "none"; s.loc = "UNSET";
     s.uptime_s = 123; s.contact = true;
     s.pressure_hpa = 1013.2f; s.pressure_trend_hpa_per_hr = -1.25f; s.storm = "HIGH";
+    s.pdrop_hpa = 1.2f; s.pspan_s = 9600; s.pvalid = true;
+    s.env = "PM2.5 37.7 ug/m3: Unhealthy for Sensitive Groups (EPA AQI 106, 2024). "
+            "WHO 2021 24-h guideline 15 ug/m3 exceeded (2.5x). "
+            "Heat index 30.7 C: Caution (NWS).";
+    s.aqi = 106; s.aqi_cat = "Unhealthy for Sensitive Groups";
+    s.heat_c = 30.7f; s.heat_cat = "Caution";
     s.motion = 0.12f; s.fall = "MONITORING";
 
-    char buf[512];
+    /* The HTTP handler uses a 1024-byte buffer. The environmental sentence and
+     * the tile fields are long, and an overflow there makes the handler return
+     * HTTP 500, which the page reports as NO CONNECTION even though the WiFi
+     * is fine. Keep the JSON inside the handler buffer. */
+    char buf[1024];
     size_t n = web_status_json(&s, buf, sizeof(buf));
     assert(n > 0);
+    assert(n < sizeof(buf));
     assert(strlen(buf) == n);            /* length agrees with the content */
 
     assert(strstr(buf, "\"hr\":72.1")        != NULL);
@@ -1011,6 +1022,14 @@ static void test_web_status_json(void) {
     assert(strstr(buf, "\"pressure\":1013.2")    != NULL);
     assert(strstr(buf, "\"ptrend\":-1.25")       != NULL);
     assert(strstr(buf, "\"storm\":\"HIGH\"")     != NULL);
+    assert(strstr(buf, "\"pdrop\":1.2")          != NULL);
+    assert(strstr(buf, "\"pspan\":9600")         != NULL);
+    assert(strstr(buf, "\"pvalid\":true")        != NULL);
+    assert(strstr(buf, "\"aqi\":106")            != NULL);
+    assert(strstr(buf, "\"aqicat\":\"Unhealthy for Sensitive Groups\"") != NULL);
+    assert(strstr(buf, "\"heatc\":30.7")         != NULL);
+    assert(strstr(buf, "\"heatcat\":\"Caution\"")!= NULL);
+    assert(strstr(buf, "\"env\":\"PM2.5")        != NULL);
 
     /* Dynamic strings must remain valid JSON even when they contain syntax or
      * control characters. */

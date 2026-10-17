@@ -578,7 +578,11 @@ static esp_err_t h_json(httpd_req_t *req) {
     valor_status_t s;
     web_status_snapshot(&s);
 
-    char buf[512];
+    /* 512 bytes was enough before the environmental-condition sentence (env,
+     * ~170 bytes) and the AQI/heat fields were added. The JSON now overflows
+     * it, web_status_json() returns 0, and the handler answered HTTP 500,
+     * which the page reports as "NO CONNECTION" even though the Wi-Fi is up. */
+    char buf[1024];
     size_t n = web_status_json(&s, buf, sizeof(buf));
     if (n == 0) {
         return httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "status too large");

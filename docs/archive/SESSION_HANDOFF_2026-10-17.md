@@ -160,6 +160,13 @@ c4f90a7 fix: resolve four correctness/safety defects found in the A-to-Z audit
   WHO 2021 24-h exceedance under PM2.5. The device publishes the structured
   `aqi`/`aqicat`/`heatc`/`heatcat` fields and the browser only renders them;
   the `[ENV]` serial sentence remains for logs.
+- **`/status.json` buffer overflow (2026-10-18):** adding the `env` sentence
+  and the AQI/heat fields pushed the JSON past the HTTP handler's 512-byte
+  buffer. `web_status_json()` returned 0 and the handler answered HTTP 500,
+  which the page reports as **NO CONNECTION** while the Wi-Fi is perfectly fine.
+  The handler now uses 1024 bytes, and the host test builds a full snapshot
+  (long `env`, AQI/heat fields) and asserts it fits. The CSP hash was
+  regenerated.
 - **A2 safety**: an absolute-crisis override requires SQI ≥ 0.70 or two
   independent crisis criteria, so one noisy SpO2 cannot fire the SOS.
 - **C1**: GPS location is published from static storage (was a dangling
