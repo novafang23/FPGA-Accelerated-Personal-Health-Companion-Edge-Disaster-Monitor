@@ -877,16 +877,16 @@ static void task_ppg_accelerator(void *pvParameters) {
  * relying on the reader knowing the #if rule. The option is default y in
  * main/Kconfig.projbuild and y in sdkconfig.defaults. */
 #if defined(CONFIG_SHRIKEFI_STREAM_PPG) && CONFIG_SHRIKEFI_STREAM_PPG
-            /* Stream raw PPG sample for the dashboard oscilloscope.
-             *
-             * Gated on CONFIG_SHRIKEFI_STREAM_PPG (default y). At the ~100 Hz optical
- * rate this one
-             * line is most of the console output, and it buries the lines that
-             * actually answer bring-up questions - the FPGA link handshake, the
-             * detector handover, and [TRIAGE]. Turn the option off for a
-             * readable log; the web dashboard keeps every number and only loses
-             * the waveform. */
-            printf("[PPG] %lu\n", (unsigned long)ppg_sample.ir);
+            /* Stream raw PPG sample for the dashboard oscilloscope. At the
+             * 100 Hz FIFO this MUST be decimated: printing every sample is
+             * ~1.2 KB/s, and the higher-priority PPG task then starves the
+             * monitor task's [TRIAGE] line of the UART (observed: [TRIAGE]
+             * disappeared entirely while [TELEMETRY] and [PPG] kept flowing).
+             * One in four keeps the old 25 Hz oscilloscope rate. */
+            static uint32_t s_ppg_log_decim = 0;
+            if ((s_ppg_log_decim++ & 3u) == 0u) {
+                printf("[PPG] %lu\n", (unsigned long)ppg_sample.ir);
+            }
 #endif
 
             /* 2. Stream to the ForgeFPGA over the SPI link */
@@ -1557,6 +1557,12 @@ static void task_disaster_monitor(void *pvParameters) {
         static uint32_t s_pm25_warn_last_ms = 0;
         static uint32_t s_next_bme_retry_ms = 0;
         static uint8_t s_bme_read_errors = 0;
+        /* Keep the last valid environmental sample for a grace period. A 3 s
+         * BME280 glitch must not collapse the heat/pollution picture to UNKNOWN
+         * on a disaster monitor. 30 s is far longer than any real weather change
+         * and still honest when the sensor is genuinely gone. */
+        static uint32_t s_env_last_valid_ms = 0;
+        const  uint32_t ENV_STALE_MS = 30000u;
 
         uint32_t env_now_ms = (uint32_t)(esp_timer_get_time() / 1000);
         if (!s_bme280.initialized &&
@@ -1576,6 +1582,7 @@ static void task_disaster_monitor(void *pvParameters) {
                 bme_data.humidity_pct >= 0.0f && bme_data.humidity_pct <= 100.0f) {
                 s_last_temp = bme_data.temperature_c;
                 s_last_hum  = bme_data.humidity_pct;
+                s_env_last_valid_ms = env_now_ms;
             }
             /* Pressure is independent of the temperature sanity gate above, so
              * it is fed even when the temperature reading is rejected. */
@@ -1587,10 +1594,14 @@ static void task_disaster_monitor(void *pvParameters) {
             s_bme280.initialized = 0;
             s_bme_read_errors = 0;
             s_next_bme_retry_ms = env_now_ms + 5000;
-            s_last_temp = -100.0f;
-            s_last_hum = -1.0f;
+            /* Keep s_last_temp/s_last_hum: they are still the best estimate for
+             * the ENV_STALE_MS grace window. Resetting to -100 made the heat and
+             * pollution risks read UNKNOWN after a 3 s I2C glitch. */
         }
-        const bool ambient_valid = (s_last_temp >= 5.0f && s_last_hum >= 0.0f);
+        const bool ambient_valid =
+            (s_last_temp >= 5.0f && s_last_hum >= 0.0f &&
+             s_env_last_valid_ms != 0 &&
+             (uint32_t)(env_now_ms - s_env_last_valid_ms) <= ENV_STALE_MS);
         env.ambient_temp_c = s_last_temp;
         env.humidity_pct   = s_last_hum;
 
