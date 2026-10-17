@@ -64,9 +64,10 @@ c4f90a7 fix: resolve four correctness/safety defects found in the A-to-Z audit
   - **Baseline (DC) respiratory path added** (`firmware/core/ppg_baseline_rr`):
     25 Hz IR -> 1 s baseline -> 5 Hz -> 0.1-0.5 Hz -> autocorrelation. It is a
     third, beat-rate-independent estimate and only publishes as a fallback when
-    the IBI/AM path is unreliable, at the same 0.60 confidence bar and the same
-    24 br/min ceiling. Boundary-pinned lags and pulse-only signals are rejected.
-    Host tests recover 9/12/18 br/min and reject a pulse-only signal.
+    the IBI/AM path is unreliable, at its own calibrated ACF bar (see the paced
+    validation below) and the same 24 br/min ceiling. Boundary-pinned lags and
+    pulse-only signals are rejected. Host tests recover 9/12/18 br/min and
+    reject a pulse-only signal.
   - **Paced validation (2026-10-17):** paced 12 br/min produced a stable
     13.0-13.4 br/min at ACF 0.48-0.57 (winning lag 22-23 = 4.4-4.6 s), while the
     RSA path still found no periodicity. The baseline path therefore publishes
@@ -74,8 +75,14 @@ c4f90a7 fix: resolve four correctness/safety defects found in the A-to-Z audit
     of history; boundary-pinned lags and pulse-only signals are still rejected.
   - **RR at rest** still reads unavailable (8.9 br/min at conf 0.21-0.30): the
     respiratory SNR on the 25 Hz FIFO + peak-detector path is marginal. This is
-    the honest limit; the next step is the IBI-over-SPI burst or a dedicated
-    respiration sensor.
+    the honest limit; a dedicated respiration sensor remains the most reliable
+    option.
+  - **IBI-over-SPI burst (RTL, awaiting re-fit):** after a beat byte the FPGA now
+    queues `0xC3` + the 32-bit 20 ns IBI counter (MSB first); the driver reads it
+    and falls back to the timer only if the magic is absent. The five dummy burst
+    bytes are gated out of the filter. Simulation: 13/13, including a check that
+    the counter equals the simulated beat interval. The bitstream is embedded in
+    `forgefpga_bitstream.h`, so re-fit and regenerate it before flashing.
 - **A2 safety**: an absolute-crisis override requires SQI ≥ 0.70 or two
   independent crisis criteria, so one noisy SpO2 cannot fire the SOS.
 - **C1**: GPS location is published from static storage (was a dangling

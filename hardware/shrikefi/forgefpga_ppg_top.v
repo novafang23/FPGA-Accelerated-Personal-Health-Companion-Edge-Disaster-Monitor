@@ -79,6 +79,12 @@ module forgefpga_ppg_top #(
     wire       filt_valid;
     wire [31:0] ibi_val;
 
+    // IBI burst state (see section 4). Declared here because the filter below
+    // needs sample_valid to ignore the dummy MOSI bytes of a burst.
+    reg  [2:0]  burst_cnt;
+    reg  [31:0] ibi_latched;
+    wire        sample_valid = rx_valid && (burst_cnt == 3'd0);
+
     spi_target #(
         .WIDTH(8)
     ) u_spi_target (
@@ -104,7 +110,7 @@ module forgefpga_ppg_top #(
     ) u_ma_filter (
         .clk(clk),
         .rst_n(rst_n),
-        .data_valid(rx_valid),
+        .data_valid(sample_valid),
         .data_in(rx_data),
         .data_out(filt_sample),
         .out_valid(filt_valid)
@@ -128,29 +134,63 @@ module forgefpga_ppg_top #(
     );
 
     // -------------------------------------------------------------------------
-    // 4. Beat Latch & SPI Response Register
+    // 4. Beat Latch, IBI Burst & SPI Response Register
     // -------------------------------------------------------------------------
-    // Packet returned to ESP32:
-    // Bit 7: Beat detected flag (1 = systolic crest)
-    // Bits [6:0]: 7-bit filtered PPG amplitude
+    // Normal packet (one per sample):
+    //   Bit 7: Beat detected flag (1 = systolic crest)
+    //   Bits [6:0]: 7-bit filtered PPG amplitude
+    //
+    // On a beat the ESP32 reads FIVE extra bytes, which this block queues:
+    //   byte 0: 8'hC3 magic
+    //   bytes 1-4: the 32-bit IBI counter, MSB first (50 MHz cycles = 20 ns)
+    //
+    // The IBI is measured by the peak detector on the same clock as the beat, so
+    // it is cycle-accurate. The old link exposed only the beat flag, forcing the
+    // ESP32 to time beats at its SPI poll rate (~10 ms quantisation) - a third
+    // of a 20-60 ms RSA signal. The five burst transfers carry dummy MOSI bytes;
+    // sample_valid keeps them out of the filter.
     always @(posedge clk or negedge rst_n) begin
         if (!rst_n) begin
             beat_latched <= 1'b0;
-            // Reset value only. tx_data is overwritten with
-            // {beat_latched, filt_sample[6:0]} on the very next clock, so this
-            // byte never reaches MISO -- do not use it as a liveness signature
-            // in firmware (shrikefi_link_driver.c sends 0x55 to probe and only
-            // logs the reply).
+            burst_cnt    <= 3'd0;
+            ibi_latched  <= 32'd0;
+            // Reset value only. tx_data is overwritten on the very next clock,
+            // so this byte never reaches MISO -- do not use it as a liveness
+            // signature in firmware.
             tx_data      <= 8'hA5;
         end else begin
             if (beat_raw) begin
                 beat_latched <= 1'b1;
-            end else if (rx_valid) begin
-                // Clear beat latch once transmitted over SPI
+                ibi_latched  <= ibi_val;
+            end else if (rx_valid && burst_cnt == 3'd0) begin
+                // Clear the beat latch once it has been transmitted.
                 beat_latched <= 1'b0;
             end
 
-            tx_data <= {beat_latched, filt_sample[6:0]};
+            if (rx_valid) begin
+                if (burst_cnt == 3'd0) begin
+                    if (beat_latched) begin
+                        // This transfer was the beat byte; queue the burst.
+                        burst_cnt <= 3'd5;
+                        tx_data   <= 8'hC3;
+                    end else begin
+                        tx_data <= {beat_latched, filt_sample[6:0]};
+                    end
+                end else begin
+                    burst_cnt <= burst_cnt - 3'd1;
+                    case (burst_cnt)
+                        3'd5: tx_data <= ibi_latched[31:24];
+                        3'd4: tx_data <= ibi_latched[23:16];
+                        3'd3: tx_data <= ibi_latched[15:8];
+                        3'd2: tx_data <= ibi_latched[7:0];
+                        default: tx_data <= {beat_latched, filt_sample[6:0]};
+                    endcase
+                end
+            end else if (burst_cnt == 3'd0) begin
+                // Keep the normal reply current between transfers, but never
+                // overwrite a burst byte that is waiting to be sent.
+                tx_data <= {beat_latched, filt_sample[6:0]};
+            end
         end
     end
 

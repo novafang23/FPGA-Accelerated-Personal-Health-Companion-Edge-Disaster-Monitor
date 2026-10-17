@@ -141,6 +141,23 @@ shrikefi_err_t shrikefi_write_red_sample(uint8_t sample) {
     return SHRIKEFI_OK;
 }
 
+#ifdef ESP_PLATFORM
+/* One 8-bit full-duplex transfer with manual CS. Used for the post-beat IBI
+ * burst; the RTL gates these dummy MOSI bytes out of the filter. */
+static uint8_t shrikefi_spi_xfer_raw(uint8_t tx) {
+    if (s_spi_runtime == NULL) return 0;
+    spi_transaction_t t;
+    memset(&t, 0, sizeof(t));
+    t.length = 8;
+    t.flags = SPI_TRANS_USE_TXDATA | SPI_TRANS_USE_RXDATA;
+    t.tx_data[0] = tx;
+    gpio_set_level((gpio_num_t)PIN_FPGA_SS, 0);
+    esp_err_t ret = spi_device_transmit(s_spi_runtime, &t);
+    gpio_set_level((gpio_num_t)PIN_FPGA_SS, 1);
+    return (ret == ESP_OK) ? t.rx_data[0] : 0;
+}
+#endif
+
 shrikefi_err_t shrikefi_write_ir_sample(uint8_t sample) {
 #ifdef ESP_PLATFORM
     if (s_spi_runtime == NULL) {
@@ -209,13 +226,39 @@ shrikefi_err_t shrikefi_write_ir_sample(uint8_t sample) {
         bool beat = ((rx >> 7) & 1) != 0;
         if (beat && !s_last_beat) {
             uint64_t now_us = esp_timer_get_time();
-            if (s_last_beat_time_us > 0 && now_us > s_last_beat_time_us) {
+
+            /* Read the IBI burst queued by the RTL: magic 0xC3 followed by the
+             * 32-bit IBI counter, MSB first, in 50 MHz cycles. An older
+             * bitstream has no burst, so the first byte will not be the magic
+             * and we keep the timer-derived fallback. The burst transfers carry
+             * dummy MOSI bytes; the RTL gates them out of the filter. */
+            uint8_t  m0 = shrikefi_spi_xfer_raw(0x00);
+            uint32_t fpga_ibi = 0;
+            bool     fpga_ibi_valid = false;
+            if (m0 == 0xC3) {
+                uint8_t b1 = shrikefi_spi_xfer_raw(0x00);
+                uint8_t b2 = shrikefi_spi_xfer_raw(0x00);
+                uint8_t b3 = shrikefi_spi_xfer_raw(0x00);
+                uint8_t b4 = shrikefi_spi_xfer_raw(0x00);
+                fpga_ibi = ((uint32_t)b1 << 24) | ((uint32_t)b2 << 16) |
+                           ((uint32_t)b3 << 8)  | (uint32_t)b4;
+                /* 30-250 bpm -> 0.24-2.0 s -> 12M-100M cycles at 50 MHz. */
+                fpga_ibi_valid = (fpga_ibi >= 12000000u && fpga_ibi <= 100000000u);
+            }
+
+            if (fpga_ibi_valid) {
+                s_sim_ibi = fpga_ibi;              /* cycle-accurate */
+                s_beat_detected_latched = true;
+            } else if (s_last_beat_time_us > 0 && now_us > s_last_beat_time_us) {
                 uint32_t delta_us = (uint32_t)(now_us - s_last_beat_time_us);
-                s_sim_ibi = delta_us * 50; /* 50 MHz cycles */
+                s_sim_ibi = delta_us * 50;         /* 50 MHz cycles */
                 s_beat_detected_latched = true;
             }
             s_last_beat_time_us = now_us;
-            ESP_LOGI(LINK_TAG, "[FPGA ACCEL] Systolic crest detected! Filtered=%d | PIN_7 blue LED pulsing", s_last_filtered_ir);
+            ESP_LOGI(LINK_TAG,
+                     "[FPGA ACCEL] Systolic crest detected! Filtered=%d | IBI %s=%lu cycles",
+                     s_last_filtered_ir, fpga_ibi_valid ? "FPGA" : "timer",
+                     (unsigned long)s_sim_ibi);
         }
         s_last_beat = beat;
     }

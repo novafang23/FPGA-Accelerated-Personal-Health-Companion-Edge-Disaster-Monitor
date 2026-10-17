@@ -21,7 +21,10 @@
 //
 //   * 8-bit SPI, mode 0 (CPOL=0, CPHA=0), MSB first, CS asserted manually.
 //   * One transfer per PPG sample; MOSI carries the raw 8-bit sample.
-//   * MISO returns {beat_latched, filt_sample[6:0]}.
+//   * MISO returns {beat_latched, filt_sample[6:0]} for a normal sample.
+//     After a beat byte the DUT queues five more bytes: 0xC3 followed by the
+//     32-bit ibi_cycles counter, MSB first. The tester consumes them so the
+//     next sample transfer stays aligned.
 //   * The FPGA's reply for transfer k+1 carries the result of the sample sent
 //     in transfer k (one transfer of pipeline latency: the filter, the beat
 //     latch and the SPI transmit shift register each cost a clock).
@@ -32,10 +35,10 @@
 //     come back. The filter tests therefore keep their stimulus below 128 and
 //     the 7-bit wrap never comes into play. The FPGA's own detector uses the
 //     full 8-bit average internally, so detection is unaffected.
-//   * The RTL exposes ibi_cycles, but no SPI register carries it and the
-//     firmware does not read it -- it times beats with esp_timer_get_time().
-//     IBI accuracy is therefore checked here the way the product measures it:
-//     transfers between consecutive beat flags.
+//   * The RTL exposes ibi_cycles in the post-beat burst; the firmware reads it
+//     and falls back to esp_timer_get_time() only if the magic is absent (an
+//     older bitstream). This bench checks the counter against the simulated
+//     beat interval as well as the transfer spacing between beat flags.
 //
 // Run: hardware/shrikefi/build_shrikefi_sim.bat (same command as CI)
 // =============================================================================
@@ -208,6 +211,13 @@ module tb_forgefpga_system;
     integer   beat_at [0:15];
     reg       prev_beat;
     reg [7:0] prev_expected;
+    /* Post-beat IBI burst: 0xC3 + four IBI bytes (MSB first). */
+    reg [7:0]  b0, b1, b2, b3, b4;
+    reg [31:0] ibi_burst;
+    integer    burst_beats, burst_magic_bad, burst_ibi_err;
+    integer    ibi_expected;
+    reg        burst_have_first;
+    time       t_beat, t_prev_beat;
 
     initial begin
         pulse_wave[0]  = 8'd140; pulse_wave[1]  = 8'd180;
@@ -221,6 +231,11 @@ module tb_forgefpga_system;
         idx       = 0;
         nbeats    = 0;
         prev_beat = 1'b0;
+        burst_beats      = 0;
+        burst_magic_bad  = 0;
+        burst_ibi_err    = 0;
+        burst_have_first = 1'b0;
+        t_prev_beat      = 0;
     end
 
     initial begin
@@ -315,6 +330,36 @@ module tb_forgefpga_system;
                 if (rx[7] === 1'b1 && prev_beat === 1'b0 && nbeats < 16) begin
                     beat_at[nbeats] = idx;
                     nbeats = nbeats + 1;
+                    t_beat = $time;
+
+                    /* The RTL queues a five-byte burst after the beat byte:
+                     * 0xC3 + the 32-bit IBI counter (MSB first, 50 MHz
+                     * cycles). Consume it so the next sample transfer stays
+                     * aligned, and check that it is present and correct. */
+                    spi_transfer(8'h00, b0);
+                    spi_transfer(8'h00, b1);
+                    spi_transfer(8'h00, b2);
+                    spi_transfer(8'h00, b3);
+                    spi_transfer(8'h00, b4);
+                    if (b0 !== 8'hC3) begin
+                        burst_magic_bad = burst_magic_bad + 1;
+                    end else begin
+                        ibi_burst = {b1, b2, b3, b4};
+                        if (!burst_have_first) begin
+                            burst_have_first = 1'b1;
+                        end else begin
+                            /* Compare the counter with the simulated beat
+                             * interval. Both include the five burst transfers
+                             * inserted after each beat. */
+                            ibi_expected = (t_beat - t_prev_beat) / 20;
+                            if (ibi_burst > ibi_expected + 8 ||
+                                ibi_burst + 8 < ibi_expected) begin
+                                burst_ibi_err = burst_ibi_err + 1;
+                            end
+                        end
+                        t_prev_beat = t_beat;
+                        burst_beats = burst_beats + 1;
+                    end
                 end
                 if (rx[7] !== 1'bx) prev_beat = rx[7];
             end
@@ -322,6 +367,9 @@ module tb_forgefpga_system;
         $display("    %0d pulse(s) fed, %0d beat flag(s) returned", N_CYCLES, nbeats);
         expect_eq("beat flags for 6 pulses (first crest primes the IBI clock)",
                   nbeats, EXPECTED_BEATS);
+        expect_eq("IBI burst magic 0xC3 on every beat", burst_magic_bad, 0);
+        expect_eq("IBI burst present on every beat", burst_beats, nbeats);
+        expect_eq("IBI burst matches the simulated beat interval", burst_ibi_err, 0);
 
         // =====================================================================
         // TEST 5 -- beat spacing matches the stimulus period

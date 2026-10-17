@@ -96,7 +96,7 @@ jobs:
       # hardware/shrikefi/forgefpga_ppg_top.v instantiates the DSP core from
       # hardware/common/ and does NOT contain inline copies of those modules.
       # Listing them twice here is a duplicate-module error, not harmless.
-      - name: Run ShrikeFi RTL testbench (expects 10 passed, 0 failed)
+      - name: Run ShrikeFi RTL testbench (expects 13 passed, 0 failed)
         run: |
           iverilog -o sim_shrikefi.vvp \
             hardware/shrikefi/tb_forgefpga_system.v \
@@ -105,7 +105,7 @@ jobs:
             hardware/common/moving_average_8tap.v \
             hardware/common/ppg_peak_detector.v
           vvp sim_shrikefi.vvp | tee shrikefi.log
-          grep -q "10 passed, 0 failed" shrikefi.log
+          grep -q "13 passed, 0 failed" shrikefi.log
 
       - name: Build & run firmware unit tests (incl. FP32 vs INT8 parity)
         run: |

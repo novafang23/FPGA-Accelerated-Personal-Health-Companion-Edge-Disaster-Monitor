@@ -54,13 +54,13 @@ echo.
 echo [2/3] Running ShrikeFi System Testbench (vvp)...
 %VVP% sim_shrikefi.vvp > sim_shrikefi.log
 type sim_shrikefi.log
-findstr /C:"10 passed, 0 failed" sim_shrikefi.log >nul
+findstr /C:"13 passed, 0 failed" sim_shrikefi.log >nul
 if %errorlevel% neq 0 (
-    echo [ERROR] ShrikeFi testbench did not report 10 passed, 0 failed.
+    echo [ERROR] ShrikeFi testbench did not report 13 passed, 0 failed.
     pause
     exit /b 1
 )
-echo [OK] All 10 checks passed. VCD waveform dumped to shrikefi_sim.vcd.
+echo [OK] All 13 checks passed. VCD waveform dumped to shrikefi_sim.vcd.
 echo.
 
 :: 3. Launch GTKWave Viewer
