@@ -40,7 +40,7 @@ The system does not blindly trust ML. It uses a layered, defensively-coded appro
 * **SQI (Karlen 2012):** Signal Quality Index based on Perfusion Index, regularity, and skewness. Suppresses false alarms during motion artifacts.
 * **SpO2 (Beer-Lambert):** Uses a 50-sample Welford variance window.
 * **HRV:** Root Mean Square of Successive Differences (RMSSD).
-* **Respiratory Rate (Charlton 2018 EDR):** Extracted from PPG using FM + AM autocorrelation.
+* **Respiratory Rate (Charlton 2018 PDR):** Extracted from PPG using FM + AM autocorrelation (PDR, not ECG-derived EDR).
 * **Pressure Trend:** Least-squares barograph (30-min window) to track cyclone pressure drops.
 
 ### B. TinyML Models (INT8 Quantized)

@@ -1,6 +1,11 @@
 /*
  * hrv_analysis.c
  * Heart Rate Variability Analysis Implementation
+ *
+ * RMSSD and SDNN follow the Task Force of the European Society of Cardiology
+ * and the North American Society of Pacing and Electrophysiology, "Heart rate
+ * variability: standards of measurement, physiological interpretation, and
+ * clinical use", Circulation 1996;93:1043-1065.
  */
 
 #include "hrv_analysis.h"

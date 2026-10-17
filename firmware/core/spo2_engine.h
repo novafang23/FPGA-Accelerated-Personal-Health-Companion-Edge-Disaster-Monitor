@@ -18,7 +18,10 @@ extern "C" {
 #define SPO2_WINDOW_SIZE (PPG_FIFO_RATE_HZ)
 #define SPO2_MA_FILTER_SIZE 8 /* Moving average history size (8-second smoothing window) */
 
-/* Clinical validity thresholds calibrated for MAX30102 18-bit optical levels */
+/* Clinical validity thresholds calibrated for MAX30102 18-bit optical levels.
+ * These are EMPIRICAL gates for this optical path, not published clinical
+ * limits; the R bounds are deliberately wider than the textbook 0.4-1.0 so a
+ * genuinely desaturated reading is not rejected. */
 #define SPO2_MIN_AC_IR              10.0f  /* Minimum pulsatile AC amplitude for IR (counts) */
 #define SPO2_MIN_AC_RED              8.0f  /* Minimum pulsatile AC amplitude for Red (counts) */
 #define SPO2_MIN_DC_IR            1000.0f  /* Minimum optical DC level for IR (counts, ambient air is <600) */

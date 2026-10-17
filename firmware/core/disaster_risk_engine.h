@@ -15,6 +15,12 @@
 /* --- Heat Risk Thresholds --- */
 #define HEAT_TEMP_BASE_C        27.0f
 #define HEAT_HUMIDITY_BASE_PCT  40.0f
+/* NOTE: the HEAT_INDEX_* values below are the CTSI point thresholds for the
+ * PATIENT-RESPONSE heat score. They are NOT the NWS heat-index categories
+ * (26.7 / 32.2 / 39.4 / 51.7 C), which live in disaster_nws_heat_category()
+ * and drive the environmental-condition card. The two scales are deliberately
+ * separate (decision 2026-10-18): the card reports the published standard,
+ * this engine scores the physiological response. */
 #define HEAT_INDEX_CRITICAL     54.0f
 #define HEAT_INDEX_HIGH         45.0f
 #define HEAT_INDEX_MODERATE     40.0f
@@ -36,6 +42,11 @@
 #define HEAT_CTSI_MODERATE      30.0f
 
 /* --- Pollution Risk Thresholds --- */
+/* NOTE: the POLLUTION_PM25_* values below are the PRSI point thresholds for
+ * the PATIENT-RESPONSE pollution score. They are NOT the US EPA AQI breakpoints
+ * (0-9.0, 9.1-35.4, 35.5-55.4, 55.5-125.4, 125.5-225.4, 225.5-325.4 ug/m3),
+ * which live in disaster_epa_pm25_aqi() and drive the environmental-condition
+ * card. */
 #define POLLUTION_PM25_CRITICAL 300.0f
 #define POLLUTION_PM25_HIGH     150.0f
 #define POLLUTION_PM25_MODERATE 75.0f
@@ -58,6 +69,10 @@
  * a measured skin temperature. Skin and air temperature are not interchangeable:
  * normal skin is ~33-35 C while normal air is ~25 C. Feeding ambient air into
  * these would classify a pleasant 28 C afternoon as severe hypothermia.
+ *
+ * These bands are EMPIRICAL skin-temperature bands, not the clinical
+ * hypothermia stages (which are core-temperature values: 35 / 32 / 28 C). A
+ * skin reading is not a core reading.
  */
 #define FLOOD_SKIN_TEMP_CRIT    28.0f
 #define FLOOD_SKIN_TEMP_HIGH    32.0f
@@ -95,6 +110,10 @@
  *   (the cold analogue of the Moran PSI already used for heat stress)
  *   Castellani JW, Young AJ. "Human physiological responses to cold exposure."
  *   Auton Neurosci. 2016;196:63-74.
+ *
+ * The scoring below is a HEURISTIC exposure estimate (air temperature,
+ * humidity, BPM, RMSSD). It is not the Moran Cold Strain Index formula, which
+ * needs core and skin temperatures.
  */
 #define COLD_AMBIENT_VALID_MIN_C (-20.0f) /* outside this band the reading is  */
 #define COLD_AMBIENT_VALID_MAX_C ( 65.0f) /* treated as unusable -> RISK_UNKNOWN */
@@ -124,7 +143,11 @@
  * accuracy drifts with temperature, so the drop floor sits well above that.
  *
  * A RISE is deliberately not scored: falling pressure precedes a storm, but
- * rising pressure does not precede a hazard a wearable can act on. */
+ * rising pressure does not precede a hazard a wearable can act on.
+ *
+ * These are barograph rule-of-thumb values, not a formal IMD/NOAA table. The
+ * critical -2.0 hPa/hr is 6 hPa/3h, slightly above the 5 hPa/3h quoted above;
+ * the high -1.0 hPa/hr is 3 hPa/3h and the moderate -0.5 is 1.5 hPa/3h. */
 #define CYCLONE_FALL_CRITICAL_HPA_PER_HR (-2.0f)
 #define CYCLONE_FALL_HIGH_HPA_PER_HR     (-1.0f)
 #define CYCLONE_FALL_MODERATE_HPA_PER_HR (-0.5f)

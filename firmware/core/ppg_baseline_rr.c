@@ -3,6 +3,16 @@
 #include <math.h>
 #include <string.h>
 
+/* PDR baseline (DC) method. The respiratory modulation of the PPG baseline is
+ * one of the photoplethysmography-derived respiration paths reviewed in:
+ *   Charlton PH et al., "An assessment of algorithms to estimate respiratory
+ *   rate from the electrocardiogram and photoplethysmogram", Physiol Meas
+ *   2018;39:045001.
+ *   Addison PS, "Respiratory rate derived from pulse oximetry", in
+ *   Photoplethysmography: Technology, Signal Analysis and Applications, 2014.
+ * The band-pass + autocorrelation implementation, and its thresholds, are this
+ * project's. */
+
 /* At 5 Hz these give roughly a 0.06 Hz high-pass and a 0.65 Hz low-pass. The
  * low-pass used to sit at 0.48 Hz, which attenuated 30 br/min (0.5 Hz) by ~67%
  * across the three stages and made the top of the range unreachable. */

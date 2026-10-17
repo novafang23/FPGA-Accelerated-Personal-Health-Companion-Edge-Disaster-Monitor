@@ -1611,9 +1611,11 @@ static void task_disaster_monitor(void *pvParameters) {
             s_last_pm25 = (float)pms_data.pm2_5_atm;
         }
 
-        /* 3-Input INT8 Neural Network Calibration (Si et al., AMT 2019):
-         * Fuses PM2.5 with BME280 temperature and relative humidity to eliminate
-         * humidity-induced laser scattering bias (slashing error by 60%) */
+        /* 3-input INT8 humidity-correction NN. The humidity-correction idea is
+         * motivated by Si et al. (AMT 2019), but this model's weights were
+         * trained for this build (pm25_calibration_int8.c): its training data
+         * and script are not in this repo, and the "60%" figure is not
+         * established by it. */
         float calibrated_pm25 = ambient_valid
             ? pm25_calibrate_nn_int8(s_last_pm25, env.ambient_temp_c, env.humidity_pct)
             : s_last_pm25;

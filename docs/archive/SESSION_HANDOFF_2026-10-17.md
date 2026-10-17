@@ -153,7 +153,10 @@ c4f90a7 fix: resolve four correctness/safety defects found in the A-to-Z audit
   alongside the hPa/hr slope, a colour-coded level (green/amber/orange/red),
   and an indoor-barometer caveat ("a trend is a proxy, not an official cyclone
   warning"). The 3-hour least-squares trend and the rate+drop thresholds
-  (-0.5/-1.0/-2.0 hPa/hr with a >=0.5 hPa fall) are unchanged.
+  (-0.5/-1.0/-2.0 hPa/hr with a >=0.5 hPa fall) are unchanged. **Verified on
+  hardware:** WARMING UP during the first 30 min, then NORMAL once the window
+  became valid. A reflash resets the pressure window and returns it to
+  WARMING UP for another 30 min.
 - **Environmental-condition card (2026-10-18):** the single paragraph was
   replaced by two colour-coded tiles - PM2.5 with an EPA AQI badge and a
   one-line health note, and heat index with an NWS badge and note - plus the
@@ -209,6 +212,41 @@ c4f90a7 fix: resolve four correctness/safety defects found in the A-to-Z audit
     a **3 s hold on CANCEL SOS** stood it down. The physical GPIO5 button is
     **not soldered yet**, so the button hold-cancel is untested. The
     fall-detection physical trigger is still pending (the FSM is host-tested).
+
+## Literature audit (2026-10-18)
+
+Every cited standard was checked against the code that uses it.
+
+**Correct and used:** NEWS2 parameter bands (RCP 2017, SpO2 Scale 1), SpO2
+ratio-of-ratios, HRV RMSSD/SDNN (Task Force 1996), the NWS Rothfusz base
+regression, the Moran PSI formula, the EPA AQI 2024 breakpoints and the WHO
+2021 15 ug/m3 guideline.
+
+**Fixed (staged, not yet flashed):**
+
+- **NWS heat index:** added the two official adjustments (RH < 13 %, RH > 85 %)
+  and removed a non-NWS floor at the ambient temperature. In dry air the heat
+  index is BELOW the air temperature (95 F / 10 % RH -> ~87 F); the floor had
+  discarded the low-RH adjustment and overstated dry-heat categories. The
+  Extreme-Danger boundary was corrected 51.1 -> 51.7 C (125 F).
+- **Risk-engine thresholds documented:** HEAT_INDEX_* and POLLUTION_PM25_* are
+  the CTSI/PRSI patient-response point thresholds, NOT the NWS/EPA categories
+  used by the environmental-condition card. Decision A keeps the two scales
+  separate; the comments now say so instead of implying they are the standards.
+- **Citations corrected:** the Buller 2013 core-temperature estimate is labelled
+  a heuristic (Buller's published method is a Kalman filter); the AHA
+  "autonomic strain" is a heuristic motivated by the statement, not its formula;
+  the cold-stress proxy is a heuristic, not the Moran 1999 Cold Strain Index;
+  the PM2.5 INT8 model is project-trained (training data not in this repo, and
+  the "60 %" claim was removed).
+- **Citations added:** Task Force 1996 to hrv_analysis.c; Charlton 2018 /
+  Addison 2014 to ppg_baseline_rr.c.
+- **Heuristic thresholds marked:** fall detection, cyclone, skin-temperature
+  bands, MAX30102 validity gates; the mNEWS2 aggregate is noted (the printed
+  score is standard NEWS2, the level is modified).
+
+Verification: host suite ALL TESTS PASSED, full host build clean, both dashboard
+verifiers PASS. No flash was performed.
 
 ## Remaining work / options
 

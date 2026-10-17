@@ -11,7 +11,13 @@
 #include <math.h>
 
 /* ---------------------------------------------------------------------
- * Internal fixed thresholds (NEWS2 standard)
+ * Internal fixed thresholds (NEWS2 parameter bands, RCP 2017)
+ *
+ * The parameter bands below are the RCP NEWS2 (2017) values; SpO2 uses
+ * Scale 1. The AGGREGATE level is the project's modified mNEWS2: it lowers the
+ * high-risk threshold to a score of 4 and adds single-parameter and
+ * absolute-crisis overrides for safety. The published score (out->news2_score)
+ * is the standard NEWS2 sum; the level is mNEWS2.
  * ------------------------------------------------------------------- */
 enum {
     /* NEWS2 HR score boundaries */

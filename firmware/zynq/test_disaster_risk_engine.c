@@ -181,6 +181,16 @@ static void test_environmental_condition(void) {
     char text[192];
     disaster_environment_condition_text(&env, text, sizeof(text));
     printf("  ENV: %s\n", text);
+    printf("  HEAT 35C/10%%RH: %.1f C (low-RH adjustment applied)\n",
+           disaster_calculate_heat_index_c(35.0f, 10.0f));
+    printf("  HEAT 30C/90%%RH: %.1f C (high-RH adjustment applied)\n",
+           disaster_calculate_heat_index_c(30.0f, 90.0f));
+    printf("  HEAT 30C/67%%RH: %.1f C (no adjustment)\n",
+           disaster_calculate_heat_index_c(30.0f, 67.0f));
+    printf("  NWS 51.5C: %s | 51.8C: %s (boundary 51.7)\n",
+           disaster_nws_heat_category(51.5f), disaster_nws_heat_category(51.8f));
+    assert(strcmp(disaster_nws_heat_category(51.5f), "Danger") == 0);
+    assert(strcmp(disaster_nws_heat_category(51.8f), "Extreme Danger") == 0);
     assert(strstr(text, "EPA AQI") != NULL);
     assert(strstr(text, "NWS") != NULL);
     assert(strstr(text, "exceeded") != NULL);

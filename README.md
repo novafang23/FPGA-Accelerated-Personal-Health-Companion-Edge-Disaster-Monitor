@@ -19,7 +19,7 @@ An end-to-end heterogeneous edge System-on-Chip (SoC) pairing **synthesizable Ve
 
 * **Verified Baseline:** [Xilinx Zynq-7000 (`xc7z020`)](hardware/zynq/) — Fully verified with 6/6 passing self-checking tests and static timing closed at 69.45 MHz (permanently tagged at `v1.0-zynq-SIH`).
 * **Active Port:** [ShrikeFi (ESP32-S3 + Renesas ForgeFPGA)](hardware/shrikefi/) — Affordable edge hardware platform. Post-synthesis fitter reports **362 / 1120 LUT5s (32.32%)**, 204 FFs and 74/140 CLBs, with 5 passing self-checking link test groups. Raw synthesis logs: [`hardware/shrikefi/synthesis_evidence/`](hardware/shrikefi/synthesis_evidence/) (read its README — an older, superseded build's numbers are also in there). Includes **fully integrated ESP32-S3 firmware** that streams live health telemetry via **USB UART & WiFi/MQTT**. (The firmware also programs the FPGA over **SPI2** at every boot using the Vicharak `Web_FPGA_programmer.ino` sequence; the boot log reaches `configuration COMPLETE! (46408 bytes loaded)` and the runtime link then answers its `0x55` probe, which is the real proof a configured design is running. See [`firmware/shrikefi/README.md`](firmware/shrikefi/README.md#fpga-delivery-how-the-bitstream-reaches-the-fpga).)
-* **Clinical Intelligence & Biomarkers:** Fuses **mNEWS2 Clinical Triage (Royal College of Physicians)**, **PPG-derived Respiratory Rate (Charlton 2018)**, **Signal Quality Index (Karlen 2012 / Elgendi 2016)**, **Moran's Physiological Strain Index (PSI)**, **AHA PM2.5-HRV Autonomic Strain (Brook 2010)**, and **Neural PM2.5 Humidity Calibration (Si et al. 2019)**.
+* **Clinical Intelligence & Biomarkers:** Fuses **mNEWS2 Clinical Triage (Royal College of Physicians)**, **PPG-derived Respiratory Rate (Charlton 2018)**, **Signal Quality Index (Elgendi 2016 skewness + project perfusion/IBI terms)**, **Moran's Physiological Strain Index (PSI)**, **PM2.5-HRV autonomic-strain heuristic (motivated by Brook et al. 2010)**, and **project-trained PM2.5 humidity-correction NN (motivated by Si et al. 2019)**.
 * **Interactive Graphical Dashboard:** Standalone Windows desktop GUI (`shrikefi_dashboard.exe`) featuring a 60 FPS real-time optical PPG oscilloscope, live vital displays, and dual-mode operation (Live Hardware streaming + 6 simulated disaster profiles).
 
 ---
@@ -62,7 +62,7 @@ CI (`.github/workflows/ci.yml`) runs the Zynq testbench, the ShrikeFi testbench,
 * **High-Accuracy On-Device TinyML (INT8):** 2-hidden-layer micro-architecture ($6 \to 24 \to 16 \to 3$) requiring only **619 bytes** of parameter storage, reaching **88.47% validation accuracy** on a held-out synthetic validation set (see [Reproducibility](#-reproducibility--evidence-provenance)) with **97.32% FP32↔INT8 tier agreement**, and executing in **0.44 µs per inference** (measured, `-O2`, x86-64 host; ESP32-S3 target timing not yet measured) with zero cloud dependencies.
 * **Multi-Disaster Resilience (Tailored for India):**
   * *Heat Waves:* Fuses **NOAA Steadman Heat Index** and **Moran's Physiological Strain Index (PSI)** with cardiac tachycardia to warn of heat exhaustion before collapse.
-  * *Smog Events:* Combines **neural-calibrated PM2.5** with the **AHA Autonomic Strain Index** to detect acute vagal suppression ($RMSSD$ drop).
+  * *Smog Events:* Combines **neural-calibrated PM2.5** with an **AHA-motivated PM2.5-HRV autonomic-strain heuristic** to flag acute vagal suppression ($RMSSD$ drop).
   * *Floods / Cold Shock:* Detects rapid skin cooling, cold-shock hyperventilation, and bradycardia.
 * **Qualcomm Silicon Portability:** Prototyped on Xilinx Zynq-7000 and Renesas ForgeFPGA with a defined production migration roadmap to **Qualcomm Snapdragon Wear W5+ Gen 1** using **Hexagon™ Vector eXtensions (HVX)** on the Low-Power Island (< 5 mW) and **Qualcomm AI Engine (SNPE/QNN)**.
 
@@ -474,7 +474,7 @@ To maintain transparent, professional engineering rigor, our validation boundari
 
 1. **Cardiovascular Drift:** Montain, S. J., & Coyle, E. F. (1992). *"Influence of graded dehydration on hyperthermia and cardiovascular drift during exercise."* *Journal of Applied Physiology*, 73(4), 1340-1350.
 2. **Heart Rate Variability Standards:** Task Force of the European Society of Cardiology and the North American Society of Pacing and Electrophysiology (1996). *"Heart rate variability: standards of measurement, physiological interpretation and clinical use."* *Circulation*, 93(5), 1043-1065.
-3. **Heat Index Assessment:** Steadman, R. G. (1979). *"The assessment of sultriness. Part I: A temperature-humidity index based on human physiology and evaporative science."* *Journal of Applied Meteorology and Climatology*, 18(7), 861-873.
+3. **Heat Index Assessment:** Steadman, R. G. (1979). *"The assessment of sultriness. Part I: A temperature-humidity index based on human physiology and evaporative science."* *Journal of Applied Meteorology and Climatology*, 18(7), 861-873. The firmware implements the NWS operational Rothfusz regression with its low-/high-humidity adjustments.
 
 ---
 
@@ -532,11 +532,11 @@ For an in-depth mathematical defense, signal processing equations, and clinical 
 ├── firmware/
 │   ├── core/                       # Platform-agnostic clinical algorithms & TinyML inference
 │   │   ├── clinical_vitals_engine.c # Royal College of Physicians mNEWS2 Early Warning System
-│   │   ├── ppg_sqi.c / .h          # Karlen 2012 / Elgendi 2016 Signal Quality Index
+│   │   ├── ppg_sqi.c / .h          # Elgendi 2016 skewness-based SQI (+ project terms)
 │   │   ├── ppg_respiratory_rate.c  # Addison & Charlton PPG-derived Respiratory Rate
 │   │   ├── hrv_analysis.c / .h     # RMSSD & SDNN circular buffer mathematics
 │   │   ├── spo2_engine.c / .h      # Ratio-of-ratios pulse oximetry calculation
-│   │   ├── disaster_risk_engine.c  # Moran PSI, Steadman HI, AHA PM2.5-HRV, Si et al. Neural PM2.5
+│   │   ├── disaster_risk_engine.c  # Moran PSI, Steadman/Rothfusz HI, PM2.5-HRV heuristic, project-trained PM2.5 NN
 │   │   ├── nn_risk_model.c / .h    # Float32 feedforward TinyML model (6→24→16→3)
 │   │   ├── nn_risk_model_int8.c    # INT8 Quantized TinyML engine (619 bytes SRAM, 88.47% acc)
 │   │   ├── accuracy_evaluator.c    # MIMIC-III triage metrics (94.11% acc, confusion matrix)
@@ -643,7 +643,7 @@ than one showing nothing.
 > source of truth. Several plausible-looking numbers from the original design
 > mock-up were removed rather than shipped: no blood-pressure estimate, no PTT,
 > NEWS2 sub-scores for parameters this build does not instrument are shown as
-> `n/a` rather than `+0`, and the AHA strain is shown on its real 0–1 scale. The
+> `n/a` rather than `+0`, and the PM2.5-HRV strain (heuristic) is shown on its 0-1 scale. The
 > full list is in the dashboard README.
 
 ---
@@ -659,7 +659,7 @@ The companion includes a high-performance, native Windows desktop GUI applicatio
   * **LIVE HARDWARE STREAMING (COM Port):** Auto-detects and connects to the ESP32-S3 USB COM port at 115,200 baud, plotting live optical PPG waveforms, heart rate, SpO2, and PM2.5 in real-time.
   * **OFFLINE DISASTER SIMULATOR:** Built-in multi-hazard simulation generator cycling across 6 clinical/disaster scenarios (Normal Baseline, Heat Wave & Dehydration, Severe Smog / PM2.5 Crisis, Flash Flood / Hypothermia, Cardiopulmonary ICU Emergency, Motion Artifact / Noise Test). The same six profiles drive the web dashboard, so both simulations present the same patient.
 * **Real-Time Visual Oscilloscope:** 60 FPS scrolling sweep of filtered PPG systolic pulses with beat-to-beat cadence.
-* **Full Biomarker Telemetry Panel:** Real-time digital readouts for Heart Rate, SpO2, Respiratory Rate, RMSSD HRV, Ambient Temperature, Relative Humidity, PM2.5, and Signal Quality Index (Karlen SQI).
+* **Full Biomarker Telemetry Panel:** Real-time digital readouts for Heart Rate, SpO2, Respiratory Rate, RMSSD HRV, Ambient Temperature, Relative Humidity, PM2.5, and Signal Quality Index (Elgendi-style SQI).
 * **Clinical Triage & Hazard Meters:** Live color-coded gauges for **Royal College of Physicians mNEWS2 Triage** (NORMAL / ELEVATED / HIGH / CRITICAL) alongside the **INT8 TinyML Hazard Inference Engine** (Heatstroke, Smog, Hypothermia).
 * **Instant Launch:** Simply double-click `launch_dashboard.bat` from the root directory.
 

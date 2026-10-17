@@ -5,6 +5,11 @@
  *
  * Implements the 3-stage kinematic fall state machine:
  *   Free-fall -> Impact -> Post-impact immobility / stillness
+ *
+ * The numeric thresholds below are engineering defaults for this board
+ * (0.60 g free-fall, 2.50 g impact, 80 dps, 1.5 s stillness). They are not
+ * taken from one specific paper; tune them against captured falls and
+ * activities of daily living for the final device.
  */
 
 #include "fall_detect.h"

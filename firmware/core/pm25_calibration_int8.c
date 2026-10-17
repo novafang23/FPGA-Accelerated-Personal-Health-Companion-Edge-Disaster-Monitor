@@ -1,6 +1,11 @@
 /* VALOR (Vital and Atmospheric Logic for Offline Rescue) PM2.5 low-cost sensor calibration module.
  * 3 -> 8 -> 4 -> 1 fully-connected ReLU network.
  * Quantization: symmetric int8 activations, int32 biases/accumulators.
+ *
+ * PROVENANCE: these weights are specific to this build. The training data and
+ * script are not part of this repository, so the model cannot be independently
+ * reproduced here. The humidity-correction approach is motivated by Si et al.
+ * (AMT 2019); this is not their published model.
  */
 #include "pm25_calibration_int8.h"
 

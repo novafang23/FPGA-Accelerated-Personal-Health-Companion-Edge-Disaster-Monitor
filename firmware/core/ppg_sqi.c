@@ -1,7 +1,9 @@
 /*
  * ppg_sqi.c
  * Photoplethysmography Signal Quality Index (SQI) Implementation
- * Based on Elgendi (2016) & Karlen et al. (2012)
+ * Elgendi (2016) skewness-based SQI, with a perfusion-index term and a
+ * beat-interval regularity term added here. The Karlen (2012) template-
+ * correlation SQI is NOT implemented.
  * Smart India Hackathon 2026 - Project SIH26181
  */
 

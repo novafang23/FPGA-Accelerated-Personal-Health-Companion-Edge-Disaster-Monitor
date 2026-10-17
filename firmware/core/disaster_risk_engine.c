@@ -9,6 +9,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <math.h>
 
 
 /* Forward Declarations */
@@ -77,12 +78,26 @@ static float calculate_nws_heat_index(float temp_c, float hum_pct) {
                - 0.05481717f * rh * rh + 0.00122874f * tf * tf * rh
                + 0.00085282f * tf * rh * rh - 0.00000199f * tf * tf * rh * rh;
 
+    /* NWS adjustments to the Rothfusz regression. Without these the formula is
+     * wrong in very dry (<13% RH) and very humid (>85% RH) air. The current
+     * 28-30 C / 66-67% conditions fall outside both, but the card must be
+     * correct in the edge bands too. */
+    if (rh < 13.0f && tf >= 80.0f && tf <= 112.0f) {
+        hi_f -= ((13.0f - rh) / 4.0f) * sqrtf((17.0f - fabsf(tf - 95.0f)) / 17.0f);
+    } else if (rh > 85.0f && tf >= 80.0f && tf <= 87.0f) {
+        hi_f += ((rh - 85.0f) / 10.0f) * ((87.0f - tf) / 5.0f);
+    }
+
     float hi_c = (hi_f - 32.0f) / 1.8f;
     /* Clamp to the published table range before anything displays this value.
      * The regression diverges outside its fitted domain (it returns 106 C at
      * 46.5 C / 68 % RH). Triage is unaffected -- see HEAT_INDEX_MAX_C. */
     if (hi_c > HEAT_INDEX_MAX_C) hi_c = HEAT_INDEX_MAX_C;
-    return (hi_c > temp_c) ? hi_c : temp_c;
+    /* Return the NWS heat index itself. It CAN be below the air temperature in
+     * very dry air (the NWS table gives ~87 F at 95 F / 10 % RH). Flooring it at
+     * the ambient, as this used to, silently discarded the low-humidity
+     * adjustment and overstated the heat category in dry heat. */
+    return hi_c;
 }
 
 /* -------------------------------------------------------------------------
@@ -133,7 +148,7 @@ const char *disaster_nws_heat_category(float heat_index_c) {
     if (heat_index_c < 26.7f) return "Normal";
     if (heat_index_c < 32.2f) return "Caution";
     if (heat_index_c < 39.4f) return "Extreme Caution";
-    if (heat_index_c < 51.1f) return "Danger";
+    if (heat_index_c < 51.7f) return "Danger";
     return "Extreme Danger";
 }
 
@@ -177,7 +192,7 @@ static risk_level_t assess_heat_risk(float bpm, float rmssd, float ambient_temp_
         return RISK_NORMAL;
     }
 
-    /* Validated NOAA / NWS Steadman Heat Index */
+    /* NOAA / NWS heat index (Rothfusz regression). */
     float heat_index = calculate_nws_heat_index(ambient_temp_c, humidity_pct);
     float ctsi = 0.0f;
 
@@ -724,15 +739,21 @@ void disaster_assess_nn_int8(const hrv_state_t *hrv, float spo2, float bpm,
     finalize_overall_risk(result, "All vitals normal -- AI risk engine clear (INT8)");
 }
 
-/* Peer-Reviewed Clinical Biomarker Models */
+/* Clinical biomarker models. The Moran PSI formula is published; the AHA and
+ * cold-stress indicators below are project heuristics, not published formulas. */
 
-/* Moran et al. (1998) / Buller et al. (2013)
- * Physiological Strain Index (PSI): combines cardiovascular strain and thermal load.
- * Returns scale [0.0, 10.0]. */
+/* Moran et al. (1998) PSI: combines cardiovascular strain and thermal load.
+ * Returns scale [0.0, 10.0]. The PSI formula itself is Moran's; the core
+ * temperature it needs is NOT measured, so it is estimated with a simple
+ * heuristic below. Buller et al. (2013) is cited only for the HR-based
+ * estimation idea - their published method is a Kalman filter, not this linear
+ * model. */
 float disaster_calculate_moran_psi(float bpm, float ambient_temp_c, float humidity_pct) {
     if (bpm <= 30.0f) return 0.0f;
 
-    /* Estimate core body temperature (Buller et al. 2013) from HR and heat index */
+    /* Heuristic core-temperature estimate (NOT the Buller 2013 model). This
+     * heat_index is also a crude ambient+humidity proxy, not the NWS Rothfusz
+     * heat index used by the condition card. */
     float heat_index = ambient_temp_c;
     if (humidity_pct > 40.0f) {
         heat_index = ambient_temp_c + 0.5f * (humidity_pct - 40.0f) * 0.1f;
@@ -763,9 +784,10 @@ float disaster_calculate_moran_psi(float bpm, float ambient_temp_c, float humidi
     return psi;
 }
 
-/* American Heart Association Scientific Statement (Brook et al., Circulation 2010):
- * PM2.5 triggers acute parasympathetic vagal withdrawal (drastic RMSSD drop).
- * Returns Autonomic Strain [0.0, 1.0]. */
+/* Heuristic autonomic-strain index MOTIVATED by the American Heart Association
+ * statement (Brook et al., Circulation 2010): PM2.5 is associated with acute
+ * autonomic dysfunction. The AHA statement does not define this formula; the
+ * weights below are the project's. Returns [0.0, 1.0]. */
 float disaster_calculate_aha_autonomic_strain(float pm25, float rmssd) {
     if (pm25 <= 15.0f || rmssd <= 0.0f) return 0.0f;
 
