@@ -797,7 +797,7 @@ A standalone Win32 GDI application — no Python, no browser, no dependencies. I
 
 - **Elevator:** "Because the measurement we need is smaller than the timing error a software timestamp would introduce."
 - **Technical:** "HRV needs beat-to-beat intervals accurate to a few milliseconds. If the ESP32 timestamped beats inside a FreeRTOS task, the reading would be quantised to the 10 ms scheduler tick. Wi-Fi shares core 0, and the FPGA latches every beat, ensuring no beat is lost despite interrupt jitter on the MCU. The MCU reads its own 1 µs hardware timer."
-- **Evidence:** "`CONFIG_FREERTOS_HZ=100` in our sdkconfig; the RTL detects the peak at 50 MHz and returns the beat as **bit 7 of the MISO byte**; `shrikefi_link_driver.c` times the interval with `esp_timer_get_time()` on rising beat flags, so its resolution is 1 µs. The 6/6 and 5/5 testbenches verify the peak detector and the beat flag."
+- **Evidence:** "`CONFIG_FREERTOS_HZ=100` in our sdkconfig; the RTL detects the peak at 50 MHz and returns the beat as **bit 7 of the MISO byte**; `shrikefi_link_driver.c` times the interval with `esp_timer_get_time()` on rising beat flags, so its resolution is 1 µs. The 6/6 and 13/13 testbenches verify the peak detector and the beat flag."
 
 ---
 
@@ -986,7 +986,7 @@ A standalone Win32 GDI application — no Python, no browser, no dependencies. I
 | **MIMIC-III** | 16,387 rows / 98 patients — **94.11% accuracy, 98.19% specificity**, TP971/FP267/TN14451/FN698 |
 | **Timing budget** | 0.44 µs per INT8 inference, **x86-64 host measured**; ESP32 target not yet measured |
 | **Image** | 945,520 B in a **7 MB app partition** (`0x700000` at `0x10000`) on **8 MB flash** — ~6.39 MB (~87%) free, debug build |
-| **Tests** | Zynq 6/6 · ShrikeFi 5/5 · firmware unit tests pass · MIMIC gate 94.11% |
+| **Tests** | Zynq 6/6 · ShrikeFi 13/13 · firmware unit tests pass · MIMIC gate 94.11% |
 | **Never say** | "95.40% specificity" · "240 MHz" · "443 LUTs" · "4-bit parallel link" · "no SPI/nibble command map" · "9.8% free" · "FPGA definitely needs no programming" |
 
 > [!IMPORTANT]
@@ -999,7 +999,7 @@ A standalone Win32 GDI application — no Python, no browser, no dependencies. I
 | Claim | Where it comes from |
 |---|---|
 | 6/6 Zynq tests | `hardware/zynq/tb_ppg_system.v` |
-| 5/5 ShrikeFi tests | `hardware/shrikefi/tb_forgefpga_system.v` |
+| 13/13 ShrikeFi tests | `hardware/shrikefi/tb_forgefpga_system.v` |
 | 362 / 1120 LUT5s | `hardware/shrikefi/synthesis_evidence/resource_utilization_spi_link.log` |
 | 185 LUT / +5.603 ns baseline | Tag `v1.0-zynq-SIH` |
 | 198 LUT / 267 FF re-run | `hardware/zynq/synthesis_evidence/ooc_utilization_synth.rpt` |

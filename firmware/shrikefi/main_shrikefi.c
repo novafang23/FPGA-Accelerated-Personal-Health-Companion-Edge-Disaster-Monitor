@@ -896,7 +896,7 @@ static void task_ppg_accelerator(void *pvParameters) {
              * disappeared entirely while [TELEMETRY] and [PPG] kept flowing).
              * One in four keeps the old 25 Hz oscilloscope rate. */
             static uint32_t s_ppg_log_decim = 0;
-            if ((s_ppg_log_decim++ % 100u) == 0u) {
+            if ((s_ppg_log_decim++ & 3u) == 0u) {
                 printf("[PPG] %lu\n", (unsigned long)ppg_sample.ir);
             }
 #endif
@@ -1880,12 +1880,8 @@ static void task_disaster_monitor(void *pvParameters) {
                    env.humidity_pct, env.pm25, rr_for_news2, sqi_for_news2,
                    rr_depth_dbg, rr_conf_dbg);
             fflush(stdout);
-            printf("[STATUS] amb=%d h=%d p=%d f=%d c=%d rule=%d final=%d\n",
-                   (int)ambient_valid, (int)rule_risk.heat_risk,
-                   (int)rule_risk.pollution_risk, (int)rule_risk.flood_risk,
-                   (int)rule_risk.cyclone_risk, (int)rule_risk.overall_risk,
-                   (int)final_risk.overall_risk);
-            fflush(stdout);
+            /* The temporary [STATUS] diagnostic lived here; the structured
+             * [TRIAGE] line below carries the same risk fields. */
             /* The human-readable [RuleEngine]/[TinyML]/[Unified Triage] lines
              * used to sit here. They duplicate every field in [TRIAGE], and
              * their ESP_LOGI path was swallowing the monitor task's structured
