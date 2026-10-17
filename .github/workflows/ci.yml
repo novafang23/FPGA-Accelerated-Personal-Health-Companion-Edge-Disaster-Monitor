@@ -88,6 +88,24 @@ jobs:
             firmware/shrikefi/sos.c firmware/shrikefi/location.c firmware/shrikefi/web_status.c \
             -lm -o test_engine
           ./test_engine
+          gcc -Wall -Wextra -Werror -pedantic -std=c11 \
+            -Ifirmware/shrikefi firmware/shrikefi/test_fall_detect.c firmware/shrikefi/fall_detect.c -lm -o test_fall
+          ./test_fall
+          gcc -Wall -Wextra -Werror -pedantic -std=c11 \
+            -Ifirmware/shrikefi firmware/shrikefi/test_gps_l89hs.c firmware/shrikefi/gnss_nmea.c firmware/shrikefi/gps_l89hs.c -lm -o test_gnss
+          ./test_gnss
+          gcc -Wall -Wextra -Werror -pedantic -std=c11 \
+            -Ifirmware/shrikefi -Ifirmware/core \
+            firmware/shrikefi/main_shrikefi.c firmware/shrikefi/shrikefi_link_driver.c \
+            firmware/shrikefi/esp32_i2c_hal.c firmware/shrikefi/max30102.c firmware/shrikefi/bme280.c \
+            firmware/shrikefi/pms5003.c firmware/shrikefi/gnss_nmea.c firmware/shrikefi/gps_l89hs.c \
+            firmware/shrikefi/mpu6050.c firmware/shrikefi/fall_detect.c firmware/shrikefi/ssd1306.c \
+            firmware/core/hrv_analysis.c firmware/core/spo2_engine.c firmware/core/disaster_risk_engine.c \
+            firmware/core/nn_risk_model.c firmware/core/nn_risk_model_int8.c firmware/core/pm25_calibration_int8.c \
+            firmware/core/clinical_vitals_engine.c firmware/core/ppg_sqi.c firmware/core/ppg_respiratory_rate.c \
+            firmware/core/pressure_trend.c firmware/shrikefi/location.c firmware/shrikefi/sos.c firmware/shrikefi/web_status.c \
+            -lm -o shrikefi_host
+          ./shrikefi_host
           gcc -Wall -Wextra -Ifirmware/core -Ifirmware/zynq -o compare_harness \
             firmware/zynq/compare_harness.c firmware/core/hrv_analysis.c \
             firmware/core/spo2_engine.c firmware/core/disaster_risk_engine.c \

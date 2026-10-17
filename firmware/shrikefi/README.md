@@ -30,7 +30,7 @@ SPI link protocol.
 | `shrikefi_link_driver.c/.h` | SPI2 link driver (8-bit frame, no command map) |
 | `shrikefi_pinmap.h` | Single source of truth for every GPIO assignment |
 | `esp32_i2c_hal.c/.h` | ESP-IDF I2C HAL implementing the shared HAL interface |
-| `max30102.c/.h`, `bme280.c/.h`, `pms5003.c/.h`, `pmsa003.c/.h` | Sensor drivers |
+| `max30102.c/.h`, `bme280.c/.h`, `pms5003.c/.h` | Sensor drivers |
 | `ssd1306.c/.h` | 128x64 OLED driver |
 | `wifi_mqtt_manager.c/.h` | WiFi + MQTT telemetry |
 | `forgefpga_bitstream.h` | ForgeFPGA bitstream as a C array (auto-generated) |
@@ -89,43 +89,11 @@ are needed for it.
    `launch_dashboard.bat` (or `run_dashboard.bat`) on the PC against the same COM
    port.
 
-### ⚠ If the blue LED stops flickering: remove power, do not reset
+### FPGA runtime evidence and recovery
 
-The onboard blue LED (D12) is driven **by the FPGA, not the ESP32**, from the same
-internal beat signal that MISO bit 7 carries back to the MCU. In the design it is
-lit for 50 ms per detected heartbeat and is off in between, so with a finger on the
-sensor it must flicker roughly once per second. A *steady* light means the FPGA is
-not running the design, not that the firmware is at fault.
+The onboard blue LED (D12) is driven by the FPGA from the same beat signal that MISO bit 7 carries back to the MCU. The LED pulses for detected beats, but a steady LED alone cannot distinguish absent contact, poor perfusion, a missed beat, or a stopped FPGA. The `0x55` startup probe returns a sensor-result byte (`0x00` before a beat) and is not a handshake. The weak-pull MISO test is only a line-level heuristic; a frozen FPGA can still hold a stable level.
 
-The ForgeFPGA is re-programmed on **every boot**, and re-programming it repeatedly
-without ever removing power can leave it wedged. Observed twice on real hardware in
-one session.
-
-**The firmware now detects this and fixes it itself.** Every ~5 s it checks whether
-the FPGA is still driving MISO (a wedged chip answers from a frozen register with a
-constant byte that reads as a perfectly valid zero sample, so the replies alone
-cannot tell you). If MISO is floating, it re-programs the FPGA from the embedded
-bitstream, ~150 ms, and resets the HRV and respiration state that had been
-accumulated from a dead chip:
-
-```
-E (…) SHRIKEFI_MAIN: [FPGA] MISO is floating - the FPGA has stopped executing
-                     (the blue LED will be stuck on). Re-programming it from the embedded bitstream.
-W (…) SHRIKEFI_MAIN: [FPGA] re-programmed; HRV and respiration state reset
-```
-
-**If you see that warning only once:** nothing to do, the device recovered.
-
-**If it repeats, or re-programming fails:** the FPGA is not merely wedged and the
-workaround still applies — unplug the USB cable completely, wait ~10 seconds, plug
-it back in (UART port only). A reset is *not* sufficient for that case, and neither
-is `idf.py flash`, which ends in one: the FPGA keeps power throughout and is only
-re-streamed, which does not clear a wedged state. Power has to actually go away.
-
-**Confirm the FPGA is running:** the LED flickers once per beat with a finger on.
-From the console, `[FPGA ACCEL] Systolic crest detected!` prints on every beat the
-FPGA reports — count those lines over a minute and you have the FPGA-detected rate,
-independently of anything the ESP32 does with it.
+The firmware sends the embedded bitstream on every boot. It no longer attempts an automatic reflash based on the weak-pull test because that test cannot identify a stopped FPGA and could repeatedly interrupt PPG sampling. A `[FPGA ACCEL] Systolic crest detected!` event after real sensor contact is evidence that the FPGA design processed a sample. Without contact, peak detection remains unverified. If the design appears stuck despite clean contact and changing PPG input, inspect the SPI and power path; a full board power cycle is required to reset a ForgeFPGA that remains wedged across MCU resets.
 
 ### Build configuration notes
 
@@ -133,12 +101,11 @@ independently of anything the ESP32 does with it.
 captures the build identity — target, flash, partition table, CPU frequency and
 console. Two things worth changing before a demo:
 
-* **CPU is configured at 160 MHz**, while `README.md` and `docs/theory/THEORY_NOTES.md`
-  describe the part as "ESP32-S3 @ 240 MHz". Either raise
-  `CONFIG_ESP_DEFAULT_CPU_FREQ_MHZ` to 240 or soften that wording.
+* **CPU is configured at 160 MHz**; 240 MHz is the ESP32-S3 silicon maximum, not
+  the setting used by this firmware build.
 * **The current build is a debug build** (`-Og`). Moving to a release
-  optimization level will materially speed up INT8 inference and shrink the
-  image, which matters on a 2 MB flash.
+  optimization level may improve INT8 inference speed and shrink the image. The
+  tested board has 8 MB flash and a 7 MiB application partition.
 
 ## FPGA delivery: how the bitstream reaches the FPGA
 
@@ -165,7 +132,7 @@ I (502) SHRIKEFI_LINK:   Programming Renesas ForgeFPGA SLG47910 via SPI2
 I (621) SHRIKEFI_LINK: ForgeFPGA SLG47910 configuration COMPLETE! (46408 bytes loaded)
 I (621) SHRIKEFI_MAIN: ForgeFPGA SLG47910 bitstream programmed successfully over SPI!
 I (631) SHRIKEFI_LINK: ForgeFPGA runtime link handshake: probe sent 0x55, received 0x00
-I (641) SHRIKEFI_LINK: MISO Pin 13 Physical Line Test: Pulldown=0, Pullup=0 (ACTIVELY DRIVEN BY FPGA)
+I (641) SHRIKEFI_LINK: MISO Pin 13 weak-pull test: level stable; driven or externally held (does not prove FPGA liveness)
 ```
 
 **The `0x00` reply is expected, and the probe is not evidence of anything.** At reset the
@@ -175,9 +142,10 @@ has filled. The byte sent on MOSI is never echoed back, so the handshake cannot 
 a programmed FPGA from a floating MISO. (An earlier revision of this file showed
 `received 0x80` and called it "the real evidence"; both were wrong.)
 
-What does show a configured design is running: the `ACTIVELY DRIVEN BY FPGA` line above, and
-then `[FPGA ACCEL] Systolic crest detected!` once a finger is on the sensor - which only the
-programmed design can produce.
+The weak-pull test only shows that the MISO line held its level while the ESP32 changed its
+internal pull setting; another circuit could hold that level too. A `[FPGA ACCEL] Systolic
+crest detected!` event after real sensor contact is the runtime evidence that the configured
+design is processing samples. If no finger is present, FPGA peak detection remains unverified.
 
 ### The transfer is open-loop
 

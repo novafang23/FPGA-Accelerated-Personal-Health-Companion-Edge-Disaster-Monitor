@@ -77,6 +77,24 @@ extern "C" {
  * The original reasoning, retained because it is what the floor encodes: */
 #define PPG_RR_MIN_BPM       9.0f    /* Above the Mayer band; see the note above */
 #define PPG_RR_MAX_BPM       36.0f   /* Physiological ceiling: severe tachypnea */
+#define PPG_RR_TRUST_MAX_BPM 24.0f   /* Highest rate this estimator will PUBLISH (see below) */
+
+/* TRUST CEILING, 2026-10-17.
+ *
+ * A breath hold on live hardware produced "reliable" 30-32 br/min twice (mNEWS2 +3,
+ * a false CRITICAL). At 85-90 bpm the IBI is ~0.67 s, so lag 3 - the shortest lag
+ * PPG_RR_MIN_LAG allows - is a 2.0 s "breath", i.e. 30 br/min. That is a 3-beat
+ * rhythm in the IBI series, indistinguishable from beat alternans/peak-detection
+ * jitter by autocorrelation alone, and the RSA-depth term is saturated by ordinary
+ * beat-to-beat variability, so the confidence still clears 0.60.
+ *
+ * The estimator cannot honestly separate a 3-beat artifact from genuine tachypnoea,
+ * so above this ceiling it refuses to publish rather than risk a false severe alarm.
+ * NEWS2 scores 21-24 as +2 and >=25 as +3; capping publication at 24 guarantees an
+ * RR artifact can never contribute the +3 severe-tachypnoea term. A genuine rate
+ * above 24 will read as unavailable, which is the safer failure for an alarm device
+ * (the reverse - a false emergency - is what prompted this). 60000/24 = 2.5 s is
+ * also the shortest breath period RSA can plausibly resolve from beat intervals. */
 #define PPG_RR_DEFAULT_BPM   14.0f   /* Normal resting adult breathing rate */
 
 /* --- Confidence calibration (see ppg_respiratory_rate.c) -------------------
@@ -194,6 +212,8 @@ typedef struct {
     int   diag_peak_lag;        /* winning lag, in beats (interpolated if float) */
     float diag_peak_lag_f;      /* winning lag after parabolic interpolation */
     int   diag_beats;           /* IBIs the estimate was computed from */
+    float diag_am_bpm;          /* amplitude-modulation rate (0 if not computed) */
+    float diag_am_conf;         /* amplitude-modulation confidence */
 } ppg_respiratory_result_t;
 
 /* --- Published-rate stabilisation -----------------------------------------

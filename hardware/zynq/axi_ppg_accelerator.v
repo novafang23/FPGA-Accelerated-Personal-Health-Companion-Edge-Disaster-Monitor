@@ -208,7 +208,7 @@ module axi_ppg_accelerator #(
             axi_araddr_latched <= {C_S_AXI_ADDR_WIDTH{1'b0}};
         end else begin
             // Address Handshake & Latch
-            if (~s_axi_arready && s_axi_arvalid) begin
+            if (~s_axi_arready && s_axi_arvalid && ~s_axi_rvalid) begin
                 s_axi_arready      <= 1'b1;
                 axi_araddr_latched <= s_axi_araddr;
             end else begin

@@ -15,8 +15,9 @@
 extern "C" {
 #endif
 
-/* Standardized PPG Sample Rate */
+/* Standardized PPG Sample Rate (100 Hz internal ADC; 25 Hz FIFO output with SMP_AVE_4) */
 #define PPG_SAMPLE_RATE_HZ 100
+#define PPG_FIFO_RATE_HZ   (PPG_SAMPLE_RATE_HZ / 4)
 
 
 /* I2C Address */
@@ -68,6 +69,10 @@ extern "C" {
 #define MAX30102_MODE_RESET         0x40
 #define MAX30102_MODE_SHDN          0x80
 
+/* Calibrated stable MAX30102 LED configuration (~11.0 mA for clear capillary penetration without 1.8V brownout).
+ * Runtime LED hunting remains disabled so recovery cannot repeatedly rewrite these registers. */
+#define MAX30102_DEFAULT_LED_PA     0x36
+
 /* SPO2 Configuration */
 #define MAX30102_SPO2_ADC_RANGE_4096    (0x01 << 5)
 #define MAX30102_SPO2_SR_100            (0x01 << 2)
@@ -109,6 +114,13 @@ int max30102_init(max30102_t *dev, esp32_i2c_handle_t *i2c);
 int max30102_reset(max30102_t *dev);
 
 /*
+ * Recover FIFO pointers without resetting the device or toggling LEDs.
+ * Clears FIFO write, read, and overflow counters while keeping mode and LED current intact.
+ * Returns 0 on success, -1 on failure.
+ */
+int max30102_recover_fifo(max30102_t *dev);
+
+/*
  * Read number of available samples in the FIFO.
  * Returns sample count (0-32), or -1 on error.
  */
@@ -125,12 +137,6 @@ int max30102_read_sample(max30102_t *dev, max30102_sample_t *sample);
  * Returns number of samples actually read, or -1 on error.
  */
 int max30102_read_fifo(max30102_t *dev, max30102_sample_t *buf, int max_samples);
-
-/*
- * Read the on-chip die temperature (°C).
- * Returns temperature as float, or -999.0f on error.
- */
-float max30102_read_temperature(max30102_t *dev);
 
 /*
  * Scale an 18-bit raw ADC reading to 8-bit for the ForgeFPGA pipeline.
@@ -184,7 +190,8 @@ static inline uint8_t max30102_scale_to_8bit_ch(uint32_t raw_18bit, uint32_t *ba
     if (*baseline == 0) {
         *baseline = raw_18bit;
     } else {
-        const uint32_t tc = (uint32_t)(PPG_SAMPLE_RATE_HZ * 0.64f);
+        uint32_t tc = (uint32_t)(PPG_FIFO_RATE_HZ * 0.64f);
+        if (tc < 2) tc = 2;
         *baseline = (*baseline * (tc - 1) + raw_18bit) / tc;
     }
 

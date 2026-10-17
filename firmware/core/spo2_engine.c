@@ -8,10 +8,10 @@
 
 void spo2_init(spo2_state_t *state) {
     *state = (spo2_state_t){
-        .red_sum           = 0.0,
-        .red_sumsq         = 0.0,
-        .ir_sum            = 0.0,
-        .ir_sumsq          = 0.0,
+        .red_mean          = 0.0f,
+        .red_m2            = 0.0f,
+        .ir_mean           = 0.0f,
+        .ir_m2             = 0.0f,
         .sample_count      = 0,
         .ratio_r           = 0.0f,
         .perfusion_index   = 0.0f,
@@ -38,34 +38,36 @@ void spo2_init(spo2_state_t *state) {
 
 void spo2_add_samples(spo2_state_t *state, uint32_t red_filtered,
                       uint32_t ir_filtered) {
-    /* Accumulate sums for the mean and the standard deviation over the window.
-     * Two running sums over 50 samples, rather than two extremes. */
-    state->red_sum   += (double)red_filtered;
-    state->red_sumsq += (double)red_filtered * (double)red_filtered;
-    state->ir_sum    += (double)ir_filtered;
-    state->ir_sumsq  += (double)ir_filtered * (double)ir_filtered;
-
+    /* Welford's online variance avoids subtracting two nearly equal large
+     * values (E[x^2] - E[x]^2), which loses the small pulsatile AC component
+     * when the optical DC level is tens of thousands of counts. It also keeps
+     * the ESP32-S3 target on its native single-precision FPU. */
     state->sample_count++;
+    float n = (float)state->sample_count;
+    float red = (float)red_filtered;
+    float ir = (float)ir_filtered;
+    float red_delta = red - state->red_mean;
+    state->red_mean += red_delta / n;
+    state->red_m2 += red_delta * (red - state->red_mean);
+    float ir_delta = ir - state->ir_mean;
+    state->ir_mean += ir_delta / n;
+    state->ir_m2 += ir_delta * (ir - state->ir_mean);
 
     /* Compute SpO2 at end of each measurement window */
     if (state->sample_count >= SPO2_WINDOW_SIZE) {
-        double n = (double)state->sample_count;
-
-        double red_mean = state->red_sum / n;
-        double ir_mean  = state->ir_sum / n;
-        double red_var  = state->red_sumsq / n - red_mean * red_mean;
-        double ir_var   = state->ir_sumsq / n - ir_mean * ir_mean;
-        if (red_var < 0.0) red_var = 0.0;   /* rounding, not a negative variance */
-        if (ir_var  < 0.0) ir_var  = 0.0;
+        float red_var = state->red_m2 / n;
+        float ir_var  = state->ir_m2 / n;
+        if (red_var < 0.0f) red_var = 0.0f;
+        if (ir_var  < 0.0f) ir_var  = 0.0f;
 
         /* 2*sqrt(2)*sigma is the peak-to-peak of an equivalent sinusoid. Both
          * channels use the same estimator, so their RATIO - which is all R is -
          * stays unbiased and the calibration curve below still applies. */
         const float PP_FROM_SIGMA = 2.0f * 1.41421356f;
-        float red_ac = PP_FROM_SIGMA * sqrtf((float)red_var);
-        float ir_ac  = PP_FROM_SIGMA * sqrtf((float)ir_var);
-        float red_dc = (float)red_mean;
-        float ir_dc  = (float)ir_mean;
+        float red_ac = PP_FROM_SIGMA * sqrtf(red_var);
+        float ir_ac  = PP_FROM_SIGMA * sqrtf(ir_var);
+        float red_dc = state->red_mean;
+        float ir_dc  = state->ir_mean;
 
         /* Calculate Perfusion Index: PI = (AC / DC) * 100% */
         float pi_ir = (ir_dc > 0.0f) ? ((ir_ac / ir_dc) * 100.0f) : 0.0f;
@@ -93,8 +95,26 @@ void spo2_add_samples(spo2_state_t *state, uint32_t red_filtered,
          * acquisition gate below is deliberately slow to satisfy, and without
          * this there is no way to tell a sensor still settling from a finger
          * that is not perfusing. */
+        /* Check for active finger placement or seating movement.
+         * If the DC baseline jumped by >15% since the last window, the finger is
+         * still physically compressing or shifting on the optical sensor. */
+        int dc_stable = 1;
+        if (state->last_ir_dc > 0.0f) {
+            float dc_step = fabsf(ir_dc - state->last_ir_dc) / state->last_ir_dc;
+            if (dc_step > 0.15f) {
+                dc_stable = 0;
+            }
+        }
+
         if (ir_dc < SPO2_MIN_DC_IR || red_dc < SPO2_MIN_DC_RED) {
             state->last_reject = 1;
+        } else if (!dc_stable) {
+            state->last_reject = 1; /* Unsettled finger seating transient */
+            if (!state->valid) {
+                state->consecutive_valid = 0;
+                state->spo2_hist_count = 0;
+                state->spo2_hist_idx = 0;
+            }
         } else if (ir_ac < SPO2_MIN_AC_IR || red_ac < SPO2_MIN_AC_RED) {
             state->last_reject = 2;
         } else if (pi_ir < SPO2_MIN_PERFUSION_INDEX || pi_ir > SPO2_MAX_PERFUSION_INDEX) {
@@ -109,8 +129,9 @@ void spo2_add_samples(spo2_state_t *state, uint32_t red_filtered,
                 window_valid = 1;
                 state->windows_valid++;
 
-                /* Beer-Lambert empirical calibration curve */
-                float raw_spo2 = 110.0f - 25.0f * ratio_r;
+                /* Empirical calibration curve with the 2-point sensor calibration
+                 * applied (see SPO2_CAL_INTERCEPT / SPO2_CAL_SLOPE). */
+                float raw_spo2 = SPO2_CAL_INTERCEPT - SPO2_CAL_SLOPE * ratio_r;
 
                 /* Clamp to physiological clinical range [70, 100] */
                 if (raw_spo2 > 100.0f) raw_spo2 = 100.0f;
@@ -152,7 +173,9 @@ void spo2_add_samples(spo2_state_t *state, uint32_t red_filtered,
                 }
                 state->spo2 = sum / (float)state->spo2_hist_count;
 
-                state->consecutive_valid++;
+                if (state->consecutive_valid < SPO2_REQUIRED_VALID_WINDOWS) {
+                    state->consecutive_valid++;
+                }
 
                 /* Has the smoothed estimate stopped moving?
                  *
@@ -180,6 +203,17 @@ void spo2_add_samples(spo2_state_t *state, uint32_t red_filtered,
                         if (h[i] > raw_hi) raw_hi = h[i];
                     }
                     state->last_spread_raw = raw_hi - raw_lo;
+
+                    /* Detect active acquisition drift / transient ramp.
+                     * In a genuine transient (e.g. LED settling or finger placement),
+                     * readings drift monotonically by > 0.80% each window.
+                     * A settled signal oscillates gently around the physiological mean. */
+                    int monotonic_drift = 0;
+                    if (n >= 3) {
+                        int rising  = (h[0] > h[1] + 0.80f) && (h[1] > h[2] + 0.80f);
+                        int falling = (h[0] < h[1] - 0.80f) && (h[1] < h[2] - 0.80f);
+                        monotonic_drift = (rising || falling);
+                    }
 
                     /* Insertion sort (n = 8) so the extremes can be dropped. */
                     for (int i = 1; i < n; i++) {
@@ -209,14 +243,34 @@ void spo2_add_samples(spo2_state_t *state, uint32_t red_filtered,
                      * span barely changes when its extremes are removed. What it
                      * no longer does is let a single bad window veto the reading
                      * for four seconds. */
-                    float lo = h[1];
-                    float hi = h[n - 2];
-                    settled = ((hi - lo) <= SPO2_STABLE_SPREAD_PCT);
+                    float lo, hi;
+                    if (n >= 5) {
+                        lo = h[1];
+                        hi = h[n - 2];
+                        float trimmed_sum = 0.0f;
+                        for (int i = 1; i < n - 1; i++) trimmed_sum += h[i];
+                        state->spo2 = trimmed_sum / (float)(n - 2);
+                    } else {
+                        lo = h[0];
+                        hi = h[n - 1];
+                        float full_sum = 0.0f;
+                        for (int i = 0; i < n; i++) full_sum += h[i];
+                        state->spo2 = full_sum / (float)n;
+                    }
+                    settled = (!monotonic_drift && ((hi - lo) <= SPO2_STABLE_SPREAD_PCT));
                     state->last_spread = hi - lo;
                 }
                 state->last_settled = settled;
 
                 if (state->consecutive_valid >= SPO2_REQUIRED_VALID_WINDOWS && settled) {
+                    if (!state->valid) {
+                        /* When validity first latches, re-seed the moving average with the settled
+                         * reading so pre-settling transient entries do not drag the average down. */
+                        for (int i = 0; i < SPO2_MA_FILTER_SIZE; i++) {
+                            state->spo2_history[i] = state->spo2;
+                        }
+                        state->spo2_hist_count = SPO2_MA_FILTER_SIZE;
+                    }
                     state->valid = 1;
                 }
             } else {
@@ -246,10 +300,10 @@ void spo2_add_samples(spo2_state_t *state, uint32_t red_filtered,
 
         /* Reset window accumulators for next measurement */
         state->sample_count = 0;
-        state->red_sum   = 0.0;
-        state->red_sumsq = 0.0;
-        state->ir_sum    = 0.0;
-        state->ir_sumsq  = 0.0;
+        state->red_mean = 0.0f;
+        state->red_m2   = 0.0f;
+        state->ir_mean  = 0.0f;
+        state->ir_m2    = 0.0f;
     }
 }
 

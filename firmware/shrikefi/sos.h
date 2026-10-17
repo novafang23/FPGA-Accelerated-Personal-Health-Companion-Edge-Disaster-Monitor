@@ -48,7 +48,8 @@ typedef enum {
     SOS_TRIGGER_NONE = 0,
     SOS_TRIGGER_CRITICAL_TRIAGE,
     SOS_TRIGGER_CONTACT_LOST,
-    SOS_TRIGGER_MANUAL
+    SOS_TRIGGER_MANUAL,
+    SOS_TRIGGER_FALL
 } sos_trigger_t;
 
 typedef struct {
@@ -82,6 +83,12 @@ typedef struct {
      * ever applies to the CRITICAL trigger; a manually triggered or
      * contact-lost emergency stays until it is cancelled. */
     uint32_t recovery_clear_ms;
+
+    /* Confirmation grace period for fall detection (default: 10000ms / 10s).
+     * When armed via sos_arm_fall(), state becomes SOS_ARMED with trigger "fall".
+     * If the subject cancels within this window, the alarm stands down.
+     * If uncancelled when the timer expires, it latches SOS_ACTIVE. */
+    uint32_t fall_confirm_ms;
 } sos_config_t;
 
 /* Sensible device defaults. Overridable before sos_init(). */
@@ -102,6 +109,13 @@ void sos_update(uint32_t now_ms, bool critical, bool contact_present);
 /* Operator-initiated emergency (dashboard button in T1.3, console key now). */
 void sos_manual_trigger(uint32_t now_ms);
 
+/* Arm emergency assist with trigger "fall".
+ * Transitions to SOS_ARMED; after fall_confirm_ms it latches SOS_ACTIVE unless cancelled. */
+void sos_arm_fall(uint32_t now_ms);
+
+/* Immediately latches SOS_ACTIVE with trigger "fall" (bypasses grace period). */
+void sos_fall_trigger(uint32_t now_ms);
+
 /* Sustained-press cancel. press() records the start of a press, release() ends
  * it early; the hold only completes inside sos_update(). */
 void sos_cancel_press(uint32_t now_ms);
@@ -116,6 +130,9 @@ sos_trigger_t sos_get_trigger(void);
 
 /* Milliseconds the emergency has been active, or 0 when it is not. */
 uint32_t sos_active_ms(uint32_t now_ms);
+
+/* Milliseconds remaining in armed countdown grace window, or 0 when not ARMED. */
+uint32_t sos_armed_remaining_ms(uint32_t now_ms);
 
 /* 0-100 progress of a cancel hold in progress, for a progress bar. */
 uint32_t sos_cancel_progress_pct(uint32_t now_ms);

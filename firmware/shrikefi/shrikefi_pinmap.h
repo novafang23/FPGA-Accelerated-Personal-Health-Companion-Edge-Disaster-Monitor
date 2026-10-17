@@ -31,12 +31,13 @@
  * ====================================================================== */
 #define PIN_I2C_SDA          1    /* GPIO1  — SDA (all I2C devices share this) */
 #define PIN_I2C_SCL          2    /* GPIO2  — SCL (all I2C devices share this) */
-#define I2C_BUS_SPEED_HZ     400000  /* 400 kHz Fast-Mode */
+#define I2C_BUS_SPEED_HZ     100000  /* 100 kHz Standard-Mode (prevents multi-drop breadboard NACKs) */
 
 /* I2C Device Addresses */
 #define I2C_ADDR_SSD1306     0x3C  /* OLED display (alt: 0x3D if ADDR pin = HIGH) */
 #define I2C_ADDR_SSD1306_ALT 0x3D
 #define I2C_ADDR_MAX30102    0x57  /* PPG + SpO2 sensor (fixed, non-configurable)  */
+#define I2C_ADDR_MAX30205    0x48  /* Optional clinical temperature sensor          */
 #define I2C_ADDR_BME280      0x76  /* Environmental sensor (SDO=GND → 0x76)       */
 #define I2C_ADDR_BME280_ALT  0x77  /* (SDO=3.3V → 0x77)                           */
 
@@ -54,6 +55,20 @@
 #define PIN_PMS5003_TX       18   /* GPIO18 — UART1 TX (PMS5003 RXD pin, left unwired) */
 #define PMS5003_UART_NUM     1    /* UART peripheral number (UART_NUM_1) */
 #define PMS5003_BAUD         9600
+
+/* UART2 — GNSS receiver (u-blox NEO-M8N / Quectel L89HS) */
+#define PIN_GPS_RX           16
+#define PIN_GPS_TX           17
+#define GPS_UART_NUM         2
+#define GPS_BAUD_RATE        9600
+
+/* =========================================================================
+ * Active Buzzer — Audible Emergency Siren & Boot Audio Feedback
+ * =========================================================================
+ * Active buzzer module driven via GPIO 4 (3.3V LVCMOS).
+ * High = Sound ON, Low = Sound OFF.
+ * ====================================================================== */
+#define PIN_BUZZER           4    /* GPIO4 — Active Buzzer signal */
 
 /* =========================================================================
  * Renesas ForgeFPGA (SLG47910) Interconnect — Official Vicharak Shrike-Fi Traces

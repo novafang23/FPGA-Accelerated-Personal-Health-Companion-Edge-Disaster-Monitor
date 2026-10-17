@@ -25,6 +25,7 @@ typedef struct {
     float interval_regularity;  /* Beat interval consistency [0.0, 1.0] */
     float waveform_skewness;    /* Pulse skewness (positive = clean systolic upstroke) */
     bool  is_motion_artifact;   /* True if motion corrupted (SQI < 0.70) */
+    float motion_energy;        /* Dynamic acceleration motion energy in g */
 } ppg_sqi_result_t;
 
 /*
@@ -39,6 +40,21 @@ void ppg_calculate_sqi(
     size_t sample_count,
     const float *ibi_ms,
     size_t ibi_count,
+    ppg_sqi_result_t *result
+);
+
+/*
+ * Calculate PPG Signal Quality Index with IMU motion energy gating.
+ * motion_energy_g: dynamic acceleration magnitude |A - 1.0g| in g.
+ * When motion_energy_g > 0.10g, motion artifact penalty scales down SQI.
+ * When motion_energy_g >= 0.35g, signal is gated as corrupted (SQI < 0.70).
+ */
+void ppg_calculate_sqi_with_motion(
+    const uint32_t *raw_ir_samples,
+    size_t sample_count,
+    const float *ibi_ms,
+    size_t ibi_count,
+    float motion_energy_g,
     ppg_sqi_result_t *result
 );
 

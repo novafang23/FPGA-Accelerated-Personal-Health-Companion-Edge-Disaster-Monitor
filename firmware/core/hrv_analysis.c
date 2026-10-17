@@ -23,11 +23,26 @@ void hrv_add_ibi(hrv_state_t *state, float ibi_ms) {
     if (!(ibi_ms > 0.0f) || ibi_ms > 10000.0f) {
         return;
     }
+    /* When the ring overwrites its oldest IBI, the next-oldest entry loses its
+     * predecessor from the active window. Do not count that now-out-of-window
+     * difference in RMSSD. */
+    if (state->count == HRV_BUFFER_SIZE) {
+        int new_oldest = (state->head + 1) % HRV_BUFFER_SIZE;
+        state->pair_valid[new_oldest] = 0;
+    }
+
     state->ibi_ms[state->head] = ibi_ms;
+    state->pair_valid[state->head] = state->has_previous_ibi;
     state->head = (state->head + 1) % HRV_BUFFER_SIZE;
     if (state->count < HRV_BUFFER_SIZE) {
         state->count++;
     }
+    state->has_previous_ibi = 1;
+}
+
+void hrv_break_sequence(hrv_state_t *state) {
+    if (state == NULL) return;
+    state->has_previous_ibi = 0;
 }
 
 void hrv_compute(hrv_state_t *state) {
@@ -68,6 +83,7 @@ void hrv_compute(hrv_state_t *state) {
     for (int i = 1; i < n; i++) {
         int idx_prev = (start + i - 1) % HRV_BUFFER_SIZE;
         int idx_curr = (start + i)     % HRV_BUFFER_SIZE;
+        if (!state->pair_valid[idx_curr]) continue;
         float diff = state->ibi_ms[idx_curr] - state->ibi_ms[idx_prev];
         sd_sum += diff * diff;
         sd_count++;
@@ -78,7 +94,22 @@ void hrv_compute(hrv_state_t *state) {
 float hrv_get_rmssd(const hrv_state_t *state)  { return state ? state->rmssd   : 0.0f; }
 float hrv_get_sdnn(const hrv_state_t *state)    { return state ? state->sdnn    : 0.0f; }
 float hrv_get_mean_hr(const hrv_state_t *state) { return state ? state->mean_hr : 0.0f; }
-int   hrv_is_ready(const hrv_state_t *state)    { return state && state->count >= HRV_MIN_SAMPLES; }
+int hrv_is_ready(const hrv_state_t *state) {
+    if (state == NULL || state->count < HRV_MIN_SAMPLES) return 0;
+
+    /* Support summary/snapshot structs (e.g., Core 1 hrv_snapshot or host test
+     * profiles) that populate rmssd/sdnn/count directly without a ring buffer. */
+    if (state->head == 0 && state->rmssd > 0.0f) return 1;
+
+    int n = state->count;
+    int start = (state->head - n + HRV_BUFFER_SIZE) % HRV_BUFFER_SIZE;
+    int valid_pairs = 0;
+    for (int i = 1; i < n; i++) {
+        int idx = (start + i) % HRV_BUFFER_SIZE;
+        if (state->pair_valid[idx]) valid_pairs++;
+    }
+    return valid_pairs >= (HRV_MIN_SAMPLES - 1);
+}
 
 /* ---------------------------------------------------------------------------
  * Causal median filter over the IBI series (see hrv_analysis.h for rationale).
@@ -89,7 +120,7 @@ void hrv_median_init(hrv_median_t *m) {
     memset(m, 0, sizeof(*m));
 }
 
-/* Insertion sort of at most HRV_MEDIAN_WINDOW (5) floats, then take the middle.
+/* Insertion sort of at most HRV_MEDIAN_WINDOW floats, then take the middle.
  * For an even count n/2 selects the upper of the two middle values; the filter
  * output feeds HRV statistics only and never feeds back into the rejection
  * rule, so that bias is harmless. */

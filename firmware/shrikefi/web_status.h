@@ -62,6 +62,10 @@ typedef struct {
 
     uint32_t uptime_s;
     bool     contact;    /* finger on the sensor */
+
+    /* IMU motion & fall status */
+    float       motion;  /* Instantaneous IMU motion energy in g */
+    const char *fall;    /* Fall state name: "MONITORING", "FALL_CONFIRMED", etc. */
 } valor_status_t;
 
 /* Publish a new snapshot. Called at 1 Hz from the monitor task; the HTTP server
@@ -78,6 +82,9 @@ void web_status_snapshot(valor_status_t *out);
  * Kept in the JSON shape the page polls:
  *   {"hr":72.1,...,"sos":"IDLE","trigger":"none","loc":"UNSET","contact":true} */
 size_t web_status_json(const valor_status_t *s, char *buf, size_t cap);
+
+/* Pure origin check shared by SoftAP handlers and host regression tests. */
+bool web_status_request_is_same_origin(const char *origin, const char *referer);
 
 #define VALOR_HISTORY_HOURS 24
 

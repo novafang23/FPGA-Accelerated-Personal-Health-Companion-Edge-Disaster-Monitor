@@ -56,10 +56,9 @@ typedef enum {
  * reaches "configuration COMPLETE! (46408 bytes loaded)". The 0x55 probe that
  * follows is NOT proof of anything: the RTL overwrites its response register
  * with {beat_latched, filt_sample[6:0]} on the clock after reset, so the reply
- * is 0x00 and the probe byte is never echoed. What proves a configured design is
- * running is the MISO line read showing ACTIVELY DRIVEN BY FPGA, and the
- * "[FPGA ACCEL] Systolic crest detected!" lines that follow once a finger is on
- * the sensor.
+ * is 0x00 and the probe byte is never echoed. The weak-pull MISO check is only a
+ * line-level heuristic. A reported systolic crest after real sensor contact is
+ * evidence that the configured design is processing samples.
  *
  * The image is streamed in 256-byte chunks after the Vicharak
  * Web_FPGA_programmer.ino reset sequence (PWR=0/EN=0/SS=1 -> PWR=1/EN=1/SS=0,
@@ -159,11 +158,10 @@ void shrikefi_clear_irq(void);
  */
 bool shrikefi_is_beat_detected(void);
 
-/* True while the FPGA is actually driving MISO - i.e. still configured and
- * executing. False means it has stopped, which reading the SPI replies cannot
- * detect, because a frozen chip answers from a frozen register with a constant
- * byte that looks like a valid zero sample. */
-bool shrikefi_link_fpga_alive(void);
+/* Heuristic only: true if MISO reads the same level with weak pull-down and
+ * pull-up enabled. This cannot prove the FPGA is the source or that its logic
+ * is executing. */
+bool shrikefi_link_miso_stable_under_pulls(void);
 
 /**
  * @brief Reset beat tracking state on finger disconnect or optical contact loss

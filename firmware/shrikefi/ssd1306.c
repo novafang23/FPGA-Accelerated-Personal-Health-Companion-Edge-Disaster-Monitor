@@ -176,7 +176,8 @@ int ssd1306_init(ssd1306_t *disp, esp32_i2c_handle_t *i2c, uint8_t addr) {
     disp->initialized = 1;
 
     /* Clear framebuffer and update display */
-    ssd1306_clear(disp);
+    memset(disp->framebuf, 0x00, sizeof(disp->framebuf));
+    memset(disp->last_framebuf, 0xFF, sizeof(disp->last_framebuf));
     ssd1306_update(disp);
 
     return 0;
@@ -189,33 +190,63 @@ void ssd1306_clear(ssd1306_t *disp) {
     memset(disp->framebuf, 0x00, sizeof(disp->framebuf));
 }
 
-int ssd1306_update(ssd1306_t *disp) {
-    if (!disp || !disp->initialized) return -1;
-
-    /* Set column and page address ranges via command stream */
+int ssd1306_resync(ssd1306_t *disp) {
+    if (!disp) return -1;
     uint8_t setup_cmds[] = {
         0x00,
         SSD1306_SET_COL_ADDR, 0x00, 0x7F,
         SSD1306_SET_PAGE_ADDR, 0x00, 0x07
     };
-    if (esp32_i2c_hal_write_raw(disp->addr, setup_cmds, sizeof(setup_cmds)) != I2C_HAL_SUCCESS) {
-        return -1;
-    }
+    return (esp32_i2c_hal_write_raw(disp->addr, setup_cmds, sizeof(setup_cmds)) == I2C_HAL_SUCCESS) ? 0 : -1;
+}
 
-    /* Send framebuffer in 32-byte chunks */
-    int total = SSD1306_WIDTH * SSD1306_PAGES;  /* 1024 bytes */
-    int chunk_size = 32;
+int ssd1306_update(ssd1306_t *disp) {
+    if (!disp || !disp->initialized) return -1;
 
-    for (int offset = 0; offset < total; offset += chunk_size) {
-        uint8_t buf[33];  /* 1 control byte + 32 data bytes */
-        buf[0] = SSD1306_DATA_STREAM;
-        int remaining = total - offset;
-        int len = (remaining < chunk_size) ? remaining : chunk_size;
-        memcpy(&buf[1], &disp->framebuf[offset], len);
-        if (esp32_i2c_hal_write_raw(disp->addr, buf, (uint16_t)(len + 1)) != I2C_HAL_SUCCESS) {
+    /* Keep the complete command-plus-frame transfer atomic. MAX30102 and
+     * MPU6050 run in separate tasks on the same I2C bus; interleaving an OLED
+     * page transfer with a sensor transaction can leave the OLED in a partial
+     * frame and make it appear to reset. The HAL mutex is recursive because
+     * each individual write also takes it. */
+    esp32_i2c_hal_lock();
+
+    /* Differential dirty-page update:
+     * Compare each of the 8 pages (128 bytes each) against last_framebuf.
+     * Transmit only modified pages. If no pages changed, 0 writes are issued,
+     * completely eliminating idle bus traffic and visual flicker. */
+    for (int p = 0; p < SSD1306_PAGES; p++) {
+        uint8_t *curr = &disp->framebuf[p * SSD1306_WIDTH];
+        uint8_t *last = &disp->last_framebuf[p * SSD1306_WIDTH];
+        if (memcmp(curr, last, SSD1306_WIDTH) == 0) {
+            continue;
+        }
+
+        /* Set column 0..127 and page window for this single dirty page (7 bytes) */
+        uint8_t page_cmds[] = {
+            0x00,
+            SSD1306_SET_COL_ADDR, 0x00, 0x7F,
+            SSD1306_SET_PAGE_ADDR, (uint8_t)p, (uint8_t)p
+        };
+        if (esp32_i2c_hal_write_raw(disp->addr, page_cmds, sizeof(page_cmds)) != I2C_HAL_SUCCESS) {
+            esp32_i2c_hal_unlock();
+            ssd1306_resync(disp);
             return -1;
         }
+
+        /* Send single page data burst (1 control byte + 128 data bytes = 129 bytes) */
+        uint8_t data_buf[SSD1306_WIDTH + 1];
+        data_buf[0] = SSD1306_DATA_STREAM;
+        memcpy(&data_buf[1], curr, SSD1306_WIDTH);
+        if (esp32_i2c_hal_write_raw(disp->addr, data_buf, sizeof(data_buf)) != I2C_HAL_SUCCESS) {
+            esp32_i2c_hal_unlock();
+            ssd1306_resync(disp);
+            return -1;
+        }
+
+        memcpy(last, curr, SSD1306_WIDTH);
     }
+
+    esp32_i2c_hal_unlock();
     return 0;
 }
 

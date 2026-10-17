@@ -90,7 +90,7 @@ CONFIG_SHRIKEFI_STREAM_PPG=y
 # --- Compiler -----------------------------------------------------------------
 # NOTE: intentionally reproducing the current DEBUG build (-Og). For a demo,
 # switch to release for materially faster INT8 inference and a smaller image
-# (relevant on a 2 MB flash):
+# (smaller images remain useful on the 8 MB flash):
 #   idf.py menuconfig -> Compiler options -> Optimization Level -> Release (-Os)
 #   (or set CONFIG_COMPILER_OPTIMIZATION_PERF=y / _SIZE=y here)
 CONFIG_COMPILER_OPTIMIZATION_DEBUG=y

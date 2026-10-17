@@ -13,12 +13,16 @@ extern "C" {
 #endif
 
 #define HRV_BUFFER_SIZE 300  /* Rolling window of last 300 IBI intervals (~5 min at 60 BPM) */
-#define HRV_MIN_SAMPLES 10   /* Minimum samples for reliable RMSSD/SDNN (responsive warm-up) */
+#define HRV_MIN_SAMPLES 10   /* Minimum accepted IBIs before publishing HRV */
 
 typedef struct {
     float ibi_ms[HRV_BUFFER_SIZE];
+    /* True when this interval is contiguous with the previous accepted IBI.
+     * RMSSD must not bridge an interval rejected by the beat-quality filter. */
+    uint8_t pair_valid[HRV_BUFFER_SIZE];
     int   head;
     int   count;
+    uint8_t has_previous_ibi;
 
     float rmssd;
     float sdnn;
@@ -28,6 +32,8 @@ typedef struct {
 
 void  hrv_init(hrv_state_t *state);
 void  hrv_add_ibi(hrv_state_t *state, float ibi_ms);
+/* Mark a missing/rejected beat interval so RMSSD won't pair across the gap. */
+void  hrv_break_sequence(hrv_state_t *state);
 void  hrv_compute(hrv_state_t *state);
 
 /* ---------------------------------------------------------------------------

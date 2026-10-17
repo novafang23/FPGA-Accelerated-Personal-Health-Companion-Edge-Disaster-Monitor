@@ -85,6 +85,45 @@ int max30102_reset(max30102_t *dev) {
     return (timeout >= 0) ? 0 : -1;
 }
 
+int max30102_recover_fifo(max30102_t *dev) {
+    if (!dev || !dev->initialized) return -1;
+
+    uint8_t wr_reg   = dev->is_max30100 ? MAX30100_REG_FIFO_WR_PTR : MAX30102_REG_FIFO_WR_PTR;
+    uint8_t ovf_reg  = dev->is_max30100 ? MAX30100_REG_OVF_COUNTER : MAX30102_REG_OVF_COUNTER;
+    uint8_t rd_reg   = dev->is_max30100 ? MAX30100_REG_FIFO_RD_PTR : MAX30102_REG_FIFO_RD_PTR;
+    uint8_t mode_reg = dev->is_max30100 ? MAX30100_REG_MODE_CONFIG : MAX30102_REG_MODE_CONFIG;
+
+    /* 1. Reset FIFO pointers with 3 discrete register writes.
+     * Note: Real MAX30102 silicon does not auto-increment pointer addresses
+     * on writes starting at FIFO_WR_PTR (0x04). Individual writes guarantee
+     * reliable pointer clearing on both genuine Maxim and clone silicon. */
+    if (max30102_i2c_write_reg(dev, wr_reg, 0x00) != 0) return -1;
+    if (max30102_i2c_write_reg(dev, ovf_reg, 0x00) != 0) return -1;
+    if (max30102_i2c_write_reg(dev, rd_reg, 0x00) != 0) return -1;
+
+    /* 2. Check if sensor browned out or reset to Shutdown (0x80 or 0x00).
+     * If already running in SpO2 mode, DO NOT re-write MODE_CONFIG or LED currents!
+     * Writing MODE_CONFIG resets the internal ADC timing and extinguishes the LEDs,
+     * which was the primary cause of LED blinking churn. */
+    int cur_mode = max30102_i2c_read_reg(dev, mode_reg);
+    if (cur_mode < 0) {
+        /* Never reprogram MODE_CONFIG after a failed read. A transient I2C
+         * error used to look like brownout here (-1 != target_mode), causing
+         * the driver to rewrite MODE_CONFIG and LED currents and visibly blink
+         * the MAX30102. FIFO recovery must fail closed instead. */
+        return -1;
+    }
+    uint8_t target_mode = dev->is_max30100 ? 0x03 : MAX30102_MODE_SPO2;
+    if (cur_mode != (int)target_mode) {
+        /* FIFO recovery is intentionally write-minimal. Do not rewrite
+         * MODE_CONFIG, SPO2_CONFIG, or LED currents from this error path:
+         * even a valid but stale mode read can cause a visible emitter blink.
+         * Let the persistent-failure path perform a full, explicit init. */
+        return -1;
+    }
+    return 0;
+}
+
 int max30102_init(max30102_t *dev, esp32_i2c_handle_t *i2c) {
     if (!dev || !i2c) return -1;
 
@@ -94,6 +133,10 @@ int max30102_init(max30102_t *dev, esp32_i2c_handle_t *i2c) {
 
     /* Verify part ID (0x15 for MAX30102, 0x11 for MAX30100) */
     int part_id = max30102_i2c_read_reg(dev, MAX30102_REG_PART_ID);
+    if (part_id < 0) {
+        ESP_LOGE(TAG, "Part ID register read failed at 0x%02X", MAX30102_I2C_ADDR);
+        return -1;
+    }
     if (part_id == MAX30100_EXPECTED_PART_ID) {
         dev->is_max30100 = 1;
         ESP_LOGI(TAG, "Detected MAX30100-compatible sensor (Part ID: 0x11)");
@@ -136,7 +179,7 @@ int max30102_init(max30102_t *dev, esp32_i2c_handle_t *i2c) {
                  r_mode, r_spo2, r_led, r_wr, r_rd);
         (void)r_mode; (void)r_spo2; (void)r_led; (void)r_wr; (void)r_rd;
     } else {
-        /* FIFO Configuration: 4-sample averaging, rollover enabled, A_FULL at 17 */
+        /* FIFO Configuration: 4-sample averaging (smooth 25 Hz / noise filtering), rollover enabled, A_FULL at 17 */
         if (max30102_i2c_write_reg(dev, MAX30102_REG_FIFO_CONFIG,
                         MAX30102_FIFO_SMP_AVE_4 | MAX30102_FIFO_ROLLOVER_EN | MAX30102_FIFO_A_FULL_17) != 0) {
             return -1;
@@ -149,8 +192,8 @@ int max30102_init(max30102_t *dev, esp32_i2c_handle_t *i2c) {
         }
 
         /* LED Pulse Amplitude: ~15.8mA each for clear capillary penetration */
-        if (max30102_i2c_write_reg(dev, MAX30102_REG_LED1_PA, 0x4F) != 0) return -1;
-        if (max30102_i2c_write_reg(dev, MAX30102_REG_LED2_PA, 0x4F) != 0) return -1;
+        if (max30102_i2c_write_reg(dev, MAX30102_REG_LED1_PA, MAX30102_DEFAULT_LED_PA) != 0) return -1;
+        if (max30102_i2c_write_reg(dev, MAX30102_REG_LED2_PA, MAX30102_DEFAULT_LED_PA) != 0) return -1;
 
         /* Clear FIFO pointers */
         max30102_i2c_write_reg(dev, MAX30102_REG_FIFO_WR_PTR, 0x00);
@@ -173,14 +216,31 @@ int max30102_init(max30102_t *dev, esp32_i2c_handle_t *i2c) {
 int max30102_fifo_available(max30102_t *dev, int *dropped, int *saturated) {
     if (!dev || !dev->initialized) return -1;
 
-    uint8_t wr_reg  = dev->is_max30100 ? MAX30100_REG_FIFO_WR_PTR : MAX30102_REG_FIFO_WR_PTR;
-    uint8_t rd_reg  = dev->is_max30100 ? MAX30100_REG_FIFO_RD_PTR : MAX30102_REG_FIFO_RD_PTR;
-    uint8_t ovf_reg = dev->is_max30100 ? MAX30100_REG_OVF_COUNTER : MAX30102_REG_OVF_COUNTER;
+    uint8_t wr_reg = dev->is_max30100 ? MAX30100_REG_FIFO_WR_PTR : MAX30102_REG_FIFO_WR_PTR;
+    uint8_t ptrs[3];
+    int wr = 0, ovf = 0, rd = 0;
 
-    int ovf = max30102_i2c_read_reg(dev, ovf_reg);
-    int wr  = max30102_i2c_read_reg(dev, wr_reg);
-    int rd  = max30102_i2c_read_reg(dev, rd_reg);
-    if (wr < 0 || rd < 0) return -1;
+    /* Burst read all 3 FIFO tracking registers in a single transaction (WR_PTR, OVF, RD_PTR).
+     * Order is identical in both MAX30102 (0x04-0x06) and MAX30100 (0x02-0x04).
+     * This slashes I2C bus transactions by 66% and prevents pointer skew. */
+    if (max30102_i2c_write_read(dev, wr_reg, ptrs, 3) == 0) {
+        wr  = ptrs[0];
+        ovf = ptrs[1];
+        rd  = ptrs[2];
+    } else {
+        /* Fallback to individual register reads if burst read fails or is unsupported */
+        uint8_t ovf_reg = dev->is_max30100 ? MAX30100_REG_OVF_COUNTER : MAX30102_REG_OVF_COUNTER;
+        uint8_t rd_reg  = dev->is_max30100 ? MAX30100_REG_FIFO_RD_PTR : MAX30102_REG_FIFO_RD_PTR;
+        int r_wr = max30102_i2c_read_reg(dev, wr_reg);
+        int r_ovf = max30102_i2c_read_reg(dev, ovf_reg);
+        int r_rd = max30102_i2c_read_reg(dev, rd_reg);
+        if (r_wr < 0 || r_ovf < 0 || r_rd < 0) {
+            return -1;
+        }
+        wr = r_wr;
+        ovf = r_ovf;
+        rd = r_rd;
+    }
 
     int max_ovf = dev->is_max30100 ? 15 : 31;
     if (saturated) *saturated = (ovf == max_ovf) ? 1 : 0;
@@ -237,33 +297,12 @@ int max30102_read_fifo(max30102_t *dev, max30102_sample_t *buf, int max_samples)
     return to_read;
 }
 
-/* Temperature */
-float max30102_read_temperature(max30102_t *dev) {
-    if (!dev || !dev->initialized) return -999.0f;
-
-    uint8_t temp_cfg_reg = dev->is_max30100 ? 0x06 : MAX30102_REG_TEMP_CONFIG;
-    uint8_t temp_en_bit  = dev->is_max30100 ? 0x08 : 0x01; // bit 3 for MAX30100, bit 0 for MAX30102
-
-    if (max30102_i2c_write_reg(dev, temp_cfg_reg, temp_en_bit) != 0) return -999.0f;
-
-    int timeout = 100;
-    while (timeout-- > 0) {
-        int val = max30102_i2c_read_reg(dev, temp_cfg_reg);
-        if (val < 0) return -999.0f;
-        if (!(val & temp_en_bit)) break;
-        max30102_delay_ms(1);
-    }
-    if (timeout <= 0) return -999.0f;
-
-    uint8_t temp_int_reg  = dev->is_max30100 ? 0x16 : MAX30102_REG_TEMP_INT;
-    uint8_t temp_frac_reg = dev->is_max30100 ? 0x17 : MAX30102_REG_TEMP_FRAC;
-
-    int temp_int = max30102_i2c_read_reg(dev, temp_int_reg);
-    int temp_frac = max30102_i2c_read_reg(dev, temp_frac_reg);
-    if (temp_int < 0 || temp_frac < 0) return -999.0f;
-
-    return (float)(int8_t)temp_int + ((float)temp_frac * 0.0625f);
-}
+/* Temperature
+ *
+ * The on-chip die-temperature read was removed on 2026-10-17 together with the
+ * skin-temperature feature: the die temperature is dominated by LED self-heating
+ * and is not a body temperature. Re-add a proper contact sensor (e.g. TMP117)
+ * rather than reading this register again. */
 
 /* Power Management */
 int max30102_shutdown(max30102_t *dev) {
@@ -308,9 +347,15 @@ int max30102_adjust_led_current(max30102_t *dev, uint32_t red_sample, uint32_t i
         return 0;
     }
 
-    const uint32_t TARGET_LOW  = (1u << 17);
-    const uint32_t TARGET_HIGH = (1u << 18) * 3 / 4;
-    const uint8_t STEP = 4;
+    /* Use a wide dead-band around the normal tissue signal. The previous
+     * 35k..180k window made a fingertip sitting near 180k hunt LED current
+     * every adjustment period, which is visible as optical flicker and also
+     * injects steps into the PPG waveform. */
+    const uint32_t TARGET_LOW  = 50000;
+    const uint32_t TARGET_HIGH = 220000;
+    const uint8_t  STEP = 1;
+    const uint8_t  MIN_PA = 0x24; /* ~7.2 mA minimum (keeps LEDs reliably on) */
+    const uint8_t  MAX_PA = 0x5A; /* ~18.0 mA maximum (prevents 3.3V power dip / brownout) */
 
     int red_pa_i = max30102_i2c_read_reg(dev, MAX30102_REG_LED1_PA);
     int ir_pa_i  = max30102_i2c_read_reg(dev, MAX30102_REG_LED2_PA);
@@ -319,14 +364,18 @@ int max30102_adjust_led_current(max30102_t *dev, uint32_t red_sample, uint32_t i
     uint8_t red_pa = (uint8_t)red_pa_i;
     uint8_t ir_pa  = (uint8_t)ir_pa_i;
 
-    if (red_sample < TARGET_LOW && red_pa < 255 - STEP) red_pa += STEP;
-    else if (red_sample > TARGET_HIGH && red_pa > STEP) red_pa -= STEP;
+    if (red_sample < TARGET_LOW && red_pa + STEP <= MAX_PA) red_pa += STEP;
+    else if (red_sample > TARGET_HIGH && red_pa >= MIN_PA + STEP) red_pa -= STEP;
 
-    if (ir_sample < TARGET_LOW && ir_pa < 255 - STEP) ir_pa += STEP;
-    else if (ir_sample > TARGET_HIGH && ir_pa > STEP) ir_pa -= STEP;
+    if (ir_sample < TARGET_LOW && ir_pa + STEP <= MAX_PA) ir_pa += STEP;
+    else if (ir_sample > TARGET_HIGH && ir_pa >= MIN_PA + STEP) ir_pa -= STEP;
 
-    if (max30102_i2c_write_reg(dev, MAX30102_REG_LED1_PA, red_pa) != 0) return -1;
-    if (max30102_i2c_write_reg(dev, MAX30102_REG_LED2_PA, ir_pa) != 0) return -1;
+    if (red_pa != (uint8_t)red_pa_i) {
+        if (max30102_i2c_write_reg(dev, MAX30102_REG_LED1_PA, red_pa) != 0) return -1;
+    }
+    if (ir_pa != (uint8_t)ir_pa_i) {
+        if (max30102_i2c_write_reg(dev, MAX30102_REG_LED2_PA, ir_pa) != 0) return -1;
+    }
 
     return 0;
 }

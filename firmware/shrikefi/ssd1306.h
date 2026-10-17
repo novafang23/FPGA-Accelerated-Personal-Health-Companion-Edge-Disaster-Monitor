@@ -79,7 +79,8 @@ extern "C" {
 typedef struct {
     esp32_i2c_handle_t *i2c;
     uint8_t             addr;
-    uint8_t             framebuf[SSD1306_WIDTH * SSD1306_PAGES]; /* 1024 bytes */
+    uint8_t             framebuf[SSD1306_WIDTH * SSD1306_PAGES];      /* 1024 bytes current */
+    uint8_t             last_framebuf[SSD1306_WIDTH * SSD1306_PAGES]; /* 1024 bytes shadow */
     int                 initialized;
 } ssd1306_t;
 
@@ -99,6 +100,13 @@ void ssd1306_clear(ssd1306_t *disp);
  * Returns 0 on success, -1 on failure.
  */
 int ssd1306_update(ssd1306_t *disp);
+
+/*
+ * Re-synchronize display addressing registers after an aborted transmission.
+ * Resets column and page window so subsequent frames do not draw to corrupt offsets.
+ * Returns 0 on success, -1 on failure.
+ */
+int ssd1306_resync(ssd1306_t *disp);
 
 /*
  * Set or clear a single pixel.

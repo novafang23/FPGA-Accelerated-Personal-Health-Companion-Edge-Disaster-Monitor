@@ -33,7 +33,8 @@ typedef enum {
     ALERT_AUTONOMIC_SHOCK = (1u << 3),
     ALERT_TACHYPNEA       = (1u << 4), /* RR >= 25 bpm: critical respiratory distress */
     ALERT_BRADYPNEA       = (1u << 5), /* RR <= 8 bpm: severe respiratory depression */
-    ALERT_SIGNAL_NOISE    = (1u << 6)  /* PPG SQI < 0.70: motion artifact rejection */
+    ALERT_SIGNAL_NOISE    = (1u << 6), /* PPG SQI < 0.70: motion artifact rejection */
+    ALERT_HYPOTHERMIA     = (1u << 7)  /* Body temp <= 35.0 C: hypothermia crisis */
 } clinical_alert_flags_t;
 
 #define CLINICAL_ADVISORY_MAX 256u
@@ -42,14 +43,24 @@ typedef enum {
 typedef struct {
     clinical_risk_level_t  level;            /* Overall clinical risk */
     uint8_t                alert_flags;      /* Bitmask of clinical_alert_flags_t */
-    uint8_t                news2_score;      /* mNEWS2 score: HR + SpO2 + RR */
+    uint8_t                news2_score;      /* mNEWS2 score: HR + SpO2 + RR + Temp */
     float                  hr;               /* Heart rate (bpm) */
     float                  spo2;             /* Oxygen saturation (%) */
     float                  rmssd;            /* RMSSD (ms) - HRV autonomic tone */
     float                  rr;               /* Respiratory rate (breaths/min) */
     float                  sqi;              /* Signal Quality Index [0.0, 1.0] */
+    float                  body_temp;        /* Body/skin temperature (°C); 0.0f = uninstrumented */
     char                   advisory[CLINICAL_ADVISORY_MAX];
 } clinical_assessment_t;
+
+/* Extended physiological vital signs assessment with 6th vital sign (temperature). */
+void clinical_vitals_assess_ext(float hr,
+                                float spo2,
+                                float rmssd,
+                                float rr,
+                                float sqi,
+                                float temp_c,
+                                clinical_assessment_t *out);
 
 /* Extended physiological vital signs assessment (mNEWS2 with RR & SQI gating). */
 void clinical_vitals_assess_full(float hr,

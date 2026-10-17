@@ -88,7 +88,16 @@ static uint8_t news2_rr_score(int rr) {
     return 3;                /* Severe tachypnea (>= 25) */
 }
 
-void clinical_vitals_assess_full(float hr, float spo2, float rmssd, float rr, float sqi, clinical_assessment_t *out) {
+static uint8_t news2_temp_score(float temp) {
+    if (temp <= 0.0f || !isfinite(temp)) return 0; /* Unmeasured / uninstrumented */
+    if (temp <= 35.0f) return 3;                    /* Hypothermia (<= 35.0 C) */
+    if (temp <= 36.0f) return 1;                    /* Mild cold stress (35.1 - 36.0 C) */
+    if (temp <= 38.0f) return 0;                    /* Normal body temperature (36.1 - 38.0 C) */
+    if (temp <= 39.0f) return 1;                    /* Pyrexia / mild fever (38.1 - 39.0 C) */
+    return 2;                                       /* High fever (>= 39.1 C) */
+}
+
+void clinical_vitals_assess_ext(float hr, float spo2, float rmssd, float rr, float sqi, float temp_c, clinical_assessment_t *out) {
     if (out == NULL) return;
     memset(out, 0, sizeof(*out));
     out->level = CLINICAL_NORMAL;
@@ -110,30 +119,47 @@ void clinical_vitals_assess_full(float hr, float spo2, float rmssd, float rr, fl
         rmssd_x10 = (int32_t)(rmssd * 10.0f + 0.5f);
     }
 
-    out->hr    = hr;
-    out->spo2  = spo2;
-    out->rmssd = (rmssd > 0.0f && isfinite(rmssd)) ? rmssd : 0.0f;
-    out->rr    = (float)rr_i;
-    out->sqi   = (sqi > 0.0f && isfinite(sqi)) ? sqi : 0.0f;
+    out->hr        = hr;
+    out->spo2      = spo2;
+    out->rmssd     = (rmssd > 0.0f && isfinite(rmssd)) ? rmssd : 0.0f;
+    out->rr        = (float)rr_i;
+    out->sqi       = (sqi > 0.0f && isfinite(sqi)) ? sqi : 0.0f;
+    out->body_temp = (temp_c > 0.0f && isfinite(temp_c)) ? temp_c : 0.0f;
 
-    /* 3. Evaluate absolute life-threatening crisis using the exact same canonical integers */
-    bool is_absolute_crisis = (spo2_i <= SPO2_CRITICAL_HYPOXIA_MAX) ||
-                              (hr_i >= HR_CRITICAL_TACHY_MIN) ||
-                              (hr_i <= HR_CRITICAL_BRADY_MAX) ||
-                              (rr_i >= 30) || (rr_i <= 6);
+    /* 3. Evaluate absolute life-threatening crisis using the exact same canonical integers.
+     * Count the criteria rather than collapsing to one bool: on a poor signal a single
+     * derived vital can be an optical artifact, so the override below needs corroboration. */
+    int crisis_criteria = 0;
+    if (spo2_i <= SPO2_CRITICAL_HYPOXIA_MAX)              crisis_criteria++; /* severe hypoxia   */
+    if (hr_i >= HR_CRITICAL_TACHY_MIN)                    crisis_criteria++; /* extreme tachy    */
+    if (hr_i <= HR_CRITICAL_BRADY_MAX)                    crisis_criteria++; /* extreme brady    */
+    if (rr_i >= 30)                                       crisis_criteria++; /* extreme tachypnea*/
+    if (rr_i <= 6)                                        crisis_criteria++; /* extreme bradypnea*/
+    if (out->body_temp > 0.0f && out->body_temp <= 30.0f) crisis_criteria++; /* deep hypothermia */
 
     /* 4. Motion artifact rejection & Warm-up check (Elgendi 2016 / Karlen 2012):
      * If signal quality is zero (sensor disconnected or uncalibrated warmup),
      * hold triage unconditionally to prevent noise from hallucinating emergency alarms.
-     * If signal quality is low (0.0 < SQI < 0.70) due to motion, hold triage UNLESS
-     * patient is in genuine life-threatening collapse (crisis override preserved). */
+     * If signal quality is low (0.0 < SQI < 0.70) due to motion, hold triage unless the
+     * crisis is CORROBORATED by signal quality or a second independent vital.
+     *
+     * The original override trusted a single crisis vital even at SQI 0.47-0.52. Live
+     * testing (2026-10-17) showed exactly how that fails: an artifact-biased red/IR ratio
+     * produced a stable-but-wrong SpO2 of ~80%, which alone (SpO2 <= 85) bypassed the hold
+     * and latched a CRITICAL/SOS alarm on a healthy subject. A genuine collapse almost
+     * always presents more than one crisis sign (e.g. hypoxia + extreme tachycardia), so
+     * requiring two criteria on a poor signal suppresses the single-vital artifact while
+     * still alarming on a real emergency. With a clean signal (SQI >= 0.70) one vital is
+     * still trusted, because the quality gate exists to filter artifact, not to delay
+     * an unambiguous reading. */
+    bool crisis_corroborated = (out->sqi >= 0.70f) || (crisis_criteria >= 2);
     if (out->sqi == 0.0f) {
         out->level = CLINICAL_ELEVATED;
         out->alert_flags = ALERT_SIGNAL_NOISE;
         snprintf(out->advisory, sizeof(out->advisory),
                  "SENSOR WARMUP: Calibrating signal baseline, holding triage.");
         return;
-    } else if (out->sqi < 0.70f && !is_absolute_crisis) {
+    } else if (out->sqi < 0.70f && !crisis_corroborated) {
         out->level = CLINICAL_ELEVATED; /* Mark as elevated uncertainty / holding */
         out->alert_flags = ALERT_SIGNAL_NOISE;
         snprintf(out->advisory, sizeof(out->advisory),
@@ -144,7 +170,8 @@ void clinical_vitals_assess_full(float hr, float spo2, float rmssd, float rr, fl
     uint8_t hr_score   = news2_hr_score(hr_i);
     uint8_t spo2_score = news2_spo2_score(spo2_i);
     uint8_t rr_score   = news2_rr_score(rr_i);
-    uint8_t score      = hr_score + spo2_score + rr_score;
+    uint8_t temp_score = news2_temp_score(out->body_temp);
+    uint8_t score      = hr_score + spo2_score + rr_score + temp_score;
     out->news2_score   = score;
 
     uint8_t flags = ALERT_NONE;
@@ -155,6 +182,7 @@ void clinical_vitals_assess_full(float hr, float spo2, float rmssd, float rr, fl
     if (hr_i <= 40)   flags |= ALERT_BRADYCARDIA;
     if (rr_i >= 25)   flags |= ALERT_TACHYPNEA;
     if (rr_i <= 8)    flags |= ALERT_BRADYPNEA;
+    if (out->body_temp > 0.0f && out->body_temp <= 35.0f) flags |= ALERT_HYPOTHERMIA;
     if (rmssd_x10 >= 0 && rmssd_x10 < RMSSD_SHOCK_THRESHOLD_X10 && (hr_i >= 100 || spo2_i <= 94 || rr_i >= 24)) {
         flags |= ALERT_AUTONOMIC_SHOCK;
         shock_present = true;
@@ -167,11 +195,12 @@ void clinical_vitals_assess_full(float hr, float spo2, float rmssd, float rr, fl
     bool critical_vital = (spo2_i <= SPO2_CRITICAL_HYPOXIA_MAX) ||
                           (hr_i >= HR_CRITICAL_TACHY_MIN) ||
                           (hr_i <= HR_CRITICAL_BRADY_MAX) ||
-                          (rr_i >= 30) || (rr_i <= 6);
+                          (rr_i >= 30) || (rr_i <= 6) ||
+                          (out->body_temp > 0.0f && out->body_temp <= 30.0f);
 
     if (critical_vital || score >= 7 || (shock_present && score >= 5)) {
         out->level = CLINICAL_CRITICAL;
-    } else if (score >= 4 || spo2_i <= 91 || hr_i >= 131 || hr_i <= 40 || rr_i >= 25 || shock_present) {
+    } else if (score >= 4 || spo2_i <= 91 || hr_i >= 131 || hr_i <= 40 || rr_i >= 25 || shock_present || temp_score >= 2) {
         out->level = CLINICAL_HIGH;
     } else if (score >= 1) {
         out->level = CLINICAL_ELEVATED;
@@ -199,6 +228,12 @@ void clinical_vitals_assess_full(float hr, float spo2, float rmssd, float rr, fl
     }
     if (flags & ALERT_BRADYPNEA) {
         append_condition(conditions, sizeof(conditions), &cond_len, "Bradypnea (RR %.0f bpm)", (float)rr_i);
+    }
+    if (flags & ALERT_HYPOTHERMIA) {
+        append_condition(conditions, sizeof(conditions), &cond_len, "Hypothermia (Temp %.1f C)", out->body_temp);
+    }
+    if (out->body_temp >= 39.1f) {
+        append_condition(conditions, sizeof(conditions), &cond_len, "High Fever (Temp %.1f C)", out->body_temp);
     }
     if (flags & ALERT_AUTONOMIC_SHOCK) {
         append_condition(conditions, sizeof(conditions), &cond_len, "Autonomic/Shock (RMSSD %.1f ms)", rmssd);
@@ -235,6 +270,10 @@ void clinical_vitals_assess_full(float hr, float spo2, float rmssd, float rr, fl
     } else {
         snprintf(out->advisory, sizeof(out->advisory), "%s", action);
     }
+}
+
+void clinical_vitals_assess_full(float hr, float spo2, float rmssd, float rr, float sqi, clinical_assessment_t *out) {
+    clinical_vitals_assess_ext(hr, spo2, rmssd, rr, sqi, 0.0f, out);
 }
 
 void clinical_vitals_assess(float hr, float spo2, float rmssd, clinical_assessment_t *out) {

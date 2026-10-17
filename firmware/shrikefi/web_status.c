@@ -8,6 +8,7 @@
 
 #include "web_status.h"
 #include "location.h"
+#include "sos.h"
 
 #include <stdbool.h>
 #include <stdarg.h>
@@ -41,6 +42,7 @@ static void history_feed_locked(const valor_status_t *s);
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "freertos/semphr.h"
+#include "esp_timer.h"
 static SemaphoreHandle_t s_lock = NULL;
 #define WS_LOCK()   do { if (s_lock) xSemaphoreTake(s_lock, portMAX_DELAY); } while (0)
 #define WS_UNLOCK() do { if (s_lock) xSemaphoreGive(s_lock); } while (0)
@@ -126,6 +128,20 @@ static bool json_append_string(char *buf, size_t cap, size_t *used,
     return json_append(buf, cap, used, "\"", 1);
 }
 
+bool web_status_request_is_same_origin(const char *origin, const char *referer) {
+    static const char expected[] = "http://192.168.4.1";
+    const size_t expected_len = sizeof(expected) - 1;
+
+    /* If Origin is present, it is authoritative; do not let a matching
+     * Referer override a cross-origin request. */
+    if (origin && origin[0] != '\0') return strcmp(origin, expected) == 0;
+    if (!referer || strncmp(referer, expected, expected_len) != 0) return false;
+
+    /* Require the host to end here or continue with a path. This rejects
+     * lookalike hosts such as 192.168.4.1.attacker.example. */
+    return referer[expected_len] == '\0' || referer[expected_len] == '/';
+}
+
 /* Pure: a struct in, a string out. No ESP-IDF, no locks, no I/O, so the wire
  * format is proved in the host test suite rather than by curling a live board. */
 size_t web_status_json(const valor_status_t *s, char *buf, size_t cap) {
@@ -136,9 +152,15 @@ size_t web_status_json(const valor_status_t *s, char *buf, size_t cap) {
     if (!json_append_format(
         buf, cap, &used,
         "{\"hr\":%.1f,\"spo2\":%.1f,\"rr\":%.1f,\"sqi\":%.2f,\"rmssd\":%.1f,"
-        "\"temp\":%.1f,",
+        "\"temp\":",
         (double)s->hr, (double)s->spo2, (double)s->rr, (double)s->sqi,
-        (double)s->rmssd, (double)s->temp)) return 0;
+        (double)s->rmssd)) return 0;
+
+    if (s->temp < -40.0f || s->temp > 85.0f) {
+        if (!json_append(buf, cap, &used, "null,", 5)) return 0;
+    } else if (!json_append_format(buf, cap, &used, "%.1f,", (double)s->temp)) {
+        return 0;
+    }
 
     if (s->hum < 0.0f) {
         if (!json_append(buf, cap, &used, "\"hum\":null,", 11)) return 0;
@@ -164,6 +186,8 @@ size_t web_status_json(const valor_status_t *s, char *buf, size_t cap) {
         !json_append_string(buf, cap, &used, s->trigger ? s->trigger : "none") ||
         !json_append(buf, cap, &used, ",\"loc\":", sizeof(",\"loc\":") - 1) ||
         !json_append_string(buf, cap, &used, s->loc ? s->loc : "UNSET") ||
+        !json_append_format(buf, cap, &used, ",\"motion\":%.2f,\"fall\":", (double)s->motion) ||
+        !json_append_string(buf, cap, &used, s->fall ? s->fall : "MONITORING") ||
         !json_append_format(buf, cap, &used, ",\"contact\":%s,\"up\":%lu}",
                             s->contact ? "true" : "false", (unsigned long)s->uptime_s)) {
         return 0;
@@ -342,6 +366,7 @@ size_t web_status_history_json(char *buf, size_t cap) {
 static const char PAGE_HTML[] =
 "<!DOCTYPE html><html lang='en'><head><meta charset='utf-8'>"
 "<meta name='viewport' content='width=device-width,initial-scale=1'>"
+"<meta http-equiv='Content-Security-Policy' content=\"default-src 'none'; script-src 'sha256-Xvs0iA3Eui62afmq1ENjhb7IPyFMNHudlEFFYxdk+uY='; style-src 'unsafe-inline'; connect-src 'self'; form-action 'self'; base-uri 'none'; object-src 'none'\">"
 "<title>VALOR - local status</title><style>"
 ":root{--bg:#070B14;--card:#0E1626;--line:#1C2740;--text:#E6EDF7;--dim:#8A9AB5;"
 "--cyan:#00E5FF;--emerald:#00FFAA;--amber:#FFB020;--crimson:#FF3B5C}"
@@ -369,6 +394,9 @@ static const char PAGE_HTML[] =
 ".sos #banner{background:#2A0A12;border-color:var(--crimson)}"
 ".sos h1{color:var(--crimson)}"
 ".sos .dot{background:var(--crimson)}"
+".armed #banner{background:#261A05;border-color:var(--amber)}"
+".armed h1{color:var(--amber)}"
+".armed .dot{background:var(--amber)}"
 "form.setloc{display:flex;gap:8px;margin-top:7px}"
 "form.setloc input{flex:1;min-width:0;background:#0A1120;border:1px solid var(--line);"
 "color:var(--text);border-radius:8px;padding:9px 10px;font-size:14px}"
@@ -396,11 +424,17 @@ static const char PAGE_HTML[] =
 "<input id='locin' name='loc' maxlength='31' placeholder='Village / Block / District'>"
 "<button type='submit'>Save</button></form>"
 "<div id='locnote'>Stored on the device and shown on the emergency card.</div></div>"
+"<div class='card wide'><div class='k'>Emergency Assist Control</div>"
+"<div style='display:flex;gap:8px;margin-top:7px'>"
+"<button id='sos-trigger' type='button' style='flex:1;background:var(--crimson);color:#fff;border:0;border-radius:8px;padding:9px;font-weight:700;cursor:pointer'>TRIGGER SOS</button>"
+"<button id='sos-cancel' type='button' style='flex:1;background:#1E293B;color:var(--text);border:1px solid var(--line);border-radius:8px;padding:9px;font-weight:700;cursor:pointer'>CANCEL SOS</button>"
+"</div><div id='sos-note' role='status' aria-live='polite' style='font-size:11.5px;color:var(--dim);margin-top:6px'>Manual emergency actions require a working device connection.</div></div>"
 "</div>"
 "<div class='env'>"
-"<div class='card'><div class='k'>Temp</div><div class='v'><span id='temp'>--</span></div></div>"
-"<div class='card'><div class='k'>Humidity</div><div class='v'><span id='hum'>--</span></div></div>"
-"<div class='card'><div class='k'>PM2.5</div><div class='v'><span id='pm'>--</span></div></div>"
+"<div class='card'><div class='k'>Ambient temp</div><div class='v'><span id='temp'>--</span><span class='u'>&deg;C</span></div></div>"
+
+"<div class='card'><div class='k'>Humidity</div><div class='v'><span id='hum'>--</span><span class='u'>% RH</span></div></div>"
+"<div class='card'><div class='k'>PM2.5</div><div class='v'><span id='pm'>--</span><span class='u'>&micro;g/m&sup3;</span></div></div>"
 "<div class='card wide'><div class='k'>Storm watch &middot; barometric trend</div>"
 "<div class='v' style='font-size:19px'><span id='storm'>--</span></div>"
 "<div id='pnote'>&nbsp;</div></div>"
@@ -412,16 +446,23 @@ static const char PAGE_HTML[] =
 "<script>"
 "var D='--';var locFilled=false;"
 "function t(i,v){document.getElementById(i).textContent=v}"
-"function num(v,d){return v>0?v.toFixed(d):D}"
+"function num(v,d){return typeof v==='number'&&isFinite(v)?v.toFixed(d):D}"
+"function positive(v,d){return typeof v==='number'&&isFinite(v)&&v>0?v.toFixed(d):D}"
+"function clearReadings(){document.body.className='';t('risk','NO CONNECTION');"
+"t('msg','Live status unavailable; current readings cleared.');"
+"['hr','spo2','rmssd','rr','sqi','temp','hum','pm','storm'].forEach(function(i){t(i,D)});"
+"t('news2','NEWS2 --');t('pnote','');t('link','reconnecting');"
+"t('sos-note','Device connection lost; check the WiFi link')}"
 "function poll(){"
-"fetch('/status.json',{cache:'no-store'}).then(function(r){return r.json()})"
+"fetch('/status.json',{cache:'no-store'}).then(function(r){if(!r.ok)throw new Error('HTTP '+r.status);return r.json()})"
 ".then(function(s){"
-"document.body.className=s.sos==='ACTIVE'?'sos':'';"
-"t('risk',s.sos==='ACTIVE'?'MEDICAL EMERGENCY':s.risk);"
+"document.body.className=s.sos==='ACTIVE'?'sos':(s.sos==='ARMED'?'armed':'');"
+"t('risk',s.sos==='ACTIVE'?'MEDICAL EMERGENCY':(s.sos==='ARMED'?'FALL DETECTED':s.risk));"
 "t('msg',s.sos==='ACTIVE'?'SOS active ('+s.trigger+') - call emergency services':"
-"'Triage verdict computed on the device. Updates every second.');"
-"t('hr',num(s.hr,0));t('spo2',num(s.spo2,1));t('rmssd',num(s.rmssd,1));"
-"t('rr',num(s.rr,0));t('sqi',s.sqi>0?(s.sqi*100).toFixed(0):D);"
+"(s.sos==='ARMED'?'WARNING: Fall detected! SOS countdown active ('+s.trigger+'). Cancel if safe.':"
+"'Triage verdict computed on the device. Updates every second.'));"
+"t('hr',positive(s.hr,0));t('spo2',positive(s.spo2,1));t('rmssd',positive(s.rmssd,1));"
+"t('rr',positive(s.rr,0));t('sqi',s.contact&&typeof s.sqi==='number'?(s.sqi*100).toFixed(0):D);"
 "t('temp',num(s.temp,1));t('hum',num(s.hum,0));t('pm',num(s.pm25,0));"
 "t('storm',s.storm);"
 /* The trend is the number that carries the signal; the absolute pressure is
@@ -434,8 +475,14 @@ static const char PAGE_HTML[] =
    the caregiver is halfway through typing. */
 "if(!locFilled){var el=document.getElementById('locin');"
 "if(el&&s.loc!=='UNSET'){el.value=s.loc}locFilled=true}"
-"}).catch(function(){t('link','reconnecting')});"
+"}).catch(clearReadings);"
 "}"
+"function postEmergency(path,action){t('sos-note','Sending '+action+' request...');"
+"fetch(path,{method:'POST'}).then(function(r){if(!r.ok)throw new Error('HTTP '+r.status);return r.json()})"
+".then(function(){t('sos-note',action+' request sent');poll()})"
+".catch(function(){t('sos-note',action+' request failed; check the connection')})}"
+"document.getElementById('sos-trigger').addEventListener('click',function(){postEmergency('/api/emergency/trigger','SOS trigger')});"
+"document.getElementById('sos-cancel').addEventListener('click',function(){postEmergency('/api/emergency/cancel','SOS cancel')});"
 "poll();setInterval(poll,1000);"
 "</script></body></html>";
 
@@ -465,6 +512,11 @@ static esp_err_t h_root(httpd_req_t *req) {
     /* No cache: a stale page after an emergency clears would be worse than a
      * re-fetch every second on a network with one client. */
     httpd_resp_set_hdr(req, "Cache-Control", "no-store");
+    httpd_resp_set_hdr(req, "Content-Security-Policy",
+        "default-src 'none'; script-src 'sha256-Xvs0iA3Eui62afmq1ENjhb7IPyFMNHudlEFFYxdk+uY='; style-src 'unsafe-inline'; connect-src 'self'; form-action 'self'; base-uri 'none'; object-src 'none'; frame-ancestors 'none'");
+    httpd_resp_set_hdr(req, "X-Content-Type-Options", "nosniff");
+    httpd_resp_set_hdr(req, "X-Frame-Options", "DENY");
+    httpd_resp_set_hdr(req, "Referrer-Policy", "same-origin");
     return httpd_resp_send(req, PAGE_HTML, HTTPD_RESP_USE_STRLEN);
 }
 
@@ -483,21 +535,56 @@ static esp_err_t h_json(httpd_req_t *req) {
 }
 
 static esp_err_t h_history(httpd_req_t *req) {
-    static char buf[2048];
+    static char buf[4096];
     size_t n = web_status_history_json(buf, sizeof(buf));
     if (n == 0) {
         return httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "history json format failed");
     }
     httpd_resp_set_type(req, "application/json");
     httpd_resp_set_hdr(req, "Cache-Control", "no-store");
-    httpd_resp_set_hdr(req, "Access-Control-Allow-Origin", "*");
     return httpd_resp_send(req, buf, (ssize_t)n);
 }
 
 static bool location_request_is_same_origin(httpd_req_t *req) {
-    char origin[48];
-    return httpd_req_get_hdr_value_str(req, "Origin", origin, sizeof(origin)) == ESP_OK &&
-           strcmp(origin, "http://192.168.4.1") == 0;
+    char origin[48] = {0};
+    char referer[96] = {0};
+    const bool has_origin = httpd_req_get_hdr_value_str(req, "Origin", origin, sizeof(origin)) == ESP_OK;
+    const bool has_referer = httpd_req_get_hdr_value_str(req, "Referer", referer, sizeof(referer)) == ESP_OK;
+    return web_status_request_is_same_origin(has_origin ? origin : NULL,
+                                             has_referer ? referer : NULL);
+}
+
+/* POST /api/emergency/trigger and POST /api/emergency/cancel */
+static esp_err_t h_sos_trigger(httpd_req_t *req) {
+    if (!location_request_is_same_origin(req)) {
+        return httpd_resp_send_err(req, HTTPD_403_FORBIDDEN, "same-origin request required");
+    }
+    uint32_t now_ms = (uint32_t)(esp_timer_get_time() / 1000);
+    sos_manual_trigger(now_ms);
+    WS_LOCK();
+    s_snap.sos = sos_state_name(sos_get_state());
+    s_snap.trigger = sos_trigger_name(sos_get_trigger());
+    WS_UNLOCK();
+    const char *resp = "{\"status\":\"ok\",\"sos\":\"ACTIVE\"}\n";
+    httpd_resp_set_type(req, "application/json");
+    httpd_resp_set_hdr(req, "Cache-Control", "no-store");
+    return httpd_resp_send(req, resp, HTTPD_RESP_USE_STRLEN);
+}
+
+static esp_err_t h_sos_cancel(httpd_req_t *req) {
+    if (!location_request_is_same_origin(req)) {
+        return httpd_resp_send_err(req, HTTPD_403_FORBIDDEN, "same-origin request required");
+    }
+    uint32_t now_ms = (uint32_t)(esp_timer_get_time() / 1000);
+    sos_cancel_now(now_ms);
+    WS_LOCK();
+    s_snap.sos = sos_state_name(sos_get_state());
+    s_snap.trigger = sos_trigger_name(sos_get_trigger());
+    WS_UNLOCK();
+    const char *resp = "{\"status\":\"ok\",\"sos\":\"CANCELLED\"}\n";
+    httpd_resp_set_type(req, "application/json");
+    httpd_resp_set_hdr(req, "Cache-Control", "no-store");
+    return httpd_resp_send(req, resp, HTTPD_RESP_USE_STRLEN);
 }
 
 /* POST /location — the caregiver records where this device is deployed.
@@ -616,7 +703,7 @@ esp_err_t web_status_start(void) {
 
     httpd_config_t hcfg = HTTPD_DEFAULT_CONFIG();
     hcfg.lru_purge_enable = true;
-    hcfg.max_uri_handlers = 8;
+    hcfg.max_uri_handlers = 12;
     hcfg.core_id = 1;
     err = httpd_start(&s_server, &hcfg);
     if (err != ESP_OK) {
@@ -625,16 +712,20 @@ esp_err_t web_status_start(void) {
         return err;
     }
 
-    httpd_uri_t uri_root = { .uri = "/",            .method = HTTP_GET, .handler = h_root };
-    httpd_uri_t uri_json = { .uri = "/status.json", .method = HTTP_GET, .handler = h_json };
-    httpd_uri_t uri_loc  = { .uri = "/location",    .method = HTTP_POST, .handler = h_set_location };
-    httpd_uri_t uri_hist = { .uri = "/history.json",.method = HTTP_GET, .handler = h_history };
-    httpd_uri_t uri_api  = { .uri = "/api/history", .method = HTTP_GET, .handler = h_history };
+    httpd_uri_t uri_root     = { .uri = "/",                      .method = HTTP_GET,  .handler = h_root };
+    httpd_uri_t uri_json     = { .uri = "/status.json",           .method = HTTP_GET,  .handler = h_json };
+    httpd_uri_t uri_loc      = { .uri = "/location",              .method = HTTP_POST, .handler = h_set_location };
+    httpd_uri_t uri_hist     = { .uri = "/history.json",          .method = HTTP_GET,  .handler = h_history };
+    httpd_uri_t uri_api      = { .uri = "/api/history",           .method = HTTP_GET,  .handler = h_history };
+    httpd_uri_t uri_sos_trig = { .uri = "/api/emergency/trigger", .method = HTTP_POST, .handler = h_sos_trigger };
+    httpd_uri_t uri_sos_canc = { .uri = "/api/emergency/cancel",  .method = HTTP_POST, .handler = h_sos_cancel };
     httpd_register_uri_handler(s_server, &uri_root);
     httpd_register_uri_handler(s_server, &uri_json);
     httpd_register_uri_handler(s_server, &uri_loc);
     httpd_register_uri_handler(s_server, &uri_hist);
     httpd_register_uri_handler(s_server, &uri_api);
+    httpd_register_uri_handler(s_server, &uri_sos_trig);
+    httpd_register_uri_handler(s_server, &uri_sos_canc);
     httpd_register_err_handler(s_server, HTTPD_404_NOT_FOUND, h_404);
 
     s_ap_active = true;

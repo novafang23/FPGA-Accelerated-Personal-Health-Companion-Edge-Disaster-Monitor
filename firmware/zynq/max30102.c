@@ -217,7 +217,7 @@ float max30102_read_temperature(max30102_t *dev) {
     return -999.0f;
 
   /* Temperature = TINT + (TFRAC × 0.0625) */
-  return (float)(int8_t)temp_int + ((float)temp_frac * 0.0625f);
+  return (float)(int8_t)temp_int + ((float)(temp_frac & 0x0F) * 0.0625f);
 }
 
 /* Power Management */

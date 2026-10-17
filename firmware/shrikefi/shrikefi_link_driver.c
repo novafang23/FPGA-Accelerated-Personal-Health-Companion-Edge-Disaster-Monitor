@@ -51,22 +51,10 @@ static bool     s_sim_irq = false;
 
 static bool s_initialized = false;
 
-/* Is the FPGA still holding MISO?
- *
- * A configured, running ForgeFPGA drives MISO, and that output overpowers the
- * ESP32's weak internal pull, so pulling the pin both ways reads the same level
- * whichever way it is pulled. An unconfigured or frozen chip leaves the pin
- * floating, the pull decides the level, and the two reads disagree.
- *
- * This is the only way the MCU can see a dead FPGA, and it matters because
- * reading the SPI replies cannot: a frozen chip still drives MISO from a frozen
- * register, so it answers with a constant byte that looks like a perfectly valid
- * zero sample. That is exactly how a wedged FPGA presents as a working device
- * with a stuck LED and no error anywhere in the log.
- *
- * MISO's output enable is hardwired on in the RTL (assign spi_miso_oe = 1'b1), so
- * this does not need chip-select asserted and can be run at any time. */
-bool shrikefi_link_fpga_alive(void) {
+/* Heuristic only: true when MISO reads the same level with weak pull-down and
+ * pull-up enabled. This suggests the line is driven or otherwise held, but
+ * cannot prove that the FPGA is the source or that its logic is executing. */
+bool shrikefi_link_miso_stable_under_pulls(void) {
 #ifdef ESP_PLATFORM
     gpio_set_pull_mode((gpio_num_t)PIN_FPGA_MISO, GPIO_PULLDOWN_ONLY);
     esp_rom_delay_us(100);
@@ -103,7 +91,8 @@ shrikefi_err_t shrikefi_link_init(void) {
         ESP_LOGI(LINK_TAG, "ForgeFPGA runtime SPI link active on SPI2 (1 MHz, CS=GPIO%d, MISO=GPIO%d, MOSI=GPIO%d, SCK=GPIO%d)",
                  PIN_FPGA_SS, PIN_FPGA_MISO, PIN_FPGA_MOSI, PIN_FPGA_SCK);
 
-        /* Perform liveness handshake over MISO with active-low SS assert */
+        /* Read the runtime byte format over MISO with active-low SS asserted.
+         * The returned data is a sensor result, not a link handshake. */
         spi_transaction_t probe_t;
         memset(&probe_t, 0, sizeof(probe_t));
         probe_t.length = 8;
@@ -119,11 +108,13 @@ shrikefi_err_t shrikefi_link_init(void) {
             ESP_LOGI(LINK_TAG, "ForgeFPGA runtime link handshake: probe sent 0x55, received 0x%02X", probe_rx);
         }
 
-        /* Test physical MISO drive state (overpowers weak pull-up/pull-down if actively driven by FPGA) */
-        bool fpga_alive = shrikefi_link_fpga_alive();
-        ESP_LOGI(LINK_TAG, "MISO Pin %d Physical Line Test: %s", PIN_FPGA_MISO,
-                 fpga_alive ? "ACTIVELY DRIVEN BY FPGA"
-                            : "FLOATING/TRISTATE - FPGA NOT RUNNING");
+        /* A stable level across pull settings is only a line-level heuristic;
+         * a short, changing beat response is needed to prove the design runs. */
+        bool miso_stable = shrikefi_link_miso_stable_under_pulls();
+        ESP_LOGI(LINK_TAG, "MISO Pin %d weak-pull test: %s (does not prove FPGA liveness)",
+                 PIN_FPGA_MISO,
+                 miso_stable ? "level stable; driven or externally held"
+                             : "level changed; likely floating or weakly held");
     }
 #endif
 
@@ -218,12 +209,12 @@ shrikefi_err_t shrikefi_write_ir_sample(uint8_t sample) {
         bool beat = ((rx >> 7) & 1) != 0;
         if (beat && !s_last_beat) {
             uint64_t now_us = esp_timer_get_time();
-            if (s_last_beat_time_us > 0) {
+            if (s_last_beat_time_us > 0 && now_us > s_last_beat_time_us) {
                 uint32_t delta_us = (uint32_t)(now_us - s_last_beat_time_us);
                 s_sim_ibi = delta_us * 50; /* 50 MHz cycles */
+                s_beat_detected_latched = true;
             }
             s_last_beat_time_us = now_us;
-            s_beat_detected_latched = true;
             ESP_LOGI(LINK_TAG, "[FPGA ACCEL] Systolic crest detected! Filtered=%d | PIN_7 blue LED pulsing", s_last_filtered_ir);
         }
         s_last_beat = beat;

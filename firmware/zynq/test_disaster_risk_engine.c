@@ -51,6 +51,48 @@ static void init_hrv_ready(hrv_state_t *hrv, float bpm) {
     hrv_compute(hrv);
 }
 
+static void test_hrv_rmssd_does_not_bridge_rejected_interval(void) {
+    hrv_state_t hrv;
+    hrv_init(&hrv);
+    hrv_add_ibi(&hrv, 800.0f);
+    hrv_add_ibi(&hrv, 810.0f);
+    hrv_break_sequence(&hrv); /* A rejected/missing beat interval. */
+    hrv_add_ibi(&hrv, 1000.0f);
+    hrv_compute(&hrv);
+
+    /* Only the contiguous 800 -> 810 ms pair contributes. The 810 -> 1000 ms
+     * jump crosses a rejected interval and must not inflate RMSSD. */
+    assert(fabsf(hrv.rmssd - 10.0f) < 0.01f);
+    assert(!hrv_is_ready(&hrv));
+
+    hrv_add_ibi(&hrv, 1010.0f);
+    hrv_compute(&hrv);
+    assert(fabsf(hrv.rmssd - 10.0f) < 0.01f);
+
+    hrv_init(&hrv);
+    for (int i = 0; i < 5; i++) {
+        hrv_add_ibi(&hrv, 800.0f + (float)(i & 1) * 10.0f);
+    }
+    hrv_break_sequence(&hrv);
+    for (int i = 5; i < HRV_MIN_SAMPLES; i++) {
+        hrv_add_ibi(&hrv, 800.0f + (float)(i & 1) * 10.0f);
+    }
+    hrv_compute(&hrv);
+    assert(!hrv_is_ready(&hrv));
+    hrv_add_ibi(&hrv, 810.0f);
+    hrv_compute(&hrv);
+    assert(hrv_is_ready(&hrv));
+
+    hrv_init(&hrv);
+    for (int i = 0; i < HRV_BUFFER_SIZE + 1; i++) {
+        hrv_add_ibi(&hrv, 800.0f + (float)(i & 1) * 10.0f);
+    }
+    hrv_compute(&hrv);
+    assert(fabsf(hrv.rmssd - 10.0f) < 0.01f);
+
+    printf("test_hrv_rmssd_does_not_bridge_rejected_interval: PASS\n");
+}
+
 static void test_heat_risk() {
     hrv_state_t hrv;
     init_hrv_ready(&hrv, 75.0f);  // Normal HRV
@@ -244,6 +286,30 @@ static void test_invalid_clinical_vitals_are_not_normal(void) {
     printf("test_invalid_clinical_vitals_are_not_normal: PASS\n");
 }
 
+/* Regression (2026-10-17): a single crisis vital on a poor signal must NOT bypass the
+ * SQI hold. A live capture showed a stable-but-wrong SpO2 of ~80% (artifact-biased
+ * red/IR ratio) latching a CRITICAL/SOS alarm on a healthy subject at SQI 0.47-0.52,
+ * because SpO2 <= 85 alone satisfied the old "absolute crisis" override. The override
+ * now requires corroboration: adequate signal quality, or a second crisis criterion. */
+static void test_clinical_sqi_crisis_corroboration(void) {
+    clinical_assessment_t out;
+
+    /* (1) The exact live failure: SpO2 80, else normal, SQI 0.50 -> held, not critical. */
+    clinical_vitals_assess_ext(75.0f, 80.0f, 40.0f, 15.0f, 0.50f, 36.5f, &out);
+    assert(out.level == CLINICAL_ELEVATED);
+    assert((out.alert_flags & ALERT_SIGNAL_NOISE) != 0);
+
+    /* (2) The same single vital on a CLEAN signal must still be critical (no false negative). */
+    clinical_vitals_assess_ext(75.0f, 80.0f, 40.0f, 15.0f, 0.90f, 36.5f, &out);
+    assert(out.level == CLINICAL_CRITICAL);
+
+    /* (3) Two independent crisis criteria on a poor signal still override (genuine collapse). */
+    clinical_vitals_assess_ext(160.0f, 80.0f, 40.0f, 15.0f, 0.50f, 36.5f, &out);
+    assert(out.level == CLINICAL_CRITICAL);
+
+    printf("test_clinical_sqi_crisis_corroboration: PASS\n");
+}
+
 /* Map a raw NN score [0,1] to the same 4-tier scale nn_score_to_risk() uses
  * in disaster_risk_engine.c, so we can catch the specific failure mode of
  * "float and int8 land in different risk tiers" -- not just "the numbers
@@ -382,8 +448,10 @@ static void test_spo2_clinical_rejection() {
      * gate removed entirely - it cannot detect a regression on its own. This
      * can: with SPO2_REQUIRED_VALID_WINDOWS back at 1 it fails. */
     spo2_init(&spo2);
-    for (int win = 0; win < 10; win++) {
-        float red_ac = 125.0f - (float)win * 6.25f;
+    /* Larger R drift than the generic curve needed, because the 2-point sensor
+     * calibration (slope 6.67) maps a given R change to a smaller SpO2 change. */
+    for (int win = 0; win < 7; win++) {
+        float red_ac = 250.0f - (float)win * 35.0f;
         for (int i = 0; i < SPO2_WINDOW_SIZE; i++) {
             float phase = (float)i / (float)SPO2_WINDOW_SIZE * 6.283185f;
             float pulse = sinf(phase);
@@ -410,6 +478,74 @@ static void test_spo2_clinical_rejection() {
     assert(spo2_is_valid(&spo2) == 1);
     printf("  SpO2 Test 5 (latches once the input settles): valid=%d, SpO2=%.1f%%\n",
            spo2_is_valid(&spo2), spo2_get_value(&spo2));
+
+    /* Scenario 6: Bounded grace period and noise expiration.
+     * After valid windows, consecutive_valid is bounded at SPO2_REQUIRED_VALID_WINDOWS (3).
+     * Sustained noise/motion for 3 windows must cleanly drop validity. */
+    assert(spo2.consecutive_valid == SPO2_REQUIRED_VALID_WINDOWS);
+    /* Feed 1 motion-noise window: validity holds */
+    for (int win = 0; win < 1; win++) {
+        for (int i = 0; i < SPO2_WINDOW_SIZE; i++) {
+            float phase = (float)i / (float)SPO2_WINDOW_SIZE * 6.283185f;
+            float pulse = sinf(phase);
+            uint32_t red = (uint32_t)(25000.0f + 400.0f * pulse);
+            uint32_t ir  = (uint32_t)(30000.0f + 100.0f * pulse);
+            spo2_add_samples(&spo2, red, ir);
+        }
+    }
+    assert(spo2_is_valid(&spo2) == 1);
+    assert(spo2.consecutive_valid == 2);
+    /* Feed remaining 2 noise windows -> total 3 invalid windows -> grace expires */
+    for (int win = 0; win < 2; win++) {
+        for (int i = 0; i < SPO2_WINDOW_SIZE; i++) {
+            float phase = (float)i / (float)SPO2_WINDOW_SIZE * 6.283185f;
+            float pulse = sinf(phase);
+            uint32_t red = (uint32_t)(25000.0f + 400.0f * pulse);
+            uint32_t ir  = (uint32_t)(30000.0f + 100.0f * pulse);
+            spo2_add_samples(&spo2, red, ir);
+        }
+    }
+    assert(spo2_is_valid(&spo2) == 0);
+    printf("  SpO2 Test 6 (bounded grace expires after 3 invalid windows): valid=%d\n", spo2_is_valid(&spo2));
+
+    /* Scenario 7: Momentary tremor absorption.
+     * Re-acquire over 6 windows, then inject 1 tremor window, then resume clean pulse.
+     * Validity must be preserved across the tremor. */
+    for (int win = 0; win < 6; win++) {
+        for (int i = 0; i < SPO2_WINDOW_SIZE; i++) {
+            float phase = (float)i / (float)SPO2_WINDOW_SIZE * 6.283185f;
+            float pulse = sinf(phase);
+            uint32_t red = (uint32_t)(25000.0f + 62.5f * pulse);
+            uint32_t ir  = (uint32_t)(30000.0f + 150.0f * pulse);
+            spo2_add_samples(&spo2, red, ir);
+        }
+    }
+    assert(spo2_is_valid(&spo2) == 1);
+    assert(spo2.consecutive_valid == 3);
+    /* Inject 1 tremor window (R=4.8) */
+    for (int win = 0; win < 1; win++) {
+        for (int i = 0; i < SPO2_WINDOW_SIZE; i++) {
+            float phase = (float)i / (float)SPO2_WINDOW_SIZE * 6.283185f;
+            float pulse = sinf(phase);
+            uint32_t red = (uint32_t)(25000.0f + 400.0f * pulse);
+            uint32_t ir  = (uint32_t)(30000.0f + 100.0f * pulse);
+            spo2_add_samples(&spo2, red, ir);
+        }
+    }
+    assert(spo2_is_valid(&spo2) == 1);
+    assert(spo2.consecutive_valid == 2);
+    /* 1 clean window recovers confidence */
+    for (int i = 0; i < SPO2_WINDOW_SIZE; i++) {
+        float phase = (float)i / (float)SPO2_WINDOW_SIZE * 6.283185f;
+        float pulse = sinf(phase);
+        uint32_t red = (uint32_t)(25000.0f + 62.5f * pulse);
+        uint32_t ir  = (uint32_t)(30000.0f + 150.0f * pulse);
+        spo2_add_samples(&spo2, red, ir);
+    }
+    assert(spo2_is_valid(&spo2) == 1);
+    assert(spo2.consecutive_valid == 3);
+    printf("  SpO2 Test 7 (momentary tremor absorbed by grace): valid=%d, consec=%d\n",
+           spo2_is_valid(&spo2), spo2.consecutive_valid);
 
     printf("test_spo2_clinical_rejection: PASS\n");
 }
@@ -624,6 +760,111 @@ static void test_sos_state_machine(void) {
     assert(sos_get_state() == SOS_ACTIVE);
     assert(sos_get_trigger() == SOS_TRIGGER_CONTACT_LOST);
 
+    /* Fall emergency: 10 s grace period before latching to ACTIVE */
+    sos_init(&cfg);
+    sos_arm_fall(0);
+    assert(sos_get_state() == SOS_ARMED);
+    assert(sos_get_trigger() == SOS_TRIGGER_FALL);
+    assert(sos_armed_remaining_ms(0) == 10000u);
+    sos_update(5000, false, true);               /* 5 s < 10 s grace */
+    assert(sos_get_state() == SOS_ARMED);
+    assert(sos_get_trigger() == SOS_TRIGGER_FALL);
+    assert(sos_armed_remaining_ms(5000) == 5000u);
+    sos_update(10001, false, true);              /* 10 s grace expired */
+    assert(sos_get_state() == SOS_ACTIVE);
+    assert(sos_get_trigger() == SOS_TRIGGER_FALL);
+    assert(strcmp(sos_trigger_name(sos_get_trigger()), "fall") == 0);
+
+    /* Fall emergency cancellation via immediate cancel during grace period */
+    sos_init(&cfg);
+    sos_arm_fall(0);
+    assert(sos_get_state() == SOS_ARMED);
+    sos_cancel_now(3000);
+    assert(sos_get_state() == SOS_CANCELLED);
+    sos_update(11000, false, true);              /* After grace, stands down to IDLE */
+    assert(sos_get_state() == SOS_IDLE);
+
+    /* Fall emergency cancellation via 5s hardware button hold during grace period */
+    sos_init(&cfg);
+    sos_arm_fall(0);
+    assert(sos_get_state() == SOS_ARMED);
+    sos_cancel_press(1000);
+    sos_update(4000, false, true);               /* 3 s held */
+    assert(sos_get_state() == SOS_ARMED);
+    assert(sos_cancel_progress_pct(4000) == 60);
+    sos_update(6000, false, true);               /* 5 s held -> stands down */
+    assert(sos_get_state() == SOS_CANCELLED);
+    sos_update(8000, false, true);
+    assert(sos_get_state() == SOS_IDLE);
+
+    /* Direct immediate fall trigger */
+    sos_init(&cfg);
+    sos_fall_trigger(1000);
+    assert(sos_get_state() == SOS_ACTIVE);
+    assert(sos_get_trigger() == SOS_TRIGGER_FALL);
+
+    /* Fall armed: critical triage during grace period escalates immediately to ACTIVE */
+    sos_init(&cfg);
+    sos_arm_fall(0);
+    assert(sos_get_state() == SOS_ARMED);
+    assert(sos_get_trigger() == SOS_TRIGGER_FALL);
+    sos_update(2000, true, true);               /* Critical vitals pulse at 2s */
+    assert(sos_get_state() == SOS_ACTIVE);
+    assert(sos_get_trigger() == SOS_TRIGGER_FALL);
+    sos_update(3000, false, true);              /* Critical clears, fall alarm must persist */
+    assert(sos_get_state() == SOS_ACTIVE);
+    assert(sos_get_trigger() == SOS_TRIGGER_FALL);
+
+    /* Fall armed: transient contact loss must NOT overwrite or clear fall alarm */
+    cfg.contact_lost_enabled = true;
+    sos_init(&cfg);
+    sos_arm_fall(0);
+    assert(sos_get_state() == SOS_ARMED);
+    assert(sos_get_trigger() == SOS_TRIGGER_FALL);
+    sos_update(3000, false, false);             /* Contact lost at 3s */
+    assert(sos_get_state() == SOS_ARMED);
+    assert(sos_get_trigger() == SOS_TRIGGER_FALL);
+    sos_update(6000, false, true);              /* Contact restored at 6s */
+    assert(sos_get_state() == SOS_ARMED);
+    assert(sos_get_trigger() == SOS_TRIGGER_FALL);
+    /* Fall armed: redundant calls to sos_arm_fall must NOT reset the countdown deadline */
+    sos_init(&cfg);
+    sos_arm_fall(0);
+    assert(sos_get_state() == SOS_ARMED);
+    assert(sos_armed_remaining_ms(0) == 10000u);
+    sos_update(4000, false, true);
+    assert(sos_armed_remaining_ms(4000) == 6000u);
+    sos_arm_fall(4000);                          /* Redundant arm call at 4s */
+    assert(sos_armed_remaining_ms(4000) == 6000u); /* Must remain 6s, not reset to 10s */
+    sos_update(10001, false, true);              /* Original 10s expires */
+    assert(sos_get_state() == SOS_ACTIVE);
+    assert(sos_get_trigger() == SOS_TRIGGER_FALL);
+
+    /* Active critical triage upgraded to FALL trigger prevents automatic recovery stand-down */
+    sos_init(&cfg);
+    sos_update(0, true, true);
+    sos_update(15001, true, true);               /* 15s critical confirm expires -> ACTIVE */
+    assert(sos_get_state() == SOS_ACTIVE);
+    assert(sos_get_trigger() == SOS_TRIGGER_CRITICAL_TRIAGE);
+    sos_arm_fall(16000);                         /* Subject collapses with fall */
+    assert(sos_get_state() == SOS_ACTIVE);
+    assert(sos_get_trigger() == SOS_TRIGGER_FALL);
+    /* Vitals recover for >30s (recovery_clear_ms); must NOT stand down because trigger is now FALL */
+    sos_update(50000, false, true);
+    assert(sos_get_state() == SOS_ACTIVE);
+    assert(sos_get_trigger() == SOS_TRIGGER_FALL);
+
+    /* Clock underflow safety checks */
+    sos_init(&cfg);
+    assert(sos_armed_remaining_ms(0) == 0u);     /* When not armed */
+    sos_arm_fall(5000);
+    assert(sos_armed_remaining_ms(2000) == 10000u); /* now_ms < s_cond_since */
+    assert(sos_active_ms(1000) == 0u);           /* When not active */
+    sos_fall_trigger(5000);
+    assert(sos_active_ms(2000) == 0u);           /* now_ms < s_active_since */
+    sos_cancel_press(5000);
+    assert(sos_cancel_progress_pct(2000) == 0u); /* now_ms < s_press_ms */
+
     printf("test_sos_state_machine: PASS\n");
 }
 
@@ -641,6 +882,7 @@ static void test_web_status_json(void) {
     s.risk = "NORMAL"; s.sos = "IDLE"; s.trigger = "none"; s.loc = "UNSET";
     s.uptime_s = 123; s.contact = true;
     s.pressure_hpa = 1013.2f; s.pressure_trend_hpa_per_hr = -1.25f; s.storm = "HIGH";
+    s.motion = 0.12f; s.fall = "MONITORING";
 
     char buf[512];
     size_t n = web_status_json(&s, buf, sizeof(buf));
@@ -652,11 +894,14 @@ static void test_web_status_json(void) {
     assert(strstr(buf, "\"rr\":0.0")         != NULL);
     assert(strstr(buf, "\"sqi\":0.87")       != NULL);
     assert(strstr(buf, "\"rmssd\":38.3")     != NULL);
+    assert(strstr(buf, "\"skin_temp\"") == NULL); /* no skin-temperature sensor */
     assert(strstr(buf, "\"risk\":\"NORMAL\"")!= NULL);
     assert(strstr(buf, "\"sos\":\"IDLE\"")   != NULL);
     assert(strstr(buf, "\"loc\":\"UNSET\"")  != NULL);
     assert(strstr(buf, "\"contact\":true")   != NULL);
     assert(strstr(buf, "\"up\":123")         != NULL);
+    assert(strstr(buf, "\"motion\":0.12")    != NULL);
+    assert(strstr(buf, "\"fall\":\"MONITORING\"") != NULL);
     /* The storm advisory and the trend that drives it (T3.1). A negative trend
      * is a FALLING barometer, which is the direction that precedes a storm. */
     assert(strstr(buf, "\"pressure\":1013.2")    != NULL);
@@ -685,13 +930,15 @@ static void test_web_status_json(void) {
 
     /* NULL name fields must degrade to words, not to a malformed document: the
      * page would otherwise render the string "null". */
-    s.risk = NULL; s.sos = NULL; s.trigger = NULL; s.loc = NULL;
+    s.risk = NULL; s.sos = NULL; s.trigger = NULL; s.loc = NULL; s.fall = NULL;
     n = web_status_json(&s, buf, sizeof(buf));
     assert(n > 0);
     assert(strstr(buf, "\"risk\":\"UNKNOWN\"") != NULL);
     assert(strstr(buf, "\"sos\":\"IDLE\"")     != NULL);
     assert(strstr(buf, "\"trigger\":\"none\"") != NULL);
     assert(strstr(buf, "\"loc\":\"UNSET\"")    != NULL);
+    assert(strstr(buf, "\"fall\":\"MONITORING\"") != NULL);
+    assert(strstr(buf, "\"skin_temp\"") == NULL);
 
     /* A buffer that cannot hold the document must report failure. A truncated
      * line would be invalid JSON and the page would silently stop updating. */
@@ -704,6 +951,18 @@ static void test_web_status_json(void) {
 
     printf("test_web_status_json: PASS (document is %u bytes)\n",
            (unsigned)strlen(buf));
+}
+
+static void test_web_status_origin_check(void) {
+    assert(web_status_request_is_same_origin("http://192.168.4.1", NULL));
+    assert(web_status_request_is_same_origin(NULL, "http://192.168.4.1/"));
+    assert(web_status_request_is_same_origin(NULL, "http://192.168.4.1/location"));
+    assert(!web_status_request_is_same_origin("http://evil.example", "http://192.168.4.1/"));
+    assert(!web_status_request_is_same_origin(NULL, "http://192.168.4.1.evil.example/"));
+    assert(!web_status_request_is_same_origin(NULL, "http://192.168.4.10/"));
+    assert(!web_status_request_is_same_origin(NULL, "https://192.168.4.1/"));
+    assert(!web_status_request_is_same_origin(NULL, NULL));
+    puts("test_web_status_origin_check: PASS");
 }
 
 /* Deployment location: what actually gets stored and shown (T1.4). */
@@ -854,6 +1113,20 @@ static void test_pressure_trend(void) {
     assert(fabsf(r.pressure_hpa - (1000.0f + 199.0f * 0.1f)) < 1e-3f);
     /* samples 20..199 at +0.1 each -> +0.1 hPa per minute -> +6 hPa/hr */
     assert(fabsf(r.slope_hpa_per_hr - 6.0f) < 0.05f);
+
+    /* The millisecond uptime counter wraps after roughly 49.7 days. A valid
+     * pressure window crossing that boundary must preserve time ordering and
+     * produce the same slope. */
+    pressure_trend_init(&t);
+    uint32_t wrap_start = UINT32_MAX - 1200000u;
+    for (int i = 0; i <= 60; i++) {
+        pressure_trend_add(&t, wrap_start + (uint32_t)i * 60000u,
+                           1013.0f - (float)i / 60.0f);
+    }
+    pressure_trend_evaluate(&t, &r);
+    assert(r.valid);
+    assert(r.span_ms == 60u * 60000u);
+    assert(fabsf(r.slope_hpa_per_hr + 1.0f) < 0.01f);
 
     /* Paced add: called at 1 Hz it stores once a minute. */
     pressure_trend_init(&t);
@@ -1284,6 +1557,138 @@ static void test_rr_rejects_alternans(void) {
     printf("test_rr_rejects_alternans: PASS (lag-2 alternans not published as tachypnoea)\n");
 }
 
+/* Regression (2026-10-17): a 3-beat IBI rhythm at ~90 bpm must not be published
+ * as tachypnoea. This is the live breath-hold failure: no respiration, but a
+ * periodic 3-beat variation won at lag 3 (= 30 br/min at a 0.667 s IBI) and the
+ * confidence cleared 0.60 because the depth term was carried by beat-to-beat
+ * variability. NEWS2 scores >=25 as +3, so that was a false CRITICAL. */
+static void test_rr_rejects_three_beat_artifact(void) {
+    ppg_respiratory_result_t rr;
+    float ibi[96];
+    const size_t N = 60;
+    const float mean_ibi = 667.0f;   /* ~90 bpm */
+    const float art_ms   = 60.0f;    /* a 3-beat rhythm, no respiration */
+
+    for (size_t i = 0; i < N; i++) {
+        float phase = 2.0f * 3.14159265f * ((float)(i % 3) / 3.0f);
+        ibi[i] = mean_ibi + 0.5f * art_ms * sinf(phase);
+    }
+
+    memset(&rr, 0, sizeof(rr));
+    ppg_estimate_respiratory_rate(ibi, NULL, N, &rr);
+    printf("  RR 3-beat : est %5.2f lag=%d conf=%.2f rel=%d (must not publish >=25)\n",
+           rr.respiratory_rate_bpm, rr.diag_peak_lag, rr.confidence, (int)rr.is_reliable);
+
+    assert(!rr.is_reliable);
+    printf("test_rr_rejects_three_beat_artifact: PASS\n");
+}
+
+/* AM corroboration (2026-10-17): fuse the respiratory rate from inter-beat
+ * intervals (frequency modulation / RSA) with an independent rate from the
+ * pulse-amplitude series (amplitude modulation). Agreement between two different
+ * measurements is evidence the FM path cannot fake on its own. */
+static void test_rr_am_corroboration(void) {
+    ppg_respiratory_result_t rr;
+    float ibi[96], amp[96];
+    const size_t N = 60;
+    const float mean_ibi = 800.0f;
+    const float rr_true  = 15.0f;
+    const float period_s = 60.0f / rr_true;
+    float t = 0.0f;
+
+    for (size_t i = 0; i < N; i++) {
+        float phase = 2.0f * 3.14159265f * (t / period_s);
+        ibi[i] = mean_ibi + 20.0f * sinf(phase);      /* 40 ms p-p RSA */
+        amp[i] = 50000.0f + 3000.0f * sinf(phase);    /* 6% AM, same phase */
+        t += ibi[i] / 1000.0f;
+    }
+
+    memset(&rr, 0, sizeof(rr));
+    ppg_estimate_respiratory_rate(ibi, amp, N, &rr);
+    printf("  RR AM+FM  : est %5.1f (true %.0f) conf=%.2f rel=%d\n",
+           rr.respiratory_rate_bpm, rr_true, rr.confidence, (int)rr.is_reliable);
+    assert(rr.is_reliable);
+    assert(fabsf(rr.respiratory_rate_bpm - rr_true) < 2.5f);
+
+    /* Amplitude with only a slow drift and no periodic modulation must not
+     * fabricate a corroborating AM rate; the estimate still comes from FM. */
+    for (size_t i = 0; i < N; i++) amp[i] = 50000.0f + 500.0f * (float)i;
+    memset(&rr, 0, sizeof(rr));
+    ppg_estimate_respiratory_rate(ibi, amp, N, &rr);
+    printf("  RR AM drift: est %5.1f conf=%.2f rel=%d\n",
+           rr.respiratory_rate_bpm, rr.confidence, (int)rr.is_reliable);
+    assert(rr.is_reliable);
+    assert(fabsf(rr.respiratory_rate_bpm - rr_true) < 2.5f);
+
+    printf("test_rr_am_corroboration: PASS\n");
+}
+
+static void test_news2_temperature_scoring(void) {
+    clinical_assessment_t out;
+
+    /* 1. Normal temperature (36.5 C) -> temp score 0, total 0 */
+    clinical_vitals_assess_ext(75.0f, 98.0f, 40.0f, 15.0f, 0.95f, 36.5f, &out);
+    assert(out.news2_score == 0);
+    assert(out.level == CLINICAL_NORMAL);
+    assert((out.alert_flags & ALERT_HYPOTHERMIA) == 0);
+
+    /* 2. Uninstrumented temperature (0.0 C) -> temp score 0, total 0 */
+    clinical_vitals_assess_ext(75.0f, 98.0f, 40.0f, 15.0f, 0.95f, 0.0f, &out);
+    assert(out.news2_score == 0);
+    assert(out.level == CLINICAL_NORMAL);
+
+    /* 3. Mild cold stress (35.5 C) -> temp score 1, total 1 */
+    clinical_vitals_assess_ext(75.0f, 98.0f, 40.0f, 15.0f, 0.95f, 35.5f, &out);
+    assert(out.news2_score == 1);
+    assert(out.level == CLINICAL_ELEVATED);
+
+    /* 4. Clinical Hypothermia (34.0 C) -> temp score 3, flags ALERT_HYPOTHERMIA */
+    clinical_vitals_assess_ext(75.0f, 98.0f, 40.0f, 15.0f, 0.95f, 34.0f, &out);
+    assert(out.news2_score == 3);
+    assert((out.alert_flags & ALERT_HYPOTHERMIA) != 0);
+    assert(out.level >= CLINICAL_HIGH);
+
+    /* 5. Mild fever (38.5 C) -> temp score 1, total 1 */
+    clinical_vitals_assess_ext(75.0f, 98.0f, 40.0f, 15.0f, 0.95f, 38.5f, &out);
+    assert(out.news2_score == 1);
+    assert(out.level == CLINICAL_ELEVATED);
+
+    /* 6. High fever (39.5 C) -> temp score 2, level CLINICAL_HIGH */
+    clinical_vitals_assess_ext(75.0f, 98.0f, 40.0f, 15.0f, 0.95f, 39.5f, &out);
+    assert(out.news2_score == 2);
+    assert(out.level >= CLINICAL_HIGH);
+
+    printf("test_news2_temperature_scoring: PASS (hypothermia and fever scored correctly)\n");
+}
+
+static void test_max30102_temperature_conversion(void) {
+    /* 1. Positive 36.5 C: int=36, frac=8 (8 * 0.0625 = 0.5) */
+    int8_t t_int = 36;
+    uint8_t t_frac = 0x08;
+    float t_calc = (float)t_int + ((float)(t_frac & 0x0F) * 0.0625f);
+    assert(fabsf(t_calc - 36.5f) < 0.001f);
+
+    /* 2. Reserved bits [7:4] in register 0x20 must be ignored */
+    t_frac = 0xF8; /* Upper 4 bits set to 1 */
+    t_calc = (float)t_int + ((float)(t_frac & 0x0F) * 0.0625f);
+    assert(fabsf(t_calc - 36.5f) < 0.001f);
+
+    /* 3. Negative temperature -10.25 C: int=-11, frac=12 (12 * 0.0625 = 0.75 -> -11 + 0.75 = -10.25)
+     * Maxim datasheet: -128 C + 0.5 C = -127.5 C */
+    t_int = -128;
+    t_frac = 0x08;
+    t_calc = (float)t_int + ((float)(t_frac & 0x0F) * 0.0625f);
+    assert(fabsf(t_calc - (-127.5f)) < 0.001f);
+
+    /* 4. Fractional max: frac=15 -> 15 * 0.0625 = 0.9375 C */
+    t_int = 37;
+    t_frac = 0x0F;
+    t_calc = (float)t_int + ((float)(t_frac & 0x0F) * 0.0625f);
+    assert(fabsf(t_calc - 37.9375f) < 0.001f);
+
+    printf("test_max30102_temperature_conversion: PASS (masking and two's complement verified)\n");
+}
+
 int main() {
     /* Unbuffered, because a failing assert calls abort() and abort() does not
      * flush stdio. With the default block buffering the diagnostic printed
@@ -1291,18 +1696,22 @@ int main() {
      * away and all the runner shows is the assertion text. */
     setvbuf(stdout, NULL, _IONBF, 0);
     printf("Running unit tests for disaster_risk_engine...\n");
+    test_hrv_rmssd_does_not_bridge_rejected_interval();
     test_heat_risk();
     test_pollution_risk();
     test_flood_risk();
     test_hrv_not_ready();
     test_null_env();
     test_invalid_clinical_vitals_are_not_normal();
-    test_flood_ambient_proxy();    test_int8_matches_float_nn();
+    test_clinical_sqi_crisis_corroboration();
+    test_flood_ambient_proxy();
+    test_int8_matches_float_nn();
     test_spo2_clinical_rejection();
     test_rr_estimate_rejects_clamped_value();
     test_sqi_requires_beat_intervals();
     test_sos_state_machine();
     test_web_status_json();
+    test_web_status_origin_check();
     test_location_store();
     test_pressure_trend();
     test_cyclone_risk();
@@ -1311,6 +1720,10 @@ int main() {
     test_rr_resolution();
     test_rr_band_edges();
     test_rr_rejects_alternans();
+    test_rr_rejects_three_beat_artifact();
+    test_rr_am_corroboration();
+    test_news2_temperature_scoring();
+    test_max30102_temperature_conversion();
     printf("ALL TESTS PASSED.\n");
     return 0;
 }

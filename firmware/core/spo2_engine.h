@@ -12,10 +12,10 @@
 extern "C" {
 #endif
 
-/* Samples per measurement window. The optical link delivers ~100 samples/s
- * (measured ~105/s), so this is ~0.5 s per entry, not the 1.0 s an earlier
- * 50 Hz assumption gave. */
-#define SPO2_WINDOW_SIZE (PPG_SAMPLE_RATE_HZ / 2)
+/* Realign measurement window to 1.0s. With MAX30102_FIFO_SMP_AVE_4 active
+ * in max30102.c, the sensor FIFO delivers 25 Hz (100 Hz ADC / 4).
+ * Thus 25 samples = 1.0 s per window, giving an 8-second smoothing window. */
+#define SPO2_WINDOW_SIZE (PPG_SAMPLE_RATE_HZ / 4)
 #define SPO2_MA_FILTER_SIZE 8 /* Moving average history size (8-second smoothing window) */
 
 /* Clinical validity thresholds calibrated for MAX30102 18-bit optical levels */
@@ -23,10 +23,10 @@ extern "C" {
 #define SPO2_MIN_AC_RED              8.0f  /* Minimum pulsatile AC amplitude for Red (counts) */
 #define SPO2_MIN_DC_IR            1000.0f  /* Minimum optical DC level for IR (counts, ambient air is <600) */
 #define SPO2_MIN_DC_RED            800.0f  /* Minimum optical DC level for Red (counts) */
-#define SPO2_MIN_PERFUSION_INDEX     0.15f /* Minimum Perfusion Index (0.15%) */
+#define SPO2_MIN_PERFUSION_INDEX     0.02f /* Minimum Perfusion Index (0.02% for 18-bit MAX30102 DC ~150k) */
 #define SPO2_MAX_PERFUSION_INDEX    15.0f  /* Maximum Perfusion Index to reject motion (15.0%) */
-#define SPO2_MIN_RATIO_R             0.35f /* Physiological lower bound for R (approx 100% SpO2) */
-#define SPO2_MAX_RATIO_R             1.65f /* Physiological upper bound for R (approx 68% SpO2) */
+#define SPO2_MIN_RATIO_R             0.10f /* Physiological lower bound for R (clamped to 100% SpO2) */
+#define SPO2_MAX_RATIO_R             2.20f /* Physiological upper bound for R (rejects motion tremor >2.2) */
 
 /* Acquisition gate.
  *
@@ -50,15 +50,31 @@ extern "C" {
  * latched at window 5 at 87.45% - better than the 78% it replaced, but 87% is
  * still significant hypoxaemia. The drift decelerates as it converges, so any
  * short baseline eventually looks flat while the absolute value is still far
- * from settled. Eight windows at a 2% tolerance clears the real transient
+ * from settled. Eight windows at a 2.5% tolerance clears the real transient
  * (about 0.55%/s on hardware, so roughly 4.4% across the window) and still
  * latches on a genuinely settled signal. */
-#define SPO2_REQUIRED_VALID_WINDOWS  8     /* Consecutive valid windows before latching */
-#define SPO2_STABLE_MIN_WINDOWS      8     /* Windows compared for flatness (= MA depth) */
-#define SPO2_STABLE_SPREAD_PCT       2.0f  /* Max spread across those windows, in SpO2 % */
+#define SPO2_REQUIRED_VALID_WINDOWS  3     /* Valid windows required to latch SpO2 reading (~3.0s response) */
+#define SPO2_STABLE_MIN_WINDOWS      3     /* Minimum windows compared for stability */
+#define SPO2_STABLE_SPREAD_PCT       3.5f  /* Flatness tolerance band across 3 baseline windows, in SpO2 % */
+
+/* Two-point sensor calibration against a reference fingertip oximeter (2026-10-17).
+ *
+ * The generic MAX30102 curve (SpO2 = 110 - 25*R) over-reacted on this sensor:
+ *   rest:  device ~99-100%   while the reference read 98%
+ *   nadir: device ~91-92%    while the reference read 96% (breath-hold)
+ * A 2-point fit in the SpO2 domain gives a shallower slope for this optical path:
+ *   SpO2 = 101.8 - 6.67*R
+ *
+ * This is a ROUGH two-point calibration from approximate readings. It compresses
+ * the dynamic range versus the generic curve, so it may under-report severe
+ * desaturation. Re-calibrate if the sensor, contact geometry or LED current
+ * changes. Set SPO2_CAL_SLOPE to 25.0f and SPO2_CAL_INTERCEPT to 110.0f to
+ * restore the generic curve. */
+#define SPO2_CAL_INTERCEPT          101.8f
+#define SPO2_CAL_SLOPE                6.67f
 
 typedef struct {
-    /* Per-window accumulators for the mean (DC) and standard deviation (AC).
+    /* Per-window Welford accumulators for the mean (DC) and variance (AC).
      *
      * These replaced min/max tracking. Peak-to-peak is decided by exactly TWO of
      * the 50 samples - the single highest and the single lowest - so it is the
@@ -74,8 +90,8 @@ typedef struct {
      * calibration curve below are unchanged; the difference is that it is computed
      * from all 50 samples instead of two. The same formula is already used for RSA
      * depth in ppg_respiratory_rate.c, for the same reason. */
-    double   red_sum, red_sumsq;
-    double   ir_sum,  ir_sumsq;
+    float    red_mean, red_m2;
+    float    ir_mean,  ir_m2;
     int      sample_count;
 
     float    ratio_r;

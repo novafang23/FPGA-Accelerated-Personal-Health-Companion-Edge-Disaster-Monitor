@@ -31,7 +31,10 @@ SRCS_CORE := \
     $(CORE_DIR)/disaster_risk_engine.c \
     $(CORE_DIR)/nn_risk_model.c \
     $(CORE_DIR)/nn_risk_model_int8.c \
-    $(CORE_DIR)/pressure_trend.c
+    $(CORE_DIR)/pressure_trend.c \
+    $(CORE_DIR)/ppg_respiratory_rate.c \
+    $(CORE_DIR)/clinical_vitals_engine.c \
+    $(CORE_DIR)/ppg_sqi.c
 
 SRCS_DRIVERS := \
     i2c_hal.c \

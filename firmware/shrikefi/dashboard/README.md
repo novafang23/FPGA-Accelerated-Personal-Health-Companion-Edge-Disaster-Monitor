@@ -139,9 +139,29 @@ shown as percentages. Everything else is already in display units.
 If no telemetry arrives for 3 seconds while connected, the header says so rather
 than freezing on stale numbers.
 
-## Next step (not done)
+## ShrikeFi SoftAP dashboard
 
-Serve this same file from the ESP32 over SoftAP, so a rescuer's phone can open it
-with no router and no cable. That is task **T1.3** in `docs/REMAINING_WORK.md`,
-and it closes requirement 6 — it needs an HTTP server and a SoftAP in the
-firmware, no change to this file.
+The ESP32-S3 serves a compact phone dashboard at `http://192.168.4.1` after you
+join its `VALOR-xxxx` WiFi access point. This is a separate page embedded in
+`firmware/shrikefi/web_status.c`; it is not the standalone HTML file above.
+The standalone file is the richer USB Web Serial dashboard (or an explicitly
+selected simulation). Both are self-contained and work without internet access.
+
+The SoftAP page polls the device's status once per second. It shows ambient
+temperature from the BME280 separately from the MAX30102 finger-temperature
+estimate, which is an optical proxy and not a clinical thermometer. It also
+shows current vitals, signal quality, triage, location, storm status, and the
+manual SOS trigger/cancel controls. When the HTTP status request fails, current
+readings are cleared instead of being left on screen as if they were live.
+
+The SoftAP is open for emergency access. It does not provide authentication;
+any client that joins can read the live status and use its controls. The status
+and history APIs no longer grant cross-origin browser reads. Same-origin checks
+also reject host-prefix lookalikes, but do not authenticate an AP client.
+
+**Verification:** run `python firmware/shrikefi/dashboard/verify_dashboard.py`
+for the standalone page and `python firmware/shrikefi/dashboard/verify_softap_page.py`
+for the firmware-embedded page. The SoftAP page is compiled into the ESP-IDF
+firmware; its JSON contract and origin check also have host regressions. These
+software checks run without the board, but opening the actual SoftAP requires
+the ESP32-S3 to be powered and connected.

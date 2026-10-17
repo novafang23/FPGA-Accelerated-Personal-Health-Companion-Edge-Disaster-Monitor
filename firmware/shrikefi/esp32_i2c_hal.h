@@ -79,6 +79,33 @@ int esp32_i2c_hal_probe(uint8_t dev_addr);
  */
 void esp32_i2c_hal_scan(void);
 
+/**
+ * @brief Issue 9 recovery clock pulses and a STOP condition to free a stuck I2C bus
+ * @return 0 on success, negative error code on failure
+ */
+int esp32_i2c_hal_recover_bus(void);
+
+/**
+ * @brief Acquire recursive I2C bus lock for atomic multi-transaction sequences
+ */
+void esp32_i2c_hal_lock(void);
+
+/**
+ * @brief Release recursive I2C bus lock
+ */
+void esp32_i2c_hal_unlock(void);
+
+#ifndef ESP_PLATFORM
+void esp32_i2c_hal_sim_set_max30102_temp(int8_t tint, uint8_t tfrac);
+void esp32_i2c_hal_sim_set_max30102_fifo_ptrs(uint8_t wr, uint8_t ovf, uint8_t rd);
+void esp32_i2c_hal_sim_set_max30102_mode(uint8_t mode);
+uint8_t esp32_i2c_hal_sim_get_max30102_mode(void);
+uint32_t esp32_i2c_hal_sim_get_max30102_mode_writes(void);
+uint32_t esp32_i2c_hal_sim_get_raw_writes(void);
+uint32_t esp32_i2c_hal_sim_get_raw_bytes(void);
+void esp32_i2c_hal_sim_reset_counters(void);
+#endif
+
 #ifdef __cplusplus
 }
 #endif

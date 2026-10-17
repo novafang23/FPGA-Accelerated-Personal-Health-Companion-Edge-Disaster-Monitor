@@ -66,6 +66,12 @@ idf_component_register(
         # Deployment location in NVS (T1.4). The sanitising and form decoding are
         # ESP-free so the host suite can check what actually gets stored.
         "${SHRIKEFI_DIR}/location.c"
+        # Generic GNSS (u-blox NEO-M8N & Quectel L89HS) UART2 Driver & NMEA-0183 Parser
+        "${SHRIKEFI_DIR}/gnss_nmea.c"
+        "${SHRIKEFI_DIR}/gps_l89hs.c"
+        # MPU6050 6-Axis IMU Driver (I2C) & 3-Stage Biomechanical Fall Detection Engine
+        "${SHRIKEFI_DIR}/mpu6050.c"
+        "${SHRIKEFI_DIR}/fall_detect.c"
     INCLUDE_DIRS 
         "${SHRIKEFI_DIR}"
         "${CORE_DIR}"
@@ -83,6 +89,18 @@ idf_component_register(
 target_sources(${COMPONENT_LIB} PRIVATE "${SHRIKEFI_DIR}/wifi_mqtt_manager.c")
 
 target_compile_definitions(${COMPONENT_LIB} PRIVATE ${SHRIKEFI_WIFI_MODE_DEF})
+
+execute_process(
+    COMMAND git rev-parse --short HEAD
+    WORKING_DIRECTORY "${CMAKE_CURRENT_LIST_DIR}"
+    OUTPUT_VARIABLE GIT_COMMIT_HASH
+    OUTPUT_STRIP_TRAILING_WHITESPACE
+    ERROR_QUIET
+)
+if(NOT GIT_COMMIT_HASH)
+    set(GIT_COMMIT_HASH "7963e41")
+endif()
+target_compile_definitions(${COMPONENT_LIB} PRIVATE GIT_COMMIT_HASH="${GIT_COMMIT_HASH}")
 
 # ── On -Wundef ───────────────────────────────────────────────────────────────
 # This component has been bitten three times by a configuration decision that

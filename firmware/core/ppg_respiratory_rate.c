@@ -282,12 +282,34 @@ void ppg_estimate_respiratory_rate(
 
     if (peak_lag > 0) {
         float lag_f = interp_peak_lag(r_lag, peak_lag, max_lag);
+        /* Interpolation may push the fractional lag below the minimum admissible
+         * integer lag (seen live: lag 3 -> 2.50, a 2.5-beat "breath"). Clamp it,
+         * so the short-lag artifact PPG_RR_MIN_LAG exists to exclude cannot come
+         * back in through the parabola. */
+        if (lag_f < (float)PPG_RR_MIN_LAG) lag_f = (float)PPG_RR_MIN_LAG;
         float breath_period_sec = (lag_f * mean_ibi) / 1000.0f;
         if (breath_period_sec > 1.2f && breath_period_sec < 12.0f) {
             rr_from_fm = 60.0f / breath_period_sec;
             conf_fm = (peak_r > 0.90f) ? 0.90f : peak_r;
             peak_lag_f = lag_f;
         }
+    }
+
+    /* Depth measured at the WINNING respiratory lag, not total IBI variability.
+     *
+     * For a sinusoid, the normalized autocorrelation at its period is
+     * r[L] = (A^2/2) / sigma^2, so its peak-to-peak is 2*sqrt(2)*sigma*sqrt(r[L]).
+     * Using the total sigma instead (as this did) counts every non-periodic
+     * beat-to-beat variation as "respiratory depth": the term saturates at 35 ms
+     * for any real PPG, so the confidence collapses to 0.5 + 0.5*acf and clears
+     * 0.60 at acf ~= 0.32 - barely above the 0.25 noise floor. That is how a
+     * breath-hold artifact was certified twice as a reliable 30-32 br/min.
+     * Scaling by sqrt(r[L]) keeps a genuine sinusoid's depth (r ~= 1) and shrinks
+     * a non-periodic one, so depth and periodicity must now agree. */
+    if (peak_lag > 0 && peak_r > 0.0f) {
+        result->rsa_depth_ms = 2.0f * 1.41421356f * sigma * sqrtf(peak_r);
+    } else {
+        result->rsa_depth_ms = 0.0f;
     }
 
     /* 3. Amplitude Modulation (AM) analysis if amplitudes are provided */
@@ -300,9 +322,24 @@ void ppg_estimate_respiratory_rate(
         float mean_amp = amp_sum / (float)N;
 
         float amp_y[MAX_BEATS_BUF];
-        float amp_var = 0.0f;
         for (size_t i = 0; i < N; i++) {
             amp_y[i] = pulse_amplitudes[i] - mean_amp;
+        }
+
+        /* Detrend the amplitude series for the same reason as the IBI series:
+         * LED heating and contact drift are slow trends, not respiration, and
+         * would otherwise dominate the autocorrelation at short lags. */
+        float amp_stt = 0.0f, amp_sty = 0.0f;
+        for (size_t i = 0; i < N; i++) {
+            float dt = (float)i - idx_mean;
+            amp_stt += dt * dt;
+            amp_sty += dt * amp_y[i];
+        }
+        float amp_slope = (amp_stt > 1e-6f) ? (amp_sty / amp_stt) : 0.0f;
+
+        float amp_var = 0.0f;
+        for (size_t i = 0; i < N; i++) {
+            amp_y[i] -= amp_slope * ((float)i - idx_mean);
             amp_var += amp_y[i] * amp_y[i];
         }
 
@@ -441,10 +478,13 @@ void ppg_estimate_respiratory_rate(
     /* Belt and braces: the AM path and the FM/AM fusion can still land outside
      * the band, so refuse to certify any value clamp_rr() had to move. */
     bool clipped = (final_rr < PPG_RR_MIN_BPM || final_rr > PPG_RR_MAX_BPM);
+    /* Never publish above the trust ceiling: above it a 3-beat artifact and real
+     * tachypnoea are indistinguishable (see PPG_RR_TRUST_MAX_BPM). */
+    bool above_trust = (final_rr > PPG_RR_TRUST_MAX_BPM);
 
     result->respiratory_rate_bpm = clamp_rr(final_rr);
     result->confidence = final_conf;
-    result->is_reliable = (final_conf >= PPG_RR_CONF_MIN) && !clipped;
+    result->is_reliable = (final_conf >= PPG_RR_CONF_MIN) && !clipped && !above_trust;
 
     /* Diagnostics - what was actually found, so a published rate can be argued
      * with rather than taken on trust. Populated on every path, including the
@@ -456,6 +496,8 @@ void ppg_estimate_respiratory_rate(
     result->diag_peak_lag    = peak_lag;
     result->diag_peak_lag_f  = peak_lag_f;
     result->diag_beats       = (int)N;
+    result->diag_am_bpm      = rr_from_am;
+    result->diag_am_conf     = conf_am;
 }
 
 /* ------------------------------------------------------------------------- */

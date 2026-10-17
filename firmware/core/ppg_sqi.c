@@ -14,11 +14,12 @@ static float clamp01(float x) {
     return x;
 }
 
-void ppg_calculate_sqi(
+void ppg_calculate_sqi_with_motion(
     const uint32_t *raw_ir_samples,
     size_t sample_count,
     const float *ibi_ms,
     size_t ibi_count,
+    float motion_energy_g,
     ppg_sqi_result_t *result
 ) {
     if (!result) return;
@@ -29,6 +30,7 @@ void ppg_calculate_sqi(
     result->interval_regularity = 0.50f;
     result->waveform_skewness = 0.0f;
     result->is_motion_artifact = false;
+    result->motion_energy = motion_energy_g;
 
     float pi_score = 0.50f;
     float skew_score = 0.50f;
@@ -36,57 +38,59 @@ void ppg_calculate_sqi(
 
     /* 1. Waveform Morphology & Perfusion Index (AC/DC) */
     if (raw_ir_samples && sample_count >= 16) {
-        uint32_t min_v = raw_ir_samples[0];
-        uint32_t max_v = raw_ir_samples[0];
-        double sum = 0.0;
+        float sum = 0.0f;
 
         for (size_t i = 0; i < sample_count; i++) {
-            uint32_t v = raw_ir_samples[i];
-            if (v < min_v) min_v = v;
-            if (v > max_v) max_v = v;
-            sum += (double)v;
+            sum += (float)raw_ir_samples[i];
         }
 
-        double mean = sum / (double)sample_count;
-        double ac = (double)(max_v - min_v);
-        double dc = (mean > 1.0) ? mean : 1.0;
-        float pi = (float)((ac / dc) * 100.0);
+        float mean = sum / (float)sample_count;
+        float var_sum = 0.0f;
+        for (size_t i = 0; i < sample_count; i++) {
+            float diff = (float)raw_ir_samples[i] - mean;
+            var_sum += diff * diff;
+        }
+        float std_dev = sqrtf(var_sum / (float)sample_count);
+        /* Use the peak-to-peak equivalent of a sinusoid rather than raw
+         * max-min. One MAX30102 spike or a single clipped sample must not
+         * define perfusion for the entire three-second SQI window. */
+        float ac = 2.0f * 1.41421356f * std_dev;
+        float dc = (mean > 1.0f) ? mean : 1.0f;
+        float pi = (ac / dc) * 100.0f;
         result->perfusion_index = pi;
 
-        /* Score Perfusion Index: typical healthy range 0.4% - 10.0% */
-        if (pi < 0.15f) {
-            pi_score = 0.1f; /* Sensor off-finger or very weak perfusion */
+        /* Score Perfusion Index calibrated for 18-bit MAX30102 DC levels (~100k-185k) */
+        if (pi < 0.02f) {
+            pi_score = 0.1f; /* Sensor off-finger or negligible pulsatile signal */
         } else if (pi > 15.0f) {
             pi_score = 0.2f; /* Ambient light saturation / severe clip */
-        } else if (pi >= 0.5f && pi <= 7.0f) {
+        } else if (pi >= 0.08f && pi <= 7.0f) {
             pi_score = 1.0f; /* Optimal clinical pulsatile amplitude */
         } else {
             pi_score = 0.75f;
         }
 
-        /* Compute Skewness m3 / sigma^3 */
-        double var_sum = 0.0;
-        for (size_t i = 0; i < sample_count; i++) {
-            double diff = (double)raw_ir_samples[i] - mean;
-            var_sum += diff * diff;
-        }
-        double std_dev = (double)sqrtf((float)(var_sum / (double)sample_count));
-
-        if (std_dev > 1e-4) {
-            double m3_sum = 0.0;
+        /* Compute skewness m3 / sigma^3 after clipping extreme samples.
+         * This preserves pulse morphology while preventing one optical spike
+         * from turning the whole SQI window into a motion artifact. */
+        if (std_dev > 1e-4f) {
+            float m3_sum = 0.0f;
+            float clip = 3.0f * std_dev;
             for (size_t i = 0; i < sample_count; i++) {
-                double diff = (double)raw_ir_samples[i] - mean;
+                float diff = (float)raw_ir_samples[i] - mean;
+                if (diff > clip) diff = clip;
+                if (diff < -clip) diff = -clip;
                 m3_sum += diff * diff * diff;
             }
-            double skewness = (m3_sum / (double)sample_count) / (std_dev * std_dev * std_dev);
-            result->waveform_skewness = (float)skewness;
+            float skewness = (m3_sum / (float)sample_count) / (std_dev * std_dev * std_dev);
+            result->waveform_skewness = skewness;
 
             /* Clean PPG has steep systolic rise and gentle runoff: positive skewness */
-            if (skewness > 0.1) {
-                skew_score = clamp01(0.5f + (float)(0.4 * skewness));
+            if (skewness > 0.1f) {
+                skew_score = clamp01(0.5f + 0.4f * skewness);
             } else {
                 /* Negative or zero skewness indicates motion baseline wandering or noise */
-                skew_score = clamp01(0.5f + (float)(0.5 * skewness));
+                skew_score = clamp01(0.5f + 0.5f * skewness);
             }
         }
     }
@@ -145,8 +149,33 @@ void ppg_calculate_sqi(
     if (!reg_measured && composite >= PPG_SQI_THRESHOLD_VALID) {
         composite = PPG_SQI_THRESHOLD_VALID - 0.01f;
     }
+
+    /* 4. IMU Motion Artifact Rejection & Gating
+     * Optical photoplethysmography is highly susceptible to sensor-tissue displacement
+     * and venous pool movement during physical motion. If the IMU reports dynamic motion:
+     * - motion_energy_g > 0.08g: penalizes composite SQI proportionally
+     * - motion_energy_g >= 0.35g: gates signal as corrupted (SQI < 0.70) */
+    if (motion_energy_g > 0.08f) {
+        float penalty = (motion_energy_g - 0.08f) * 1.5f;
+        if (penalty > 0.45f) penalty = 0.45f;
+        composite -= penalty;
+    }
+    if (motion_energy_g >= 0.35f && composite >= PPG_SQI_THRESHOLD_VALID) {
+        composite = PPG_SQI_THRESHOLD_VALID - 0.05f;
+    }
+
     result->overall_sqi = clamp01(composite);
     result->is_motion_artifact = (result->overall_sqi < PPG_SQI_THRESHOLD_VALID);
+}
+
+void ppg_calculate_sqi(
+    const uint32_t *raw_ir_samples,
+    size_t sample_count,
+    const float *ibi_ms,
+    size_t ibi_count,
+    ppg_sqi_result_t *result
+) {
+    ppg_calculate_sqi_with_motion(raw_ir_samples, sample_count, ibi_ms, ibi_count, 0.0f, result);
 }
 
 bool ppg_is_quality_acceptable(float sqi) {

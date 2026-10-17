@@ -3,6 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'sha256-7l+zjdwkbcQfdTsy/KIvc/EJnPhZ/7Zf8FSx70ygAmI='; style-src 'unsafe-inline'; connect-src 'self'; form-action 'self'; base-uri 'none'; object-src 'none'">
 <title>VALOR â€” Edge Health &amp; Disaster Triage</title>
 <!--
   VALOR dashboard â€” single self-contained file.
@@ -36,9 +37,9 @@
     --border-soft: #131f35;
     --text:        #e2e8f0;
     --text-title:  #cbd5e1;
-    --text-mid:    #64748b;
-    --text-dim:    #4a5568;
-    --text-faint:  #2d3f5c;
+    --text-mid:    #8492a6;
+    --text-dim:    #8996aa;
+    --text-faint:  #7587a0;
     --emerald:     #00FFAA;
     --cyan:        #00E5FF;
     --amber:       #F59E0B;
@@ -146,8 +147,8 @@
   .row { display: grid; gap: 12px; margin-bottom: 12px; }
   .row-1 { grid-template-columns: 1fr 340px; }
   .row-2 { grid-template-columns: 1fr 1fr 1fr 1fr 180px; }
-  .row-3 { grid-template-columns: 1fr 1fr 1fr 1fr; }
-  .row-4 { grid-template-columns: 1fr 1fr 1fr; gap: 32px; }
+  .row-3 { grid-template-columns: repeat(5, 1fr); }
+  .row-4 { grid-template-columns: repeat(4, 1fr); gap: 24px; }
 
   .card-pad { padding: 18px 20px; }
 
@@ -230,6 +231,7 @@
     .row-1 { grid-template-columns: 1fr; }
     .row-2 { grid-template-columns: 1fr 1fr 1fr; }
     .row-3 { grid-template-columns: 1fr 1fr; }
+    .row-4 { grid-template-columns: 1fr 1fr; }
   }
 </style>
 </head>
@@ -410,7 +412,7 @@
       <i style="flex:1;background:#F59E0B"></i>
       <i style="flex:1;background:#EF4444"></i>
     </div>
-    <div style="margin-top:6px" class="dim">BME280 &middot; ambient, not skin</div>
+    <div style="margin-top:6px" class="dim">BME280 &middot; ambient</div>
   </div>
 
   <div class="card card-pad">
@@ -439,6 +441,19 @@
   </div>
 
   <div class="card card-pad">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
+      <span class="dim">Storm &amp; Cyclone</span>
+      <span class="chip" id="storm-risk-badge" style="color:var(--text-faint)">--</span>
+    </div>
+    <div style="margin-bottom:12px">
+      <span class="big" id="storm-ptrend-val" style="font-size:32px;font-weight:700">--</span>
+      <span class="unit" style="font-size:13px">hPa/h</span>
+    </div>
+    <div class="bar" style="height:8px"><i id="bar-ptrend" style="width:0%;background:var(--violet)"></i></div>
+    <div style="margin-top:6px" class="dim" id="storm-sub">BME280 &middot; 3h barometric slope</div>
+  </div>
+
+  <div class="card card-pad">
     <div class="dim" style="margin-bottom:14px">Physiological Stress</div>
     <div style="margin-bottom:12px">
       <div class="gauge-label">
@@ -457,7 +472,7 @@
   </div>
 </div>
 
-<!-- â”€â”€ Row 4: TinyML â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ -->
+<!-- ── Row 4: TinyML ──────────────────────────────────────────────────────── -->
 <div class="card" style="padding:20px 24px">
   <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:20px;flex-wrap:wrap;gap:8px">
     <div>
@@ -490,6 +505,14 @@
       </div>
       <div class="bar" style="height:8px"><i id="g-flood" style="width:0%;background:var(--sky)"></i></div>
       <div class="dim" style="margin-top:8px" id="g-flood-sub">ambient cold-stress proxy</div>
+    </div>
+    <div>
+      <div class="gauge-label">
+        <span class="name">Cyclone / Storm</span>
+        <span class="val" id="g-storm-val" style="color:var(--violet)">--</span>
+      </div>
+      <div class="bar" style="height:8px"><i id="g-storm" style="width:0%;background:var(--violet)"></i></div>
+      <div class="dim" style="margin-top:8px" id="g-storm-sub">barometric tendency: --</div>
     </div>
   </div>
 </div>
@@ -563,23 +586,23 @@
 
 const PROFILES = {
   'Normal Baseline':
-    { hr: 72,  spo2: 98.5, hrv: 38, rr: 15, sqi: 96, temp: 24.5, hum: 48, pmRaw: 12,  pmCal: 12,  psi: 1.2, aha: 0.00, heat: 4,  poll: 6,  flood: 2 },
+    { hr: 72,  spo2: 98.5, hrv: 38, rr: 15, sqi: 96, temp: 24.5, hum: 48, pmRaw: 12,  pmCal: 12,  psi: 1.2, aha: 0.00, heat: 4,  poll: 6,  flood: 2,  storm: 3,  cyclone: 'NORMAL',   ptrend: 0.10 },
   'Heat Wave & Dehydration':
-    { hr: 138, spo2: 96.0, hrv: 12, rr: 24, sqi: 94, temp: 43.5, hum: 65, pmRaw: 45,  pmCal: 45,  psi: 9.5, aha: 0.74, heat: 94, poll: 22, flood: 2 },
+    { hr: 138, spo2: 96.0, hrv: 12, rr: 24, sqi: 94, temp: 43.5, hum: 65, pmRaw: 45,  pmCal: 45,  psi: 9.5, aha: 0.74, heat: 94, poll: 22, flood: 2,  storm: 5,  cyclone: 'NORMAL',   ptrend: -0.20 },
   'Severe Smog / PM2.5 Crisis':
-    { hr: 108, spo2: 92.5, hrv: 14, rr: 22, sqi: 91, temp: 29.0, hum: 82, pmRaw: 340, pmCal: 340, psi: 4.0, aha: 1.00, heat: 12, poll: 97, flood: 6 },
+    { hr: 108, spo2: 92.5, hrv: 14, rr: 22, sqi: 91, temp: 29.0, hum: 82, pmRaw: 340, pmCal: 340, psi: 4.0, aha: 1.00, heat: 12, poll: 97, flood: 6,  storm: 8,  cyclone: 'NORMAL',   ptrend: -0.15 },
   'Flash Flood / Hypothermia':
-    { hr: 42,  spo2: 93.0, hrv: 65, rr: 9,  sqi: 90, temp: 11.2, hum: 98, pmRaw: 8,   pmCal: 8,   psi: 2.4, aha: 0.00, heat: 3,  poll: 4,  flood: 91 },
+    { hr: 42,  spo2: 93.0, hrv: 65, rr: 9,  sqi: 90, temp: 11.2, hum: 98, pmRaw: 8,   pmCal: 8,   psi: 2.4, aha: 0.00, heat: 3,  poll: 4,  flood: 91, storm: 88, cyclone: 'CRITICAL', ptrend: -3.80 },
   'Cardiopulmonary ICU Emergency':
-    { hr: 146, spo2: 83.0, hrv: 7,  rr: 32, sqi: 88, temp: 38.8, hum: 50, pmRaw: 20,  pmCal: 20,  psi: 8.6, aha: 0.74, heat: 30, poll: 14, flood: 3 },
+    { hr: 146, spo2: 83.0, hrv: 7,  rr: 32, sqi: 88, temp: 38.8, hum: 50, pmRaw: 20,  pmCal: 20,  psi: 8.6, aha: 0.74, heat: 30, poll: 14, flood: 3,  storm: 4,  cyclone: 'NORMAL',   ptrend: 0.05 },
   'Motion Artifact / Noise Test':
-    { hr: 95,  spo2: 96.0, hrv: 25, rr: 18, sqi: 32, temp: 26.0, hum: 55, pmRaw: 25,  pmCal: 25,  psi: 3.1, aha: 0.20, heat: 9,  poll: 11, flood: 4 },
+    { hr: 95,  spo2: 96.0, hrv: 25, rr: 18, sqi: 32, temp: 26.0, hum: 55, pmRaw: 25,  pmCal: 25,  psi: 3.1, aha: 0.20, heat: 9,  poll: 11, flood: 4,  storm: 6,  cyclone: 'NORMAL',   ptrend: 0.00 },
 };
 
 const C = {
   emerald: '#00FFAA', cyan: '#00E5FF', amber: '#F59E0B',
   crimson: '#EF4444', purple: '#A855F7', sky: '#38bdf8',
-  violet: '#a78bfa', mid: '#64748b', faint: '#2d3f5c',
+  violet: '#a78bfa', mid: '#8492a6', faint: '#7587a0',
 };
 
 /* Live state. In simulation it is driven by the profile; in live mode it is
@@ -590,9 +613,10 @@ const C = {
 const V = {
   hr: 0, spo2: 0, hrv: 0, rr: 0, rrConf: 0, sqi: 0,
   temp: 0, hum: 0, pmRaw: 0, pmCal: 0,
-  psi: 0, aha: 0, heat: 0, poll: 0, flood: 0, news2: 0,
+  psi: 0, aha: 0, heat: 0, poll: 0, flood: 0, storm: 0, news2: 0,
   pi: 0, level: 0, flags: 0, risk: 'UNKNOWN',
   rHeat: 'UNKNOWN', rPoll: 'UNKNOWN', rFlood: 'UNKNOWN',
+  cyclone: 'UNKNOWN', ptrend: null,
   nnHeat: null, nnPoll: null, nnFlood: null,
 };
 
@@ -602,6 +626,8 @@ let sampleRate = 0;
 let ppgSeen = false;      /* has any [PPG] sample arrived this connection? */
 let liveStart = 0;        /* when the current live session began */
 let lastSerialLine = 0;
+let lastTelemetryAt = 0;
+let liveNoData = false;
 
 /* ==========================================================================
    2. Helpers
@@ -698,6 +724,20 @@ function makePPG() {
     hi = hi < 0 ? mx + pad : hi * 0.9 + (mx + pad) * 0.1;
     const span = Math.max(1e-6, hi - lo);
 
+    if (mode === 'live' && liveNoData) {
+      ctx.strokeStyle = 'rgba(100,116,139,0.35)';
+      ctx.lineWidth = 1;
+      ctx.setLineDash([6, 6]);
+      ctx.beginPath(); ctx.moveTo(0, h / 2); ctx.lineTo(w, h / 2); ctx.stroke();
+      ctx.setLineDash([]);
+      ctx.fillStyle = 'rgba(100,116,139,0.85)';
+      ctx.font = '12px ' + getComputedStyle(document.body).fontFamily;
+      ctx.textAlign = 'center';
+      ctx.fillText('NO LIVE TELEMETRY', w / 2, h / 2 - 12);
+      ctx.textAlign = 'left';
+      return;
+    }
+
     if (mode === 'idle') {
       /* Flat trace with a reason, rather than an unexplained dead line. */
       ctx.strokeStyle = 'rgba(100,116,139,0.35)';
@@ -763,7 +803,12 @@ function makePPG() {
     ctx.fillStyle = sg; ctx.fillRect(sx - 32, 0, 34, h);
   }
 
-  return { push, draw };
+  function clear() {
+    buf.fill(0);
+    head = 0; dc = 0; dcInit = false; lo = -1; hi = 1;
+  }
+
+  return { push, draw, clear };
 }
 
 /* ECG sparkline â€” a stylised trace, not a measurement. It is decorative and
@@ -1168,6 +1213,19 @@ function setStatus(kind, text) {
   $('status-text').textContent = text;
 }
 
+function clearLiveReadings() {
+  Object.assign(V, {
+    hr: 0, spo2: 0, hrv: 0, rr: 0, rrConf: 0, sqi: 0, pi: 0,
+    temp: 0, hum: 0, pmRaw: 0, pmCal: 0,
+    psi: 0, aha: 0, heat: 0, poll: 0, flood: 0, storm: 0, news2: 0,
+    level: 0, flags: 0, risk: 'UNKNOWN', rHeat: 'UNKNOWN',
+    rPoll: 'UNKNOWN', rFlood: 'UNKNOWN', cyclone: 'UNKNOWN', ptrend: null,
+    nnHeat: null, nnPoll: null, nnFlood: null,
+  });
+  ppgSeen = false;
+  PPG.clear();
+}
+
 /* Everything the dashboard knows how to show, blanked. */
 function renderIdle() {
   const D = '\u2014';
@@ -1221,8 +1279,15 @@ function renderIdle() {
   $('aha-val').style.color = 'var(--text-faint)';
   $('bar-aha').style.width = '0%';
 
-  const gv = { heat: 'var(--crimson)', poll: 'var(--amber)', flood: 'var(--sky)' };
-  for (const k of ['heat', 'poll', 'flood']) {
+  $('storm-ptrend-val').textContent = D;
+  $('storm-ptrend-val').style.color = 'var(--text-faint)';
+  $('storm-risk-badge').textContent = '--';
+  $('storm-risk-badge').style.color = 'var(--text-faint)';
+  $('bar-ptrend').style.width = '0%';
+  $('storm-sub').textContent = 'BME280 \u00b7 3h barometric slope';
+
+  const gv = { heat: 'var(--crimson)', poll: 'var(--amber)', flood: 'var(--sky)', storm: 'var(--violet)' };
+  for (const k of ['heat', 'poll', 'flood', 'storm']) {
     $('g-' + k + '-val').textContent = D;
     $('g-' + k + '-val').style.color = 'var(--text-faint)';
     $('g-' + k).style.width = '0%';
@@ -1354,19 +1419,21 @@ function render() {
   pill.className = 'pill' + ((sqiOn && V.sqi < 50) ? ' bad' : '');
 
   /* â”€â”€ Environment â”€â”€ */
-  const tempColor = V.temp > 38 ? C.crimson : V.temp > 35 ? C.amber : '#e2e8f0';
-  $('v-temp').textContent = V.temp.toFixed(1);
+  const ambientValid = isFinite(V.temp) && V.temp >= -40 && V.temp <= 85;
+  const humidityValid = isFinite(V.hum) && V.hum >= 0 && V.hum <= 100;
+  const tempColor = !ambientValid ? 'var(--text-faint)' : V.temp > 38 ? C.crimson : V.temp > 35 ? C.amber : '#e2e8f0';
+  $('v-temp').textContent = ambientValid ? V.temp.toFixed(1) : '--';
   $('v-temp').style.color = tempColor;
   const bands = $('temp-band').children;
-  bands[0].className = V.temp < 10 ? 'on' : '';
-  bands[1].className = (V.temp >= 10 && V.temp <= 35) ? 'on' : '';
-  bands[2].className = (V.temp > 35 && V.temp <= 40) ? 'on' : '';
-  bands[3].className = V.temp > 40 ? 'on' : '';
+  bands[0].className = ambientValid && V.temp < 10 ? 'on' : '';
+  bands[1].className = ambientValid && V.temp >= 10 && V.temp <= 35 ? 'on' : '';
+  bands[2].className = ambientValid && V.temp > 35 && V.temp <= 40 ? 'on' : '';
+  bands[3].className = ambientValid && V.temp > 40 ? 'on' : '';
 
-  $('v-hum').textContent = V.hum.toFixed(0);
-  $('v-hum').style.color = V.hum > 90 ? C.crimson : '#e2e8f0';
+  $('v-hum').textContent = humidityValid ? V.hum.toFixed(0) : '--';
+  $('v-hum').style.color = !humidityValid ? 'var(--text-faint)' : V.hum > 90 ? C.crimson : '#e2e8f0';
   const bHum = $('bar-hum');
-  bHum.style.width = pct(V.hum, 100) + '%';
+  bHum.style.width = humidityValid ? pct(V.hum, 100) + '%' : '0%';
   bHum.style.background = V.hum > 90 ? C.crimson : V.hum > 70 ? C.amber : C.cyan;
 
   const aqi = aqiBand(V.pmCal);
@@ -1394,16 +1461,55 @@ function render() {
   bAha.style.width = pct(V.aha, 1) + '%';
   bAha.style.background = V.aha > 0.7 ? C.crimson : V.aha > 0.4 ? C.amber : C.violet;
 
-  /* â”€â”€ TinyML gauges â”€â”€
+  /* ── Atmospheric storm risk card & barometric slope gauge ── */
+  if (V.ptrend != null) {
+    const sign = V.ptrend > 0 ? '+' : '';
+    $('storm-ptrend-val').textContent = sign + V.ptrend.toFixed(2);
+    const ptrendColor = V.ptrend < -2.0 ? C.crimson : V.ptrend < -1.0 ? C.amber : C.violet;
+    $('storm-ptrend-val').style.color = ptrendColor;
+
+    const dropMag = Math.max(0, -V.ptrend);
+    const dropPct = clamp((dropMag / 4.0) * 100, 0, 100);
+    $('bar-ptrend').style.width = dropPct + '%';
+    $('bar-ptrend').style.background = ptrendColor;
+
+    const stormRisk = V.cyclone || 'UNKNOWN';
+    $('storm-risk-badge').textContent = stormRisk;
+    $('storm-risk-badge').style.color =
+      stormRisk === 'CRITICAL' ? C.crimson :
+      stormRisk === 'HIGH' ? C.amber :
+      stormRisk === 'ELEVATED' ? C.sky :
+      stormRisk === 'NORMAL' ? C.emerald : 'var(--text-faint)';
+
+    $('storm-sub').textContent =
+      V.ptrend <= -2.0 ? 'Rapid pressure drop (cyclonic/gale risk)' :
+      V.ptrend < -0.5 ? 'Falling pressure (unsettled weather)' :
+      'Stable / steady atmospheric pressure';
+  } else {
+    $('storm-ptrend-val').textContent = '--';
+    $('storm-ptrend-val').style.color = 'var(--text-faint)';
+    $('storm-risk-badge').textContent = '--';
+    $('storm-risk-badge').style.color = 'var(--text-faint)';
+    $('bar-ptrend').style.width = '0%';
+    $('storm-sub').textContent = 'BME280 \u00b7 calculating slope (needs 3h window)';
+  }
+
+  /* ── TinyML / Multi-hazard gauges ──
      Live mode uses the NN outputs the device streams. Simulation uses the
      profile values. Either way the number shown is a risk in 0-100%. */
   const heat = V.nnHeat != null ? V.nnHeat * 100 : V.heat;
   const poll = V.nnPoll != null ? V.nnPoll * 100 : V.poll;
   const flood = V.nnFlood != null ? V.nnFlood * 100 : V.flood;
+  const storm = V.cyclone === 'CRITICAL' ? 95 :
+                V.cyclone === 'HIGH' ? 70 :
+                V.cyclone === 'ELEVATED' ? 40 :
+                V.cyclone === 'NORMAL' ? 5 :
+                (V.ptrend != null ? clamp(Math.max(0, -V.ptrend) / 3.0 * 100, 0, 100) : (V.storm || 0));
 
   setGauge('heat', heat, C.crimson, V.rHeat);
   setGauge('poll', poll, C.amber, V.rPoll);
   setGauge('flood', flood, C.sky, V.rFlood);
+  setGauge('storm', storm, C.violet, V.cyclone);
 
   if (mode === 'live' && V.hr > 0 && typeof HIST !== 'undefined') {
     HIST.setLivePoint(V);
@@ -1433,7 +1539,8 @@ function applyProfile(name) {
     hr: base.hr, spo2: base.spo2, hrv: base.hrv, rr: base.rr, sqi: base.sqi,
     temp: base.temp, hum: base.hum, pmRaw: base.pmRaw, pmCal: base.pmCal,
     psi: base.psi, aha: base.aha, heat: base.heat, poll: base.poll,
-    flood: base.flood,
+    flood: base.flood, storm: base.storm || 0,
+    cyclone: base.cyclone || 'NORMAL', ptrend: base.ptrend !== undefined ? base.ptrend : 0.0,
     news2: n2hr(base.hr) + n2spo2(base.spo2) + n2rr(base.rr),
     nnHeat: null, nnPoll: null, nnFlood: null,
     rHeat: 'NORMAL', rPoll: 'NORMAL', rFlood: 'UNKNOWN',
@@ -1462,6 +1569,11 @@ function simStep() {
   V.heat = clamp(b.heat + j(1.2), 0, 100);
   V.poll = clamp(b.poll + j(1.2), 0, 100);
   V.flood = clamp(b.flood + j(1.2), 0, 100);
+  V.storm = clamp((b.storm || 0) + j(1.0), 0, 100);
+  if (b.ptrend !== undefined) {
+    V.ptrend = b.ptrend + j(0.04);
+    V.cyclone = b.cyclone;
+  }
   /* In simulation the score is computed from the jittered vitals, so it moves
      the way the real one does. In live mode it is whatever the device sent -
      the device also applies its own SQI gating, which this does not. */
@@ -1514,6 +1626,14 @@ function parseKV(line) {
 function handleLine(line) {
   lastSerialLine = performance.now();
 
+  if (line.startsWith('[TELEMETRY]')) {
+    lastTelemetryAt = lastSerialLine;
+    if (liveNoData) {
+      liveNoData = false;
+      setStatus('live', 'LIVE · USB SERIAL · 115200');
+    }
+  }
+
   if (line.startsWith('[PPG]')) {
     const v = parseFloat(line.slice(5));
     if (isFinite(v)) { PPG.push(v); ppgCount++; ppgSeen = true; }
@@ -1556,6 +1676,8 @@ function handleLine(line) {
     if (k.RFLOOD) V.rFlood = k.RFLOOD;
     if (k.PSI)    V.psi    = num(k.PSI);
     if (k.AHA)    V.aha    = num(k.AHA);
+    if (k.CYCLONE) V.cyclone = k.CYCLONE;
+    if (k.PTREND) V.ptrend = num(k.PTREND);
     return;
   }
 
@@ -1594,6 +1716,8 @@ async function connect() {
     port = await navigator.serial.requestPort();
     await port.open({ baudRate: 115200 });
 mode = 'live';
+    lastTelemetryAt = performance.now();
+    liveNoData = false;
     keepReading = true;
     ppgSeen = false;
     liveStart = performance.now();
@@ -1633,6 +1757,9 @@ async function readLoop() {
       }
     }
   } catch (e) {
+    clearLiveReadings();
+    liveNoData = true;
+    renderIdle();
     setStatus('err', 'SERIAL ERROR â€” check the cable');
   }
 }
@@ -1695,6 +1822,8 @@ function enterIdle() {
     rHeat: 'UNKNOWN', rPoll: 'UNKNOWN', rFlood: 'UNKNOWN',
     nnHeat: null, nnPoll: null, nnFlood: null,
   });
+  lastTelemetryAt = 0;
+  liveNoData = false;
   if (typeof HIST !== 'undefined') HIST.reset();
   setStatus('idle', 'NOT CONNECTED \u00b7 no data');
   $('foot-note').textContent = 'no data \u2014 connect a device or start a simulation';
@@ -1825,7 +1954,10 @@ function frame(ts) {
     ppgWindow = ts;
   }
 
-  if (mode === 'live' && lastSerialLine && ts - lastSerialLine > 3000) {
+  if (mode === 'live' && !liveNoData && ts - lastTelemetryAt > 3000) {
+    liveNoData = true;
+    clearLiveReadings();
+    renderIdle();
     setStatus('err', 'NO DATA â€” board connected, no telemetry');
   }
 
@@ -1836,6 +1968,10 @@ function frame(ts) {
   RRC.draw();
   drawArc();
   HIST.draw();
+  if (mode === 'live' && liveNoData) {
+    requestAnimationFrame(frame);
+    return;
+  }
   pollHttpHistory();
   render();
 

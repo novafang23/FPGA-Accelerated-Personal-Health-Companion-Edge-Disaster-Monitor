@@ -21,6 +21,8 @@ Usage:  python verify_dashboard.py
 Exit code is non-zero if a case fails to render or any assertion fails.
 """
 import json
+import base64
+import hashlib
 import os
 import re
 import subprocess
@@ -41,10 +43,19 @@ window.onerror = function (m) { window.__err = String(m); };
     if (new URLSearchParams(location.search).get('case') === 'zero') {
       V.hr = 0; V.spo2 = 0; V.hrv = 0; V.rr = 0; V.sqi = 0; V.pi = 0;
       V.news2 = 0; V.level = 0; V.flags = 0;
+    } else if (new URLSearchParams(location.search).get('case') === 'stale') {
+      V.hr = 72; V.spo2 = 98; V.hrv = 42; V.rr = 15; V.sqi = 95;
+      lastTelemetryAt = performance.now() - 4001; frame(performance.now());
+    } else if (new URLSearchParams(location.search).get('case') === 'nofinger') {
+      V.hr = 72;
+      handleLine('[TELEMETRY] NO_FINGER,TEMP=25.0,HUM=50.0,PM25=12.0');
+    } else if (new URLSearchParams(location.search).get('case') === 'sensor_missing') {
+      handleLine('[TELEMETRY] NO_FINGER,TEMP=-100.0,HUM=-1.0,PM25=12.0');
     } else {
-      V.hr = 72; V.spo2 = 98; V.hrv = 42; V.rr = 15; V.sqi = 95; V.pi = 1.2; V.news2 = 0;
+      V.hr = 72; V.spo2 = 98; V.hrv = 42; V.rr = 15; V.sqi = 95; V.pi = 1.2;
+      V.news2 = 0;
     }
-    render();
+    if (new URLSearchParams(location.search).get('case') !== 'stale') render();
     const txt = (id) => {
       const e = document.getElementById(id);
       return e ? e.textContent.trim() : '<missing>';
@@ -61,6 +72,8 @@ window.onerror = function (m) { window.__err = String(m); };
       spo2: txt('v-spo2'), spo2Note: txt('spo2-note'), spo2NumCol: col('v-spo2'),
       hrv: txt('v-hrv'), hrvNote: txt('hrv-note'), hrvNumCol: col('v-hrv'),
       rr: txt('v-rr'), rrNumCol: col('v-rr'),
+      temp: txt('v-temp'),
+      status: txt('status-text').indexOf('NO DATA') === 0,
       sqi: txt('v-sqi'), sqiPill: txt('sqi-pill'), sqiNumCol: col('v-sqi'),
       histMeanHr: txt('h-mean-hr'),
       histSampleCount: txt('h-sample-count'),
@@ -88,6 +101,17 @@ def render(case):
     html = SRC.read_text(encoding="utf-8")
     if "</body>" not in html:
         raise RuntimeError("no </body> in %s" % SRC)
+    script = re.search(r"<script>(.*?)</script>", html, re.S)
+    if not script:
+        raise RuntimeError("dashboard script block missing")
+    original_hash = base64.b64encode(hashlib.sha256(script.group(1).encode("utf-8")).digest()).decode("ascii")
+    if "'sha256-%s'" % original_hash not in html:
+        raise RuntimeError("CSP script hash does not match the dashboard script")
+    probe_script = re.search(r"<script>(.*?)</script>", PROBE, re.S)
+    probe_hash = base64.b64encode(hashlib.sha256(probe_script.group(1).encode("utf-8")).digest()).decode("ascii")
+    html, n = re.subn(r"(script-src\s+[^;]+)", r"\1 'sha256-%s'" % probe_hash, html, count=1)
+    if n != 1:
+        raise RuntimeError("CSP script-src policy missing")
     html = html.replace("</body>", PROBE + "\n</body>", 1)
     with tempfile.NamedTemporaryFile("w", suffix=".html", delete=False,
                                      encoding="utf-8", dir=str(SRC.parent)) as fh:
@@ -143,7 +167,7 @@ def check(case, r, expect):
 
 
 failures = []
-for case in ("zero", "healthy"):
+for case in ("zero", "healthy", "nofinger", "sensor_missing", "stale"):
     try:
         r = render(case)
     except (RuntimeError, json.JSONDecodeError) as e:
@@ -163,13 +187,22 @@ for case in ("zero", "healthy"):
             "histMeanHr": "--", "histSampleCount": "0/24",
             "n2": ["RR=--", "SpO2=--", "HR=--", "SBP=n/a", "Temp=n/a", "Consc=n/a"],
         }
-    else:
+    elif case == "healthy":
         expect = {
             "hr": "72", "spo2": "98.0", "hrv": "42.0", "rr": "15", "sqi": "95",
             "hrNote": "normal sinus rhythm", "spo2Note": "normal",
             "hrvNote": "Adequate reserve", "sqiPill": "clean signal",
             "histMeanHr": "72 bpm", "histSampleCount": "1/24",
             "n2": ["RR=+0", "SpO2=+0", "HR=+0", "SBP=n/a", "Temp=n/a", "Consc=n/a"],
+        }
+    elif case == "nofinger":
+        expect = {"hr": "--", "temp": "25.0"}
+    elif case == "sensor_missing":
+        expect = {"hr": "--", "temp": "--"}
+    else:
+        expect = {
+            "hr": chr(0x2014),
+            "status": True,
         }
 
     bad = check(case, r, expect)

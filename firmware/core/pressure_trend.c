@@ -35,7 +35,7 @@ void pressure_trend_add(pressure_trend_t *t, uint32_t t_ms, float pressure_hpa) 
      * dropping the sample is better than producing a negative span. */
     if (t->count > 0) {
         int last = (t->head - 1 + PRESSURE_TREND_CAPACITY) % PRESSURE_TREND_CAPACITY;
-        if (t_ms <= t->buf[last].t_ms) return;
+        if ((int32_t)(t_ms - t->buf[last].t_ms) <= 0) return;
     }
 
     t->buf[t->head].pressure_hpa = pressure_hpa;
@@ -75,37 +75,36 @@ void pressure_trend_evaluate(const pressure_trend_t *t, pressure_trend_result_t 
         return;
     }
 
-    /* Least-squares slope of pressure against time, in hPa per hour.
-     *
-     * x is taken relative to the window's own mean rather than as an absolute
-     * millisecond timestamp. The absolute value is ~10^7 ms, and squaring that
-     * for the denominator loses precision in float; centring keeps every term
-     * small. This is the standard reason to centre before fitting. */
-    double t_mean = 0.0, p_mean = 0.0;
+    /* Least-squares slope of pressure against time, in hPa per hour. Use
+     * seconds relative to the first sample: this avoids large absolute uptime
+     * values, retains millisecond-wrap behavior, and keeps the fit in float. */
+    uint32_t first_ms = first->t_ms;
+    float t_mean_s = 0.0f, p_mean = 0.0f;
     for (int i = 0; i < n; i++) {
         const pressure_sample_t *s = &t->buf[(start + i) % PRESSURE_TREND_CAPACITY];
-        t_mean += (double)s->t_ms;
-        p_mean += (double)s->pressure_hpa;
+        t_mean_s += (float)(uint32_t)(s->t_ms - first_ms) / 1000.0f;
+        p_mean += s->pressure_hpa;
     }
-    t_mean /= (double)n;
-    p_mean /= (double)n;
+    t_mean_s /= (float)n;
+    p_mean /= (float)n;
 
-    double sxx = 0.0, sxy = 0.0;
+    float sxx = 0.0f, sxy = 0.0f;
     for (int i = 0; i < n; i++) {
         const pressure_sample_t *s = &t->buf[(start + i) % PRESSURE_TREND_CAPACITY];
-        double dx = (double)s->t_ms - t_mean;
-        double dy = (double)s->pressure_hpa - p_mean;
+        float t_rel_s = (float)(uint32_t)(s->t_ms - first_ms) / 1000.0f;
+        float dx = t_rel_s - t_mean_s;
+        float dy = s->pressure_hpa - p_mean;
         sxx += dx * dx;
         sxy += dx * dy;
     }
 
-    if (sxx <= 0.0) {
+    if (sxx <= 0.0f) {
         out->valid = false;   /* every sample shares a timestamp */
         return;
     }
 
-    double slope_per_ms = sxy / sxx;                 /* hPa per ms            */
-    out->slope_hpa_per_hr = (float)(slope_per_ms * 3600000.0);
+    float slope_per_s = sxy / sxx;
+    out->slope_hpa_per_hr = slope_per_s * 3600.0f;
     out->valid = true;
 }
 

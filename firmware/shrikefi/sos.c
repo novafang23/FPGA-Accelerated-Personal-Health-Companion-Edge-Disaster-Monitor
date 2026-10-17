@@ -32,6 +32,7 @@ void sos_default_config(sos_config_t *cfg) {
     cfg->contact_lost_enabled    = false;  /* see sos.h - fingertip device */
     cfg->cancel_hold_ms          = 5000u;
     cfg->recovery_clear_ms       = 30000u;
+    cfg->fall_confirm_ms         = 10000u; /* 10s countdown window to cancel false fall alarms */
 }
 
 void sos_init(const sos_config_t *cfg) {
@@ -58,6 +59,7 @@ static uint32_t confirm_ms_for(sos_trigger_t t) {
     switch (t) {
         case SOS_TRIGGER_CRITICAL_TRIAGE: return s_cfg.critical_confirm_ms;
         case SOS_TRIGGER_CONTACT_LOST:    return s_cfg.contact_lost_confirm_ms;
+        case SOS_TRIGGER_FALL:            return s_cfg.fall_confirm_ms;
         default:                          return 0u;
     }
 }
@@ -77,6 +79,7 @@ static void stand_down(uint32_t now_ms) {
      * ongoing emergency would be undone by the next 1 Hz update. It returns to
      * IDLE once the condition clears, so a *new* episode arms normally. */
     s_state      = SOS_CANCELLED;
+    s_pending    = SOS_TRIGGER_NONE;
     s_ok_since   = 0;
     s_press_ms   = 0;
     s_cond_since = 0;
@@ -93,15 +96,35 @@ void sos_update(uint32_t now_ms, bool critical, bool contact_present) {
      * triage engines do not run without contact. */
     bool is_critical = critical && contact_present;
 
-    /* 1. Complete a cancel hold in progress. */
-    if (s_state == SOS_ACTIVE && s_press_ms != 0) {
-        if ((now_ms - s_press_ms) >= s_cfg.cancel_hold_ms) {
+    /* 1. Complete a cancel hold in progress (works for both active emergency and armed countdown). */
+    if ((s_state == SOS_ACTIVE || s_state == SOS_ARMED) && s_press_ms != 0) {
+        if (now_ms >= s_press_ms && (now_ms - s_press_ms) >= s_cfg.cancel_hold_ms) {
             stand_down(now_ms);
             return;
         }
     }
 
-    /* 2. What condition, if any, is pending right now? */
+    /* 2. Special handling when fall alarm is armed:
+     * Fall detection is an explicit physical kinematics event. It must not be
+     * overwritten or cleared by transient vitals or contact status during its
+     * grace countdown window. If a critical triage event occurs while armed,
+     * escalate immediately to SOS_ACTIVE (retaining FALL trigger). */
+    if (s_state == SOS_ARMED && s_pending == SOS_TRIGGER_FALL) {
+        if (is_critical) {
+            if (s_press_ms == 0) {
+                latch(SOS_TRIGGER_FALL, now_ms);
+                return;
+            }
+        }
+        if ((now_ms - s_cond_since) >= confirm_ms_for(SOS_TRIGGER_FALL)) {
+            if (s_press_ms == 0) {
+                latch(SOS_TRIGGER_FALL, now_ms);
+            }
+        }
+        return;
+    }
+
+    /* 3. What condition, if any, is pending right now? */
     sos_trigger_t pending = SOS_TRIGGER_NONE;
     if (is_critical) {
         pending = SOS_TRIGGER_CRITICAL_TRIAGE;
@@ -130,7 +153,10 @@ void sos_update(uint32_t now_ms, bool critical, bool contact_present) {
                 s_pending    = pending;
                 s_cond_since = now_ms;
             } else if ((now_ms - s_cond_since) >= confirm_ms_for(pending)) {
-                latch(pending, now_ms);
+                /* If cancel button is actively held down, defer latching until hold completes or releases */
+                if (s_press_ms == 0) {
+                    latch(pending, now_ms);
+                }
             }
             break;
 
@@ -166,8 +192,35 @@ void sos_manual_trigger(uint32_t now_ms) {
     latch(SOS_TRIGGER_MANUAL, now_ms);
 }
 
+void sos_arm_fall(uint32_t now_ms) {
+    if (s_state == SOS_ACTIVE) {
+        /* Already in active emergency: upgrade trigger to FALL so that
+         * transient vital recovery does not auto-stand-down the alarm while
+         * the subject is incapacitated on the ground. */
+        if (s_trigger == SOS_TRIGGER_CRITICAL_TRIAGE) {
+            s_trigger = SOS_TRIGGER_FALL;
+        }
+        return;
+    }
+    if (s_state == SOS_ARMED && s_pending == SOS_TRIGGER_FALL) {
+        /* Already armed and counting down for fall; do not reset timer */
+        return;
+    }
+    if (s_cfg.fall_confirm_ms == 0u) {
+        latch(SOS_TRIGGER_FALL, now_ms);
+    } else {
+        s_state      = SOS_ARMED;
+        s_pending    = SOS_TRIGGER_FALL;
+        s_cond_since = now_ms;
+    }
+}
+
+void sos_fall_trigger(uint32_t now_ms) {
+    latch(SOS_TRIGGER_FALL, now_ms);
+}
+
 void sos_cancel_press(uint32_t now_ms) {
-    if (s_state == SOS_ACTIVE && s_press_ms == 0) {
+    if ((s_state == SOS_ACTIVE || s_state == SOS_ARMED) && s_press_ms == 0) {
         s_press_ms = now_ms;
     }
 }
@@ -184,17 +237,32 @@ void sos_cancel_now(uint32_t now_ms) {
 
 sos_state_t sos_get_state(void) { return s_state; }
 
-sos_trigger_t sos_get_trigger(void) { return s_trigger; }
+sos_trigger_t sos_get_trigger(void) {
+    if (s_state == SOS_ARMED) {
+        return s_pending;
+    }
+    return s_trigger;
+}
 
 uint32_t sos_active_ms(uint32_t now_ms) {
-    if (s_state != SOS_ACTIVE) return 0u;
+    if (s_state != SOS_ACTIVE || now_ms < s_active_since) return 0u;
     return now_ms - s_active_since;
 }
 
+uint32_t sos_armed_remaining_ms(uint32_t now_ms) {
+    if (s_state != SOS_ARMED) return 0u;
+    uint32_t conf_ms = confirm_ms_for(s_pending);
+    if (now_ms < s_cond_since) return conf_ms;
+    uint32_t elapsed = now_ms - s_cond_since;
+    if (elapsed >= conf_ms) return 0u;
+    return conf_ms - elapsed;
+}
+
 uint32_t sos_cancel_progress_pct(uint32_t now_ms) {
-    if (s_state != SOS_ACTIVE || s_press_ms == 0 || s_cfg.cancel_hold_ms == 0) {
+    if ((s_state != SOS_ACTIVE && s_state != SOS_ARMED) || s_press_ms == 0 || s_cfg.cancel_hold_ms == 0) {
         return 0u;
     }
+    if (now_ms < s_press_ms) return 0u;
     uint32_t held = now_ms - s_press_ms;
     if (held >= s_cfg.cancel_hold_ms) return 100u;
     return (held * 100u) / s_cfg.cancel_hold_ms;
@@ -216,6 +284,7 @@ const char *sos_trigger_name(sos_trigger_t t) {
         case SOS_TRIGGER_CRITICAL_TRIAGE: return "critical triage";
         case SOS_TRIGGER_CONTACT_LOST:    return "contact lost";
         case SOS_TRIGGER_MANUAL:          return "manual";
+        case SOS_TRIGGER_FALL:            return "fall";
         default:                          return "?";
     }
 }

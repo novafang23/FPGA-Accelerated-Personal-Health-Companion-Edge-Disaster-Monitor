@@ -88,6 +88,11 @@ static float calculate_nws_heat_index(float temp_c, float hum_pct) {
 /* Heat Wave — Cardio-Thermal Strain Index (CTSI) */
 static risk_level_t assess_heat_risk(float bpm, float rmssd, float ambient_temp_c,
                                      float humidity_pct, const char **advisory) {
+    if (ambient_temp_c < -40.0f || ambient_temp_c > 85.0f ||
+        humidity_pct < 0.0f || humidity_pct > 100.0f) {
+        if (advisory) *advisory = "Heat risk unavailable: ambient sensor has no valid reading";
+        return RISK_UNKNOWN;
+    }
     /* Guard: heat-related illness is physiologically impossible in cold
      * environments. Without this check, a low RMSSD from hypothermia
      * (or any other non-heat cause) incorrectly inflates the CTSI

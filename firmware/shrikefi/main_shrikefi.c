@@ -36,6 +36,14 @@
 #include "sos.h"
 #include "web_status.h"
 #include "location.h"
+#include "gnss_nmea.h"
+#include "gps_l89hs.h"
+#include "mpu6050.h"
+#include "fall_detect.h"
+
+#ifndef GIT_COMMIT_HASH
+#define GIT_COMMIT_HASH "7963e41"
+#endif
 
 #ifdef ESP_PLATFORM
 #include "freertos/FreeRTOS.h"
@@ -62,7 +70,7 @@ static inline void xSemaphoreGive(SemaphoreHandle_t s) { (void)s; }
 #endif
 
 static const char *TAG __attribute__((unused)) = "SHRIKEFI_MAIN";
-static SemaphoreHandle_t s_data_mutex = NULL;
+static SemaphoreHandle_t s_data_mutex __attribute__((unused)) = NULL;
 
 /* Signal quality and contact status */
 typedef enum {
@@ -94,6 +102,8 @@ typedef struct {
      * published rate alone whether that is little RSA or a bar set too high. */
     float rr_confidence;        /* estimator confidence [0,1]                  */
     float rr_rsa_depth_ms;      /* equivalent sinusoid RSA peak-to-peak (ms)   */
+    float imu_motion_energy;    /* dynamic motion energy in g from MPU6050     */
+    fall_state_t fall_state;    /* biomechanical fall detection state          */
     risk_assessment_t risk_result;
     nn_output_t nn_scores;
 } health_system_state_t;
@@ -106,6 +116,12 @@ static max30102_t s_max30102;
 static bme280_t s_bme280;
 static pms5003_t s_pms5003;
 static ssd1306_t s_ssd1306;
+static gnss_nmea_t s_gnss;
+#define s_gps s_gnss
+static mpu6050_t s_mpu6050;
+static fall_detector_t s_fall_detector;
+static char s_last_gps_coord[GNSS_COORD_STR_LEN] = "NO FIX";
+static bool s_has_gps_fix = false;
 
 /* Barometric pressure history for the storm advisory (T3.1).
  *
@@ -189,17 +205,16 @@ static uint32_t         s_pressure_next_due_ms = 0;
  * vice versa; either one alone still injects a ~350 ms successive difference.
  * Both halves have to go, so the window is symmetric.
  *
- * A +/-30% window around the local median is the standard ectopic/artefact
- * filter used in HRV preprocessing (the classical form is Malik's 20% filter;
- * 30% is the usual relaxation for PPG, which is noisier than ECG). Removing
- * beats is cheap for RMSSD - Sheridan et al., Psychiatry Investig
- * 2020;17(9):960-965 measured it staying within a 5% change with up to 36% of
- * intervals removed. Keeping MIS-TIMED beats is what is expensive: the same
- * study puts the threshold at ~16 ms of beat-picking error. */
+ * A +/-30% window was too permissive on the attached hardware: a live capture
+ * at a stable reference of 810 ms admitted a 669/1020 ms split pair and
+ * reported RMSSD=136.8 ms. A +/-15% local window rejects both halves while
+ * still allowing gradual rate changes; sustained genuine changes reach the
+ * rejection escape and reseed the reference rather than ratcheting it. */
 #define IBI_MIN_MS    272.0f   /* hard floor (220 BPM): allows tachycardia >= 150 BPM; above 250 ms FPGA blanking */
 #define IBI_MAX_MS   1500.0f   /* hard ceiling: above this a whole cycle was lost  */
-#define IBI_LOW_RATIO  0.70f   /* reject below this x the reference median         */
-#define IBI_HIGH_RATIO 1.30f   /* reject above this x the reference median         */
+#define IBI_LOW_RATIO  0.83f   /* reject below this x the reference median (rejects split-beats <=669ms) */
+#define IBI_HIGH_RATIO 1.20f   /* reject above this x the reference median (rejects split-beats >=1020ms) */
+#define PPG_CONTACT_THRESHOLD 7000u /* raw MAX30102 counts; rejects ambient LED leakage while accepting gentle finger contact */
 
 /* Escape hatch. Any rejection rule can in principle reject a run of real beats
  * (a genuine rate change, a stretch of poor perfusion). A filter that keeps
@@ -240,6 +255,10 @@ typedef struct {
     int          prime_count;   /* plausible intervals seen since handover */
 } ibi_pipeline_t;
 
+static bool ppg_has_optical_contact(uint32_t ir, uint32_t red) {
+    return ir > PPG_CONTACT_THRESHOLD || red > PPG_CONTACT_THRESHOLD;
+}
+
 static void ibi_pipeline_reset(ibi_pipeline_t *p) {
     p->source = IBI_SRC_NONE;
     hrv_median_init(&p->ref);
@@ -272,13 +291,16 @@ static void ibi_pipeline_reset(ibi_pipeline_t *p) {
  * resting subject, on every other assessment. 30 beats is about 23 s at rest,
  * roughly five cycles - enough for the confidence figure to mean something. */
 #define PPG_RR_MIN_IBIS  30
-#define PPG_SQI_RAW_WIN (3 * PPG_SAMPLE_RATE_HZ) /* raw IR samples fed to the SQI (3 s) */
+#define PPG_SQI_RAW_WIN (3 * PPG_FIFO_RATE_HZ) /* raw IR samples fed to the SQI (3 s at 25 Hz FIFO rate) */
 
 static float    s_rr_ibis[PPG_RR_HISTORY];
+static float    s_rr_amps[PPG_RR_HISTORY]; /* pulse height per beat, aligned with s_rr_ibis */
 static int      s_rr_ibi_n = 0;
 #ifdef ESP_PLATFORM
 static uint32_t s_sqi_raw[PPG_SQI_RAW_WIN];
 static int      s_sqi_raw_n = 0;
+/* Low-quality beats still feed the SQI estimator, but never publish HRV. */
+static bool     s_hrv_sqi_valid = false;
 
 /* Published-rate stabiliser. The raw estimate re-decides every second and on
  * hardware crossed its own confidence bar in 4 frames out of 118, which
@@ -286,12 +308,23 @@ static int      s_sqi_raw_n = 0;
 static ppg_rr_tracker_t s_rr_tracker;
 #endif
 
-static void ppg_history_push_f(float *buf, int *n, int cap, float v) {
+/* (The single-series float push helper was removed when the IBI history gained
+ * its parallel pulse-amplitude series; see ppg_history_push_pair below.) */
+
+/* Keep the IBI and pulse-amplitude series in lockstep: the AM corroboration
+ * path in ppg_estimate_respiratory_rate() correlates the amplitude series at
+ * the respiratory lag, so element i of each array must describe the same beat. */
+static void ppg_history_push_pair(float *ibis, float *amps, int *n, int cap,
+                                  float ibi, float amp) {
     if (*n < cap) {
-        buf[(*n)++] = v;
+        ibis[*n] = ibi;
+        amps[*n] = amp;
+        (*n)++;
     } else {
-        memmove(buf, buf + 1, sizeof(float) * (size_t)(cap - 1));
-        buf[cap - 1] = v;
+        memmove(ibis, ibis + 1, sizeof(float) * (size_t)(cap - 1));
+        memmove(amps, amps + 1, sizeof(float) * (size_t)(cap - 1));
+        ibis[cap - 1] = ibi;
+        amps[cap - 1] = amp;
     }
 }
 
@@ -308,6 +341,8 @@ static void ppg_history_push_u32(uint32_t *buf, int *n, int cap, uint32_t v) {
 static void ppg_history_reset(void) {
     s_rr_ibi_n  = 0;
     s_sqi_raw_n = 0;
+    memset(s_rr_amps, 0, sizeof(s_rr_amps));
+    s_hrv_sqi_valid = false;
     /* A new contact starts with no respiratory evidence, so it must not inherit
      * a rate - or a hold - from the previous one. */
     ppg_rr_tracker_init(&s_rr_tracker);
@@ -315,7 +350,8 @@ static void ppg_history_reset(void) {
 
 /* Recompute respiration and SQI from the rolling windows. Cheap enough to run
  * at 1 Hz on a 160 MHz core. */
-static void ppg_update_respiration_and_sqi(void) {
+static void ppg_update_respiration_and_sqi(hrv_state_t *hrv,
+                                           ibi_pipeline_t *ibi_pipe) {
     ppg_respiratory_result_t rr;
     ppg_sqi_result_t         sqi;
     memset(&rr, 0, sizeof(rr));
@@ -324,7 +360,7 @@ static void ppg_update_respiration_and_sqi(void) {
     /* Charlton-style RSA needs a reasonable run of beats to resolve a
      * respiratory modulation; below that the estimate is noise. */
     if (s_rr_ibi_n >= PPG_RR_MIN_IBIS) {
-        ppg_estimate_respiratory_rate(s_rr_ibis, NULL, (size_t)s_rr_ibi_n, &rr);
+        ppg_estimate_respiratory_rate(s_rr_ibis, s_rr_amps, (size_t)s_rr_ibi_n, &rr);
     }
 
     /* What the estimator actually found, not just what it published.
@@ -335,20 +371,28 @@ static void ppg_update_respiration_and_sqi(void) {
      * depth term (saturated at 273 ms) while the periodicity behind it was only
      * 0.36. Printing the winning lag and its correlation makes that visible, and
      * a rate without them cannot be argued with. */
-    ESP_LOGI(TAG, "[RRDIAG] beats=%d mean_ibi=%.0fms lag=%d(%.2f) r=%.3f r1=%.3f depth=%.1fms conf=%.2f rel=%d",
+    ESP_LOGI(TAG, "[RRDIAG] beats=%d mean_ibi=%.0fms lag=%d(%.2f) r=%.3f r1=%.3f depth=%.1fms conf=%.2f rel=%d am=%.1f amc=%.2f",
              rr.diag_beats, rr.diag_mean_ibi_ms, rr.diag_peak_lag, rr.diag_peak_lag_f,
              rr.diag_acf_peak_r, rr.diag_lag1_r, rr.rsa_depth_ms, rr.confidence,
-             (int)rr.is_reliable);
+             (int)rr.is_reliable, rr.diag_am_bpm, rr.diag_am_conf);
 
     /* Stabilise before publishing. A fresh contact, or one that has just lost
      * its evidence, must not inherit a rate from before. */
     ppg_rr_tracker_update(&s_rr_tracker, &rr);
 
-    if (s_sqi_raw_n >= 30) {
-        ppg_calculate_sqi(s_sqi_raw, (size_t)s_sqi_raw_n,
-                          s_rr_ibis, (size_t)s_rr_ibi_n, &sqi);
+    float motion_energy = 0.0f;
+    if (xSemaphoreTake(s_data_mutex, pdMS_TO_TICKS(5)) == pdTRUE) {
+        motion_energy = g_state.imu_motion_energy;
+        xSemaphoreGive(s_data_mutex);
     }
 
+    if (s_sqi_raw_n >= PPG_FIFO_RATE_HZ) {
+        ppg_calculate_sqi_with_motion(s_sqi_raw, (size_t)s_sqi_raw_n,
+                                      s_rr_ibis, (size_t)s_rr_ibi_n,
+                                      motion_energy, &sqi);
+    }
+
+    bool hrv_quality_ok = false;
     if (xSemaphoreTake(s_data_mutex, pdMS_TO_TICKS(10)) == pdTRUE) {
         /* Honour the estimator's own reliability verdict. It computes
          * confidence and sets is_reliable at >= 0.60, and the caller used to
@@ -359,10 +403,31 @@ static void ppg_update_respiration_and_sqi(void) {
          * worse here than something absent, because tachypnoea is the most
          * sensitive term in the score. */
         g_state.respiratory_rate_bpm = rr.is_reliable ? rr.respiratory_rate_bpm : 0.0f;
-        if (g_state.ppg_sqi > 0.0f && sqi.overall_sqi > 0.0f) {
+        if (g_state.ppg_sqi < PPG_SQI_THRESHOLD_VALID && sqi.overall_sqi >= PPG_SQI_THRESHOLD_VALID) {
+            /* Fast-lock when SQI crosses the validity threshold (e.g., once 3+ beats arrive)
+             * so EMA inertia from the 0-beat cold start does not stall HRV at 10/10 beats. */
+            g_state.ppg_sqi = sqi.overall_sqi;
+        } else if (g_state.ppg_sqi > 0.0f && sqi.overall_sqi > 0.0f) {
             g_state.ppg_sqi = 0.80f * g_state.ppg_sqi + 0.20f * sqi.overall_sqi;
         } else {
             g_state.ppg_sqi = sqi.overall_sqi;
+        }
+        hrv_quality_ok = (sqi.overall_sqi >= PPG_SQI_THRESHOLD_VALID) &&
+                         (g_state.ppg_sqi >= PPG_SQI_THRESHOLD_VALID);
+        s_hrv_sqi_valid = hrv_quality_ok;
+        if (hrv_quality_ok) {
+            if (hrv != NULL && hrv->count >= HRV_MIN_SAMPLES && hrv->rmssd > 0.0f && g_state.hrv_rmssd <= 0.0f) {
+                g_state.hrv_rmssd = hrv->rmssd;
+                g_state.hrv_sdnn  = hrv->sdnn;
+            }
+        } else {
+            /* An RMSSD from a pulse stream below the project's validity gate is
+             * not a meaningful measurement. Clear the published RMSSD/SDNN so
+             * low-quality beats are not scored for clinical triage. HR and SpO2
+             * remain available. Sample count is preserved so the 10-beat acquisition
+             * progress is visible and uninterrupted. */
+            g_state.hrv_rmssd        = 0.0f;
+            g_state.hrv_sdnn         = 0.0f;
         }
         /* Published even when unreliable, so the gate can be judged against what
          * the estimator actually saw. */
@@ -370,6 +435,8 @@ static void ppg_update_respiration_and_sqi(void) {
         g_state.rr_rsa_depth_ms       = rr.rsa_depth_ms;
         xSemaphoreGive(s_data_mutex);
     }
+
+    (void)ibi_pipe;
 }
 #endif
 
@@ -384,30 +451,27 @@ static void ppg_update_respiration_and_sqi(void) {
  *         the caller may publish hrv->rmssd / hrv->count.
  */
 static bool ibi_pipeline_submit(ibi_pipeline_t *p, hrv_state_t *hrv,
-                                int source, float ibi_ms) {
-    if (!(ibi_ms > 0.0f)) return false;
+                                int source, float ibi_ms, float peak_amp) {
+    if (!(ibi_ms > 0.0f)) {
+        hrv_break_sequence(hrv);
+        return false;
+    }
 
     if (p->source != source) {
         int old_source = p->source;
         p->source = source;
-        hrv_init(hrv);
+        /* Do NOT wipe accumulated beats with hrv_init() on detector handover!
+         * Wiping beats caused the 10-beat registration counter to reset every time
+         * a beat arrived from the alternate detector. Only reset reference rhythm. */
         hrv_median_init(&p->ref);
         p->skip_next = false;
         p->reject_streak = 0;
         p->prime_count = 0;
 
-        if (xSemaphoreTake(s_data_mutex, pdMS_TO_TICKS(10)) == pdTRUE) {
-            g_state.heart_rate         = 0.0f;
-            g_state.r_peak_interval_ms = 0.0f;
-            g_state.hrv_rmssd          = 0.0f;
-            g_state.hrv_sdnn           = 0.0f;
-            g_state.hrv_sample_count   = 0;
-            xSemaphoreGive(s_data_mutex);
-        }
         if (old_source != IBI_SRC_NONE) {
-            ESP_LOGI(TAG, "IBI detector handover -> %s; HRV window flushed so the "
-                          "two detectors' intervals are never averaged together",
-                     (source == IBI_SRC_FPGA) ? "ForgeFPGA" : "software fallback");
+            ESP_LOGI(TAG, "IBI detector handover -> %s (current progress: %d/10)",
+                     (source == IBI_SRC_FPGA) ? "ForgeFPGA" : "software fallback",
+                     hrv->count);
         }
     }
 
@@ -418,19 +482,32 @@ static bool ibi_pipeline_submit(ibi_pipeline_t *p, hrv_state_t *hrv,
      * estimate. */
     bool plausible = (ibi_ms >= IBI_MIN_MS && ibi_ms <= IBI_MAX_MS);
 
-    if (plausible) {
-        /* Fed by EVERY plausible interval, accepted or rejected. Rejections
-         * therefore cannot move the reference, which is what removes the
-         * feedback path that used to latch the floor. Do not make this
-         * conditional on `accepted`. */
-        hrv_median_push(&p->ref, ibi_ms);
-    }
-
     /* Reference rhythm, or 0.0f until its window is full. The full-window
      * requirement matters: a median over a partly-filled window can be
      * dominated by its own outliers - which is exactly how the old latch was
      * seeded (4 entries, 2 of them artefacts). */
     float ref = hrv_median_value(&p->ref);
+
+    if (plausible) {
+        /* When a rhythm reference is already locked (ref > 0), protect the median
+         * from being poisoned by dicrotic notch false-triggers (< 0.55 * ref, e.g. ~350ms)
+         * or double-period missed beats (> 1.80 * ref). This prevents the reference median
+         * from ratcheting down to ~450ms and rejecting all subsequent legitimate beats. */
+        bool allow_ref_feed = true;
+        if (ref > 0.0f && (ibi_ms < (0.55f * ref) || ibi_ms > (1.80f * ref))) {
+            allow_ref_feed = false;
+        }
+        if (allow_ref_feed) {
+            hrv_median_push(&p->ref, ibi_ms);
+            ref = hrv_median_value(&p->ref);
+        }
+        /* Feed plausible intervals and their pulse heights to the respiration/
+         * SQI history. The amplitudes let the estimator corroborate the
+         * frequency-modulation (RSA) rate with an independent amplitude-
+         * modulation rate, which is what rejects IBI-only artifacts. */
+        ppg_history_push_pair(s_rr_ibis, s_rr_amps, &s_rr_ibi_n, PPG_RR_HISTORY,
+                              ibi_ms, peak_amp);
+    }
     const char *verdict;
 
     if (plausible && p->prime_count < IBI_PRIME_N) {
@@ -448,14 +525,14 @@ static bool ibi_pipeline_submit(ibi_pipeline_t *p, hrv_state_t *hrv,
         verdict = "gap";
     } else if (ref > 0.0f &&
                (ibi_ms < (IBI_LOW_RATIO * ref) || ibi_ms > (IBI_HIGH_RATIO * ref))) {
-        /* Outside this subject's local rhythm by more than 30%, in either
-         * direction. The detector's two fiducial points put it here. A SHORT
-         * interval is the first half of a split pair, so its partner must be
-         * dropped too; a LONG interval is a late detection or a lost cycle and
-         * needs no such follow-up. */
-        bool short_side = (ibi_ms < (IBI_LOW_RATIO * ref));
+        /* Outside this subject's local rhythm.
+         * Only an extreme short interval (< 0.65 * ref, e.g. true dicrotic notch split)
+         * is the first half of a split pair whose compensating partner must be dropped.
+         * Mild short intervals (between 0.65 and 0.83 * ref, e.g. sinus variation) do not
+         * poison the following beat, so skip_next is only set on true split halves. */
+        bool short_side = (ibi_ms < (0.65f * ref));
         p->skip_next = short_side;
-        verdict = short_side ? "low" : "high";
+        verdict = (ibi_ms < (IBI_LOW_RATIO * ref)) ? "low" : "high";
     } else if (ibi_ms < IBI_MIN_MS) {
         p->skip_next = true;    /* detector double-fired, partner follows */
         verdict = "abs-low";
@@ -467,10 +544,6 @@ static bool ibi_pipeline_submit(ibi_pipeline_t *p, hrv_state_t *hrv,
         hrv_compute(hrv);
         accepted = true;
         verdict = "ok";
-        /* Feed the accepted series to the respiration / SQI windows. Only
-         * accepted intervals: an artefact here would corrupt the RSA estimate
-         * exactly as it would corrupt RMSSD. */
-        ppg_history_push_f(s_rr_ibis, &s_rr_ibi_n, PPG_RR_HISTORY, ibi_ms);
     }
 
 #if SHRIKEFI_IBI_TRACE
@@ -491,6 +564,11 @@ static bool ibi_pipeline_submit(ibi_pipeline_t *p, hrv_state_t *hrv,
            hrv->count, hrv->rmssd);
     fflush(stdout);
 #endif
+
+    /* A rejected, priming, or dropped interval breaks NN adjacency. Without
+     * this, hrv_compute() would compare accepted intervals on opposite sides
+     * of the gap and inject a false successive difference into RMSSD. */
+    if (!accepted) hrv_break_sequence(hrv);
 
     if (accepted) {
         p->reject_streak = 0;
@@ -548,9 +626,8 @@ static void task_ppg_accelerator(void *pvParameters) {
     static uint32_t sw_finger_start_ms   = 0;
     static uint32_t sw_running_mean      = 15000;
 
-    /* Timestamp of the most recent beat reported by the ForgeFPGA, and the
-     * window within which the FPGA counts as "currently detecting". See the
-     * FPGA-liveness gate in the peak-detection block below. */
+    /* Timestamp of the most recent beat reported by the ForgeFPGA. This records
+     * whether the FPGA has ever reported a beat during the current contact. */
     static uint32_t s_last_fpga_beat_ms  = 0;
 
     /* Split-beat guard + artifact filter + detector-handover flushing. Every
@@ -564,23 +641,54 @@ static void task_ppg_accelerator(void *pvParameters) {
     static uint8_t  s_rail_ir  = 0;
 
     static int      raw_log_timer        = 0;
-    /* Counts the ~2 Hz debug-log ticks so the FPGA liveness check runs about
+    /* Counts the ~2 Hz debug-log ticks so the MISO line heuristic runs about
      * every 5 s rather than on every one. */
     static int      s_fpga_check_counter = 0;
+    static bool     s_miso_warning_logged = false;
 
     /* Perfusion & AC amplitude tracking over 1-second rolling windows */
     static uint32_t ir_win_min           = UINT32_MAX;
     static uint32_t ir_win_max           = 0;
     static int      ir_win_count         = 0;
     static uint32_t last_ac_amplitude    = 0;
+    static uint32_t next_max30102_retry_ms = 0;
+    static uint16_t max30102_i2c_error_streak = 0;
+    static uint8_t max30102_init_failures = 0;
+    static int      s_disconnect_samples = 0;
+    /* Highest raw IR seen since the last accepted beat - the pulse height used
+     * for amplitude-modulation (AM) corroboration of the respiratory rate. */
+    static uint32_t s_ir_peak_since_beat = 0;
 
     ESP_LOGI(TAG, "Core 0: PPG Accelerator Task Started (FPGA hardware + Software DSP fallback).");
 
     while (1) {
+        if (!s_max30102.initialized) {
+            uint32_t retry_now_ms = (uint32_t)(esp_timer_get_time() / 1000);
+            if ((int32_t)(retry_now_ms - next_max30102_retry_ms) >= 0) {
+                next_max30102_retry_ms = retry_now_ms + 1000;
+                if (max30102_init(&s_max30102, esp32_i2c_hal_get_handle()) == 0) {
+                    max30102_init_failures = 0;
+                    ESP_LOGI(TAG, "MAX30102 initialized after a runtime I2C retry");
+                } else {
+                    if (max30102_init_failures < UINT8_MAX) max30102_init_failures++;
+                    if (max30102_init_failures == 3) {
+                        ESP_LOGW(TAG, "MAX30102 init failed 3 times; attempting safe I2C bus recovery");
+                        (void)esp32_i2c_hal_recover_bus();
+                    }
+                    ESP_LOGW(TAG, "MAX30102 still unavailable; retrying in 1 second");
+                }
+            }
+            if (!s_max30102.initialized) {
+                vTaskDelay(pdMS_TO_TICKS(100));
+                continue;
+            }
+        }
+
         int dropped = 0;
         int saturated = 0;
         int avail = max30102_fifo_available(&s_max30102, &dropped, &saturated);
         int samples_read = 0;
+        bool i2c_read_failed = (avail < 0);
 
         if (saturated) {
             s_total_samples = 0;
@@ -591,22 +699,24 @@ static void task_ppg_accelerator(void *pvParameters) {
         /* Drain available samples from FIFO (prevents buffer overflow & lag) */
         while (avail > 0 && samples_read < 8) {
             if (max30102_read_sample(&s_max30102, &ppg_sample) != 0) {
+                i2c_read_failed = true;
                 break;
             }
             samples_read++;
             avail--;
             s_total_samples++;
+            if (ppg_sample.ir > s_ir_peak_since_beat) s_ir_peak_since_beat = ppg_sample.ir;
 
             /* Timestamps must not come from the RTOS tick OR esp_timer, because
              * FreeRTOS scheduling jitter makes timer-based intervals noisy. RMSSD
              * is highly sensitive to per-sample error. We use OVF_COUNTER and 
              * the sample count to generate perfect sample-synchronous timestamps. */
-            uint32_t now_ms = (uint32_t)((s_total_samples * 1000) / PPG_SAMPLE_RATE_HZ);
+            uint32_t now_ms = (uint32_t)((s_total_samples * 1000) / PPG_FIFO_RATE_HZ);
 
             /* Track min/max over 0.5 sec to measure pulsatile AC amplitude */
             if (ppg_sample.ir < ir_win_min) ir_win_min = ppg_sample.ir;
             if (ppg_sample.ir > ir_win_max) ir_win_max = ppg_sample.ir;
-            if (++ir_win_count >= (PPG_SAMPLE_RATE_HZ / 2)) {
+            if (++ir_win_count >= (PPG_FIFO_RATE_HZ / 2)) {
                 uint32_t ac = (ir_win_max > ir_win_min) ? (ir_win_max - ir_win_min) : 0;
                 /* Plausibility gate. The pulsatile (AC) component of a real PPG is
                  * the perfusion index - roughly 0.2-10% of the DC level. Lifting or
@@ -624,51 +734,31 @@ static void task_ppg_accelerator(void *pvParameters) {
                 ir_win_count = 0;
             }
 
-            /* Optical contact check with 15-sample (150 ms) debounce:
+            /* Optical contact check with 100-sample (debounced) tolerance:
              * Ambient air is IR < 1000; tissue contact elevates levels to > 50,000.
+             * This board also produced 3,800-4,400 counts without tissue while the
+             * LED current was high; a 7,000-count threshold separates that measured
+             * ambient level from tissue.
              * A momentary 1-sample optical glitch or movement must not wipe the 300-beat
-             * HRV and SpO2 history buffers immediately. We require 15 consecutive missing
+             * HRV and SpO2 history buffers immediately. We require 100 consecutive missing
              * samples before declaring contact lost. */
-            bool raw_contact = (ppg_sample.ir > 1500 || ppg_sample.red > 1500);
-            static int s_disconnect_samples = 0;
+            bool raw_contact = ppg_has_optical_contact(ppg_sample.ir, ppg_sample.red);
             bool optical_contact;
             if (raw_contact) {
                 s_disconnect_samples = 0;
                 optical_contact = true;
             } else {
-                if (s_disconnect_samples < 15) {
+                if (s_disconnect_samples < 100) {
                     s_disconnect_samples++;
                 }
-                optical_contact = (s_disconnect_samples < 15);
+                optical_contact = (s_disconnect_samples < 100);
             }
 
-            /* LED current hunting - and the reason SpO2 used to take 20+ seconds.
-             *
-             * This ran only on the AC window boundary, i.e. once every
-             * 0.5 s, one step at a time. On the MAX30100 the current register is
-             * 4 bits - 16 levels - so reaching the 40000..220000 band from the
-             * reset value takes more than a dozen steps, and EVERY step moves the
-             * DC baseline, which moves the ratio-of-ratios the SpO2 engine is
-             * watching. Its acquisition gate asks "has the smoothed estimate
-             * stopped moving?", so it was waiting on the LED driver rather than on
-             * the finger. Measured 22 s to the first reading against a floor of
-             * 4 s (8 windows x 0.5 s).
-             *
-             * It was also ungated by contact, so with no finger on the sensor the
-             * sample reads ambient and the loop ramped the current to MAXIMUM -
-             * and then had to walk all the way back down when a finger arrived.
-             *
-             * So: do not hunt without a finger, hunt fast until the reading is in
-             * band, and fall back to the slow cadence once SpO2 has latched so a
-             * good reading is not disturbed. The band is wide enough to be its own
-             * hysteresis - inside it the adjustment stops entirely. */
-            static int led_adj_counter = 0;
-            if (!raw_contact) {
-                led_adj_counter = 0;
-            } else if (++led_adj_counter >= (spo2_is_valid(&spo2_state) ? (PPG_SAMPLE_RATE_HZ / 2) : (PPG_SAMPLE_RATE_HZ / 20))) {
-                led_adj_counter = 0;
-                max30102_adjust_led_current(&s_max30102, ppg_sample.red, ppg_sample.ir);
-            }
+            /* Keep LED pulse amplitude fixed during acquisition. Runtime
+             * current writes are not safe recovery actions: a failed I2C mode
+             * read can make the sensor re-enter/configure SpO2 and visibly
+             * blink the emitters. LED current is set during initialization;
+             * change it only through an explicit calibration procedure. */
 
             /* Per-channel DC trackers. These MUST be separate: RED and IR sit
              * ~50-70k counts apart, and a shared baseline saturates the IR byte
@@ -702,7 +792,7 @@ static void task_ppg_accelerator(void *pvParameters) {
              * adopt the current sample) instead of integrating for seconds. */
             s_rail_red = (raw_red == 0 || raw_red == 255) ? (uint8_t)(s_rail_red + 1) : 0;
             s_rail_ir  = (raw_ir  == 0 || raw_ir  == 255) ? (uint8_t)(s_rail_ir  + 1) : 0;
-            const uint8_t rail_limit = (uint8_t)(PPG_SAMPLE_RATE_HZ * 3 / 10); /* 300 ms */
+            const uint8_t rail_limit = (uint8_t)(PPG_FIFO_RATE_HZ * 3 / 10); /* 300 ms at 25 Hz */
             if (s_rail_red > rail_limit) { s_base_red = 0; s_rail_red = 0; }
             if (s_rail_ir  > rail_limit) { s_base_ir  = 0; s_rail_ir  = 0; }
 
@@ -767,6 +857,8 @@ static void task_ppg_accelerator(void *pvParameters) {
                 } else {
                     if (xSemaphoreTake(s_data_mutex, pdMS_TO_TICKS(10)) == pdTRUE) {
                         g_state.spo2_valid = 0;
+                        /* Never publish pre-settling transient values (e.g. 80s ramp) */
+                        g_state.spo2_percent = 0.0f;
                         xSemaphoreGive(s_data_mutex);
                     }
                 }
@@ -833,13 +925,17 @@ static void task_ppg_accelerator(void *pvParameters) {
                  * bitstream in the Renesas ForgeFPGA GUI. Until that happens
                  * this guard removes the symptom, and ibi_pipeline_submit()
                  * removes the residual one-in-N split with a median filter. */
-                if (ibi_pipeline_submit(&ibi_pipe, &hrv_state, IBI_SRC_FPGA, ibi_ms)) {
+                float beat_amp = (float)s_ir_peak_since_beat;
+                s_ir_peak_since_beat = 0;
+                if (ibi_pipeline_submit(&ibi_pipe, &hrv_state, IBI_SRC_FPGA, ibi_ms, beat_amp)) {
                     float inst_hr = 60000.0f / ibi_ms;
                     if (xSemaphoreTake(s_data_mutex, pdMS_TO_TICKS(10)) == pdTRUE) {
                         g_state.r_peak_interval_ms = ibi_ms;
                         g_state.heart_rate = (g_state.heart_rate > 30.0f) ?
                                              (0.70f * g_state.heart_rate + 0.30f * inst_hr) : inst_hr;
-                        if (hrv_is_ready(&hrv_state)) {
+                        bool hrv_ready = hrv_is_ready(&hrv_state) ||
+                                         (hrv_state.count >= HRV_MIN_SAMPLES && hrv_state.rmssd > 0.0f);
+                        if (s_hrv_sqi_valid && hrv_ready) {
                             g_state.hrv_rmssd = (g_state.hrv_rmssd > 0.0f) ?
                                                 (0.85f * g_state.hrv_rmssd + 0.15f * hrv_state.rmssd) : hrv_state.rmssd;
                             g_state.hrv_sdnn  = (g_state.hrv_sdnn > 0.0f) ?
@@ -889,7 +985,9 @@ static void task_ppg_accelerator(void *pvParameters) {
                  * A brief detector dropout should cost the intervals it spans,
                  * not the whole session. Swapping in a different detector
                  * mid-measurement is worse than briefly showing no data. */
-                bool fpga_alive = (s_last_fpga_beat_ms != 0);
+                /* If ForgeFPGA detects beats, it is authoritative. If it goes quiet for >2.5s,
+                 * software fallback resumes so patient vitals always register and reach 10 beats. */
+                bool fpga_alive = (s_last_fpga_beat_ms != 0) && ((now_ms - s_last_fpga_beat_ms) < 2500);
 
                 if (sw_finger_start_ms == 0) {
                     sw_finger_start_ms = now_ms;
@@ -917,7 +1015,7 @@ static void task_ppg_accelerator(void *pvParameters) {
                         if (++sw_fall_count >= 2) {
                             /* Crest confirmed: check peak prominence over baseline */
                             if (sw_peak_val > (sw_running_mean + 10)) {
-                                float ibi_ms = (float)(s_total_samples - sw_last_peak_sample) * (1000.0f / PPG_SAMPLE_RATE_HZ);
+                                float ibi_ms = (float)(s_total_samples - sw_last_peak_sample) * (1000.0f / PPG_FIFO_RATE_HZ);
                                 sw_last_peak_sample = s_total_samples;
                                 sw_state = SW_REFRACTORY;
                                 sw_refractory_end_ms = now_ms + 400; /* 400ms refractory blanking */
@@ -940,9 +1038,11 @@ static void task_ppg_accelerator(void *pvParameters) {
                                         /* Keep the FSM warm for handover, but
                                          * do not let it double-count a heartbeat
                                          * the FPGA has already reported. */
+                                        float beat_amp = (float)s_ir_peak_since_beat;
+                                        s_ir_peak_since_beat = 0;
                                         if (!fpga_alive &&
                                             ibi_pipeline_submit(&ibi_pipe, &hrv_state,
-                                                                IBI_SRC_SOFTWARE, (float)ibi_ms)) {
+                                                                IBI_SRC_SOFTWARE, (float)ibi_ms, beat_amp)) {
                                             float inst_hr = 60000.0f / (float)ibi_ms;
                                             if (xSemaphoreTake(s_data_mutex, pdMS_TO_TICKS(10)) == pdTRUE) {
                                                 g_state.r_peak_interval_ms = (float)ibi_ms;
@@ -951,7 +1051,9 @@ static void task_ppg_accelerator(void *pvParameters) {
                                                     g_state.heart_rate = (g_state.heart_rate > 30.0f) ?
                                                                          (0.70f * g_state.heart_rate + 0.30f * inst_hr) : inst_hr;
                                                 }
-                                                if (hrv_is_ready(&hrv_state)) {
+                                                bool hrv_ready = hrv_is_ready(&hrv_state) ||
+                                                                 (hrv_state.count >= HRV_MIN_SAMPLES && hrv_state.rmssd > 0.0f);
+                                                if (s_hrv_sqi_valid && hrv_ready) {
                                                     g_state.hrv_rmssd = (g_state.hrv_rmssd > 0.0f) ?
                                                                         (0.85f * g_state.hrv_rmssd + 0.15f * hrv_state.rmssd) : hrv_state.rmssd;
                                                     g_state.hrv_sdnn  = (g_state.hrv_sdnn > 0.0f) ?
@@ -964,7 +1066,17 @@ static void task_ppg_accelerator(void *pvParameters) {
                                                 xSemaphoreGive(s_data_mutex);
                                             }
                                         }
+                                    } else {
+                                        /* This software-only plausibility gate
+                                         * rejects before the shared pipeline.
+                                         * Preserve that missing-interval boundary
+                                         * for RMSSD just like pipeline rejects. */
+                                        hrv_break_sequence(&hrv_state);
                                     }
+                                } else {
+                                    /* Stabilization/range rejection also drops
+                                     * this detected interval from the NN series. */
+                                    hrv_break_sequence(&hrv_state);
                                 }
                             } else {
                                 /* Sub-threshold ripple (touching too gently) -> reject */
@@ -982,10 +1094,11 @@ static void task_ppg_accelerator(void *pvParameters) {
                 sw_prev_sample = ppg_sample.ir;
 
                 /* Evaluate real-time signal quality */
+                bool beats_detected = (fpga_alive || g_state.heart_rate > 30.0f || sw_beat_streak > 0 || hrv_state.count > 0);
                 signal_status_t current_status;
-                if ((now_ms - sw_finger_start_ms) > 2500 && (last_ac_amplitude < 10 || sw_beat_streak == 0)) {
+                if ((now_ms - sw_finger_start_ms) > 2500 && !beats_detected && last_ac_amplitude < 10) {
                     current_status = SIGNAL_STATUS_LOW_PERFUSION;
-                } else if (hrv_state.count < 10) {
+                } else if (hrv_state.count < 10 || !s_hrv_sqi_valid) {
                     current_status = SIGNAL_STATUS_ACQUIRING;
                 } else {
                     current_status = SIGNAL_STATUS_TRACKING;
@@ -996,9 +1109,9 @@ static void task_ppg_accelerator(void *pvParameters) {
                     xSemaphoreGive(s_data_mutex);
                 }
             } else {
-                /* No optical contact (debounced: 15 consecutive missing samples IR <= 1500) */
-                s_disconnect_samples = 15;
-                s_last_fpga_beat_ms  = 0;   /* FPGA liveness is scoped to one contact session */
+                /* No optical contact (debounced: 100 consecutive samples below the contact threshold) */
+                s_disconnect_samples = 100;
+                s_last_fpga_beat_ms  = 0;   /* FPGA beat history is scoped to this contact session */
                 sw_finger_start_ms   = 0;
                 sw_last_peak_sample  = 0;
                 sw_last_valid_ibi_ms = 0;
@@ -1035,53 +1148,127 @@ static void task_ppg_accelerator(void *pvParameters) {
             }
         }
 
-        /* Periodic optical debug log (about once a second at the ~100 Hz optical rate) */
-        if (++raw_log_timer >= (PPG_SAMPLE_RATE_HZ / 2)) {
-            raw_log_timer = 0;
-            ppg_update_respiration_and_sqi();
+        if (i2c_read_failed) {
+            if (max30102_i2c_error_streak < UINT16_MAX) {
+                max30102_i2c_error_streak++;
+            }
+            if (max30102_i2c_error_streak == 3) {
+                /* Back off on transient errors. Do not issue recovery writes
+                 * while the bus is already failing: the old pointer/mode
+                 * recovery loop multiplied I2C traffic and could make the
+                 * OLED and MAX30102 appear to reset together. */
+                ESP_LOGW(TAG, "MAX30102 I2C errors continuing; suppressing recovery writes until the bus is stable");
+            } else if (max30102_i2c_error_streak >= 300) {
+                ESP_LOGE(TAG, "MAX30102 persistent I2C failure (300 polls / ~3s); checking device and scheduling re-init");
+                if (max30102_recover_fifo(&s_max30102) == 0) {
+                    ESP_LOGI(TAG, "MAX30102 recovered; resuming acquisition");
+                    max30102_i2c_error_streak = 0;
+                } else {
+                    ESP_LOGE(TAG, "MAX30102 unrecoverable; clearing vitals and scheduling re-init");
+                    s_max30102.initialized = 0;
+                    max30102_i2c_error_streak = 0;
+                    next_max30102_retry_ms = (uint32_t)(esp_timer_get_time() / 1000) + 1000;
 
-            /* FPGA liveness, every ~5 s (this block runs about twice a second).
-             *
-             * A ForgeFPGA that has stopped executing still drives MISO from a
-             * frozen register, so it replies with a constant byte that reads as a
-             * perfectly valid zero sample. Everything downstream therefore looks
-             * fine: no error, no dropout, just no beats - and the board's blue LED
-             * sits lit instead of flickering, because the LED and this link come
-             * from the same signal inside the chip.
-             *
-             * Observed twice on real hardware in one session, both times cleared by
-             * a reset (which re-programs the FPGA at boot) or a power cycle. Until
-             * now nothing in the device noticed, so it silently reported a dead
-             * sensor. Re-programming takes ~150 ms and costs one gap in the PPG
-             * stream; the HRV and respiration state is dropped afterwards because
-             * it was accumulated from a chip that had stopped. */
-            s_fpga_check_counter++;
-            if (s_fpga_check_counter >= 10) {
-                s_fpga_check_counter = 0;
-                if (!shrikefi_link_fpga_alive()) {
-                    ESP_LOGE(TAG, "[FPGA] MISO is floating - the FPGA has stopped executing "
-                                  "(the blue LED will be stuck on). Re-programming it from the embedded bitstream.");
-                    if (shrikefi_fpga_flash_init() == SHRIKEFI_OK) {
-                        ESP_LOGW(TAG, "[FPGA] re-programmed; HRV and respiration state reset");
-                        hrv_init(&hrv_state);
-                        ibi_pipeline_reset(&ibi_pipe);
-                        ppg_history_reset();
-                    } else {
-                        ESP_LOGE(TAG, "[FPGA] re-programming FAILED - check the SPI link and the bitstream");
+                    hrv_init(&hrv_state);
+                    spo2_init(&spo2_state);
+                    ibi_pipeline_reset(&ibi_pipe);
+                    ppg_history_reset();
+                    shrikefi_link_reset_beat_tracking();
+                    memset(red_history, 0, sizeof(red_history));
+                    memset(ir_history, 0, sizeof(ir_history));
+                    hist_idx = 0;
+                    red_sum = 0;
+                    ir_sum = 0;
+                    s_total_samples = 0;
+                    s_disconnect_samples = 0;
+                    sw_prev_sample = 0;
+                    sw_peak_val = 0;
+                    sw_last_peak_sample = 0;
+                    sw_last_valid_ibi_ms = 0;
+                    sw_beat_streak = 0;
+                    sw_finger_start_ms = 0;
+                    sw_state = SW_ARMED;
+                    sw_fall_count = 0;
+                    sw_running_mean = 15000;
+                    s_last_fpga_beat_ms = 0;
+                    ir_win_min = UINT32_MAX;
+                    ir_win_max = 0;
+                    ir_win_count = 0;
+                    last_ac_amplitude = 0;
+                    s_rail_red = 0;
+                    s_rail_ir = 0;
+
+                    if (xSemaphoreTake(s_data_mutex, pdMS_TO_TICKS(10)) == pdTRUE) {
+                        g_state.heart_rate           = 0.0f;
+                        g_state.r_peak_interval_ms   = 0.0f;
+                        g_state.hrv_rmssd            = 0.0f;
+                        g_state.hrv_sdnn             = 0.0f;
+                        g_state.hrv_sample_count     = 0;
+                        g_state.spo2_valid           = 0;
+                        g_state.spo2_percent         = 0.0f;
+                        g_state.respiratory_rate_bpm = 0.0f;
+                        g_state.rr_confidence        = 0.0f;
+                        g_state.rr_rsa_depth_ms      = 0.0f;
+                        g_state.ppg_sqi              = 0.0f;
+                        g_state.signal_status        = SIGNAL_STATUS_NO_FINGER;
+                        xSemaphoreGive(s_data_mutex);
                     }
                 }
             }
+            vTaskDelay(pdMS_TO_TICKS(10));
+            continue;
+        }
+        max30102_i2c_error_streak = 0;
 
-            const char *status_str = (g_state.signal_status == SIGNAL_STATUS_LOW_PERFUSION) ? "LOW PERFUSION (PRESS FIRMER)" :
-                                     (g_state.signal_status == SIGNAL_STATUS_ACQUIRING)     ? "ACQUIRING" :
-                                     (g_state.signal_status == SIGNAL_STATUS_TRACKING)      ? "LOCKED" : "NO FINGER";
-            ESP_LOGI("PPG_OPTICAL", "Raw: IR=%lu, Red=%lu | AC=%lu | Status: %s | HR: %.1f BPM | IBI: %d (need 10 to arm risk engines) | SpO2: %s | (Samples/tick: %d)",
-                     (unsigned long)ppg_sample.ir, (unsigned long)ppg_sample.red,
-                     (unsigned long)last_ac_amplitude,
-                     status_str,
-                     g_state.heart_rate, hrv_state.count,
-                     g_state.spo2_valid ? "VALID" : "CALC/--",
-                     samples_read);
+        /* Periodic optical debug log (about once a second at the ~100 Hz optical rate) */
+        if (++raw_log_timer >= (PPG_SAMPLE_RATE_HZ / 2)) {
+            raw_log_timer = 0;
+            ppg_update_respiration_and_sqi(&hrv_state, &ibi_pipe);
+
+            /* MISO line-level heuristic, every ~5 s. This detects a level that
+             * follows the ESP32's weak pulls, but cannot detect a frozen FPGA or
+             * prove that a stable level is driven by the FPGA. Do not trigger a
+             * reflash from this ambiguous check. */
+            s_fpga_check_counter++;
+            if (s_fpga_check_counter >= 10) {
+                s_fpga_check_counter = 0;
+                bool miso_stable = shrikefi_link_miso_stable_under_pulls();
+                if (!miso_stable && !s_miso_warning_logged) {
+                    ESP_LOGW(TAG, "[FPGA] MISO level follows the weak pull test; the line may be floating. "
+                                  "This check cannot determine FPGA execution state.");
+                    s_miso_warning_logged = true;
+                } else if (miso_stable && s_miso_warning_logged) {
+                    ESP_LOGI(TAG, "[FPGA] MISO level is now stable across weak pull settings; "
+                                  "FPGA execution is still unverified by this check.");
+                    s_miso_warning_logged = false;
+                }
+            }
+
+            signal_status_t log_sig_stat = SIGNAL_STATUS_NO_FINGER;
+            float log_hr = 0.0f;
+            int log_spo2_valid = 0;
+            if (xSemaphoreTake(s_data_mutex, pdMS_TO_TICKS(10)) == pdTRUE) {
+                log_sig_stat   = g_state.signal_status;
+                log_hr         = g_state.heart_rate;
+                log_spo2_valid = g_state.spo2_valid;
+                xSemaphoreGive(s_data_mutex);
+            }
+
+            const char *status_str = (log_sig_stat == SIGNAL_STATUS_LOW_PERFUSION) ? "LOW PERFUSION (PRESS FIRMER)" :
+                                     (log_sig_stat == SIGNAL_STATUS_ACQUIRING)     ? "ACQUIRING" :
+                                     (log_sig_stat == SIGNAL_STATUS_TRACKING)      ? "LOCKED" : "NO FINGER";
+            if (samples_read > 0) {
+                ESP_LOGI("PPG_OPTICAL", "Raw: IR=%lu, Red=%lu | AC=%lu | Status: %s | HR: %.1f BPM | IBI: %d (need 10 to arm risk engines) | SpO2: %s | (Samples/tick: %d)",
+                         (unsigned long)ppg_sample.ir, (unsigned long)ppg_sample.red,
+                         (unsigned long)last_ac_amplitude,
+                         status_str,
+                         log_hr, hrv_state.count,
+                         log_spo2_valid ? "VALID" : "CALC/--",
+                         samples_read);
+            } else {
+                ESP_LOGI("PPG_OPTICAL", "No fresh MAX30102 FIFO sample; status: %s, HR: %.1f BPM, SpO2: %s",
+                         status_str, log_hr, log_spo2_valid ? "VALID" : "CALC/--");
+            }
 
             /* Why SpO2 is or is not showing yet.
              *
@@ -1113,15 +1300,40 @@ static void task_ppg_accelerator(void *pvParameters) {
                          spo2_state.last_spread_raw,
                          spo2_state.last_settled);
             }
-            
+
+            /* Calibration aid (2026-10-17): log the un-gated ratio R and the
+             * engine's SpO2 every ~2 s so R can be paired with a reference
+             * oximeter. Diagnostic only; remove once the curve is fitted. */
+            static int s_spo2_cal_counter = 0;
+            if (++s_spo2_cal_counter >= 4) { /* 4 * 0.5 s = ~2 s */
+                s_spo2_cal_counter = 0;
+                ESP_LOGI("PPG_CAL",
+                         "[SPO2CAL] R=%.3f spo2=%.1f valid=%d pi=%.3f rej=%d "
+                         "red_dc=%.0f red_ac=%.0f ir_dc=%.0f ir_ac=%.0f",
+                         spo2_state.ratio_r, spo2_state.spo2,
+                         spo2_is_valid(&spo2_state),
+                         spo2_get_perfusion_index(&spo2_state),
+                         (int)spo2_state.last_reject,
+                         spo2_state.last_red_dc, spo2_state.last_red_ac,
+                         spo2_state.last_ir_dc, spo2_state.last_ir_ac);
+            }
+
             static int s_10s_diag_counter = 0;
             if (++s_10s_diag_counter >= 20) { /* 20 * 0.5s = 10s */
                 s_10s_diag_counter = 0;
+                float d_hr = 0.0f, d_sqi = 0.0f, d_spo2 = 0.0f, d_rr = 0.0f, d_rrconf = 0.0f;
+                int d_spo2_val = 0;
+                if (xSemaphoreTake(s_data_mutex, pdMS_TO_TICKS(10)) == pdTRUE) {
+                    d_hr       = g_state.heart_rate;
+                    d_sqi      = g_state.ppg_sqi;
+                    d_spo2     = g_state.spo2_percent;
+                    d_spo2_val = g_state.spo2_valid;
+                    d_rr       = g_state.respiratory_rate_bpm;
+                    d_rrconf   = g_state.rr_confidence;
+                    xSemaphoreGive(s_data_mutex);
+                }
                 ESP_LOGI("PPG_DIAG", "[10s Summary] HR: %.1f BPM (Conf: %.2f), SpO2: %.1f%% (Valid: %d), RR: %.1f br/min (Conf: %.2f), SDNN: %.1f ms",
-                         g_state.heart_rate, g_state.ppg_sqi,
-                         g_state.spo2_percent, g_state.spo2_valid,
-                         g_state.respiratory_rate_bpm, g_state.rr_confidence,
-                         hrv_state.sdnn);
+                         d_hr, d_sqi, d_spo2, d_spo2_val, d_rr, d_rrconf, hrv_state.sdnn);
             }
         }
 
@@ -1179,7 +1391,7 @@ static void sos_dump_framebuffer(const ssd1306_t *d) {
  * There is no time of day to show. The board has no battery-backed RTC, so
  * offline there is no wall clock; elapsed-since-activation is printed instead,
  * which is the number that matters to whoever is standing there. */
-static void sos_render_card(ssd1306_t *d, uint32_t now_ms,
+static void sos_render_card(ssd1306_t *d, uint32_t active_ms, sos_trigger_t trigger,
                             float hr, float spo2, float rr, float sqi,
                             const char *condition) {
     /* Sized for the worst case, not the typical one: "%s" against the 20-byte
@@ -1189,9 +1401,14 @@ static void sos_render_card(ssd1306_t *d, uint32_t now_ms,
 
     ssd1306_draw_string(d, 0, 0, "* MEDICAL EMERGENCY *");
 
-    uint32_t secs = sos_active_ms(now_ms) / 1000u;
-    snprintf(line, sizeof(line), "SOS ACTIVE  T+%02u:%02u",
-             (unsigned)(secs / 60u), (unsigned)(secs % 60u));
+    uint32_t secs = active_ms / 1000u;
+    if (trigger == SOS_TRIGGER_FALL) {
+        snprintf(line, sizeof(line), "FALL DETECT T+%02u:%02u",
+                 (unsigned)(secs / 60u), (unsigned)(secs % 60u));
+    } else {
+        snprintf(line, sizeof(line), "SOS ACTIVE  T+%02u:%02u",
+                 (unsigned)(secs / 60u), (unsigned)(secs % 60u));
+    }
     ssd1306_draw_string(d, 0, 9, line);
 
     if (hr > 0.0f && spo2 > 0.0f) {
@@ -1214,9 +1431,26 @@ static void sos_render_card(ssd1306_t *d, uint32_t now_ms,
     ssd1306_draw_string(d, 0, 36, line);
 
     /* Shortened for the panel if it does not fit, with a marker so a reader
-     * knows to check the phone page for the full string. */
+     * knows to check the phone page for the full string.
+     * Displays manual location if set, otherwise falls back to live GNSS fix if available. */
     char loc[LOCATION_MAX_LEN];
-    location_card_text(location_get(), loc, sizeof(loc));
+    if (location_is_set()) {
+        location_card_text(location_get(), loc, sizeof(loc));
+    } else if (s_has_gps_fix) {
+        char temp_coord[GNSS_COORD_STR_LEN];
+        temp_coord[0] = '\0';
+        if (xSemaphoreTake(s_data_mutex, pdMS_TO_TICKS(10)) == pdTRUE) {
+            strncpy(temp_coord, s_last_gps_coord, sizeof(temp_coord));
+            temp_coord[sizeof(temp_coord) - 1] = '\0';
+            xSemaphoreGive(s_data_mutex);
+        } else {
+            strncpy(temp_coord, s_last_gps_coord, sizeof(temp_coord));
+            temp_coord[sizeof(temp_coord) - 1] = '\0';
+        }
+        location_card_text(temp_coord, loc, sizeof(loc));
+    } else {
+        location_card_text(location_get(), loc, sizeof(loc));
+    }
     snprintf(line, sizeof(line), "LOC: %s", loc);
     ssd1306_draw_string(d, 0, 45, line);
 
@@ -1229,6 +1463,8 @@ static void task_disaster_monitor(void *pvParameters) {
 
     hrv_state_t hrv_snapshot;
     hrv_init(&hrv_snapshot);
+    static bool oled_frame_transfer_logged = false;
+    static uint32_t next_oled_write_error_log_ms = 0;
 
     while (1) {
         env_sensors_t env = {0};
@@ -1249,15 +1485,29 @@ static void task_disaster_monitor(void *pvParameters) {
         float rrconf_pub  = 0.0f;
 
         /* Persistent environmental sensor state (prevents collapse to 0.0C on momentary packet drops) */
-        static float s_last_temp = 25.0f;
-        static float s_last_hum  = 50.0f;
+        static float s_last_temp = -100.0f; /* invalid until a real BME280 sample */
+        static float s_last_hum  = -1.0f;
         static float s_last_pm25 = 15.0f;
         static uint32_t s_pm25_warn_last_ms = 0;
+        static uint32_t s_next_bme_retry_ms = 0;
+        static uint8_t s_bme_read_errors = 0;
+
+        uint32_t env_now_ms = (uint32_t)(esp_timer_get_time() / 1000);
+        if (!s_bme280.initialized &&
+            (int32_t)(env_now_ms - s_next_bme_retry_ms) >= 0) {
+            s_next_bme_retry_ms = env_now_ms + 5000;
+            if (bme280_init(&s_bme280, esp32_i2c_hal_get_handle(), BME280_I2C_ADDR) == 0) {
+                ESP_LOGI(TAG, "BME280 initialized after a runtime I2C retry");
+                s_bme_read_errors = 0;
+            }
+        }
 
         /* Read BME280 (temperature, humidity, pressure) */
         bme280_data_t bme_data;
-        if (read_bme280_env(&bme_data) == 0) {
-            if (bme_data.temperature_c >= 5.0f && bme_data.temperature_c <= 65.0f) {
+        if (s_bme280.initialized && read_bme280_env(&bme_data) == 0) {
+            s_bme_read_errors = 0;
+            if (bme_data.temperature_c >= 5.0f && bme_data.temperature_c <= 65.0f &&
+                bme_data.humidity_pct >= 0.0f && bme_data.humidity_pct <= 100.0f) {
                 s_last_temp = bme_data.temperature_c;
                 s_last_hum  = bme_data.humidity_pct;
             }
@@ -1266,7 +1516,15 @@ static void task_disaster_monitor(void *pvParameters) {
             pressure_trend_add_paced(&s_pressure_trend,
                                      (uint32_t)(esp_timer_get_time() / 1000),
                                      bme_data.pressure_hpa, &s_pressure_next_due_ms);
+        } else if (s_bme280.initialized && ++s_bme_read_errors >= 3) {
+            ESP_LOGW(TAG, "BME280 read failed three times; retrying sensor initialization");
+            s_bme280.initialized = 0;
+            s_bme_read_errors = 0;
+            s_next_bme_retry_ms = env_now_ms + 5000;
+            s_last_temp = -100.0f;
+            s_last_hum = -1.0f;
         }
+        const bool ambient_valid = (s_last_temp >= 5.0f && s_last_hum >= 0.0f);
         env.ambient_temp_c = s_last_temp;
         env.humidity_pct   = s_last_hum;
 
@@ -1279,7 +1537,9 @@ static void task_disaster_monitor(void *pvParameters) {
         /* 3-Input INT8 Neural Network Calibration (Si et al., AMT 2019):
          * Fuses PM2.5 with BME280 temperature and relative humidity to eliminate
          * humidity-induced laser scattering bias (slashing error by 60%) */
-        float calibrated_pm25 = pm25_calibrate_nn_int8(s_last_pm25, env.ambient_temp_c, env.humidity_pct);
+        float calibrated_pm25 = ambient_valid
+            ? pm25_calibrate_nn_int8(s_last_pm25, env.ambient_temp_c, env.humidity_pct)
+            : s_last_pm25;
         env.pm25 = calibrated_pm25;
 
         /* Unconditionally update shared system state with live environmental telemetry */
@@ -1290,7 +1550,7 @@ static void task_disaster_monitor(void *pvParameters) {
             xSemaphoreGive(s_data_mutex);
         }
 
-        if (pm25_is_humidity_distorted(s_last_pm25, env.humidity_pct)) {
+        if (ambient_valid && pm25_is_humidity_distorted(s_last_pm25, env.humidity_pct)) {
             /* Rate-limited. High ambient RH is persistent in this environment, so
              * logging unconditionally produced ~69 identical lines per minute and
              * buried the vitals output the operator actually needs. */
@@ -1303,9 +1563,6 @@ static void task_disaster_monitor(void *pvParameters) {
         } else {
             s_pm25_warn_last_ms = 0;   /* re-arm once conditions recover */
         }
-
-        /* Skin temperature not available from current sensors */
-        env.skin_temp_c = 0.0f;
 
         /* Get latest HR/HRV/SpO2 from Core 0 */
         if (xSemaphoreTake(s_data_mutex, pdMS_TO_TICKS(50)) == pdTRUE) {
@@ -1330,6 +1587,20 @@ static void task_disaster_monitor(void *pvParameters) {
             rrconf_pub  = g_state.rr_confidence;
             xSemaphoreGive(s_data_mutex);
         }
+
+        /* Skin temperature is intentionally NOT instrumented (2026-10-17).
+         *
+         * The only on-board candidate was the MAX30102 die-temperature register,
+         * but that is the sensor's own silicon temperature: LED self-heating puts
+         * it at 40-41 C while the finger is normal, which NEWS2 then scored as a
+         * high fever and turned into false CRITICAL alarms. The optional MAX30205
+         * was never populated on this build.
+         *
+         * env.skin_temp_c therefore stays 0.0f ("unavailable"), so the disaster
+         * engine uses its documented ambient-air cold-stress proxy and body
+         * temperature stays uninstrumented in NEWS2. Re-enable when a real contact
+         * sensor (e.g. TMP117) is fitted. */
+        env.skin_temp_c = 0.0f;
 
         /* 1. Execute Rule-based Disaster Risk Engine & TinyML only when vitals are genuine */
         risk_assessment_t rule_risk;
@@ -1389,8 +1660,13 @@ static void task_disaster_monitor(void *pvParameters) {
              * neutral input to a triage score, it is an optimistic one. */
             const float engine_spo2 = spo2;
 
+            /* No skin-temperature sensor is fitted, so env.skin_temp_c is always
+             * 0.0f (unavailable): the disaster engine uses its documented BME280
+             * ambient cold-stress proxy, and NEWS2 has no body temperature. */
+            env_sensors_t env_for_assessment = env;
+
             /* 1. Execute Clinical Deterministic Rule Engine */
-            disaster_assess(&hrv_snapshot, engine_spo2, hr, &env, &rule_risk);
+            disaster_assess(&hrv_snapshot, engine_spo2, hr, &env_for_assessment, &rule_risk);
 
             /* Fold in the cyclone/storm advisory, already assessed above every
              * second so that it does not depend on a finger being present.
@@ -1406,7 +1682,7 @@ static void task_disaster_monitor(void *pvParameters) {
             if (storm_risk > RISK_NORMAL && storm_risk > rule_risk.overall_risk) {
                 rule_risk.overall_risk = storm_risk;
                 snprintf(rule_risk.overall_advisory, sizeof(rule_risk.overall_advisory), "%s",
-                         storm_advisory ? storm_advisory : "");
+                          storm_advisory ? storm_advisory : "");
             }
 
             /* This build has no skin-temperature sensor: the BME280 measures
@@ -1429,11 +1705,13 @@ static void task_disaster_monitor(void *pvParameters) {
                              rule_risk.heat_advisory ? rule_risk.heat_advisory : "");
                 }
                 rule_risk.flood_advisory =
-                    "Not instrumented: no skin-temperature sensor on this build";
+                    "Not instrumented: neither skin nor ambient temperature available";
             }
 
             /* 2. Execute On-Device TinyML INT8 Neural Network (single-pass populates both risk and telemetry) */
-            disaster_assess_nn_int8(&hrv_snapshot, engine_spo2, hr, &env, &nn_risk, &nn_out);
+            if (ambient_valid) {
+                disaster_assess_nn_int8(&hrv_snapshot, engine_spo2, hr, &env_for_assessment, &nn_risk, &nn_out);
+            }
 
             /* 3. Execute NEWS2 Clinical Physiological Triage Engine.
              *
@@ -1451,8 +1729,12 @@ static void task_disaster_monitor(void *pvParameters) {
                 rr_depth_dbg  = g_state.rr_rsa_depth_ms;
                 xSemaphoreGive(s_data_mutex);
             }
-            clinical_vitals_assess_full(hr, engine_spo2, hrv_snapshot.rmssd,
-                                        rr_for_news2, sqi_for_news2, &clin_assess);
+            /* No body-temperature sensor is fitted (see the skin-temp note in the
+             * acquisition path). Temperature therefore stays the NEWS2
+             * "uninstrumented" sentinel (0.0f) and contributes no score. */
+            const float news2_temp = 0.0f;
+            clinical_vitals_assess_ext(hr, engine_spo2, hrv_snapshot.rmssd,
+                                       rr_for_news2, sqi_for_news2, news2_temp, &clin_assess);
             triage_level = (int)clin_assess.level;
             clin_news2 = (unsigned)clin_assess.news2_score;
             clin_flags = (unsigned)clin_assess.alert_flags;
@@ -1465,8 +1747,13 @@ static void task_disaster_monitor(void *pvParameters) {
                          nn_risk.overall_advisory);
             }
             clinical_fuse_triage(&clin_assess, &env_fused, &final_risk);
+            if (!ambient_valid && final_risk.overall_risk == RISK_NORMAL) {
+                final_risk.overall_risk = RISK_UNKNOWN;
+                snprintf(final_risk.overall_advisory, sizeof(final_risk.overall_advisory),
+                         "Ambient sensor unavailable; environmental risk incomplete");
+            }
 
-            ESP_LOGI(TAG, "[ShrikeFi] HR: %.1f BPM | SpO2: %s | RMSSD: %.1f ms | RR: %.1f br/min | SQI: %.2f | Temp: %.1f C | PM2.5: %.0f",
+            ESP_LOGI(TAG, "[ShrikeFi] HR: %.1f BPM | SpO2: %s | RMSSD: %.1f ms | RR: %.1f br/min | SQI: %.2f | AmbTemp: %.1f C | PM2.5: %.0f",
                      hr, (spo2 > 0.0f ? "VALID" : "CALC"), hrv_snapshot.rmssd,
                      rr_for_news2, sqi_for_news2, env.ambient_temp_c, env.pm25);
             /* Clean telemetry broadcast line for PC Dashboard.
@@ -1588,8 +1875,9 @@ static void task_disaster_monitor(void *pvParameters) {
                 printf("[TELEMETRY] NO_FINGER,TEMP=%.1f,HUM=%.1f,PM25=%.1f\n",
                        env.ambient_temp_c, env.humidity_pct, env.pm25);
             } else {
+                float tele_spo2 = (spo2 > 0.0f) ? spo2 : g_state.spo2_percent;
                 printf("[TELEMETRY] ACQUIRING,HR=%.1f,SPO2=%.1f,RMSSD=%.1f,TEMP=%.1f,HUM=%.1f,PM25=%.1f,RR=%.1f,SQI=%.2f,RRDEPTH=%.1f,RRCONF=%.2f\n",
-                       hr, spo2, hrv_snapshot.rmssd,
+                       hr, tele_spo2, hrv_snapshot.rmssd,
                        env.ambient_temp_c, env.humidity_pct, env.pm25,
                        rr_pub, sqi_pub, rrdepth_pub, rrconf_pub);
             }
@@ -1603,15 +1891,31 @@ static void task_disaster_monitor(void *pvParameters) {
          * sos_update() decides is what gets drawn immediately below. */
         uint32_t sos_now_ms = (uint32_t)(esp_timer_get_time() / 1000);
         bool contact_present = (sig_stat != SIGNAL_STATUS_NO_FINGER);
-        sos_state_t sos_was = sos_get_state();
-        sos_update(sos_now_ms, triage_level == (int)CLINICAL_CRITICAL, contact_present);
+        sos_state_t sos_was = SOS_IDLE;
+        sos_state_t sos_now = SOS_IDLE;
+        sos_trigger_t sos_trig = SOS_TRIGGER_NONE;
+        uint32_t sos_rem_ms = 0;
+        uint32_t sos_act_ms = 0;
 
-        if (sos_was != SOS_ACTIVE && sos_get_state() == SOS_ACTIVE) {
+        if (xSemaphoreTake(s_data_mutex, pdMS_TO_TICKS(20)) == pdTRUE) {
+            sos_was = sos_get_state();
+            sos_update(sos_now_ms, triage_level == (int)CLINICAL_CRITICAL, contact_present);
+            sos_now = sos_get_state();
+            sos_trig = sos_get_trigger();
+            if (sos_now == SOS_ACTIVE) {
+                sos_act_ms = sos_active_ms(sos_now_ms);
+            } else if (sos_now == SOS_ARMED && sos_trig == SOS_TRIGGER_FALL) {
+                sos_rem_ms = sos_armed_remaining_ms(sos_now_ms);
+            }
+            xSemaphoreGive(s_data_mutex);
+        }
+
+        if (sos_was != SOS_ACTIVE && sos_now == SOS_ACTIVE) {
             ESP_LOGW(TAG, "[SOS] EMERGENCY LATCHED - trigger: %s (level %d, contact %d)",
-                     sos_trigger_name(sos_get_trigger()), triage_level,
+                     sos_trigger_name(sos_trig), triage_level,
                      (int)contact_present);
-        } else if (sos_was == SOS_ACTIVE && sos_get_state() != SOS_ACTIVE) {
-            ESP_LOGI(TAG, "[SOS] stood down -> %s", sos_state_name(sos_get_state()));
+        } else if (sos_was == SOS_ACTIVE && sos_now != SOS_ACTIVE) {
+            ESP_LOGI(TAG, "[SOS] stood down -> %s", sos_state_name(sos_now));
         }
 
         /* Publish the status-page snapshot.
@@ -1624,11 +1928,12 @@ static void task_disaster_monitor(void *pvParameters) {
             valor_status_t st;
             memset(&st, 0, sizeof(st));
             st.hr       = hr;
-            st.spo2     = spo2;
+            st.spo2     = (spo2 > 0.0f) ? spo2 : 0.0f;
             st.rr       = rr_for_news2;
             st.sqi      = sqi_for_news2;
             st.rmssd    = hrv_snapshot.rmssd;
             st.temp     = env.ambient_temp_c;
+             
             st.hum      = env.humidity_pct;
             st.pm25     = env.pm25;
             st.pressure_hpa = pressure_trend.pressure_hpa;
@@ -1638,11 +1943,24 @@ static void task_disaster_monitor(void *pvParameters) {
             st.level    = (triage_level > 0) ? (unsigned)triage_level : 0u;
             st.flags    = clin_flags;
             st.risk     = risk_level_to_string(final_risk.overall_risk);
-            st.sos      = sos_state_name(sos_get_state());
-            st.trigger  = sos_trigger_name(sos_get_trigger());
-            st.loc      = location_get();
+            st.sos      = sos_state_name(sos_now);
+            st.trigger  = sos_trigger_name(sos_trig);
+            const char *loc_str = location_is_set() ? location_get() : NULL;
+            char live_gps_buf[GNSS_COORD_STR_LEN];
+            live_gps_buf[0] = '\0';
             st.uptime_s = sos_now_ms / 1000u;
             st.contact  = contact_present;
+            if (xSemaphoreTake(s_data_mutex, pdMS_TO_TICKS(10)) == pdTRUE) {
+                st.motion = g_state.imu_motion_energy;
+                st.fall   = fall_state_name(g_state.fall_state);
+                if (!loc_str && s_has_gps_fix) {
+                    strncpy(live_gps_buf, s_last_gps_coord, sizeof(live_gps_buf));
+                    live_gps_buf[sizeof(live_gps_buf) - 1] = '\0';
+                    loc_str = live_gps_buf;
+                }
+                xSemaphoreGive(s_data_mutex);
+            }
+            st.loc      = loc_str ? loc_str : location_get();
             web_status_publish(&st);
 
             /* Periodically publish hourly history summary for WebSerial (every 30s) */
@@ -1665,40 +1983,86 @@ static void task_disaster_monitor(void *pvParameters) {
 
         /* 3. Render the OLED: the emergency card replaces the dashboard
          * entirely while an emergency is latched. */
+        /* A failed boot-time OLED probe used to disable the display for the
+         * entire run. Retry at a low rate so a transient bus/device startup
+         * failure does not permanently leave the vitals screen blank. */
+        static uint32_t next_oled_retry_ms = 0;
+        static uint32_t next_oled_retry_log_ms = 0;
+        uint32_t oled_now_ms = (uint32_t)(esp_timer_get_time() / 1000);
+        if (!s_ssd1306.initialized &&
+            (int32_t)(oled_now_ms - next_oled_retry_ms) >= 0) {
+            next_oled_retry_ms = oled_now_ms + 5000;
+            int oled_rc = ssd1306_init(&s_ssd1306, esp32_i2c_hal_get_handle(),
+                                       SSD1306_I2C_ADDR);
+            if (oled_rc != 0) {
+                oled_rc = ssd1306_init(&s_ssd1306, esp32_i2c_hal_get_handle(),
+                                       SSD1306_I2C_ALT);
+            }
+            if (oled_rc == 0) {
+                ESP_LOGI(TAG, "SSD1306 OLED initialized after a runtime I2C retry at 0x%02X",
+                         s_ssd1306.addr);
+            } else if ((int32_t)(oled_now_ms - next_oled_retry_log_ms) >= 0) {
+                ESP_LOGW(TAG, "OLED is still unavailable; retrying in 5 seconds");
+                next_oled_retry_log_ms = oled_now_ms + 30000;
+            }
+        }
+
         if (s_ssd1306.initialized) {
             ssd1306_clear(&s_ssd1306);
 
-            if (sos_get_state() == SOS_ACTIVE) {
-                sos_render_card(&s_ssd1306, sos_now_ms, hr, spo2,
+            if (sos_now == SOS_ACTIVE) {
+                sos_render_card(&s_ssd1306, sos_act_ms, sos_trig, hr, spo2,
                                 rr_for_news2, sqi_for_news2,
                                 risk_level_to_string(final_risk.overall_risk));
                 if (sos_was != SOS_ACTIVE) {
                     /* First frame of the emergency: verify what was drawn. */
                     sos_dump_framebuffer(&s_ssd1306);
                 }
+            } else if (sos_now == SOS_ARMED && sos_trig == SOS_TRIGGER_FALL) {
+                /* Render fall countdown warning card: alerts patient to press cancel if false alarm */
+                unsigned rem_sec = (sos_rem_ms + 999u) / 1000u;
+                ssd1306_draw_string(&s_ssd1306, 4, 2, "! FALL DETECTED !");
+                ssd1306_draw_hline(&s_ssd1306, 0, 11, 128);
+                char warn[32];
+                snprintf(warn, sizeof(warn), "ALARM IN: %u SEC", rem_sec);
+                ssd1306_draw_string(&s_ssd1306, 8, 16, warn);
+                ssd1306_draw_string(&s_ssd1306, 8, 28, "HOLD CANCEL TO STOP");
+                ssd1306_draw_string(&s_ssd1306, 8, 40, "RESTORING IF ACTIVE");
+                ssd1306_draw_hline(&s_ssd1306, 0, 52, 128);
+                ssd1306_draw_string(&s_ssd1306, 8, 55, "EMERGENCY COUNTDOWN");
             } else {
 
-            // Header
-            ssd1306_draw_string(&s_ssd1306, 8, 2, "SIH26181 COMPANION");
-            ssd1306_draw_hline(&s_ssd1306, 0, 11, 128);
+            // Header: Page 0 (rows 0-7)
+            ssd1306_draw_string(&s_ssd1306, 19, 0, "VALOR COMPANION");
+            // Divider 1: Page 1 (row 8)
+            ssd1306_draw_hline(&s_ssd1306, 0, 8, 128);
 
-            // Line 1: Vitals (HR & SpO2)
+            // Line 1: Vitals (HR & SpO2) - Page 2 (rows 16-23)
             char buf_vitals[32];
-            if (hr > 30.0f && spo2 > 0.0f) {
-                snprintf(buf_vitals, sizeof(buf_vitals), "HR:%3.0fBPM SpO2:%2.0f%%", hr, spo2);
+            float disp_spo2 = (spo2 > 0.0f) ? spo2 : 0.0f;
+            if (hr > 30.0f && disp_spo2 > 0.0f) {
+                snprintf(buf_vitals, sizeof(buf_vitals), "HR:%3.0fBPM SpO2:%2.0f%%", hr, disp_spo2);
             } else if (hr > 30.0f) {
                 snprintf(buf_vitals, sizeof(buf_vitals), "HR:%3.0fBPM SpO2: -- ", hr);
+            } else if (disp_spo2 > 0.0f) {
+                snprintf(buf_vitals, sizeof(buf_vitals), "HR: --   SpO2:%2.0f%%", disp_spo2);
             } else {
                 snprintf(buf_vitals, sizeof(buf_vitals), "HR: --   SpO2: -- ");
             }
-            ssd1306_draw_string(&s_ssd1306, 2, 15, buf_vitals);
+            ssd1306_draw_string(&s_ssd1306, 2, 16, buf_vitals);
 
-            // Line 2: Environment (Temp & PM2.5)
+            // Line 2: Ambient / PM2.5 - Page 3 (rows 24-31). No skin temperature
+            // is instrumented (see the acquisition-path note).
             char buf_env[32];
-            snprintf(buf_env, sizeof(buf_env), "T:%4.1fC   PM:%3.0f", env.ambient_temp_c, env.pm25);
-            ssd1306_draw_string(&s_ssd1306, 2, 27, buf_env);
+            if (!ambient_valid) {
+                snprintf(buf_env, sizeof(buf_env), "Ta:--   PM:%3.0f", env.pm25);
+            } else {
+                snprintf(buf_env, sizeof(buf_env), "T:%4.1fC   PM:%3.0f",
+                         env.ambient_temp_c, env.pm25);
+            }
+            ssd1306_draw_string(&s_ssd1306, 2, 24, buf_env);
 
-            // Line 3: HRV RMSSD or Guidance Feedback
+            // Line 3: HRV RMSSD or Guidance Feedback - Page 4 (rows 32-39)
             char buf_hrv[32];
             if (sig_stat == SIGNAL_STATUS_NO_FINGER) {
                 snprintf(buf_hrv, sizeof(buf_hrv), "Touch MAX30102...");
@@ -1706,13 +2070,19 @@ static void task_disaster_monitor(void *pvParameters) {
                 snprintf(buf_hrv, sizeof(buf_hrv), "Press Firmer...");
             } else if (hrv_snapshot.count < 10) {
                 snprintf(buf_hrv, sizeof(buf_hrv), "Reading... (%d/10)", hrv_snapshot.count);
-            } else {
+            } else if (hrv_snapshot.rmssd > 0.0f) {
                 snprintf(buf_hrv, sizeof(buf_hrv), "HRV RMSSD:%4.1fms", hrv_snapshot.rmssd);
+            } else if (sqi_pub < 0.50f) {
+                snprintf(buf_hrv, sizeof(buf_hrv), "Hold Finger Still");
+            } else {
+                snprintf(buf_hrv, sizeof(buf_hrv), "HRV: Stabilizing");
             }
-            ssd1306_draw_string(&s_ssd1306, 2, 39, buf_hrv);
+            ssd1306_draw_string(&s_ssd1306, 2, 32, buf_hrv);
 
-            // Line 4: Health Condition Alert (TinyML & Disaster Engine)
-            ssd1306_draw_hline(&s_ssd1306, 0, 49, 128);
+            // Divider 2: Page 5 (row 40)
+            ssd1306_draw_hline(&s_ssd1306, 0, 40, 128);
+
+            // Line 4: Health Condition Alert (TinyML & Disaster Engine) - Page 6 (rows 48-55)
             char buf_cond[32];
             if (sig_stat == SIGNAL_STATUS_NO_FINGER) {
                 snprintf(buf_cond, sizeof(buf_cond), "CONDITION: WAITING");
@@ -1724,26 +2094,78 @@ static void task_disaster_monitor(void *pvParameters) {
                 const char *risk_str = risk_level_to_string(final_risk.overall_risk);
                 snprintf(buf_cond, sizeof(buf_cond), "CONDITION: %s", risk_str);
             }
-            ssd1306_draw_string(&s_ssd1306, 2, 53, buf_cond);
+            ssd1306_draw_string(&s_ssd1306, 2, 48, buf_cond);
             }   /* end normal dashboard */
 
-            ssd1306_update(&s_ssd1306);
+            static uint8_t oled_write_failures = 0;
+            int oled_update_rc = ssd1306_update(&s_ssd1306);
+            uint32_t oled_update_now_ms = (uint32_t)(esp_timer_get_time() / 1000);
+            if (oled_update_rc == 0) {
+                oled_write_failures = 0;
+                if (!oled_frame_transfer_logged) {
+                    ESP_LOGI(TAG, "OLED dashboard framebuffer transferred successfully over I2C");
+                    oled_frame_transfer_logged = true;
+                }
+            } else {
+                oled_frame_transfer_logged = false;
+                if (oled_write_failures < UINT8_MAX) oled_write_failures++;
+                if ((int32_t)(oled_update_now_ms - next_oled_write_error_log_ms) >= 0) {
+                    ESP_LOGW(TAG, "OLED framebuffer write failed (%u/3); preserving display until repeated failures",
+                             (unsigned)oled_write_failures);
+                    next_oled_write_error_log_ms = oled_update_now_ms + 30000;
+                }
+                /* Do not reinitialize on one transient NACK. Three consecutive
+                 * failed frame transfers mean the display is no longer usable;
+                 * mark it offline so the existing 5 s retry path can perform a
+                 * clean initialization. */
+                if (oled_write_failures >= 3) {
+                    s_ssd1306.initialized = 0;
+                    oled_write_failures = 0;
+                    next_oled_retry_ms = oled_update_now_ms + 5000;
+                }
+            }
         }
 
 #if defined(CONFIG_SHRIKEFI_SOS_CANCEL_GPIO) && CONFIG_SHRIKEFI_SOS_CANCEL_GPIO >= 0
         for (int i = 0; i < 20; i++) {
             uint32_t tick_ms = (uint32_t)(esp_timer_get_time() / 1000);
             /* Active low. 30ms debounce implicitly handled by polling at 50ms intervals. */
-            if (gpio_get_level(CONFIG_SHRIKEFI_SOS_CANCEL_GPIO) == 0) {
-                sos_cancel_press(tick_ms);
-                sos_update(tick_ms, triage_level == (int)CLINICAL_CRITICAL, contact_present);
-            } else {
-                sos_cancel_release();
+            if (xSemaphoreTake(s_data_mutex, pdMS_TO_TICKS(10)) == pdTRUE) {
+                if (gpio_get_level(CONFIG_SHRIKEFI_SOS_CANCEL_GPIO) == 0) {
+                    sos_cancel_press(tick_ms);
+                    sos_update(tick_ms, triage_level == (int)CLINICAL_CRITICAL, contact_present);
+                } else {
+                    sos_cancel_release();
+                }
+                xSemaphoreGive(s_data_mutex);
             }
+
+#if defined(PIN_BUZZER) && PIN_BUZZER >= 0
+            /* Drive Active Buzzer on GPIO 4:
+             * - SOS_ACTIVE: Pulsing loud emergency siren (100ms ON / 100ms OFF)
+             * - SOS_ARMED (Fall countdown): 100ms alert chirp at start of each second
+             * - Normal: Silenced (LOW) */
+            int buzzer_val = 0;
+            if (sos_now == SOS_ACTIVE) {
+                buzzer_val = (i % 4 < 2) ? 1 : 0;
+            } else if (sos_now == SOS_ARMED && sos_trig == SOS_TRIGGER_FALL) {
+                buzzer_val = (i < 2) ? 1 : 0;
+            }
+            gpio_set_level((gpio_num_t)PIN_BUZZER, buzzer_val);
+#endif
+
             vTaskDelay(pdMS_TO_TICKS(50));
         }
 #else
+#if defined(PIN_BUZZER) && PIN_BUZZER >= 0
+        gpio_set_level((gpio_num_t)PIN_BUZZER, (sos_now == SOS_ACTIVE) ? 1 : 0);
+#endif
         vTaskDelay(pdMS_TO_TICKS(1000)); // 1 Hz assessment rate
+#endif
+#if defined(PIN_BUZZER) && PIN_BUZZER >= 0
+        if (sos_now != SOS_ACTIVE && sos_now != SOS_ARMED) {
+            gpio_set_level((gpio_num_t)PIN_BUZZER, 0);
+        }
 #endif
     }
 }
@@ -1761,10 +2183,123 @@ static void task_pms5003_uart(void *pvParameters) {
     }
 }
 
+static void task_gps_uart(void *pvParameters) {
+    (void)pvParameters;
+    ESP_LOGI(TAG, "GNSS (u-blox NEO-M8N / Quectel L89HS) UART RX Task Started on UART%d (RX=GPIO%d, TX=GPIO%d, 9600 8N1).",
+             GPS_UART_NUM, PIN_GPS_RX, PIN_GPS_TX);
+
+    uint8_t rx_buf[64];
+    while (1) {
+        int len = uart_read_bytes(s_gnss.uart_num, rx_buf, sizeof(rx_buf), pdMS_TO_TICKS(100));
+        for (int i = 0; i < len; i++) {
+            if (gnss_nmea_feed_byte(&s_gnss, rx_buf[i]) == 1) {
+                gnss_data_t gdata;
+                if (gnss_nmea_get_data(&s_gnss, &gdata) == 0 && gdata.fix_valid) {
+                    if (xSemaphoreTake(s_data_mutex, pdMS_TO_TICKS(10)) == pdTRUE) {
+                        s_has_gps_fix = true;
+                        gnss_nmea_format_coords(&gdata, s_last_gps_coord, sizeof(s_last_gps_coord));
+                        xSemaphoreGive(s_data_mutex);
+                    }
+                } else if (!gnss_nmea_has_fix(&s_gnss)) {
+                    if (xSemaphoreTake(s_data_mutex, pdMS_TO_TICKS(10)) == pdTRUE) {
+                        s_has_gps_fix = false;
+                        xSemaphoreGive(s_data_mutex);
+                    }
+                }
+            }
+        }
+
+        /* Check for fix timeout (5 seconds without valid fix de-asserts live fix) */
+        uint32_t now_ms = (uint32_t)(esp_timer_get_time() / 1000ULL);
+        if (gnss_nmea_expire_fix(&s_gnss, now_ms, 5000)) {
+            if (xSemaphoreTake(s_data_mutex, pdMS_TO_TICKS(10)) == pdTRUE) {
+                s_has_gps_fix = false;
+                xSemaphoreGive(s_data_mutex);
+            }
+        }
+
+        /* Periodic GNSS diagnostic report (every 5 seconds) */
+        static uint32_t s_last_gps_log_ms = 0;
+        if (now_ms - s_last_gps_log_ms >= 5000) {
+            s_last_gps_log_ms = now_ms;
+            gnss_data_t gdata;
+            gnss_nmea_get_data(&s_gnss, &gdata);
+            if (gdata.fix_valid) {
+                char coord_str[GNSS_COORD_STR_LEN];
+                gnss_nmea_format_coords(&gdata, coord_str, sizeof(coord_str));
+                ESP_LOGI("GNSS", "[3D FIX LOCKED] Coords: %s | Sats: %u | Alt: %.1fm | HDOP: %.2f",
+                         coord_str, gdata.satellites, gdata.altitude_m, gdata.hdop);
+            } else if (gdata.sentences_received > 0) {
+                ESP_LOGI("GNSS", "[SEARCHING SATELLITES] Sats: %u | NMEA parsed: %lu | Fix: NO (PPS LED steady; place antenna near window)",
+                         gdata.satellites, (unsigned long)gdata.sentences_parsed);
+            } else {
+                ESP_LOGW("GNSS", "[NO UART DATA] Waiting for NMEA packets on GPIO%d (Wiring: NEO-M8N TX->GPIO16, VCC=3.3V)",
+                         PIN_GPS_RX);
+            }
+        }
+    }
+}
+
+static void task_imu_monitor(void *pvParameters) {
+    (void)pvParameters;
+    ESP_LOGI(TAG, "Core 1: IMU & Fall Detection Task Started (MPU6050 at 40 Hz).");
+    mpu6050_data_t imu_data;
+    static bool s_pending_fall_arm = false;
+    static uint32_t s_next_imu_retry_ms = 0;
+    static uint8_t s_imu_read_errors = 0;
+
+    while (1) {
+        uint32_t now_ms = (uint32_t)(esp_timer_get_time() / 1000);
+        if (!s_mpu6050.initialized &&
+            (int32_t)(now_ms - s_next_imu_retry_ms) >= 0) {
+            s_next_imu_retry_ms = now_ms + 5000;
+            if (mpu6050_init(&s_mpu6050, esp32_i2c_hal_get_handle(), MPU6050_I2C_ADDR) == 0) {
+                fall_detect_init(&s_fall_detector, NULL);
+                s_pending_fall_arm = false;
+                s_imu_read_errors = 0;
+                ESP_LOGI(TAG, "MPU6050 initialized after a runtime I2C retry");
+            }
+        }
+        if (s_mpu6050.initialized && mpu6050_read(&s_mpu6050, &imu_data) == 0) {
+            s_imu_read_errors = 0;
+            bool fall_occurred = fall_detect_update(&s_fall_detector, now_ms,
+                                                    imu_data.ax, imu_data.ay, imu_data.az,
+                                                    imu_data.gx, imu_data.gy, imu_data.gz);
+            if (fall_occurred) {
+                s_pending_fall_arm = true;
+            }
+            if (xSemaphoreTake(s_data_mutex, pdMS_TO_TICKS(20)) == pdTRUE) {
+                if (s_pending_fall_arm) {
+                    ESP_LOGW(TAG, "[IMU] FALL DETECTED! Arming emergency assist with 10s grace...");
+                    sos_arm_fall(now_ms);
+                    s_pending_fall_arm = false;
+                }
+
+                /* Clear latched fall detector alarm if operator/patient cancelled SOS or SOS stood down */
+                if ((sos_get_state() == SOS_CANCELLED || sos_get_state() == SOS_IDLE) &&
+                    fall_detect_is_confirmed(&s_fall_detector)) {
+                    fall_detect_clear_alarm(&s_fall_detector);
+                }
+
+                g_state.imu_motion_energy = fall_detect_get_motion_energy(&s_fall_detector);
+                g_state.fall_state        = fall_detect_get_state(&s_fall_detector);
+                xSemaphoreGive(s_data_mutex);
+            }
+        } else if (s_mpu6050.initialized && ++s_imu_read_errors >= 5) {
+            ESP_LOGW(TAG, "MPU6050 read failed five times; retrying sensor initialization");
+            s_mpu6050.initialized = 0;
+            s_imu_read_errors = 0;
+            s_next_imu_retry_ms = now_ms + 5000;
+        }
+        vTaskDelay(pdMS_TO_TICKS(25)); /* 40 Hz kinematics sampling */
+    }
+}
+
 void app_main(void) {
     ESP_LOGI(TAG, "================================================================");
     ESP_LOGI(TAG, "  SIH26181 ShrikeFi Health Companion Firmware");
     ESP_LOGI(TAG, "  ESP32-S3 + Renesas ForgeFPGA SPI-Linked System");
+    ESP_LOGI(TAG, "  Build: " __DATE__ " " __TIME__ " | Commit: %s", GIT_COMMIT_HASH);
     ESP_LOGI(TAG, "================================================================");
 
     s_data_mutex = xSemaphoreCreateMutex();
@@ -1778,14 +2313,10 @@ void app_main(void) {
                       "software/peripheral fault, NOT wiring.",
                  PIN_I2C_SDA, PIN_I2C_SCL);
     } else {
-        ESP_LOGI(TAG, "I2C HAL ready: SDA=GPIO%d SCL=GPIO%d at %d Hz. If the scan below "
-                      "finds nothing, suspect SDA/SCL swapped, missing 4.7k pull-ups, or "
-                      "unpowered sensors.",
+        ESP_LOGI(TAG, "I2C HAL ready: SDA=GPIO%d SCL=GPIO%d at %d Hz; probing sensors.",
                  PIN_I2C_SDA, PIN_I2C_SCL, I2C_BUS_SPEED_HZ);
+        esp32_i2c_hal_scan();
     }
-
-    /* Hardware diagnosis: scan and log all connected I2C devices */
-    esp32_i2c_hal_scan();
 
     /* ForgeFPGA bitstream delivery over SPI2, using the Vicharak
      * Web_FPGA_programmer sequence. On success the boot log reads
@@ -1798,9 +2329,9 @@ void app_main(void) {
      * The 0x55 handshake further down is not the confirmation either: the RTL
      * overwrites its response register with {beat_latched, filt_sample[6:0]} on
      * the clock after reset, so the reply is 0x00 and the probe byte is never
-     * echoed. What actually proves a configured design is running is the MISO
-     * line reading ACTIVELY DRIVEN BY FPGA, and then "[FPGA ACCEL] Systolic
-     * crest detected!" once a finger is on the sensor. */
+     * echoed. A stable MISO level across weak pull settings is only a line-level
+     * heuristic; a beat response after sensor contact is required to confirm
+     * that the configured FPGA design is executing. */
     if (shrikefi_fpga_flash_init() == SHRIKEFI_OK) {
         ESP_LOGI(TAG, "ForgeFPGA SLG47910 bitstream programmed successfully over SPI!");
     } else {
@@ -1839,7 +2370,7 @@ void app_main(void) {
 
     if (s_ssd1306.initialized) {
         ssd1306_clear(&s_ssd1306);
-        ssd1306_draw_string(&s_ssd1306, 8, 4, "SIH26181 HEALTH");
+        ssd1306_draw_string(&s_ssd1306, 19, 4, "VALOR COMPANION");
         ssd1306_draw_hline(&s_ssd1306, 0, 14, 128);
         ssd1306_draw_string(&s_ssd1306, 14, 20, "QUALCOMM SoC");
         ssd1306_draw_string(&s_ssd1306, 8, 34, "ESP32-S3 + FPGA");
@@ -1871,6 +2402,10 @@ void app_main(void) {
         ESP_LOGI(TAG, "MAX30102 initialized OK");
     }
 
+    /* No skin-temperature sensor is probed: the MAX30205 was never populated and
+     * the MAX30102 die-temperature proxy is not a body temperature. Add a TMP117
+     * probe here when that sensor is fitted. */
+
     /* Initialize BME280 (environmental sensor) */
     if (bme280_init(&s_bme280, esp32_i2c_hal_get_handle(), BME280_I2C_ADDR) != 0) {
         ESP_LOGE(TAG, "BME280 initialization failed!");
@@ -1899,6 +2434,40 @@ void app_main(void) {
     gpio_set_pull_mode((gpio_num_t)PIN_PMS5003_RX, GPIO_PULLUP_ONLY); // Prevent floating noise when sensor disconnected
     uart_driver_install(UART_NUM_1, 1024, 0, 0, NULL, 0);
 
+    /* Initialize u-blox NEO-M8N / Quectel GNSS on UART2 */
+    if (gnss_nmea_init(&s_gnss, GPS_UART_NUM) != 0) {
+        ESP_LOGE(TAG, "u-blox NEO-M8N GNSS initialization failed!");
+    } else {
+        ESP_LOGI(TAG, "u-blox NEO-M8N GNSS (NMEA-0183) initialized OK");
+    }
+
+    /* Configure UART2 for u-blox NEO-M8N GNSS (TX=GPIO17, RX=GPIO16, 9600 baud, 8N1) */
+    uart_config_t gps_uart_cfg = {
+        .baud_rate = GPS_BAUD_RATE,
+        .data_bits = UART_DATA_8_BITS,
+        .parity = UART_PARITY_DISABLE,
+        .stop_bits = UART_STOP_BITS_1,
+        .flow_ctrl = UART_HW_FLOWCTRL_DISABLE,
+        .source_clk = UART_SCLK_DEFAULT,
+    };
+    uart_param_config(GPS_UART_NUM, &gps_uart_cfg);
+    uart_set_pin(GPS_UART_NUM, PIN_GPS_TX, PIN_GPS_RX, UART_PIN_NO_CHANGE, UART_PIN_NO_CHANGE);
+    gpio_set_pull_mode((gpio_num_t)PIN_GPS_RX, GPIO_PULLUP_ONLY); // Prevent floating noise when sensor disconnected
+    uart_driver_install(GPS_UART_NUM, 1024, 0, 0, NULL, 0);
+
+    /* Initialize MPU6050 6-Axis IMU & 3-Stage Fall Detection Engine */
+    fall_detect_init(&s_fall_detector, NULL);
+    if (mpu6050_init(&s_mpu6050, esp32_i2c_hal_get_handle(), MPU6050_I2C_ADDR) != 0) {
+        ESP_LOGW(TAG, "MPU6050 IMU not responding at 0x%02X (check SDA=GPIO%d, SCL=GPIO%d, VCC=3.3V)",
+                 MPU6050_I2C_ADDR, PIN_I2C_SDA, PIN_I2C_SCL);
+    } else {
+        ESP_LOGI(TAG, "MPU6050 6-Axis IMU initialized OK (fall detection active)");
+    }
+
+    /* Scan after device initialization so slow-starting sensors get the same
+     * settled-bus opportunity as their driver probes. */
+    esp32_i2c_hal_scan();
+
 #if defined(CONFIG_SHRIKEFI_SOS_CANCEL_GPIO) && CONFIG_SHRIKEFI_SOS_CANCEL_GPIO >= 0
     gpio_config_t btn_cfg = {
         .pin_bit_mask = (1ULL << CONFIG_SHRIKEFI_SOS_CANCEL_GPIO),
@@ -1911,12 +2480,29 @@ void app_main(void) {
     ESP_LOGI(TAG, "SOS hardware cancel button configured on GPIO%d", CONFIG_SHRIKEFI_SOS_CANCEL_GPIO);
 #endif
 
+#if defined(PIN_BUZZER) && PIN_BUZZER >= 0
+    gpio_config_t buzzer_cfg = {
+        .pin_bit_mask = (1ULL << PIN_BUZZER),
+        .mode         = GPIO_MODE_OUTPUT,
+        .pull_up_en   = GPIO_PULLUP_DISABLE,
+        .pull_down_en = GPIO_PULLDOWN_ENABLE,
+        .intr_type    = GPIO_INTR_DISABLE
+    };
+    gpio_config(&buzzer_cfg);
+    gpio_set_level((gpio_num_t)PIN_BUZZER, 0);
+    ESP_LOGI(TAG, "Active Buzzer configured on GPIO%d (audible alarm sounder)", PIN_BUZZER);
+    /* Power-on self-test: 80ms audible beep to verify buzzer wiring and acoustic health */
+    gpio_set_level((gpio_num_t)PIN_BUZZER, 1);
+    vTaskDelay(pdMS_TO_TICKS(80));
+    gpio_set_level((gpio_num_t)PIN_BUZZER, 0);
+#endif
+
     /* Spawn Dual-Core FreeRTOS Tasks.
      *
      * Stack sizes are not arbitrary. task_disaster_monitor alone puts roughly
      * 4 KB of structs on its stack:
      *
-     *   hrv_state_t           1224 B
+     *   hrv_state_t           1528 B (IBI window plus adjacency markers)
      *   risk_assessment_t  x4 2208 B   (552 B each after overall_advisory became
      *                                   an embedded char[512] instead of a
      *                                   const char* - the C-02 fix)
@@ -1936,11 +2522,15 @@ void app_main(void) {
     xTaskCreatePinnedToCore(task_ppg_accelerator, "PPG_Accel",    7168, NULL, 5, NULL, 0); // Core 0
     xTaskCreatePinnedToCore(task_disaster_monitor, "Risk_Monitor", 10240, NULL, 2, NULL, 1); // Core 1
     xTaskCreatePinnedToCore(task_pms5003_uart, "PMS5003_UART",     4096, NULL, 3, NULL, 1); // Core 1
+    xTaskCreatePinnedToCore(task_gps_uart,     "GPS_UART",         4096, NULL, 3, NULL, 1); // Core 1
+    xTaskCreatePinnedToCore(task_imu_monitor,  "IMU_Monitor",      4096, NULL, 3, NULL, 1); // Core 1
 
     ESP_LOGI(TAG, "Task Affinities Configured:");
     ESP_LOGI(TAG, " - PPG_Accel (Acquisition): Core 0");
     ESP_LOGI(TAG, " - Risk_Monitor (Processing): Core 1");
     ESP_LOGI(TAG, " - PMS5003_UART: Core 1");
+    ESP_LOGI(TAG, " - GPS_UART: Core 1");
+    ESP_LOGI(TAG, " - IMU_Monitor: Core 1");
 #if defined(CONFIG_ESP_WIFI_TASK_PINNED_TO_CORE_1) || (defined(CONFIG_ESP_WIFI_TASK_PINNED_TO_CORE) && CONFIG_ESP_WIFI_TASK_PINNED_TO_CORE == 1)
     ESP_LOGI(TAG, " - Wi-Fi Driver: Core 1");
 #else
@@ -1970,7 +2560,7 @@ int main(void) {
         .ambient_temp_c = 46.0f,
         .humidity_pct   = 65.0f,
         .pm25           = 25.0f,
-        .skin_temp_c    = 38.0f
+        .skin_temp_c    = 0.0f  /* reserved for a future TMP117 */
     };
 
     hrv_state_t hrv;
@@ -2020,7 +2610,7 @@ int main(void) {
         .ambient_temp_c = fog_temp,
         .humidity_pct   = fog_hum,
         .pm25           = cal_fog_pm, /* Use neural-calibrated PM2.5 */
-        .skin_temp_c    = 33.0f
+        .skin_temp_c    = 0.0f  /* reserved for a future TMP117 */
     };
     risk_assessment_t fog_risk;
     disaster_assess(&hrv, 98.0f, 75.0f, &fog_env, &fog_risk);
@@ -2033,7 +2623,7 @@ int main(void) {
         .ambient_temp_c = 22.0f,
         .humidity_pct   = 45.0f,
         .pm25           = 12.0f,
-        .skin_temp_c    = 36.5f
+        .skin_temp_c    = 0.0f  /* reserved for a future TMP117 */
     };
     risk_assessment_t env_baseline;
     disaster_assess(&hrv, icu_spo2, icu_hr, &normal_room, &env_baseline);
@@ -2146,6 +2736,17 @@ int main(void) {
         .contact = true,
         .uptime_s = 100
     };
+    char missing_env_json[768];
+    sim_stat.temp = -100.0f;
+    sim_stat.hum = -1.0f;
+    if (web_status_json(&sim_stat, missing_env_json, sizeof(missing_env_json)) == 0 ||
+        strstr(missing_env_json, "\"temp\":null") == NULL ||
+        strstr(missing_env_json, "\"hum\":null") == NULL) {
+        fprintf(stderr, "[FAIL] Missing BME280 readings must serialize as null\n");
+        return 1;
+    }
+    sim_stat.temp = 24.5f;
+    sim_stat.hum = 48.0f;
     web_status_publish(&sim_stat);
 
     /* Simulate 1 hour later with moderate hypoxia & smoke spike */
@@ -2173,7 +2774,7 @@ int main(void) {
     float tachy_ibi = 350.0f;
     int tachy_accepted = 0;
     for (int i = 0; i < 12; i++) {
-        bool ok = ibi_pipeline_submit(&tachy_pipe, &tachy_hrv, IBI_SRC_FPGA, tachy_ibi);
+        bool ok = ibi_pipeline_submit(&tachy_pipe, &tachy_hrv, IBI_SRC_FPGA, tachy_ibi, 0.0f);
         if (ok) {
             tachy_accepted++;
             float inst_hr = 60000.0f / tachy_ibi;
@@ -2211,6 +2812,413 @@ int main(void) {
         return 1;
     }
     printf("  [PASS] Profile 9 Tachycardia Acceptance & Zero-SQI Warmup Succeeded!\n");
+
+    /* Regression: reject both halves of the split-peak pair observed live on
+     * hardware (669 ms + 1020 ms around an 810 ms rhythm) so neither can inflate
+     * RMSSD. */
+    ibi_pipeline_reset(&tachy_pipe);
+    hrv_init(&tachy_hrv);
+    for (int i = 0; i < IBI_PRIME_N; i++) {
+        (void)ibi_pipeline_submit(&tachy_pipe, &tachy_hrv, IBI_SRC_FPGA, 810.0f, 0.0f);
+    }
+    for (int i = 0; i < 10; i++) {
+        if (!ibi_pipeline_submit(&tachy_pipe, &tachy_hrv, IBI_SRC_FPGA, 810.0f, 0.0f)) {
+            printf("  [FAIL] Stable IBI setup rejected a valid interval!\n");
+            return 1;
+        }
+    }
+    float stable_rmssd = tachy_hrv.rmssd;
+    int stable_count = tachy_hrv.count;
+    bool split_short_accepted = ibi_pipeline_submit(&tachy_pipe, &tachy_hrv,
+                                                     IBI_SRC_FPGA, 669.0f, 0.0f);
+    bool split_long_accepted = ibi_pipeline_submit(&tachy_pipe, &tachy_hrv,
+                                                    IBI_SRC_FPGA, 1020.0f, 0.0f);
+    if (split_short_accepted || split_long_accepted ||
+        tachy_hrv.count != stable_count || fabsf(tachy_hrv.rmssd - stable_rmssd) > 0.1f) {
+        printf("  [FAIL] Split-peak pair entered the HRV window!\n");
+        return 1;
+    }
+    printf("  [PASS] 669/1020 ms split pair rejected; RMSSD stayed %.1f ms\n",
+           tachy_hrv.rmssd);
+    if (ppg_has_optical_contact(4400u, 5400u) ||
+        !ppg_has_optical_contact(50001u, 0u) ||
+        !ppg_has_optical_contact(0u, 10001u)) {
+        printf("  [FAIL] Optical contact threshold admitted ambient data or rejected tissue data!\n");
+        return 1;
+    }
+    printf("  [PASS] Optical contact gate rejects IR=4400/Red=5400 and accepts tissue-level counts\n");
+
+    /* Profile 10: MPU6050 6-Axis IMU, 3-Stage Fall Detection & Motion Artifact Rejection */
+    printf("\nHost Test - Profile 10: MPU6050 6-Axis IMU & 3-Stage Fall Detection:\n");
+    mpu6050_t test_imu;
+    mpu6050_init(&test_imu, NULL, MPU6050_I2C_ADDR);
+    mpu6050_data_t imu_reading;
+
+    // Test 1: Normal resting baseline (1.0g on Z-axis, low gyro)
+    mpu6050_set_mock_raw(0, 0, 4096, 0, 0, 0, 0); // 4096 LSB = 1.0g in ±8g mode
+    mpu6050_read(&test_imu, &imu_reading);
+    printf("  [IMU Resting]   Ax=%.2fg Ay=%.2fg Az=%.2fg (A_mag=%.2fg) Gyro=%.1fdps\n",
+           imu_reading.ax, imu_reading.ay, imu_reading.az, imu_reading.a_mag, imu_reading.g_mag);
+    if (fabsf(imu_reading.a_mag - 1.0f) > 0.05f) {
+        printf("  [FAIL] Expected 1.0g resting acceleration!\n");
+        return 1;
+    }
+
+    fall_detector_t test_fall;
+    fall_detect_init(&test_fall, NULL);
+    uint32_t t_sim = 1000;
+    fall_detect_update(&test_fall, t_sim, imu_reading.ax, imu_reading.ay, imu_reading.az, 0, 0, 0);
+    printf("  [Fall FSM Base] State: %s | Motion Energy: %.3fg\n",
+           fall_state_name(fall_detect_get_state(&test_fall)), fall_detect_get_motion_energy(&test_fall));
+    if (fall_detect_get_state(&test_fall) != FALL_STATE_MONITORING) {
+        printf("  [FAIL] Expected MONITORING state!\n");
+        return 1;
+    }
+
+    // Test 2: Motion Artifact Rejection on PPG SQI
+    // Simulate high running/evacuation arm swing (motion_energy = 0.40g)
+    ppg_sqi_result_t motion_sqi;
+    ppg_calculate_sqi_with_motion(clean_ppg, 32, clean_ibis, 8, 0.40f, &motion_sqi);
+    printf("  [SQI Gating]    Motion Energy 0.40g: Clean Optical SQI 0.88 -> Motion-Gated SQI: %.2f (Artifact: %s)\n",
+           motion_sqi.overall_sqi, motion_sqi.is_motion_artifact ? "YES (Gated)" : "NO");
+    if (!motion_sqi.is_motion_artifact || motion_sqi.overall_sqi >= PPG_SQI_THRESHOLD_VALID) {
+        printf("  [FAIL] High motion energy failed to gate SQI!\n");
+        return 1;
+    }
+
+    // Test 3: False Alarm Rejection - High impact jumping/sitting with immediate recovery/walking
+    printf("  [False Alarm]   Simulating jump / sit-down (Impact followed by immediate walking movement)...\n");
+    fall_detect_reset(&test_fall);
+    // Free-fall dip: 0.3g for 100ms
+    t_sim += 100;
+    fall_detect_update(&test_fall, t_sim, 0.1f, 0.1f, 0.25f, 50.0f, 20.0f, 10.0f);
+    if (fall_detect_get_state(&test_fall) != FALL_STATE_FREE_FALL) {
+        printf("  [FAIL] Expected FREE_FALL state!\n");
+        return 1;
+    }
+    // Impact spike: 3.5g
+    t_sim += 100;
+    fall_detect_update(&test_fall, t_sim, 1.5f, 2.0f, 2.5f, 150.0f, 80.0f, 40.0f);
+    if (fall_detect_get_state(&test_fall) != FALL_STATE_INACTIVITY) {
+        printf("  [FAIL] Expected INACTIVITY state after impact!\n");
+        return 1;
+    }
+    // User gets up and walks: dynamic accel 0.8g, high gyro 140 dps
+    t_sim += 500;
+    fall_detect_update(&test_fall, t_sim, 0.8f, 0.6f, 1.5f, 140.0f, 90.0f, 60.0f);
+    printf("  [False Alarm]   User moved vigorously -> State recovered to: %s\n",
+           fall_state_name(fall_detect_get_state(&test_fall)));
+    if (fall_detect_get_state(&test_fall) != FALL_STATE_MONITORING) {
+        printf("  [FAIL] Expected return to MONITORING after vigorous movement!\n");
+        return 1;
+    }
+
+    // Test 4: Genuine 3-Stage Human Fall with Post-Impact Incapacitation
+    printf("  [Fall Sequence] Simulating genuine human fall (Free-fall -> Impact -> 1.5s Immobility)...\n");
+    fall_detect_reset(&test_fall);
+    // Stage 1: Free fall weightlessness (0.33g)
+    t_sim += 100;
+    fall_detect_update(&test_fall, t_sim, 0.1f, 0.1f, 0.3f, 30.0f, 40.0f, 20.0f);
+    printf("    Stage 1: A_mag=0.33g -> State: %s\n", fall_state_name(fall_detect_get_state(&test_fall)));
+    if (fall_detect_get_state(&test_fall) != FALL_STATE_FREE_FALL) {
+        printf("  [FAIL] Expected FREE_FALL state in fall sequence!\n");
+        return 1;
+    }
+
+    // Stage 2: Violent Impact deceleration spike (3.8g, 220 dps)
+    t_sim += 150;
+    fall_detect_update(&test_fall, t_sim, 1.8f, 2.2f, 2.5f, 180.0f, 110.0f, 70.0f);
+    printf("    Stage 2: A_mag=3.80g -> State: %s\n", fall_state_name(fall_detect_get_state(&test_fall)));
+    if (fall_detect_get_state(&test_fall) != FALL_STATE_INACTIVITY) {
+        printf("  [FAIL] Expected INACTIVITY state in fall sequence!\n");
+        return 1;
+    }
+
+    // Stage 3: Settling and post-impact stillness (1.5 seconds of immobility on the floor)
+    t_sim += 450; // past 400ms rebound settling
+    bool fall_latched = false;
+    for (int step = 0; step < 16; step++) { // 16 * 100ms = 1.6s
+        t_sim += 100;
+        // Subject lying horizontal: Ax=0.98g, Ay=0.05g, Az=0.08g (A_mag~0.98g), Gyro~0 dps
+        bool res = fall_detect_update(&test_fall, t_sim, 0.98f, 0.05f, 0.08f, 1.0f, 2.0f, 1.0f);
+        if (res) fall_latched = true;
+    }
+    printf("    Stage 3: 1.5s Stillness elapsed -> State: %s (Confirmed Flag: %d)\n",
+           fall_state_name(fall_detect_get_state(&test_fall)), (int)fall_latched);
+    if (!fall_latched || fall_detect_get_state(&test_fall) != FALL_STATE_CONFIRMED) {
+        printf("  [FAIL] Expected fall to be confirmed after 1.5s stillness!\n");
+        return 1;
+    }
+    float posture_angle = fall_detect_get_posture_angle_deg(&test_fall);
+    printf("    Stage 3: Posture Angle Change: %.1f deg | Peak Impact: %.2fg / %.1fdps\n",
+           posture_angle, fall_detect_get_impact_accel(&test_fall), fall_detect_get_impact_gyro(&test_fall));
+    if (posture_angle < 60.0f) {
+        printf("  [FAIL] Expected posture angle change > 60 deg (got %.1f deg)!\n", posture_angle);
+        return 1;
+    }
+    if (!fall_detect_is_confirmed(&test_fall)) {
+        printf("  [FAIL] Expected fall_detect_is_confirmed to be true!\n");
+        return 1;
+    }
+    if (fall_detect_get_impact_accel(&test_fall) < 3.5f) {
+        printf("  [FAIL] Expected peak impact accel >= 3.5g!\n");
+        return 1;
+    }
+
+    // Test 5: SOS State Machine Fall Arming and Triggering
+    sos_init(NULL);
+    sos_arm_fall(t_sim);
+    printf("  [SOS Assist]    sos_arm_fall() -> State: %s | Pending Trigger: %s\n",
+           sos_state_name(sos_get_state()), sos_trigger_name(sos_get_trigger()));
+    if (sos_get_state() != SOS_ARMED || sos_get_trigger() != SOS_TRIGGER_FALL) {
+        printf("  [FAIL] Expected SOS_ARMED state with trigger 'fall' after sos_arm_fall!\n");
+        return 1;
+    }
+
+    // Countdown / grace period (10 seconds)
+    sos_update(t_sim + 5000, false, true); // 5s < 10s confirm
+    if (sos_get_state() != SOS_ARMED) {
+        printf("  [FAIL] Expected SOS_ARMED to persist during 10s grace period!\n");
+        return 1;
+    }
+    sos_update(t_sim + 10001, false, true); // 10s elapsed
+    printf("  [SOS Assist]    10s Grace Expired -> State: %s | Latch Trigger: %s\n",
+           sos_state_name(sos_get_state()), sos_trigger_name(sos_get_trigger()));
+    if (sos_get_state() != SOS_ACTIVE || sos_get_trigger() != SOS_TRIGGER_FALL) {
+        printf("  [FAIL] Expected SOS_ACTIVE with trigger 'fall'!\n");
+        return 1;
+    }
+    if (strcmp(sos_trigger_name(sos_get_trigger()), "fall") != 0) {
+        printf("  [FAIL] Expected trigger name 'fall', got '%s'\n", sos_trigger_name(sos_get_trigger()));
+        return 1;
+    }
+
+    // Test 6: Cancel during emergency
+    sos_cancel_now(t_sim + 11000);
+    if (sos_get_state() != SOS_CANCELLED) {
+        printf("  [FAIL] Expected SOS_CANCELLED after sos_cancel_now!\n");
+        return 1;
+    }
+    sos_update(t_sim + 12000, false, true);
+    if (sos_get_state() != SOS_IDLE) {
+        printf("  [FAIL] Expected SOS_IDLE after cancel cleared!\n");
+        return 1;
+    }
+
+    // Test 7: Button Hold-Cancel during SOS_ARMED Grace Window
+    sos_arm_fall(t_sim + 12500);
+    if (sos_get_state() != SOS_ARMED || sos_get_trigger() != SOS_TRIGGER_FALL) {
+        printf("  [FAIL] Expected SOS_ARMED with trigger 'fall' on re-arming!\n");
+        return 1;
+    }
+    // Patient presses and holds cancel button for 5 seconds during the 10s grace window
+    sos_cancel_press(t_sim + 13000);
+    sos_update(t_sim + 15500, false, true); // 2.5s held (50%)
+    if (sos_get_state() != SOS_ARMED || sos_cancel_progress_pct(t_sim + 15500) != 50) {
+        printf("  [FAIL] Expected SOS_ARMED with 50%% cancel progress during grace hold!\n");
+        return 1;
+    }
+    sos_update(t_sim + 18000, false, true); // 5.0s held -> stands down
+    if (sos_get_state() != SOS_CANCELLED) {
+        printf("  [FAIL] Expected SOS_CANCELLED after 5s cancel hold during grace window!\n");
+        return 1;
+    }
+    sos_update(t_sim + 19000, false, true);
+    if (sos_get_state() != SOS_IDLE) {
+        printf("  [FAIL] Expected SOS_IDLE after cancel cleared!\n");
+        return 1;
+    }
+
+    // Test 8: Direct Fall Trigger (immediate latch without countdown)
+    sos_fall_trigger(t_sim + 20000);
+    if (sos_get_state() != SOS_ACTIVE || sos_get_trigger() != SOS_TRIGGER_FALL) {
+        printf("  [FAIL] Expected immediate SOS_ACTIVE on sos_fall_trigger!\n");
+        return 1;
+    }
+    printf("  [PASS] Profile 10 MPU6050 & 3-Stage Fall Detection Succeeded!\n");
+
+    /* Profile 11: GNSS NMEA Telemetry & u-blox NEO-M8N Hardware Integration */
+    printf("\nHost Test - Profile 11: GNSS NMEA & u-blox NEO-M8N Hardware Integration:\n");
+    gnss_nmea_t sim_gnss;
+    if (gnss_nmea_init(&sim_gnss, GPS_UART_NUM) != 0) {
+        printf("  [FAIL] Failed to initialize GNSS driver!\n");
+        return 1;
+    }
+
+    /* Test 1: Cold start state */
+    if (gnss_nmea_has_fix(&sim_gnss)) {
+        printf("  [FAIL] Expected no fix on fresh initialization!\n");
+        return 1;
+    }
+    char cold_coords[GNSS_COORD_STR_LEN];
+    gnss_nmea_format_coords(&sim_gnss.data, cold_coords, sizeof(cold_coords));
+    if (strcmp(cold_coords, "NO FIX") != 0) {
+        printf("  [FAIL] Expected 'NO FIX' before satellite acquisition!\n");
+        return 1;
+    }
+
+    /* Test 2: Stream live u-blox NEO-M8N burst stream byte-by-byte */
+    const char *sim_burst =
+        "$GNRMC,083559.00,A,2017.7635,N,08549.4723,E,0.05,120.50,121026,,,A*46\r\n"
+        "$GNVTG,120.50,T,,M,0.05,N,0.09,K,A*29\r\n"
+        "$GNGGA,083559.00,2017.7635,N,08549.4723,E,1,10,0.95,45.3,M,0.0,M,,*4E\r\n";
+
+    int parsed_sentences = 0;
+    for (size_t i = 0; i < strlen(sim_burst); i++) {
+        if (gnss_nmea_feed_byte(&sim_gnss, (uint8_t)sim_burst[i]) == 1) {
+            parsed_sentences++;
+        }
+    }
+    if (parsed_sentences != 3 || !gnss_nmea_has_fix(&sim_gnss)) {
+        printf("  [FAIL] Expected 3 parsed sentences and active fix! (parsed=%d, fix=%d)\n",
+               parsed_sentences, (int)gnss_nmea_has_fix(&sim_gnss));
+        return 1;
+    }
+
+    /* Test 3: Validate parsed coordinates and telemetry */
+    gnss_data_t sim_data;
+    if (gnss_nmea_get_data(&sim_gnss, &sim_data) != 0 || !sim_data.fix_valid) {
+        printf("  [FAIL] Failed to retrieve valid GNSS data!\n");
+        return 1;
+    }
+    char sim_coord_str[GNSS_COORD_STR_LEN];
+    gnss_nmea_format_coords(&sim_data, sim_coord_str, sizeof(sim_coord_str));
+    printf("  [GNSS Fix]     u-blox NEO-M8N Locked (%u Sats | Alt: %.1fm | HDOP: %.2f)\n",
+           sim_data.satellites, sim_data.altitude_m, sim_data.hdop);
+    printf("  [Coordinates]  %s (Lat: %.5f%c, Lon: %.5f%c, Speed: %.2f km/h)\n",
+           sim_coord_str, (double)sim_data.latitude, sim_data.lat_dir,
+           (double)sim_data.longitude, sim_data.lon_dir, (double)sim_data.speed_kmh);
+
+    if (strstr(sim_coord_str, "20.29606N") == NULL || strstr(sim_coord_str, "85.82454E") == NULL) {
+        printf("  [FAIL] Coordinate format mismatch! Got '%s'\n", sim_coord_str);
+        return 1;
+    }
+
+    /* Test 4: OLED Location card fallback */
+    char sim_oled_card[LOCATION_MAX_LEN];
+    location_card_text(sim_coord_str, sim_oled_card, sizeof(sim_oled_card));
+    printf("  [OLED Card]    %s\n", sim_oled_card);
+    if (strstr(sim_oled_card, "20.29606N") == NULL) {
+        printf("  [FAIL] Expected live GPS coordinates in OLED location card!\n");
+        return 1;
+    }
+
+    /* Test 5: Command builders & u-blox binary protocol */
+    int ubx_bytes = gnss_nmea_ublox_set_rate(&sim_gnss, 1000);
+    int pubx_bytes = gnss_nmea_ublox_set_baud(&sim_gnss, 9600);
+    printf("  [UBX/PUBX TX]  UBX-CFG-RATE: %d bytes | PUBX-CFG-PRT: %d bytes\n", ubx_bytes, pubx_bytes);
+    if (ubx_bytes != 14 || pubx_bytes <= 0) {
+        printf("  [FAIL] Expected valid UBX (14B) and PUBX transmit byte counts!\n");
+        return 1;
+    }
+
+    /* Test 6: Satellite fix loss handling */
+    const char *sim_fix_lost = "$GNGGA,083600.00,0000.0000,N,00000.0000,E,0,02,99.9,0.0,M,0.0,M,,*75\r\n";
+    for (size_t i = 0; i < strlen(sim_fix_lost); i++) {
+        gnss_nmea_feed_byte(&sim_gnss, (uint8_t)sim_fix_lost[i]);
+    }
+    if (gnss_nmea_has_fix(&sim_gnss)) {
+        printf("  [FAIL] Expected fix to be cleared after Quality 0 GGA!\n");
+        return 1;
+    }
+    gnss_nmea_format_coords(&sim_gnss.data, sim_coord_str, sizeof(sim_coord_str));
+    printf("  [Fix Lost]     Simulated Signal Loss -> Status: %s\n", sim_coord_str);
+    if (strcmp(sim_coord_str, "NO FIX") != 0) {
+        printf("  [FAIL] Expected 'NO FIX' after signal loss!\n");
+        return 1;
+    }
+    printf("  [PASS] Profile 11 GNSS NMEA & u-blox NEO-M8N Succeeded!\n");
+
+    /* Profile 12 intentionally removed with the skin-temperature feature
+     * (2026-10-17). Re-add a temperature-scoring profile when a TMP117 is fitted. */
+
+    /* Profile 13: SSD1306 Dirty-Page Differential Update & MAX30102 Non-Blinking FIFO Recovery */
+    printf("\nHost Test - Profile 13: SSD1306 Differential Update & MAX30102 Burst/Recovery:\n");
+
+    /* Test 1: SSD1306 Differential Dirty-Page Updating */
+    ssd1306_t test_oled;
+    if (ssd1306_init(&test_oled, esp32_i2c_hal_get_handle(), SSD1306_I2C_ADDR) != 0) {
+        printf("  [FAIL] Failed to initialize SSD1306 OLED in simulation!\n");
+        return 1;
+    }
+
+    /* Subtest 1A: Idle refresh with identical framebuffer produces 0 I2C write transactions */
+    esp32_i2c_hal_sim_reset_counters();
+    int update_rc = ssd1306_update(&test_oled);
+    uint32_t idle_writes = esp32_i2c_hal_sim_get_raw_writes();
+    printf("  [OLED Idle Sync] Clean framebuffer -> %u I2C write transactions (100%% idle refresh flicker eliminated)\n",
+           idle_writes);
+    if (update_rc != 0 || idle_writes != 0) {
+        printf("  [FAIL] Expected 0 write transactions on clean framebuffer, got %u!\n", idle_writes);
+        return 1;
+    }
+
+    /* Subtest 1B: Single page modification transmits ONLY that modified page */
+    ssd1306_draw_string(&test_oled, 0, 16, "VALOR OK"); /* Row 16 = Page 2 (rows 16-23) */
+    esp32_i2c_hal_sim_reset_counters();
+    update_rc = ssd1306_update(&test_oled);
+    uint32_t page_writes = esp32_i2c_hal_sim_get_raw_writes();
+    uint32_t bytes_written = esp32_i2c_hal_sim_get_raw_bytes();
+    printf("  [OLED Page Diff] Modified Page 2 only -> Transmitted 1 page (%u writes, %u bytes vs full 1024B frame)\n",
+           page_writes, bytes_written);
+    if (update_rc != 0 || page_writes != 2 || bytes_written != 136) {
+        printf("  [FAIL] Expected exactly 2 write transactions (1 page window + 1 data burst) and 136 bytes, got %u writes / %u bytes!\n",
+               page_writes, bytes_written);
+        return 1;
+    }
+
+    /* Subtest 1C: Second update with no further changes immediately returns 0 writes */
+    esp32_i2c_hal_sim_reset_counters();
+    update_rc = ssd1306_update(&test_oled);
+    if (update_rc != 0 || esp32_i2c_hal_sim_get_raw_writes() != 0) {
+        printf("  [FAIL] Expected 0 write transactions on subsequent unchanged frame!\n");
+        return 1;
+    }
+    printf("  [OLED Steady State] Unmodified frame -> 0 transactions (bus stays clear for optical sampling)\n");
+
+    /* Test 2: MAX30102 Burst FIFO Pointer Read (Single 3-byte transaction).
+     * test_max used to be created by the skin-temperature profile that was
+     * removed on 2026-10-17, so it is created here now. */
+    max30102_t test_max;
+    if (max30102_init(&test_max, esp32_i2c_hal_get_handle()) != 0) {
+        printf("  [FAIL] Failed to initialize MAX30102 in simulation!\n");
+        return 1;
+    }
+    int dropped = 0, saturated = 0;
+    esp32_i2c_hal_sim_set_max30102_fifo_ptrs(12, 0, 4);
+    int avail = max30102_fifo_available(&test_max, &dropped, &saturated);
+    printf("  [FIFO Burst Read] Available samples: %d (WR=12, RD=4) via single 3-byte burst read\n", avail);
+    if (avail != 8 || dropped != 0 || saturated != 0) {
+        printf("  [FAIL] Expected 8 available samples, got %d!\n", avail);
+        return 1;
+    }
+
+    /* Test 3: Non-Blinking FIFO Recovery when already in SpO2 mode */
+    esp32_i2c_hal_sim_set_max30102_mode(MAX30102_MODE_SPO2); /* 0x03 */
+    esp32_i2c_hal_sim_reset_counters();
+    int rec_rc = max30102_recover_fifo(&test_max);
+    uint32_t mode_writes = esp32_i2c_hal_sim_get_max30102_mode_writes();
+    printf("  [PPG Recovery] Running in SpO2 mode -> FIFO cleared without writing MODE_CONFIG (%u mode writes, 0 LED blinks)\n",
+           mode_writes);
+    if (rec_rc != 0 || mode_writes != 0) {
+        printf("  [FAIL] Expected 0 MODE_CONFIG writes during normal FIFO recovery, got %u!\n", mode_writes);
+        return 1;
+    }
+
+    /* Test 4: Shutdown/brownout state fails closed without toggling LEDs.
+     * Full reconfiguration is reserved for the persistent-failure init path. */
+    esp32_i2c_hal_sim_set_max30102_mode(0x80); /* Shutdown after brownout */
+    esp32_i2c_hal_sim_reset_counters();
+    rec_rc = max30102_recover_fifo(&test_max);
+    mode_writes = esp32_i2c_hal_sim_get_max30102_mode_writes();
+    uint8_t retained_mode = esp32_i2c_hal_sim_get_max30102_mode();
+    printf("  [PPG Brownout] Shutdown detected -> recovery deferred (mode 0x%02X, %u mode writes, no LED blink)\n",
+           retained_mode, mode_writes);
+    if (rec_rc == 0 || mode_writes != 0 || retained_mode != 0x80) {
+        printf("  [FAIL] Brownout recovery unexpectedly rewrote MODE_CONFIG or reported success!\n");
+        return 1;
+    }
+    printf("  [PASS] Profile 13 SSD1306 Differential Update & MAX30102 Recovery Succeeded!\n");
 
     printf("\n>>> ShrikeFi Host Test Completed Successfully <<<\n");
     return 0;
