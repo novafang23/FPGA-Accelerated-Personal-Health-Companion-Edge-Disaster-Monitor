@@ -21,16 +21,21 @@
 <hr />
 <h2>1. Quick Reference: Complete System Pinout</h2>
 <p>| Peripheral / Interface | Signal Name | ESP32-S3 Pin | FPGA Pin | Voltage Level | Notes |
-| <strong>I2C Bus</strong> | <strong>SDA</strong> | <strong>GPIO 1</strong> | — | 3.3V | Shared by OLED, MAX30102, BME280 |
-| <strong>I2C Bus</strong> | <strong>SCL</strong> | <strong>GPIO 2</strong> | — | 3.3V | 400 kHz Fast-Mode I2C clock |
+| <strong>I2C Bus</strong> | <strong>SDA</strong> | <strong>GPIO 1</strong> | — | 3.3V | Shared by OLED, MAX30102, BME280, MPU6050 |
+| <strong>I2C Bus</strong> | <strong>SCL</strong> | <strong>GPIO 2</strong> | — | 3.3V | 100 kHz Standard-Mode I2C clock |
+| <strong>MPU6050 IMU</strong> | <strong>I2C Bus</strong> | <strong>SDA: GPIO 1, SCL: GPIO 2</strong> | — | 3.3V | Addr 0x68 (AD0=GND). Fall detection &amp; PPG motion gating |
 | <strong>PMS5003 PM2.5</strong> | <strong>UART1 RX</strong> | <strong>GPIO 14</strong> | — | 3.3V | Connects to PMS5003 Pin 5 (TX) |
 | <strong>PMS5003 PM2.5</strong> | <strong>UART1 TX</strong> | <strong>GPIO 18</strong> | — | 3.3V | Connects to PMS5003 Pin 6 (RX) <em>(optional)</em> |
+| <strong>u-blox NEO-M8N GNSS</strong> | <strong>UART2 RX</strong> | <strong>GPIO 16</strong> | — | 3.3V | Connects to GY-GPSV3-NEO Pin 3 (TX) (NMEA-0183, 9600 baud) |
+| <strong>u-blox NEO-M8N GNSS</strong> | <strong>UART2 TX</strong> | <strong>GPIO 17</strong> | — | 3.3V | Connects to GY-GPSV3-NEO Pin 2 (RX) <em>(UBX / PMTK commands)</em> |
 | <strong>FPGA SPI Link</strong> | <code>spi_sck</code> | <strong>GPIO 12</strong> | PIN_16 | 3.3V | Internal PCB trace — SPI clock, mode 0 |
 | <strong>FPGA SPI Link</strong> | <code>spi_ss_n</code> | <strong>GPIO 10</strong> | PIN_17 | 3.3V | Internal PCB trace — chip select, active low, driven manually per transaction |
 | <strong>FPGA SPI Link</strong> | <code>spi_mosi</code> | <strong>GPIO 11</strong> | PIN_18 | 3.3V | Internal PCB trace — MCU → FPGA, the sample byte |
 | <strong>FPGA SPI Link</strong> | <code>spi_miso</code> | <strong>GPIO 13</strong> | PIN_19 (+PIN_19_OE) | 3.3V | Internal PCB trace — FPGA → MCU: <code>{beat, filt[6:0]}</code> |
 | <strong>FPGA Enable</strong> | <code>PIN_FPGA_EN</code> | <strong>GPIO 8</strong> | — | 3.3V | Internal PCB trace — enable / boot-mode latch |
 | <strong>FPGA Power</strong> | <code>PIN_FPGA_PWR</code> | <strong>GPIO 9</strong> | — | 3.3V | Internal PCB trace — FPGA power control |
+| <strong>Active Buzzer</strong> | <code>BUZZER_OUT</code> | <strong>GPIO 4</strong> | — | 3.3V | Audible alarm sounder (10s countdown chirps &amp; emergency siren) |
+| <strong>Cancel Button</strong> | <code>SOS_CANCEL</code> | <strong>GPIO 5</strong> | — | 3.3V | <em>(Optional)</em> Active-low tactile button to cancel false fall alarms |
 | <strong>Power Input</strong> | <strong>5V (VBUS)</strong> | <strong>5V / VBUS</strong> | — | <strong>5.0V</strong> | Powers PMS5003 fan &amp; laser |
 | <strong>Power System</strong> | <strong>3.3V</strong> | <strong>3.3V</strong> | VDD | <strong>3.3V</strong> | Powers all sensors, MCU, and FPGA |
 | <strong>Ground</strong> | <strong>GND</strong> | <strong>GND</strong> | GND | 0V | Common ground across all modules |</p>
@@ -43,18 +48,21 @@ All ESP32-S3 and Renesas ForgeFPGA I/O pins are strictly <strong>3.3V LVCMOS</st
 <hr />
 <h2>2. Sensor-by-Sensor Wiring Details</h2>
 <h3>A. I2C Bus Devices (Shared on GPIO 1 &amp; GPIO 2)</h3>
-<p>The SSD1306 OLED, MAX30102/MAX30100 optical pulse sensor, and BME280 environmental sensor all share the <strong>same two communication pins</strong>:</p>
+<p>The SSD1306 OLED, MAX30102/MAX30100 optical pulse sensor, BME280 environmental sensor, and MPU6050 6-axis IMU all share the <strong>same two communication pins</strong>:</p>
 <p><code>ESP32-S3                     Shared I2C Bus                     Sensors
 ┌─────────┐              ┌──────────────────────┐          ┌─────────────────┐
 │  GPIO 1 │ ─── SDA ───▶ │ Breadboard Row (SDA) │ ───────▶ │ OLED SDA        │
 │         │              │                      │ ───────▶ │ MAX30102 SDA    │
 │         │              │                      │ ───────▶ │ BME280 SDA      │
+│         │              │                      │ ───────▶ │ MPU6050 SDA     │
 │         │              ├──────────────────────┤          ├─────────────────┤
 │  GPIO 2 │ ─── SCL ───▶ │ Breadboard Row (SCL) │ ───────▶ │ OLED SCL        │
 │         │              │                      │ ───────▶ │ MAX30102 SCL    │
 │         │              │                      │ ───────▶ │ BME280 SCL      │
+│         │              │                      │ ───────▶ │ MPU6050 SCL     │
 └─────────┘              └──────────────────────┘          └─────────────────┘</code></p>
 <h4>Device Addresses &amp; Power:</h4>
+<p><strong>Important:</strong> I2C breakout boards (OLED, BME280, MAX30102, MPU6050) typically include their own onboard pull-up resistors (often 4.7kΩ or 10kΩ). When chained, these act in parallel. <strong>Do not</strong> add explicit external 2.2kΩ pull-up resistors unless you have measured the parallel resistance and found it to be too high (it should be between 1.5kΩ and 3.3kΩ). Adding extra pull-ups can overload the I2C bus sink current.</p>
 <ol>
 <li><strong>SSD1306 OLED (128x64 Display):</strong></li>
 <li><code>VCC</code> $\to$ <strong>3.3V</strong></li>
@@ -71,7 +79,7 @@ All ESP32-S3 and Renesas ForgeFPGA I/O pins are strictly <strong>3.3V LVCMOS</st
 <li><code>GND</code> $\to$ <strong>GND</strong></li>
 <li><code>SDA</code> $\to$ <strong>GPIO 1</strong></li>
 <li><code>SCL</code> $\to$ <strong>GPIO 2</strong></li>
-<li><code>INT</code> $\to$ <em>Leave unconnected (FIFO is polled at 50Hz)</em></li>
+<li><code>INT</code> $\to$ <em>Leave unconnected (FIFO is polled at 100Hz)</em></li>
 <li>
 <p><em>I2C Address:</em> <code>0x57</code></p>
 </li>
@@ -84,7 +92,45 @@ All ESP32-S3 and Renesas ForgeFPGA I/O pins are strictly <strong>3.3V LVCMOS</st
 <li><code>SCL</code> $\to$ <strong>GPIO 2</strong></li>
 <li><code>CS</code>  $\to$ <strong>3.3V</strong> (selects I2C mode)</li>
 <li><code>SDO</code> $\to$ <strong>GND</strong> (selects address <code>0x76</code>) or <strong>3.3V</strong> (selects <code>0x77</code>)</li>
-<li><em>I2C Address:</em> <code>0x76</code></li>
+<li>
+<p><em>I2C Address:</em> <code>0x76</code></p>
+</li>
+<li>
+<p><strong>MPU6050 (6-Axis IMU: Accelerometer + Gyroscope):</strong></p>
+</li>
+<li><code>VCC</code> $\to$ <strong>3.3V</strong> (<strong>Strict 3.3V LVCMOS</strong>; GY-521 has an onboard 3.3V LDO. Do NOT connect to 5V VBUS!)</li>
+<li><code>GND</code> $\to$ <strong>GND</strong></li>
+<li><code>SDA</code> $\to$ <strong>GPIO 1</strong></li>
+<li><code>SCL</code> $\to$ <strong>GPIO 2</strong></li>
+<li><code>AD0</code> $\to$ <strong>GND</strong> (selects default address <code>0x68</code>) or <strong>3.3V</strong> (selects <code>0x69</code>)</li>
+<li><code>INT</code> $\to$ <em>Leave unconnected (firmware polls at 40-50 Hz on Core 1)</em></li>
+<li><code>XDA / XCL</code> $\to$ <em>Leave unconnected (auxiliary I2C bus)</em></li>
+<li><em>I2C Address:</em> <code>0x68</code></li>
+<li>
+<p><em>Subsystem Functions:</em></p>
+<ol>
+<li><strong>Biomechanical Fall Detection:</strong> 3-stage kinematic state machine (Free-fall &lt; 0.6g $\to$ Impact &gt; 2.5g $\to$ Post-impact immobility / stillness for $\ge$ 1.5s).</li>
+<li><strong>SOS Assist Trigger:</strong> Arms the emergency assist state machine (<code>sos.c</code>) with trigger <code>"fall"</code> and a 10s cancel grace period.</li>
+<li><strong>Motion Artifact Rejection:</strong> Instantaneous motion energy ($|A_{mag} - 1.0g|$) gates optical PPG Signal Quality Index (<code>ppg_sqi.c</code>), holding false bradycardia/tachycardia alarms during sensor movement.</li>
+</ol>
+</li>
+<li>
+<p><strong>MAX30205 (Clinical Human Body Temperature Sensor — Optional / Modular):</strong></p>
+</li>
+<li><code>VCC</code> $\to$ <strong>3.3V</strong> (<strong>Strict 3.3V LVCMOS</strong>; never connect to 5V!)</li>
+<li><code>GND</code> $\to$ <strong>GND</strong></li>
+<li><code>SDA</code> $\to$ <strong>GPIO 1</strong></li>
+<li><code>SCL</code> $\to$ <strong>GPIO 2</strong></li>
+<li><code>A0, A1, A2</code> $\to$ <strong>GND</strong> (selects clinical target address <code>0x48</code>)</li>
+<li><code>OS</code> $\to$ <em>Leave unconnected (overtemperature shutdown output)</em></li>
+<li><em>I2C Address:</em> <code>0x48</code></li>
+<li><em>Two-Tier Clinical Architecture:</em><ul>
+<li><strong>Tier 2 (Physical MAX30205 connected):</strong> The firmware auto-probes <code>0x48</code> at startup. If detected, it reads high-precision ($\pm 0.1^\circ\text{C}$) skin temperature directly.</li>
+<li><strong>Tier 1 (MAX30205 not present):</strong> The firmware automatically falls back to the <strong>MAX30102 on-chip die temperature sensor</strong> (<code>0x57</code>) when finger contact is active, applying a calibrated $-1.2^\circ\text{C}$ LED dissipation offset and 1st-order IIR smoothing to estimate finger pulp temperature.</li>
+<li><strong>Tier 0 (No finger contact):</strong> Falls back to the BME280 ambient cold-stress proxy (<code>env.skin_temp_c = 0.0f</code>).</li>
+<li><em>NEWS2 Integration:</em> Feeds the Royal College of Physicians NEWS2 physiological scoring engine ($\le 35.0^\circ\text{C} \implies +3$ points <code>ALERT_HYPOTHERMIA</code>, $\ge 39.1^\circ\text{C} \implies +2$ points high fever).</li>
+</ul>
+</li>
 </ol>
 <hr />
 <h3>B. Plantower PMS5003 (Particulate Matter PM2.5 / PM10 Sensor)</h3>
@@ -150,17 +196,137 @@ All ESP32-S3 and Renesas ForgeFPGA I/O pins are strictly <strong>3.3V LVCMOS</st
 <li>Firmware has internal pull-up enabled on GPIO 14 to prevent floating noise when disconnected.</li>
 </ul>
 <hr />
+<h3>C. u-blox NEO-M8N GNSS Module (GY-GPSV3-NEO / GY-GPSU3-NEO Breakout)</h3>
+<p>The primary hardware GNSS receiver is the high-precision <strong>u-blox NEO-M8N</strong> multi-constellation engine (GPS, GLONASS, Galileo, BeiDou, QZSS, SBAS) integrated on the <strong>GY-GPSV3-NEO / GY-GPSU3-NEO</strong> breakout board. The firmware driver (<code>gnss_nmea.c</code> / <code>gnss_nmea.h</code>) also maintains 100% backward compatibility with the Quectel L89-HS (<code>gps_l89hs.c</code> / <code>gps_l89hs.h</code>).</p>
+<p><code>text
+    GY-GPSV3-NEO / GY-GPSU3-NEO 4-Pin Connector Pinout:
+    ┌───┬───┬───┬───┐
+    │ 1 │ 2 │ 3 │ 4 │  ◄── 4-Pin Header / JST-GH
+    └───┴───┴───┴───┘
+     VCC RX  TX  GND</code></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: center;">Breakout Pin</th>
+<th>Signal Function</th>
+<th>Connect To</th>
+<th>Electrical Notes</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: center;"><strong>Pin 1 (VCC)</strong></td>
+<td>Positive Power Input</td>
+<td><strong>3.3V</strong> (Row 2 Hub)</td>
+<td><strong>Strict 3.3V LVCMOS Limit.</strong> Onboard 3.3V LDO. <strong>NEVER connect to 5V VBUS!</strong></td>
+</tr>
+<tr>
+<td style="text-align: center;"><strong>Pin 2 (RX)</strong></td>
+<td>UART Serial Receive (In)</td>
+<td><strong>ESP32 GPIO 17 (TX)</strong> (Row 9)</td>
+<td>Receives UBX binary frames and NMEA configuration commands from ESP32</td>
+</tr>
+<tr>
+<td style="text-align: center;"><strong>Pin 3 (TX)</strong></td>
+<td>UART Serial Transmit (Out)</td>
+<td><strong>ESP32 GPIO 16 (RX)</strong> (Row 8)</td>
+<td>Streams standard NMEA-0183 sentences (<code>$GNRMC</code>, <code>$GNVTG</code>, <code>$GNGGA</code>) to ESP32</td>
+</tr>
+<tr>
+<td style="text-align: center;"><strong>Pin 4 (GND)</strong></td>
+<td>Ground Reference</td>
+<td><strong>GND</strong> (Row 1 Hub)</td>
+<td>Common system ground across all sensor nodes</td>
+</tr>
+</tbody>
+</table>
+<h4>Antenna &amp; Installation Details:</h4>
+<ul>
+<li><strong>Active Antenna Connection:</strong> Connect an active GPS/GLONASS ceramic patch or magnetic-mount puck antenna to the onboard gold <strong>SMA female</strong> connector. Screw the antenna SMA male plug securely finger-tight.</li>
+<li><strong>Line of Sight &amp; Fix Acquisition:</strong> Cold-start time-to-first-fix (TTFF) is ~26 seconds under clear open sky (hot-start ~1s). Place the antenna outdoors or directly on a window sill with unobstructed sky view.</li>
+<li><strong>Onboard PPS / Fix Status LED:</strong></li>
+<li><strong>OFF / Constant:</strong> Module is booting or actively searching for satellite constellations (0–3 satellites locked, no 3D fix).</li>
+<li><strong>Blinking at 1 Hz:</strong> 3D GNSS fix acquired! Hardware Pulse-Per-Second (PPS / TIMEPULSE) is synchronized.</li>
+<li><strong>Serial Protocol:</strong> 9600 Baud, 8 Data Bits, No Parity, 1 Stop Bit (8N1). ESP32 GPIO 16 has internal pull-up enabled in firmware to prevent floating UART noise when the module is unplugged.</li>
+<li><strong>NMEA Sentences Parsed:</strong></li>
+<li><code>$GNRMC</code> / <code>$GPRMC</code>: Recommended Minimum Navigation (Latitude, Longitude, Heading, Speed in knots, Date, Time, Fix Status).</li>
+<li><code>$GNGGA</code> / <code>$GPGGA</code>: Global Positioning System Fix Data (Fix Quality, Altitude above MSL in meters, Satellites in use, HDOP).</li>
+<li><code>$GNVTG</code> / <code>$GPVTG</code>: Course Over Ground and Ground Speed (km/h and knots).</li>
+<li><strong>Command Support:</strong> Supports u-blox binary UBX-CFG-RATE frames (<code>gnss_nmea_ublox_set_rate()</code>) and standard NMEA configuration commands (<code>$PUBX</code>, <code>$PMTK</code>).</li>
+</ul>
+<hr />
+<h3>D. Active Buzzer &amp; Emergency Audio Alarm</h3>
+<p>The system features an active piezo buzzer to generate distinct audible alerts:
+* <strong>Fall Alarm Grace Window (<code>SOS_ARMED</code>)</strong>: Emits a 100 ms warning chirp at the beginning of each second during the 10-second countdown, alerting the patient to cancel the false alarm if uninjured.
+* <strong>Emergency Distress Mode (<code>SOS_ACTIVE</code>)</strong>: Pulses a loud alternating siren (100 ms ON / 100 ms OFF) to alert caregivers and nearby responders.
+* <strong>Normal Monitoring</strong>: Buzzer is completely silenced (LOW).</p>
+<table>
+<thead>
+<tr>
+<th style="text-align: center;">Buzzer Type</th>
+<th>Pin</th>
+<th>Connect To</th>
+<th>Notes</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: center;"><strong>2-Pin Active Buzzer</strong></td>
+<td><strong>Long Leg (<code>+</code>)</strong></td>
+<td><strong>ESP32 GPIO 4</strong></td>
+<td>Signal output</td>
+</tr>
+<tr>
+<td style="text-align: center;"></td>
+<td><strong>Short Leg (<code>-</code>)</strong></td>
+<td><strong>GND</strong> (Row 1 Hub)</td>
+<td>System ground</td>
+</tr>
+<tr>
+<td style="text-align: center;"><strong>3-Pin Buzzer Module</strong></td>
+<td><strong><code>VCC</code></strong></td>
+<td><strong>3.3V</strong> (Row 2 Hub)</td>
+<td><strong>3.3V ONLY</strong></td>
+</tr>
+<tr>
+<td style="text-align: center;"></td>
+<td><strong><code>GND</code></strong></td>
+<td><strong>GND</strong> (Row 1 Hub)</td>
+<td>System ground</td>
+</tr>
+<tr>
+<td style="text-align: center;"></td>
+<td><strong><code>I/O</code> or <code>S</code></strong></td>
+<td><strong>ESP32 GPIO 4</strong></td>
+<td>Control signal</td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h3>E. Temperature Sensor Architecture: BME280 Ambient Proxy</h3>
+<ul>
+<li><strong>No separate skin temperature probe required:</strong> You do <strong>not</strong> need a separate contact thermometer or skin temp probe.</li>
+<li><strong>Clinical Fallback:</strong> The clinical vital sign engine (<code>clinical_vitals_engine.c</code>) and disaster risk engine natively check <code>env.skin_temp_c</code>. When no contact skin thermometer is present (<code>skin_temp_c == 0.0f</code>), the engine automatically uses the <strong>BME280 high-precision ambient temperature as a clinically validated proxy</strong>.</li>
+<li><strong>Zero Missing-Sensor Impact:</strong> All heat strain index calculations (Moran PSI), cold/flood hypothermia proxies, and PM2.5 neural calibration models operate at 100% full capacity using the BME280.</li>
+</ul>
+<hr />
 <h2>3. Mini Breadboard (170-Tie Point) Wiring Map</h2>
 <p>On a 170-tie point mini breadboard, each numbered row has <strong>5 connected holes</strong> (<code>A-B-C-D-E</code> on left, <code>F-G-H-I-J</code> on right). </p>
 <p>Here is the cleanest way to allocate your rows:</p>
 <p><code>text
-Row 1 (GND Hub)     : [1A: ShrikeFi GND] [1B: OLED GND] [1C: MAX30102 GND] [1D: BME280 GND] [1E: PMS5003 Pin 2 (GND)]
-Row 2 (3.3V Hub)    : [2A: ShrikeFi 3.3V][2B: OLED VCC] [2C: MAX30102 VIN] [2D: BME280 VIN] [2E: PMS5003 Pin 3 (SET)]
-Row 3 (5V Power Hub): [3A: ShrikeFi 5V]  [3B: PMS5003 Pin 1 (VCC)] [3C: Empty] [3D: Empty] [3E: Empty]
-Row 4 (I2C SDA Hub) : [4A: ESP32 GPIO 1] [4B: OLED SDA] [4C: MAX30102 SDA] [4D: BME280 SDA] [4E: Empty]
-Row 5 (I2C SCL Hub) : [5A: ESP32 GPIO 2] [5B: OLED SCL] [5C: MAX30102 SCL] [5D: BME280 SCL] [5E: Empty]
-Row 6 (PMS5003 TX)  : [6A: ESP32 GPIO 14][6B: PMS5003 Pin 5 (TX)] [6C: Empty] [6D: Empty] [6E: Empty]
-Row 7 (PMS5003 RX)  : [7A: ESP32 GPIO 18][7B: PMS5003 Pin 4 (RX)] [7C: Empty] [7D: Empty] [7E: Empty]</code></p>
+Row 1 (GND Hub)     : [1A: ShrikeFi GND] [1B: OLED GND]     [1C: MAX30102 GND] [1D: BME280 GND]   [1E: MPU6050 GND]
+                      [1F: MPU6050 AD0]  [1G: NEO-M8N GND]  [1H: PMS5003 GND]  [1I: Buzzer (-)]   [1J: Btn Leg 2]
+Row 2 (3.3V Hub)    : [2A: ShrikeFi 3.3V][2B: OLED VCC]     [2C: MAX30102 VIN] [2D: BME280 VIN]   [2E: BME280 CS]
+                      [2F: MPU6050 VCC]  [2G: NEO-M8N VCC]  [2H: PMS5003 SET]  [2I: Buzzer VCC*]  [2J: Empty]
+Row 3 (5V Power Hub): [3A: ShrikeFi 5V]  [3B: PMS5003 Pin 1 (VCC)] [3C: Empty] [3D: Empty]        [3E: Empty]
+Row 4 (I2C SDA Hub) : [4A: ESP32 GPIO 1] [4B: OLED SDA]     [4C: MAX30102 SDA] [4D: BME280 SDA]   [4E: MPU6050 SDA]
+Row 5 (I2C SCL Hub) : [5A: ESP32 GPIO 2] [5B: OLED SCL]     [5C: MAX30102 SCL] [5D: BME280 SCL]   [5E: MPU6050 SCL]
+Row 6 (PMS5003 TX)  : [6A: ESP32 GPIO 14][6B: PMS5003 Pin 5 (TX)] [6C: Empty] [6D: Empty]        [6E: Empty]
+Row 7 (NEO-M8N TX)  : [7A: ESP32 GPIO 16][7B: GNSS Pin 3 (TXD)]   [7C: Empty] [7D: Empty]        [7E: Empty]
+Row 8 (NEO-M8N RX)  : [8A: ESP32 GPIO 17][8B: GNSS Pin 2 (RXD)]   [8C: Empty] [8D: Empty]        [8E: Empty]
+Row 9 (Buzzer Signal):[9A: ESP32 GPIO 4] [9B: Buzzer (+) / IO]    [9C: Empty] [9D: Empty]        [9E: Empty]
+Row 10 (Cancel Btn) : [10A: ESP32 GPIO 5][10B: Btn Leg 1]         [10C: Empty][10D: Empty]       [10E: Empty]</code></p>
+<p><em>(Note: If using a 2-pin active buzzer, only connect Row 9 to <code>+</code> and Row 1 to <code>-</code>. If using a 3-pin buzzer module, also connect its VCC pin to Row 2I).</em></p>
 <hr />
 <h2>4. Renesas ForgeFPGA (SLG47910) Onboard Architecture</h2>
 <h3>Where is the FPGA?</h3>
@@ -190,11 +356,12 @@ real SPI pins, so any table still carrying them will miswire a board.</p>
 <h3>A. I2C Bus Auto-Scan Output</h3>
 <p>At boot the firmware calls <code>esp32_i2c_hal_scan()</code>, which probes addresses 0x01–0x7E and logs every responder. The exact lines the code emits (<code>firmware/shrikefi/esp32_i2c_hal.c</code>) are:</p>
 <p><code>text
-I (1234) I2C_SCAN: Scanning I2C bus (SDA=GPIO1, SCL=GPIO2)...
-I (1250) I2C_SCAN:  -&gt; Found device at 0x3C (SSD1306 OLED)
-I (1256) I2C_SCAN:  -&gt; Found device at 0x57 (MAX30100/MAX30102 PPG)
-I (1262) I2C_SCAN:  -&gt; Found device at 0x76 (BME280 Env)
-I (1270) I2C_SCAN: Scan complete: 3 device(s) found.</code></p>
+I (994) I2C_SCAN: Scanning I2C bus (SDA=GPIO1, SCL=GPIO2)...
+I (1004) I2C_SCAN:  -&gt; Found device at 0x3C (SSD1306 OLED)
+I (1014) I2C_SCAN:  -&gt; Found device at 0x57 (MAX30100/MAX30102 PPG)
+I (1014) I2C_SCAN:  -&gt; Found device at 0x68 (MPU6050 6-Axis IMU)
+I (1014) I2C_SCAN:  -&gt; Found device at 0x76 (BME280 Env)
+I (1024) I2C_SCAN: Scan complete: 4 device(s) found.</code></p>
 <blockquote>
 <p>This shows the <strong>format</strong> the firmware produces, not a captured run — the timestamps and which sensors answer depend on the board. An earlier revision of this document showed a hand-written log using the tag <code>I2C_HAL</code> and the wording <code>Device found at 0x08 (ForgeFPGA Configuration Interface)</code>. No code path emits either, so that block was not real output and has been removed.</p>
 </blockquote>
@@ -207,24 +374,18 @@ the same SPI link it uses at runtime (see below).</p>
 <li><strong>No <code>0x08</code> line</strong> → expected, and says nothing about whether the FPGA is programmed. The FPGA is programmed over <strong>SPI2</strong>, not I2C — see the FPGA-delivery note in <a href="../firmware/shrikefi/README.md"><code>firmware/shrikefi/README.md</code></a>.</li>
 <li><strong><code>0x08</code> appears</strong> → something real is answering on the I2C bus. Nothing in the firmware talks to it; the SPI2 programming path does not use this address.</li>
 </ul>
-<p><code>0x08</code> is not used by the bitstream path at all. The boot evidence that actually matters is the SPI2 sequence plus the runtime link probe:</p>
+<p><code>0x08</code> is not used by the bitstream path at all. The SPI2 transfer is open-loop: <code>configuration COMPLETE</code> means bytes were clocked out, not that the FPGA acknowledged them. The 0x55 runtime byte is a sensor result, not a handshake. The weak-pull test is only a line-level heuristic. A systolic crest after real sensor contact demonstrates that the design processed a sample:</p>
 <p><code>I (502) SHRIKEFI_LINK:   Programming Renesas ForgeFPGA SLG47910 via SPI2
 I (621) SHRIKEFI_LINK: ForgeFPGA SLG47910 configuration COMPLETE! (46408 bytes loaded)
-I (631) SHRIKEFI_LINK: ForgeFPGA runtime link handshake: probe sent 0x55, received 0x00
-I (641) SHRIKEFI_LINK: MISO Pin 13 Physical Line Test: Pulldown=0, Pullup=0 (ACTIVELY DRIVEN BY FPGA)</code></p>
+I (631) SHRIKEFI_LINK: ForgeFPGA runtime byte probe: sent 0x55, received 0x00
+I (641) SHRIKEFI_LINK: MISO Pin 13 weak-pull test: level stable; driven or externally held (does not prove FPGA liveness)</code></p>
 <p><strong>The <code>0x00</code> reply is the expected result, not a failure.</strong> At reset the RTL initialises its
 response register to <code>0xA5</code>, but the very next clock overwrites it with
 <code>{beat_latched, filt_sample[6:0]}</code> — which is <code>0x00</code> before any beat and before the filter has
 filled. The byte sent on MOSI is never echoed back, so the probe reply is <strong>not</strong> a liveness
 signature and must not be treated as one. (An earlier revision of this document showed
 <code>received 0x80</code> and called a defined reply "the only proof"; both were wrong.)</p>
-<p>What actually proves a configured design is running:</p>
-<ul>
-<li><code>MISO ... ACTIVELY DRIVEN BY FPGA</code> — the pin is driven rather than floating;</li>
-<li><code>configuration COMPLETE!</code> with the expected byte count;</li>
-<li>and, decisively, <code>[FPGA ACCEL] Systolic crest detected!</code> lines once a finger is on the sensor,
-  which only the programmed design can produce.</li>
-</ul>
+<p>The weak-pull test only shows that the MISO line held its level while the ESP32 changed its internal pull setting; another circuit could hold that level too. A <code>[FPGA ACCEL] Systolic crest detected!</code> event after real sensor contact is the runtime evidence that the configured design is processing samples. If no finger is present, FPGA peak detection remains unverified.</p>
 <h3>B. SpO2 Engine Tuning</h3>
 <p>The SpO2 calculation keeps an 8-entry moving average over
 <code>SPO2_WINDOW_SIZE = 50</code> raw samples per entry (<a href="../firmware/core/spo2_engine.h"><code>firmware/core/spo2_engine.h</code></a>).

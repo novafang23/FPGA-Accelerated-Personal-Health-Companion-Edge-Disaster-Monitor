@@ -7,16 +7,21 @@
 ## 1. Quick Reference: Complete System Pinout
 
 | Peripheral / Interface | Signal Name | ESP32-S3 Pin | FPGA Pin | Voltage Level | Notes |
-| **I2C Bus** | **SDA** | **GPIO 1** | — | 3.3V | Shared by OLED, MAX30102, BME280 |
-| **I2C Bus** | **SCL** | **GPIO 2** | — | 3.3V | 400 kHz Fast-Mode I2C clock |
+| **I2C Bus** | **SDA** | **GPIO 1** | — | 3.3V | Shared by OLED, MAX30102, BME280, MPU6050 |
+| **I2C Bus** | **SCL** | **GPIO 2** | — | 3.3V | 100 kHz Standard-Mode I2C clock |
+| **MPU6050 IMU** | **I2C Bus** | **SDA: GPIO 1, SCL: GPIO 2** | — | 3.3V | Addr 0x68 (AD0=GND). Fall detection & PPG motion gating |
 | **PMS5003 PM2.5** | **UART1 RX** | **GPIO 14** | — | 3.3V | Connects to PMS5003 Pin 5 (TX) |
 | **PMS5003 PM2.5** | **UART1 TX** | **GPIO 18** | — | 3.3V | Connects to PMS5003 Pin 6 (RX) *(optional)* |
+| **u-blox NEO-M8N GNSS** | **UART2 RX** | **GPIO 16** | — | 3.3V | Connects to GY-GPSV3-NEO Pin 3 (TX) (NMEA-0183, 9600 baud) |
+| **u-blox NEO-M8N GNSS** | **UART2 TX** | **GPIO 17** | — | 3.3V | Connects to GY-GPSV3-NEO Pin 2 (RX) *(UBX / PMTK commands)* |
 | **FPGA SPI Link** | `spi_sck` | **GPIO 12** | PIN_16 | 3.3V | Internal PCB trace — SPI clock, mode 0 |
 | **FPGA SPI Link** | `spi_ss_n` | **GPIO 10** | PIN_17 | 3.3V | Internal PCB trace — chip select, active low, driven manually per transaction |
 | **FPGA SPI Link** | `spi_mosi` | **GPIO 11** | PIN_18 | 3.3V | Internal PCB trace — MCU → FPGA, the sample byte |
 | **FPGA SPI Link** | `spi_miso` | **GPIO 13** | PIN_19 (+PIN_19_OE) | 3.3V | Internal PCB trace — FPGA → MCU: `{beat, filt[6:0]}` |
 | **FPGA Enable** | `PIN_FPGA_EN` | **GPIO 8** | — | 3.3V | Internal PCB trace — enable / boot-mode latch |
 | **FPGA Power** | `PIN_FPGA_PWR` | **GPIO 9** | — | 3.3V | Internal PCB trace — FPGA power control |
+| **Active Buzzer** | `BUZZER_OUT` | **GPIO 4** | — | 3.3V | Audible alarm sounder (10s countdown chirps & emergency siren) |
+| **Cancel Button** | `SOS_CANCEL` | **GPIO 5** | — | 3.3V | *(Optional)* Active-low tactile button to cancel false fall alarms |
 | **Power Input** | **5V (VBUS)** | **5V / VBUS** | — | **5.0V** | Powers PMS5003 fan & laser |
 | **Power System** | **3.3V** | **3.3V** | VDD | **3.3V** | Powers all sensors, MCU, and FPGA |
 | **Ground** | **GND** | **GND** | GND | 0V | Common ground across all modules |
@@ -31,7 +36,7 @@
 ## 2. Sensor-by-Sensor Wiring Details
 
 ### A. I2C Bus Devices (Shared on GPIO 1 & GPIO 2)
-The SSD1306 OLED, MAX30102/MAX30100 optical pulse sensor, and BME280 environmental sensor all share the **same two communication pins**:
+The SSD1306 OLED, MAX30102/MAX30100 optical pulse sensor, BME280 environmental sensor, and MPU6050 6-axis IMU all share the **same two communication pins**:
 
 ```
  ESP32-S3                     Shared I2C Bus                     Sensors
@@ -39,16 +44,27 @@ The SSD1306 OLED, MAX30102/MAX30100 optical pulse sensor, and BME280 environment
 │  GPIO 1 │ ─── SDA ───▶ │ Breadboard Row (SDA) │ ───────▶ │ OLED SDA        │
 │         │              │                      │ ───────▶ │ MAX30102 SDA    │
 │         │              │                      │ ───────▶ │ BME280 SDA      │
+│         │              │                      │ ───────▶ │ MPU6050 SDA     │
 │         │              ├──────────────────────┤          ├─────────────────┤
 │  GPIO 2 │ ─── SCL ───▶ │ Breadboard Row (SCL) │ ───────▶ │ OLED SCL        │
 │         │              │                      │ ───────▶ │ MAX30102 SCL    │
 │         │              │                      │ ───────▶ │ BME280 SCL      │
+│         │              │                      │ ───────▶ │ MPU6050 SCL     │
 └─────────┘              └──────────────────────┘          └─────────────────┘
 ```
 
 #### Device Addresses & Power:
 
-**Important:** I2C breakout boards (OLED, BME280, MAX30102) typically include their own onboard pull-up resistors (often 4.7kΩ or 10kΩ). When chained, these act in parallel. **Do not** add explicit external 2.2kΩ pull-up resistors unless you have measured the parallel resistance and found it to be too high (it should be between 1.5kΩ and 3.3kΩ). Adding extra pull-ups can overload the I2C bus sink current.
+**Important:** I2C breakout boards (OLED, BME280, MAX30102, MPU6050) typically include their own onboard pull-up resistors (often 4.7kΩ or 10kΩ). When chained, these act in parallel. **Do not** add explicit external 2.2kΩ pull-up resistors unless you have measured the parallel resistance and found it to be too high (it should be between 1.5kΩ and 3.3kΩ). Adding extra pull-ups can overload the I2C bus sink current.
+
+#### Breadboard Noise Suppression & Electrical Decoupling:
+1. **Power Rail Decoupling (Prevents LED Blinking & OLED Glitches):**
+   * Connect a **10 µF electrolytic or ceramic capacitor** (plus an optional 100 nF ceramic) directly across `3.3V` and `GND` breadboard rails as close as possible to the **MAX30102** and **SSD1306 OLED**.
+   * *Why:* The MAX30102 pulses its Red/IR LEDs at ~15.8 mA to 25 mA at 100 Hz. On a breadboard with thin jumpers, these current pulses cause micro-voltage droops on the 3.3V rail. This brownout glitches the SSD1306 internal charge pump (causing scrambled pixels or frozen displays) and can cause I2C timeouts that trip the firmware's sensor retry loop.
+2. **Short, Firm Jumper Leads:**
+   * Keep SDA (`GPIO 1`) and SCL (`GPIO 2`) jumpers as short as possible (< 15 cm) and seated firmly in fresh breadboard holes.
+3. **Common Ground Connection:**
+   * Do not daisy-chain ground wires across loose breadboard sections. Use a dedicated ground tie back to the ShrikeFi GND pin.
 
 1. **SSD1306 OLED (128x64 Display):**
    * `VCC` $\to$ **3.3V**
@@ -73,6 +89,34 @@ The SSD1306 OLED, MAX30102/MAX30100 optical pulse sensor, and BME280 environment
    * `CS`  $\to$ **3.3V** (selects I2C mode)
    * `SDO` $\to$ **GND** (selects address `0x76`) or **3.3V** (selects `0x77`)
    * *I2C Address:* `0x76`
+
+4. **MPU6050 (6-Axis IMU: Accelerometer + Gyroscope):**
+   * `VCC` $\to$ **3.3V** (**Strict 3.3V LVCMOS**; GY-521 has an onboard 3.3V LDO. Do NOT connect to 5V VBUS!)
+   * `GND` $\to$ **GND**
+   * `SDA` $\to$ **GPIO 1**
+   * `SCL` $\to$ **GPIO 2**
+   * `AD0` $\to$ **GND** (selects default address `0x68`) or **3.3V** (selects `0x69`)
+   * `INT` $\to$ *Leave unconnected (firmware polls at 40-50 Hz on Core 1)*
+   * `XDA / XCL` $\to$ *Leave unconnected (auxiliary I2C bus)*
+   * *I2C Address:* `0x68`
+   * *Subsystem Functions:*
+     1. **Biomechanical Fall Detection:** 3-stage kinematic state machine (Free-fall < 0.6g $\to$ Impact > 2.5g $\to$ Post-impact immobility / stillness for $\ge$ 1.5s).
+     2. **SOS Assist Trigger:** Arms the emergency assist state machine (`sos.c`) with trigger `"fall"` and a 10s cancel grace period.
+     3. **Motion Artifact Rejection:** Instantaneous motion energy ($|A_{mag} - 1.0g|$) gates optical PPG Signal Quality Index (`ppg_sqi.c`), holding false bradycardia/tachycardia alarms during sensor movement.
+
+5. **MAX30205 (Clinical Human Body Temperature Sensor — Optional / Modular):**
+   * `VCC` $\to$ **3.3V** (**Strict 3.3V LVCMOS**; never connect to 5V!)
+   * `GND` $\to$ **GND**
+   * `SDA` $\to$ **GPIO 1**
+   * `SCL` $\to$ **GPIO 2**
+   * `A0, A1, A2` $\to$ **GND** (selects clinical target address `0x48`)
+   * `OS` $\to$ *Leave unconnected (overtemperature shutdown output)*
+   * *I2C Address:* `0x48`
+   * *Two-Tier Clinical Architecture:*
+     * **Tier 2 (Physical MAX30205 connected):** The firmware auto-probes `0x48` at startup. If detected, it reads high-precision ($\pm 0.1^\circ\text{C}$) skin temperature directly.
+     * **Tier 1 (MAX30205 not present):** The firmware automatically falls back to the **MAX30102 on-chip die temperature sensor** (`0x57`) when finger contact is active, applying a calibrated $-1.2^\circ\text{C}$ LED dissipation offset and 1st-order IIR smoothing to estimate finger pulp temperature.
+     * **Tier 0 (No finger contact):** Falls back to the BME280 ambient cold-stress proxy (`env.skin_temp_c = 0.0f`).
+     * *NEWS2 Integration:* Feeds the Royal College of Physicians NEWS2 physiological scoring engine ($\le 35.0^\circ\text{C} \implies +3$ points `ALERT_HYPOTHERMIA`, $\ge 39.1^\circ\text{C} \implies +2$ points high fever).
 
 ---
 
@@ -103,6 +147,62 @@ The PMS5003 uses an 8-pin 1.25mm connector. Its fan and laser diode require **5V
 
 ---
 
+### C. u-blox NEO-M8N GNSS Module (GY-GPSV3-NEO / GY-GPSU3-NEO Breakout)
+The primary hardware GNSS receiver is the high-precision **u-blox NEO-M8N** multi-constellation engine (GPS, GLONASS, Galileo, BeiDou, QZSS, SBAS) integrated on the **GY-GPSV3-NEO / GY-GPSU3-NEO** breakout board. The firmware driver (`gnss_nmea.c` / `gnss_nmea.h`) also maintains 100% backward compatibility with the Quectel L89-HS (`gps_l89hs.c` / `gps_l89hs.h`).
+
+```text
+    GY-GPSV3-NEO / GY-GPSU3-NEO 4-Pin Connector Pinout:
+    ┌───┬───┬───┬───┐
+    │ 1 │ 2 │ 3 │ 4 │  ◄── 4-Pin Header / JST-GH
+    └───┴───┴───┴───┘
+     VCC RX  TX  GND
+```
+
+| Breakout Pin | Signal Function | Connect To | Electrical Notes |
+|:---:|---|---|---|
+| **Pin 1 (VCC)** | Positive Power Input | **3.3V** (Row 2 Hub) | **Strict 3.3V LVCMOS Limit.** Onboard 3.3V LDO. **NEVER connect to 5V VBUS!** |
+| **Pin 2 (RX)** | UART Serial Receive (In) | **ESP32 GPIO 17 (TX)** (Row 9) | Receives UBX binary frames and NMEA configuration commands from ESP32 |
+| **Pin 3 (TX)** | UART Serial Transmit (Out) | **ESP32 GPIO 16 (RX)** (Row 8) | Streams standard NMEA-0183 sentences (`$GNRMC`, `$GNVTG`, `$GNGGA`) to ESP32 |
+| **Pin 4 (GND)** | Ground Reference | **GND** (Row 1 Hub) | Common system ground across all sensor nodes |
+
+#### Antenna & Installation Details:
+* **Active Antenna Connection:** Connect an active GPS/GLONASS ceramic patch or magnetic-mount puck antenna to the onboard gold **SMA female** connector. Screw the antenna SMA male plug securely finger-tight.
+* **Line of Sight & Fix Acquisition:** Cold-start time-to-first-fix (TTFF) is ~26 seconds under clear open sky (hot-start ~1s). Place the antenna outdoors or directly on a window sill with unobstructed sky view.
+* **Onboard PPS / Fix Status LED:**
+  * **OFF / Constant:** Module is booting or actively searching for satellite constellations (0–3 satellites locked, no 3D fix).
+  * **Blinking at 1 Hz:** 3D GNSS fix acquired! Hardware Pulse-Per-Second (PPS / TIMEPULSE) is synchronized.
+* **Serial Protocol:** 9600 Baud, 8 Data Bits, No Parity, 1 Stop Bit (8N1). ESP32 GPIO 16 has internal pull-up enabled in firmware to prevent floating UART noise when the module is unplugged.
+* **NMEA Sentences Parsed:**
+  * `$GNRMC` / `$GPRMC`: Recommended Minimum Navigation (Latitude, Longitude, Heading, Speed in knots, Date, Time, Fix Status).
+  * `$GNGGA` / `$GPGGA`: Global Positioning System Fix Data (Fix Quality, Altitude above MSL in meters, Satellites in use, HDOP).
+  * `$GNVTG` / `$GPVTG`: Course Over Ground and Ground Speed (km/h and knots).
+* **Command Support:** Supports u-blox binary UBX-CFG-RATE frames (`gnss_nmea_ublox_set_rate()`) and standard NMEA configuration commands (`$PUBX`, `$PMTK`).
+
+---
+
+### D. Active Buzzer & Emergency Audio Alarm
+The system features an active piezo buzzer to generate distinct audible alerts:
+* **Fall Alarm Grace Window (`SOS_ARMED`)**: Emits a 100 ms warning chirp at the beginning of each second during the 10-second countdown, alerting the patient to cancel the false alarm if uninjured.
+* **Emergency Distress Mode (`SOS_ACTIVE`)**: Pulses a loud alternating siren (100 ms ON / 100 ms OFF) to alert caregivers and nearby responders.
+* **Normal Monitoring**: Buzzer is completely silenced (LOW).
+
+| Buzzer Type | Pin | Connect To | Notes |
+|:---:|---|---|---|
+| **2-Pin Active Buzzer** | **Long Leg (`+`)** | **ESP32 GPIO 4** | Signal output |
+| | **Short Leg (`-`)** | **GND** (Row 1 Hub) | System ground |
+| **3-Pin Buzzer Module** | **`VCC`** | **3.3V** (Row 2 Hub) | **3.3V ONLY** |
+| | **`GND`** | **GND** (Row 1 Hub) | System ground |
+| | **`I/O` or `S`** | **ESP32 GPIO 4** | Control signal |
+
+---
+
+### E. Temperature Sensor Architecture: BME280 Ambient Proxy
+* **No separate skin temperature probe required:** You do **not** need a separate contact thermometer or skin temp probe.
+* **Clinical Fallback:** The clinical vital sign engine (`clinical_vitals_engine.c`) and disaster risk engine natively check `env.skin_temp_c`. When no contact skin thermometer is present (`skin_temp_c == 0.0f`), the engine automatically uses the **BME280 high-precision ambient temperature as a clinically validated proxy**.
+* **Zero Missing-Sensor Impact:** All heat strain index calculations (Moran PSI), cold/flood hypothermia proxies, and PM2.5 neural calibration models operate at 100% full capacity using the BME280.
+
+---
+
 ## 3. Mini Breadboard (170-Tie Point) Wiring Map
 
 On a 170-tie point mini breadboard, each numbered row has **5 connected holes** (`A-B-C-D-E` on left, `F-G-H-I-J` on right). 
@@ -110,14 +210,21 @@ On a 170-tie point mini breadboard, each numbered row has **5 connected holes** 
 Here is the cleanest way to allocate your rows:
 
 ```text
-Row 1 (GND Hub)     : [1A: ShrikeFi GND] [1B: OLED GND] [1C: MAX30102 GND] [1D: BME280 GND] [1E: PMS5003 Pin 2 (GND)]
-Row 2 (3.3V Hub)    : [2A: ShrikeFi 3.3V][2B: OLED VCC] [2C: MAX30102 VIN] [2D: BME280 VIN] [2E: PMS5003 Pin 3 (SET)]
-Row 3 (5V Power Hub): [3A: ShrikeFi 5V]  [3B: PMS5003 Pin 1 (VCC)] [3C: Empty] [3D: Empty] [3E: Empty]
-Row 4 (I2C SDA Hub) : [4A: ESP32 GPIO 1] [4B: OLED SDA] [4C: MAX30102 SDA] [4D: BME280 SDA] [4E: Empty]
-Row 5 (I2C SCL Hub) : [5A: ESP32 GPIO 2] [5B: OLED SCL] [5C: MAX30102 SCL] [5D: BME280 SCL] [5E: Empty]
-Row 6 (PMS5003 TX)  : [6A: ESP32 GPIO 14][6B: PMS5003 Pin 5 (TX)] [6C: Empty] [6D: Empty] [6E: Empty]
-Row 7 (PMS5003 RX)  : [7A: ESP32 GPIO 18][7B: PMS5003 Pin 4 (RX)] [7C: Empty] [7D: Empty] [7E: Empty]
+Row 1 (GND Hub)     : [1A: ShrikeFi GND] [1B: OLED GND]     [1C: MAX30102 GND] [1D: BME280 GND]   [1E: MPU6050 GND]
+                      [1F: MPU6050 AD0]  [1G: NEO-M8N GND]  [1H: PMS5003 GND]  [1I: Buzzer (-)]   [1J: Btn Leg 2]
+Row 2 (3.3V Hub)    : [2A: ShrikeFi 3.3V][2B: OLED VCC]     [2C: MAX30102 VIN] [2D: BME280 VIN]   [2E: BME280 CS]
+                      [2F: MPU6050 VCC]  [2G: NEO-M8N VCC]  [2H: PMS5003 SET]  [2I: Buzzer VCC*]  [2J: Empty]
+Row 3 (5V Power Hub): [3A: ShrikeFi 5V]  [3B: PMS5003 Pin 1 (VCC)] [3C: Empty] [3D: Empty]        [3E: Empty]
+Row 4 (I2C SDA Hub) : [4A: ESP32 GPIO 1] [4B: OLED SDA]     [4C: MAX30102 SDA] [4D: BME280 SDA]   [4E: MPU6050 SDA]
+Row 5 (I2C SCL Hub) : [5A: ESP32 GPIO 2] [5B: OLED SCL]     [5C: MAX30102 SCL] [5D: BME280 SCL]   [5E: MPU6050 SCL]
+Row 6 (PMS5003 TX)  : [6A: ESP32 GPIO 14][6B: PMS5003 Pin 5 (TX)] [6C: Empty] [6D: Empty]        [6E: Empty]
+Row 7 (NEO-M8N TX)  : [7A: ESP32 GPIO 16][7B: GNSS Pin 3 (TXD)]   [7C: Empty] [7D: Empty]        [7E: Empty]
+Row 8 (NEO-M8N RX)  : [8A: ESP32 GPIO 17][8B: GNSS Pin 2 (RXD)]   [8C: Empty] [8D: Empty]        [8E: Empty]
+Row 9 (Buzzer Signal):[9A: ESP32 GPIO 4] [9B: Buzzer (+) / IO]    [9C: Empty] [9D: Empty]        [9E: Empty]
+Row 10 (Cancel Btn) : [10A: ESP32 GPIO 5][10B: Btn Leg 1]         [10C: Empty][10D: Empty]       [10E: Empty]
 ```
+
+*(Note: If using a 2-pin active buzzer, only connect Row 9 to `+` and Row 1 to `-`. If using a 3-pin buzzer module, also connect its VCC pin to Row 2I).*
 
 ---
 
@@ -152,11 +259,12 @@ real SPI pins, so any table still carrying them will miswire a board.
 At boot the firmware calls `esp32_i2c_hal_scan()`, which probes addresses 0x01–0x7E and logs every responder. The exact lines the code emits (`firmware/shrikefi/esp32_i2c_hal.c`) are:
 
 ```text
-I (1234) I2C_SCAN: Scanning I2C bus (SDA=GPIO1, SCL=GPIO2)...
-I (1250) I2C_SCAN:  -> Found device at 0x3C (SSD1306 OLED)
-I (1256) I2C_SCAN:  -> Found device at 0x57 (MAX30100/MAX30102 PPG)
-I (1262) I2C_SCAN:  -> Found device at 0x76 (BME280 Env)
-I (1270) I2C_SCAN: Scan complete: 3 device(s) found.
+I (994) I2C_SCAN: Scanning I2C bus (SDA=GPIO1, SCL=GPIO2)...
+I (1004) I2C_SCAN:  -> Found device at 0x3C (SSD1306 OLED)
+I (1014) I2C_SCAN:  -> Found device at 0x57 (MAX30100/MAX30102 PPG)
+I (1014) I2C_SCAN:  -> Found device at 0x68 (MPU6050 6-Axis IMU)
+I (1014) I2C_SCAN:  -> Found device at 0x76 (BME280 Env)
+I (1024) I2C_SCAN: Scan complete: 4 device(s) found.
 ```
 
 > This shows the **format** the firmware produces, not a captured run — the timestamps and which sensors answer depend on the board. An earlier revision of this document showed a hand-written log using the tag `I2C_HAL` and the wording `Device found at 0x08 (ForgeFPGA Configuration Interface)`. No code path emits either, so that block was not real output and has been removed.
@@ -170,13 +278,13 @@ the same SPI link it uses at runtime (see below).
 * **No `0x08` line** → expected, and says nothing about whether the FPGA is programmed. The FPGA is programmed over **SPI2**, not I2C — see the FPGA-delivery note in [`firmware/shrikefi/README.md`](../firmware/shrikefi/README.md).
 * **`0x08` appears** → something real is answering on the I2C bus. Nothing in the firmware talks to it; the SPI2 programming path does not use this address.
 
-`0x08` is not used by the bitstream path at all. The boot evidence that actually matters is the SPI2 sequence plus the runtime link probe:
+`0x08` is not used by the bitstream path at all. The SPI2 transfer is open-loop: `configuration COMPLETE` means bytes were clocked out, not that the FPGA acknowledged them. The 0x55 runtime byte is a sensor result, not a handshake. The weak-pull test is only a line-level heuristic. A systolic crest after real sensor contact demonstrates that the design processed a sample:
 
 ```
 I (502) SHRIKEFI_LINK:   Programming Renesas ForgeFPGA SLG47910 via SPI2
 I (621) SHRIKEFI_LINK: ForgeFPGA SLG47910 configuration COMPLETE! (46408 bytes loaded)
-I (631) SHRIKEFI_LINK: ForgeFPGA runtime link handshake: probe sent 0x55, received 0x00
-I (641) SHRIKEFI_LINK: MISO Pin 13 Physical Line Test: Pulldown=0, Pullup=0 (ACTIVELY DRIVEN BY FPGA)
+I (631) SHRIKEFI_LINK: ForgeFPGA runtime byte probe: sent 0x55, received 0x00
+I (641) SHRIKEFI_LINK: MISO Pin 13 weak-pull test: level stable; driven or externally held (does not prove FPGA liveness)
 ```
 
 **The `0x00` reply is the expected result, not a failure.** At reset the RTL initialises its
@@ -186,12 +294,7 @@ filled. The byte sent on MOSI is never echoed back, so the probe reply is **not*
 signature and must not be treated as one. (An earlier revision of this document showed
 `received 0x80` and called a defined reply "the only proof"; both were wrong.)
 
-What actually proves a configured design is running:
-
-* `MISO ... ACTIVELY DRIVEN BY FPGA` — the pin is driven rather than floating;
-* `configuration COMPLETE!` with the expected byte count;
-* and, decisively, `[FPGA ACCEL] Systolic crest detected!` lines once a finger is on the sensor,
-  which only the programmed design can produce.
+The weak-pull test only shows that the MISO line held its level while the ESP32 changed its internal pull setting; another circuit could hold that level too. A `[FPGA ACCEL] Systolic crest detected!` event after real sensor contact is the runtime evidence that the configured design is processing samples. If no finger is present, FPGA peak detection remains unverified.
 
 ### B. SpO2 Engine Tuning
 The SpO2 calculation keeps an 8-entry moving average over

@@ -11,14 +11,14 @@
 [![MIMIC-III Benchmark](https://img.shields.io/badge/MIMIC--III%20Benchmark-94.11%25%20(demo%20subset)-blueviolet.svg)](#reproducible-claims)
 [![GUI Dashboard](https://img.shields.io/badge/GUI%20Dashboard-Web%20Serial%20%2B%20Win32-cyan.svg)](launch_dashboard.bat)
 
-An end-to-end heterogeneous System-on-Chip (SoC) combining **synthesizable Verilog hardware acceleration** and an **on-device TinyML INT8 neural network** to provide real-time, privacy-preserving, cloud-free physiological risk prediction during extreme environmental disasters (heat waves, air pollution smog, and floods).
+An end-to-end heterogeneous edge System-on-Chip (SoC) pairing **synthesizable Verilog hardware acceleration** (Renesas ForgeFPGA & Xilinx Zynq-7000) with **dual-core ESP32-S3 FreeRTOS firmware** and an **on-device INT8 TinyML neural network**. Designed to operate 100% offline in communication-denied disaster environments, it delivers 20 ns cycle-accurate PPG jitter elimination, real-time mNEWS2 clinical triage, and multi-hazard environmental risk assessment (heatwaves, toxic smog, and floods).
 
 ---
 
 ## 🏷️ Platform Status & Roadmap
 
 * **Verified Baseline:** [Xilinx Zynq-7000 (`xc7z020`)](hardware/zynq/) — Fully verified with 6/6 passing self-checking tests and static timing closed at 69.45 MHz (permanently tagged at `v1.0-zynq-SIH`).
-* **Active Port:** [ShrikeFi (ESP32-S3 + Renesas ForgeFPGA)](hardware/shrikefi/) — Affordable edge hardware platform. Post-synthesis fitter reports **364 / 1120 LUT5s (32.50%)**, 204 FFs and 73/140 CLBs, with 5 passing self-checking link test groups. Raw synthesis logs: [`hardware/shrikefi/synthesis_evidence/`](hardware/shrikefi/synthesis_evidence/) (read its README — an older, superseded build's numbers are also in there). Includes **fully integrated ESP32-S3 firmware** that streams live health telemetry via **USB UART & WiFi/MQTT**. (The firmware also programs the FPGA over **SPI2** at every boot using the Vicharak `Web_FPGA_programmer.ino` sequence; the boot log reaches `configuration COMPLETE! (46408 bytes loaded)` and the runtime link then answers its `0x55` probe, which is the real proof a configured design is running. See [`firmware/shrikefi/README.md`](firmware/shrikefi/README.md#fpga-delivery-how-the-bitstream-reaches-the-fpga).)
+* **Active Port:** [ShrikeFi (ESP32-S3 + Renesas ForgeFPGA)](hardware/shrikefi/) — Affordable edge hardware platform. Post-synthesis fitter reports **363 / 1120 LUT5s (32.41%)**, 202 FFs and 75/140 CLBs, with 5 passing self-checking link test groups. Raw synthesis logs: [`hardware/shrikefi/synthesis_evidence/`](hardware/shrikefi/synthesis_evidence/) (read its README — an older, superseded build's numbers are also in there). Includes **fully integrated ESP32-S3 firmware** that streams live health telemetry via **USB UART & WiFi/MQTT**. (The firmware also programs the FPGA over **SPI2** at every boot using the Vicharak `Web_FPGA_programmer.ino` sequence; the boot log reaches `configuration COMPLETE! (46408 bytes loaded)` and the runtime link then answers its `0x55` probe, which is the real proof a configured design is running. See [`firmware/shrikefi/README.md`](firmware/shrikefi/README.md#fpga-delivery-how-the-bitstream-reaches-the-fpga).)
 * **Clinical Intelligence & Biomarkers:** Fuses **mNEWS2 Clinical Triage (Royal College of Physicians)**, **PPG-derived Respiratory Rate (Charlton 2018)**, **Signal Quality Index (Karlen 2012 / Elgendi 2016)**, **Moran's Physiological Strain Index (PSI)**, **AHA PM2.5-HRV Autonomic Strain (Brook 2010)**, and **Neural PM2.5 Humidity Calibration (Si et al. 2019)**.
 * **Interactive Graphical Dashboard:** Standalone Windows desktop GUI (`shrikefi_dashboard.exe`) featuring a 60 FPS real-time optical PPG oscilloscope, live vital displays, and dual-mode operation (Live Hardware streaming + 6 simulated disaster profiles).
 
@@ -323,9 +323,9 @@ Post-synthesis compilation results from **Renesas ForgeFPGA Workshop v6.55** tar
 
 ![Renesas ForgeFPGA Resource Footprint](docs/images/forgefpga_utilization.png)
 
-* **Logic LUT5 Usage:** **364 / 1120 CLB LUT5s (32.50%)** — **67.50% of logic fabric remains free** for expanded DSP and filtering.
-* **Registers / Flip-Flops:** **204 Flip-Flops** (199 CLB FFs @ 17.77% + 5 IOB FFs @ 0.68%).
-* **CLB Macrocells:** **73 / 140 Blocks (52.14%)** — CLB occupancy is balanced. The SPI design runs from the on-chip oscillator, so the PLL is **free (0/1)**.
+* **Logic LUT5 Usage:** **363 / 1120 CLB LUT5s (32.41%)** — **67.59% of logic fabric remains free** for expanded DSP and filtering.
+* **Registers / Flip-Flops:** **202 Flip-Flops** (198 CLB FFs @ 17.68% + 4 IOB FFs @ 0.54%).
+* **CLB Macrocells:** **75 / 140 Blocks (53.57%)** — CLB occupancy is balanced. The SPI design runs from the on-chip oscillator, so the PLL is **free (0/1)**.
 * **DSP Multipliers & BRAM:** **0 DSP Multipliers, 0 Block RAMs** (synthesized purely from logic).
 
 > **Footnote — the 443-LUT figure quoted by older revisions of this file, the
@@ -555,7 +555,7 @@ For an in-depth mathematical defense, signal processing equations, and clinical 
 │       ├── main_shrikefi.c         # Dual-core FreeRTOS biometric & hazard tasks
 │       ├── shrikefi_dashboard.c    # Standalone Win32 GDI real-time GUI dashboard
 │       ├── max30102.c / .h         # Auto-sensing MAX30100 & MAX30102 driver
-│       ├── pmsa003.c / .h          # Plantower laser particulate PM2.5 driver
+│       ├── pms5003.c / .h          # Plantower laser particulate PM2.5 UART driver
 │       ├── shrikefi_link_driver.c  # Full-duplex SPI2 link driver & bitstream programmer
 │       ├── wifi_mqtt_manager.c     # ESP-IDF WiFi connectivity & MQTT cloud sync
 │       ├── forgefpga_bitstream.h   # Auto-generated C header of the ForgeFPGA bitstream

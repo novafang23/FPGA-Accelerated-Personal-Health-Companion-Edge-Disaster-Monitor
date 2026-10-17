@@ -50,10 +50,10 @@ default**. This is a fingertip device — the finger comes off between every mea
 trigger would fire continuously in normal use. It is the right trigger for a worn device; leave
 it enabled via `sos_config_t` when T2.3 (IMU) makes the device wearable.
 
-**Still open in requirement 6:** the physical button (T2.2, ~₹20) to drive `sos_cancel_press()`
-and a manual trigger; the SoftAP page (T1.3) to trigger and display it remotely; and the stored
-location (T1.4) — the card currently says `LOC: UNSET` rather than showing a coordinate the
-device never measured.
+**Still open in requirement 6:** the physical emergency button and its wiring (T2.2). The phone
+SoftAP page is implemented and includes manual SOS trigger/cancel controls; current firmware
+build and browser fixture checks pass, but this audit cannot repeat live HTTP checks because
+the ESP32-S3 is disconnected. Stored location (T1.4) is complete.
 
 
 ---
@@ -67,16 +67,18 @@ from the device itself. The dashboard that existed before this needed a PC, a US
 browser gesture - the opposite of a field device. Now a rescuer's phone joins `VALOR-xxxx` and
 reads the patient's status directly.
 
-- `GET /` serves a 3.9 KB phone-sized page in the VALOR palette.
+- `GET /` serves a compact phone-sized page embedded in `web_status.c`; it is a separate UI from the USB Web Serial HTML file.
 - `GET /status.json` serves the whole snapshot: HR, SpO2, RR, SQI, RMSSD, temp, humidity,
-  PM2.5, NEWS2, level, flags, fused risk, SOS state and trigger, location, uptime, contact.
-- The page **derives nothing** - every number is computed on the device, the same rule the
-  desktop dashboard follows.
+  PM2.5, NEWS2, level, flags, fused risk, SOS state and trigger, location, uptime, contact,
+  ambient pressure/trend, the MAX30102 finger-temperature estimate, motion and fall state.
+- The page **derives nothing** - displayed status is computed on the device. It is intentionally
+  smaller than the USB Web Serial dashboard and is not generated from that HTML file.
 - The AP is **open by design** so a bystander does not need a credential in an emergency.
   This is a privacy tradeoff: anyone in WiFi range can read the live vitals and location.
-  The `/location` form now requires a same-origin browser request to limit cross-site
-  drive-by changes, but this is not authentication; a client deliberately connected to
-  the AP can still read the status and change the location.
+  The `/location` and SOS controls require a same-origin browser request to limit cross-site
+  drive-by actions. An exact `Origin` header is authoritative; when it is absent, an exact
+  same-host `Referer` is accepted. This is not authentication; a client deliberately connected
+  to the AP can still read the status and change the location or SOS state.
 - **Failure is never fatal.** Every init step is returned and logged rather than
   `ESP_ERROR_CHECK`'d, so a radio that will not come up leaves the device measuring.
 
@@ -93,8 +95,12 @@ was returned to its own network afterwards. The page's JavaScript was then rende
 stubbed endpoint in headless Chrome and the DOM checked in three states - healthy, emergency and
 no finger - including that an absent reading renders `--` rather than `0`.
 
-**Still open:** the page is read-only. A manual SOS trigger and a cancel button from the phone
-need a POST endpoint (a natural pairing with T2.2's button). T1.4 supplies the location it shows.
+**Software follow-up (2026-10-15):** added phone SOS trigger/cancel POST handlers, same-origin
+checks with exact host-boundary validation, strict script CSP, and no-cache/offline browser behavior.
+The history endpoint no longer grants wildcard CORS reads. Both the status formatter and origin
+check have host regressions. Extracted-page browser checks cover live values, SOS button feedback,
+no-finger state, and stale-data clearing on fetch loss. The board was disconnected for this
+follow-up, so the newer HTTP handlers and live WiFi path have not been exercised on hardware.
 
 
 ---
@@ -115,10 +121,11 @@ location string in NVS and shows it on both the emergency card and the local sta
   UTF-8 continuation byte whose lead byte was dropped, would otherwise corrupt the display or
   split a glyph. Text that sanitises to nothing is **rejected with HTTP 400** and the stored
   value is left alone, rather than silently wiping a location already in use.
-- **Same-origin browser write.** `/location` rejects requests without the status page's
-  `Origin: http://192.168.4.1` header, blocking cross-site browser form submissions. This
-  preserves the phone workflow but is not an access-control boundary against a client that
-  joins the intentionally open AP.
+- **Same-origin browser write.** `/location` accepts an exact
+  `Origin: http://192.168.4.1`; if Origin is absent, it accepts only a `Referer` with that exact
+  host followed by `/` or end-of-string. A mismatched Origin is rejected even if Referer matches.
+  This limits cross-site browser form submissions but is not an access-control boundary against
+  a client that joins the intentionally open AP.
 - **Persisted in spirit as well as in fact.** The in-memory value is updated before the NVS
   write, so a location set during an emergency is still visible this session even if the flash
   write fails; the failure is logged rather than swallowed.
