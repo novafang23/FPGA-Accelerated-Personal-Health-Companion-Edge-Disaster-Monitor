@@ -171,10 +171,11 @@ Boot log after the final flash confirmed:
   (live coordinate when fixed, otherwise the stored location). The GNSS parser
   additionally requires `satellites > 0` before it will declare a fix, so a
   transient GGA cannot publish a bogus coordinate.
-- **Current GNSS wiring issue (2026-10-17, after a later reset):** the module
-  stopped sending NMEA (`[NO UART DATA] ... GPIO16`). Firmware behaviour is
-  correct; check NEO-M8N TX->GPIO16, VCC=3.3 V and GND. The earlier 3-D fix
-  proves the parser/format path.
+- **GNSS re-test (2026-10-17, after re-seating the wiring):** 3-D fix, 7–8
+  satellites, altitude 167.5–167.8 m, HDOP 3.2–5.0. The `[LOC]` line prints the
+  live coordinate (`28.56050N, 77.44006E`), confirming the GNSS-first location
+  priority end to end. The earlier `[NO UART DATA]` was a loose TX->GPIO16/VCC/GND
+  connection.
 - GNSS: **3-D fix acquired** — `28.56046N, 77.44006E`, 5–7 satellites,
   altitude 167.5 m, HDOP 1.8–8.1. Cold start to first fix took ~9.5 minutes
   (normal for a cold u-blox NEO-M8N at a window). The parser/UART path and the
