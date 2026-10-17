@@ -145,7 +145,9 @@ c4f90a7 fix: resolve four correctness/safety defects found in the A-to-Z audit
   Sensitive Groups (EPA AQI 106, 2024). WHO 2021 24-h guideline 15 ug/m3
   exceeded (2.5x). Heat index 30.7 C: Caution (NWS)." The `RHEAT`/`RPOLL`
   rule-engine levels remain the patient-response scores; aligning them to the
-  AQI/NWS categories is a policy choice.
+  AQI/NWS categories is a policy choice. **Decision (2026-10-18): keep them
+  separate** - the condition card / `[ENV]` is the literature verdict,
+  `RHEAT`/`RPOLL` are the patient-response scores.
 - **A2 safety**: an absolute-crisis override requires SQI ≥ 0.70 or two
   independent crisis criteria, so one noisy SpO2 cannot fire the SOS.
 - **C1**: GPS location is published from static storage (was a dangling
