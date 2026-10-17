@@ -87,6 +87,10 @@ CONFIG_SHRIKEFI_DEV_MQTT=n
 # [TELEMETRY] and [TRIAGE] are unaffected, only the waveform is lost.
 CONFIG_SHRIKEFI_STREAM_PPG=y
 
+# Physical SOS cancel button on GPIO 5 (active-low to GND, internal pull-up).
+# Hold 5 s to cancel an active alarm or a fall countdown. -1 disables it.
+CONFIG_SHRIKEFI_SOS_CANCEL_GPIO=5
+
 # --- Compiler -----------------------------------------------------------------
 # NOTE: intentionally reproducing the current DEBUG build (-Og). For a demo,
 # switch to release for materially faster INT8 inference and a smaller image

@@ -29,6 +29,10 @@ c4f90a7 fix: resolve four correctness/safety defects found in the A-to-Z audit
 - Power is via the **power port** (charger/power bank); **UART port** to the laptop.
 - Connected: MAX30102, BME280, PMS5003, MPU6050, SSD1306 OLED, buzzer, GNSS
   (u-blox NEO-8N class), ForgeFPGA.
+- **SOS cancel button: GPIO 5**, active-low to GND, internal pull-up, 5 s hold.
+  Enabled by `CONFIG_SHRIKEFI_SOS_CANCEL_GPIO=5` in `sdkconfig.defaults`
+  (verified in the boot log: "SOS hardware cancel button configured on GPIO5").
+  With no button fitted, the pull-up holds the pin high, so it reads released.
 - Renesas ForgeFPGA Workshop (Go Configure Software Hub) is installed and was
   used to re-fit the bitstream.
 - ESP-IDF 5.5.5 at `C:\Espressif\frameworks\esp-idf-v5.5.5`.
