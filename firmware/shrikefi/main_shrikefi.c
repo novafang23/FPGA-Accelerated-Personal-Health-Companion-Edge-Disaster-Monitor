@@ -32,6 +32,7 @@
 #include "clinical_vitals_engine.h"
 #include "ppg_sqi.h"
 #include "ppg_respiratory_rate.h"
+#include "ppg_baseline_rr.h"
 #include "wifi_mqtt_manager.h"
 #include "sos.h"
 #include "web_status.h"
@@ -306,6 +307,10 @@ static bool     s_hrv_sqi_valid = false;
  * hardware crossed its own confidence bar in 4 frames out of 118, which
  * flickers the display and flips the triage; see ppg_rr_tracker_update(). */
 static ppg_rr_tracker_t s_rr_tracker;
+
+/* Baseline (DC) respiratory path: 25 Hz raw IR -> 1 s baseline -> 5 Hz ->
+ * 0.1-0.5 Hz -> ACF. Independent of the beat rate; see ppg_baseline_rr.h. */
+static ppg_baseline_rr_t s_base_rr;
 #endif
 
 /* (The single-series float push helper was removed when the IBI history gained
@@ -346,6 +351,7 @@ static void ppg_history_reset(void) {
     /* A new contact starts with no respiratory evidence, so it must not inherit
      * a rate - or a hold - from the previous one. */
     ppg_rr_tracker_init(&s_rr_tracker);
+    ppg_baseline_rr_init(&s_base_rr);
 }
 
 /* Recompute respiration and SQI from the rolling windows. Cheap enough to run
@@ -375,6 +381,22 @@ static void ppg_update_respiration_and_sqi(hrv_state_t *hrv,
              rr.diag_beats, rr.diag_mean_ibi_ms, rr.diag_peak_lag, rr.diag_peak_lag_f,
              rr.diag_acf_peak_r, rr.diag_lag1_r, rr.rsa_depth_ms, rr.confidence,
              (int)rr.is_reliable, rr.diag_am_bpm, rr.diag_am_conf);
+
+    /* Baseline (DC) respiratory path: independent of the beat rate, so it can
+     * publish when the IBI/AM estimator cannot. Consulted only when the primary
+     * estimator is not reliable, and only at the same 0.60 confidence bar the
+     * primary path uses - a weak ACF peak is not a measurement. */
+    float base_rr = 0.0f, base_conf = 0.0f;
+    bool base_ok = ppg_baseline_rr_estimate(&s_base_rr, &base_rr, &base_conf);
+    if (base_ok) {
+        ESP_LOGI(TAG, "[RRBASE] rr=%.1f conf=%.2f win=%d lag=%d acf=%.2f", base_rr,
+                 base_conf, s_base_rr.win_n, s_base_rr.last_lag, s_base_rr.last_acf);
+    }
+    if (!rr.is_reliable && base_ok && base_conf >= PPG_RR_CONF_MIN) {
+        rr.respiratory_rate_bpm = base_rr;
+        rr.confidence           = base_conf;
+        rr.is_reliable          = true;
+    }
 
     /* Stabilise before publishing. A fresh contact, or one that has just lost
      * its evidence, must not inherit a rate from before. */
@@ -848,6 +870,7 @@ static void task_ppg_accelerator(void *pvParameters) {
             /* 4. Feed 18-bit samples into SpO2 engine when tissue contact is present */
             if (raw_contact) {
                 spo2_add_samples(&spo2_state, ppg_sample.red, ppg_sample.ir);
+                ppg_baseline_rr_add(&s_base_rr, (float)ppg_sample.ir);
                 if (spo2_is_valid(&spo2_state)) {
                     if (xSemaphoreTake(s_data_mutex, pdMS_TO_TICKS(10)) == pdTRUE) {
                         g_state.spo2_percent = spo2_get_value(&spo2_state);

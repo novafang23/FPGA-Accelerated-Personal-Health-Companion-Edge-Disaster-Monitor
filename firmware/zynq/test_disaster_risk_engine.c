@@ -8,6 +8,7 @@
 #include "nn_risk_model.h"
 #include "nn_risk_model_int8.h"
 #include "ppg_respiratory_rate.h"
+#include "ppg_baseline_rr.h"
 #include "ppg_sqi.h"
 /* sos.c lives under firmware/shrikefi/ but is deliberately free of any hardware
  * or FreeRTOS dependency, so the emergency state machine is testable here
@@ -1683,6 +1684,51 @@ static void test_rr_am_corroboration(void) {
     printf("test_rr_am_corroboration: PASS\n");
 }
 
+/* Baseline (DC) respiratory path. A slow baseline modulation at the true rate
+ * must be recovered; a pulse-only signal with no baseline modulation must not
+ * produce a confident rate. The second half is the important one: the cardiac
+ * pulse is itself periodic, so a filter that leaves enough of it behind will
+ * alias into the respiratory band and look like breathing. */
+static void test_rr_baseline_path(void) {
+    static const float rates[] = { 0.15f, 0.20f, 0.30f };
+    ppg_baseline_rr_t s;
+    float rr_bpm = 0.0f, conf = 0.0f;
+
+    for (size_t k = 0; k < sizeof(rates) / sizeof(rates[0]); k++) {
+        float true_hz  = rates[k];
+        float true_bpm = true_hz * 60.0f;
+        ppg_baseline_rr_init(&s);
+        /* 60 s at 25 Hz: 180k DC, a 1.2 Hz cardiac pulse, and the respiratory
+         * baseline modulation. */
+        for (int i = 0; i < 25 * 60; i++) {
+            float t = (float)i / 25.0f;
+            float v = 180000.0f
+                    + 2000.0f * sinf(2.0f * 3.14159265f * 1.2f * t)
+                    +  400.0f * sinf(2.0f * 3.14159265f * true_hz * t);
+            ppg_baseline_rr_add(&s, v);
+        }
+        bool ok = ppg_baseline_rr_estimate(&s, &rr_bpm, &conf);
+        printf("  RR baseline: true %4.1f -> est %5.1f conf=%.2f ok=%d\n",
+               true_bpm, rr_bpm, conf, (int)ok);
+        assert(ok);
+        assert(fabsf(rr_bpm - true_bpm) < 2.0f);
+        assert(conf >= 0.60f);
+    }
+
+    /* Pulse only: no respiratory modulation. */
+    ppg_baseline_rr_init(&s);
+    for (int i = 0; i < 25 * 60; i++) {
+        float t = (float)i / 25.0f;
+        float v = 180000.0f + 2000.0f * sinf(2.0f * 3.14159265f * 1.2f * t);
+        ppg_baseline_rr_add(&s, v);
+    }
+    bool ok = ppg_baseline_rr_estimate(&s, &rr_bpm, &conf);
+    printf("  RR baseline (no modulation): ok=%d conf=%.2f\n", (int)ok, conf);
+    assert(!ok || conf < 0.60f);
+
+    printf("test_rr_baseline_path: PASS\n");
+}
+
 static void test_news2_temperature_scoring(void) {
     clinical_assessment_t out;
 
@@ -1784,6 +1830,7 @@ int main() {
     test_rr_rejects_alternans();
     test_rr_rejects_three_beat_artifact();
     test_rr_am_corroboration();
+    test_rr_baseline_path();
     test_news2_temperature_scoring();
     test_max30102_temperature_conversion();
     printf("ALL TESTS PASSED.\n");

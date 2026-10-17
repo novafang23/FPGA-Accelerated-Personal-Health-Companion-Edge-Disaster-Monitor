@@ -117,6 +117,7 @@ jobs:
             firmware/core/clinical_vitals_engine.c firmware/core/spo2_engine.c \
             firmware/core/ppg_sqi.c firmware/core/disaster_risk_engine.c \
             firmware/core/pressure_trend.c firmware/core/ppg_respiratory_rate.c \
+            firmware/core/ppg_baseline_rr.c \
             firmware/shrikefi/sos.c firmware/shrikefi/location.c firmware/shrikefi/web_status.c \
             -lm -o test_engine
           ./test_engine
@@ -135,6 +136,7 @@ jobs:
             firmware/core/hrv_analysis.c firmware/core/spo2_engine.c firmware/core/disaster_risk_engine.c \
             firmware/core/nn_risk_model.c firmware/core/nn_risk_model_int8.c firmware/core/pm25_calibration_int8.c \
             firmware/core/clinical_vitals_engine.c firmware/core/ppg_sqi.c firmware/core/ppg_respiratory_rate.c \
+            firmware/core/ppg_baseline_rr.c \
             firmware/core/pressure_trend.c firmware/shrikefi/location.c firmware/shrikefi/sos.c firmware/shrikefi/web_status.c \
             -lm -o shrikefi_host
           ./shrikefi_host

@@ -52,6 +52,7 @@ idf_component_register(
         # rate defaulted to 14 and signal quality ungated. See the comment above
         # ppg_update_respiration_and_sqi() in main_shrikefi.c.
         "${CORE_DIR}/ppg_respiratory_rate.c"
+        "${CORE_DIR}/ppg_baseline_rr.c"
         "${CORE_DIR}/ppg_sqi.c"
         # Barometric pressure trend -> storm advisory (T3.1). Pure arithmetic, so
         # the windowing and the least-squares fit are host-testable.

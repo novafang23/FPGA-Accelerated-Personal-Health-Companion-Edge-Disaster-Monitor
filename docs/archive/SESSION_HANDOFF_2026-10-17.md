@@ -61,8 +61,18 @@ c4f90a7 fix: resolve four correctness/safety defects found in the A-to-Z audit
   - AM (pulse-amplitude) corroboration wired in with `am=`/`amc=` diagnostics;
     AM rate is preferred when FM periodicity is at/below its noise floor.
   - Verified: no false Tachypnea/CRITICAL/SOS in breath-hold tests.
+  - **Baseline (DC) respiratory path added** (`firmware/core/ppg_baseline_rr`):
+    25 Hz IR -> 1 s baseline -> 5 Hz -> 0.1-0.5 Hz -> autocorrelation. It is a
+    third, beat-rate-independent estimate and only publishes as a fallback when
+    the IBI/AM path is unreliable, at the same 0.60 confidence bar and the same
+    24 br/min ceiling. Boundary-pinned lags and pulse-only signals are rejected.
+    Host tests recover 9/12/18 br/min and reject a pulse-only signal.
   - **RR still publishes unavailable** at rest: the respiratory SNR on the
-    25 Hz FIFO + peak-detector path is marginal. This is the honest limit.
+    25 Hz FIFO + peak-detector path is marginal. On hardware at rest (HR 84,
+    SQI 0.86) the RSA path found no periodicity (`depth=0`, `r=0`) and the
+    baseline saw a weak 8.9 br/min (lag 34, conf 0.21-0.30), so RR was withheld.
+    This is the honest limit; the next step is the IBI-over-SPI burst or a
+    dedicated respiration sensor.
 - **A2 safety**: an absolute-crisis override requires SQI ≥ 0.70 or two
   independent crisis criteria, so one noisy SpO2 cannot fire the SOS.
 - **C1**: GPS location is published from static storage (was a dangling
