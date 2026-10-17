@@ -418,16 +418,21 @@ void ppg_estimate_respiratory_rate(
     float final_rr;
     float acf_conf;   /* periodicity evidence only; one input to the confidence */
 
-    if (conf_am > 0.20f && conf_fm > 0.20f) {
+    if (conf_am > 0.20f && conf_fm >= PPG_RR_ACF_MIN) {
+        /* Both paths credible: fuse them. */
         float total_w = conf_fm + conf_am;
         final_rr = (rr_from_fm * conf_fm + rr_from_am * conf_am) / total_w;
         acf_conf = (conf_fm + conf_am) * 0.55f;
+    } else if (conf_am > 0.20f) {
+        /* FM periodicity is at or below the noise floor - which is exactly how a
+         * 3-beat artifact wins the IBI search - while the amplitude path is
+         * credible. Trust the independent amplitude rate rather than blending a
+         * weak artifact into it. */
+        final_rr = rr_from_am;
+        acf_conf = conf_am;
     } else if (conf_fm > 0.20f) {
         final_rr = rr_from_fm;
         acf_conf = conf_fm;
-    } else if (conf_am > 0.20f) {
-        final_rr = rr_from_am;
-        acf_conf = conf_am;
     } else {
         final_rr = PPG_RR_DEFAULT_BPM;
         acf_conf = 0.0f;
