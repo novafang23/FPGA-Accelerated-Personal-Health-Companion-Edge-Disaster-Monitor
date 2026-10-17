@@ -37,8 +37,13 @@
  * the range where the false-alarm history lives, so the baseline path must not
  * be the one that breaks that policy. */
 #define PPG_BASE_RR_MAX_BPM    24.0f
-/* Comfortably above the 0.2 floor used to accept an ACF peak at all. */
-#define PPG_BASE_RR_CONF_MIN   0.45f
+/* Publication bar for the ACF confidence. This is NOT the IBI estimator's 0.60:
+ * that number is a blend of periodicity and RSA depth, while this is the raw
+ * autocorrelation peak of a band-passed signal. A paced 12 br/min test produced
+ * a stable 13.0-13.4 br/min at ACF 0.48-0.57, so 0.50 is the calibrated value
+ * for THIS metric. It is only applied to estimates that already passed the
+ * modulation gate and the boundary check. */
+#define PPG_BASE_RR_CONF_MIN   0.50f
 
 typedef struct {
     /* 1 s moving average over the 25 Hz input */

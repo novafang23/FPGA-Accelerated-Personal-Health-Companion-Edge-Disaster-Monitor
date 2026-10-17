@@ -392,7 +392,8 @@ static void ppg_update_respiration_and_sqi(hrv_state_t *hrv,
         ESP_LOGI(TAG, "[RRBASE] rr=%.1f conf=%.2f win=%d lag=%d acf=%.2f", base_rr,
                  base_conf, s_base_rr.win_n, s_base_rr.last_lag, s_base_rr.last_acf);
     }
-    if (!rr.is_reliable && base_ok && base_conf >= PPG_RR_CONF_MIN) {
+    if (!rr.is_reliable && base_ok && base_conf >= PPG_BASE_RR_CONF_MIN &&
+        s_base_rr.win_n >= 100) {
         rr.respiratory_rate_bpm = base_rr;
         rr.confidence           = base_conf;
         rr.is_reliable          = true;

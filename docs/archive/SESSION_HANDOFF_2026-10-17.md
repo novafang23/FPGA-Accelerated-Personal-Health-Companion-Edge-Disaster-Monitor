@@ -67,12 +67,15 @@ c4f90a7 fix: resolve four correctness/safety defects found in the A-to-Z audit
     the IBI/AM path is unreliable, at the same 0.60 confidence bar and the same
     24 br/min ceiling. Boundary-pinned lags and pulse-only signals are rejected.
     Host tests recover 9/12/18 br/min and reject a pulse-only signal.
-  - **RR still publishes unavailable** at rest: the respiratory SNR on the
-    25 Hz FIFO + peak-detector path is marginal. On hardware at rest (HR 84,
-    SQI 0.86) the RSA path found no periodicity (`depth=0`, `r=0`) and the
-    baseline saw a weak 8.9 br/min (lag 34, conf 0.21-0.30), so RR was withheld.
-    This is the honest limit; the next step is the IBI-over-SPI burst or a
-    dedicated respiration sensor.
+  - **Paced validation (2026-10-17):** paced 12 br/min produced a stable
+    13.0-13.4 br/min at ACF 0.48-0.57 (winning lag 22-23 = 4.4-4.6 s), while the
+    RSA path still found no periodicity. The baseline path therefore publishes
+    at its own calibrated 0.50 ACF bar (the primary path keeps 0.60) after 20 s
+    of history; boundary-pinned lags and pulse-only signals are still rejected.
+  - **RR at rest** still reads unavailable (8.9 br/min at conf 0.21-0.30): the
+    respiratory SNR on the 25 Hz FIFO + peak-detector path is marginal. This is
+    the honest limit; the next step is the IBI-over-SPI burst or a dedicated
+    respiration sensor.
 - **A2 safety**: an absolute-crisis override requires SQI ≥ 0.70 or two
   independent crisis criteria, so one noisy SpO2 cannot fire the SOS.
 - **C1**: GPS location is published from static storage (was a dangling
