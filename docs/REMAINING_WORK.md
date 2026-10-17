@@ -711,19 +711,20 @@ dataset — does it apply to Indian patients?"* ~2 hours.
 
 ---
 
-### T4.4 — Re-fit before quoting any FPGA resource figure — **DONE (2026-09-21)**
+### T4.4 — Re-fit before quoting any FPGA resource figure — **DONE (2026-10-18)**
 
-The 2026-09-21 fit is current: **362 / 1120 LUT5s (32.32%)**, 204 FFs, 74/140 CLBs,
-PLL 0/1. It is the first run to include the H-01 slope gate.
+The 2026-10-18 fit is current: **535 / 1120 LUT5s (47.77%)**, 303 FFs, 108/140 CLBs,
+PLL 0/1. It adds the 32-bit IBI burst (`0xC3` + cycle count) and dummy-byte filter gate;
 `resource_utilization_spi_link.log` and every doc that quotes a footprint have
-been updated to it. The older 443 (parallel link), 342 and 222 figures are all
+been updated to it. The older 443 (parallel link), 222, 342, 363 and 362 figures are all
 real measurements of earlier netlists — see
-`hardware/shrikefi/synthesis_evidence/README.md` for the history.
+`hardware/shrikefi/synthesis_evidence/README.md` for the history. CLB occupancy
+(32 blocks free) is now the constraint to watch.
 
 **One caveat carried forward:** the design declares no clock constraint, so the
-fitter auto-constrains `clk` to 500 MHz and reports WNS −10.088 ns, which is
-meaningless. Achievable period is 12,087 ps (82.73 MHz); at 50 MHz the margin is
-+7.913 ns. Adding a real constraint to the flow is still open work — until then
+fitter auto-constrains `clk` to 500 MHz and reports WNS −10.219 ns, which is
+meaningless. Achievable period is 12,218 ps (81.846 MHz); at 50 MHz the margin is
++7.782 ns. Adding a real constraint to the flow is still open work — until then
 the timing report cannot be cited either way.
 
 ---
@@ -732,11 +733,11 @@ the timing report cannot be cited either way.
 
 Split out of T4.4 because the re-fit is done but this is not. `forgefpga_pins.pcf` declares only
 `set_io` lines, so the fitter auto-constrains `clk` to 2000 ps (500 MHz) and every register in the
-design "fails". The reported WNS of −10.088 ns is therefore unusable in either direction — it is
+design "fails". The reported WNS of −10.219 ns is therefore unusable in either direction — it is
 not evidence that timing fails, and not evidence that it closes.
 
-The design's achievable period is 12,087 ps (82.73 MHz), so at the documented 50 MHz the margin is
-+7.913 ns. That is a good sign, not a result.
+The design's achievable period is 12,218 ps (81.846 MHz), so at the documented 50 MHz the margin is
++7.782 ns. That is a good sign, not a result.
 
 **Do:** find whether the Renesas flow accepts a frequency constraint (an SDC, or a `set_frequency`
 in the PCF — the repo's reference docs under `docs/reference/shrike_board/` do not say), apply

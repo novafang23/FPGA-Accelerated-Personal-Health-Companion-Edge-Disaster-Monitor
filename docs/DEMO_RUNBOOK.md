@@ -219,7 +219,7 @@ If a sensor wire breaks or your board loses power, do **not** panic. Immediately
    vvp sim.vvp
    ```
    Show the judges the terminal output:
-   `RESULTS: 10 passed, 0 failed (out of 10 checks) - ALL TESTS PASSED`.
+   `RESULTS: 13 passed, 0 failed (out of 13 checks) - ALL TESTS PASSED`.
 
 ---
 

@@ -10,8 +10,10 @@
  * One 8-bit full-duplex transaction per optical sample (~100 Hz): the MCU sends
  * the raw IR sample on MOSI and receives {beat_latched, filt_sample[6:0]} on
  * MISO. There is no command map, no strobe, no direction line, no address and no
- * interrupt pin - the beat is bit 7 of the returned byte, and the MCU derives
- * the IBI from its own esp_timer_get_time() deltas. Full specification:
+ * interrupt pin - the beat is bit 7 of the returned byte. On a beat the FPGA
+ * queues a five-byte IBI burst (0xC3 + 32-bit 50 MHz cycle count, MSB first),
+ * which the driver reads; the esp_timer_get_time() delta is only a fallback for
+ * older bitstreams without the burst. Full specification:
  * docs/SHRIKEFI_LINK_PROTOCOL.md.
  *
  * Earlier revisions of this header declared a "4-bit parallel GPIO bus" with a

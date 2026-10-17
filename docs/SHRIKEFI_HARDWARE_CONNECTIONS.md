@@ -241,10 +241,12 @@ Row 10 (Cancel Btn) : [10A: ESP32 GPIO 5][10B: Btn Leg 1]         [10C: Empty][1
 * **Speed:** 1 MHz for the runtime link, 16 MHz while streaming the bitstream.
 * **Framing:** one 8-bit full-duplex transaction per optical sample (~100 Hz). The MCU sends the
   raw IR sample on MOSI; the FPGA returns `{beat_latched, filt_sample[6:0]}` on MISO — bit 7 is the
-  beat flag, bits 6:0 are the low seven bits of the 8-tap moving average.
+  beat flag, bits 6:0 are the low seven bits of the 8-tap moving average. On a beat the FPGA
+  follows that byte with a five-byte IBI burst (`0xC3` + 32-bit 50 MHz cycle count, MSB first).
 * **There is no command map and no interrupt line.** The beat is not signalled on a separate pin;
-  it is bit 7 of the returned byte, polled by the MCU. The MCU derives the IBI from its own
-  `esp_timer_get_time()` deltas between rising beat flags — the FPGA does not timestamp beats.
+  it is bit 7 of the returned byte, polled by the MCU. The FPGA latches the 32-bit IBI on the beat
+  and the MCU reads it from the burst; if the magic byte is absent (older bitstream) it falls back
+  to `esp_timer_get_time()` deltas between rising beat flags.
 
 Full specification: [`SHRIKEFI_LINK_PROTOCOL.md`](SHRIKEFI_LINK_PROTOCOL.md). Earlier revisions of
 this document described a 4-bit parallel nibble bus with a strobe, a direction line and an

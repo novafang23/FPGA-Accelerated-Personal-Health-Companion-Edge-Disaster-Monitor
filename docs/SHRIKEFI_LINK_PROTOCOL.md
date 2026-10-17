@@ -19,7 +19,8 @@ target. The ESP32-S3 drives it with the ESP-IDF `spi_master` driver on
 There is no AXI bus and no ARM processing system on this board, so there is no
 memory-mapped register file — but there is also no bespoke parallel protocol.
 The ForgeFPGA is an SPI peripheral that happens to run the PPG filter and peak
-detector, and the whole interface is one byte in each direction.
+detector. The normal interface is one byte in each direction; a detected beat
+adds a fixed five-byte IBI burst (section 3).
 
 > **WARNING — 3.3 V ONLY.** Every I/O pin on both the ESP32-S3 and the ForgeFPGA
 > is 3.3 V LVCMOS. Applying 5 V to any GPIO permanently destroys the IC. 5 V is
@@ -61,14 +62,17 @@ Sources of truth: `firmware/shrikefi/shrikefi_pinmap.h` (ESP32 side),
 ## 3. Data framing
 
 There is **no command map, no header, no payload length and no address**. Each
-optical sample is one 8-bit full-duplex SPI transaction:
+optical sample is one 8-bit full-duplex SPI transaction. A detected beat adds a
+fixed five-byte burst on the following transfers.
+
+Normal transaction:
 
 ```
-        ┌─────────────────────────────────────────────────┐
- MCU ───┤ MOSI: [ sample[7:0] ]  — the raw IR sample     ├───▶ FPGA
-        │                                                 │
- MCU ◀──┤ MISO: [ beat | filt[6:0] ]  — one result byte   ├──── FPGA
-        └─────────────────────────────────────────────────┘
+        +--------------------------------------------------+
+ MCU -> | MOSI: [ sample[7:0] ]  - the raw IR sample       | -> FPGA
+        |                                                  |
+ MCU <- | MISO: [ beat | filt[6:0] ]  - one result byte   | <- FPGA
+        +--------------------------------------------------+
                  one 8-bit transfer, CS pulsed low
 ```
 
@@ -84,7 +88,7 @@ Two consequences that matter when reading a capture:
   quantity, so the FPGA packs the beat flag into bit 7 and only the low 7 bits
   come back. The logged value therefore wraps at 128 and looks like a sawtooth.
   The FPGA's own peak detector uses the full 8 bits internally, so detection is
-  unaffected — only the diagnostic is. `hardware/shrikefi/tools/replay_fpga_link_log.py`
+  unaffected - only the diagnostic is. `hardware/shrikefi/tools/replay_fpga_link_log.py`
   reconstructs the true 8-bit value from the input stream.
 - **The handshake probe byte never comes back.** At reset the RTL initialises its
   response register to `0xA5`, but the next clock overwrites it with
@@ -95,19 +99,30 @@ Two consequences that matter when reading a capture:
   the beat flag, and the firmware latches it from the first beat the FPGA
   reports.
 
-**Beat timing is measured on the MCU, not the FPGA.** The RTL computes a 32-bit
-IBI counter internally (`ibi_cycles` at 50 MHz clock = 20 ns per tick), but there is no
-room for a 32-bit integer in the 8-bit SPI reply `{beat, filt[6:0]}` and it is not
-transmitted across the link. `shrikefi_link_driver.c` timestamps each rising beat flag
-with `esp_timer_get_time()` and differences consecutive timestamps, expressing the
-delta in 50 MHz-equivalent cycles (`s_sim_ibi = delta_us * 50`).
+### 3.1 IBI burst
 
-This is the architectural contract: peak detection in hardware executes at 50 MHz with
-cycle-accurate fidelity, but the reported IBI resolution in software is determined by
-the discrete SPI sample cadence (~10 ms at 100 Hz sampling) and the ESP32 timer (1 µs),
-not the FPGA's 20 ns tick. Because RMSSD is the RMS of successive interval *differences*, this
-quantisation is an inherent property of the ~100 Hz discrete sampling architecture,
-and it is one reason T4.1 (validate against a reference device) is documented for field verification.
+The cycle-accurate IBI is transmitted, but not inside the 8-bit result byte. When
+the MCU sees a rising beat flag, `shrikefi_link_driver.c` performs **five extra
+8-bit transfers** with `MOSI = 0x00`:
+
+| Burst byte | MISO | Meaning |
+|---|---|---|
+| 0 | `0xC3` | Magic marker; distinguishes the burst from a normal sample reply |
+| 1 | `IBI[31:24]` | IBI in 50 MHz cycles, MSB first |
+| 2 | `IBI[23:16]` | |
+| 3 | `IBI[15:8]` | |
+| 4 | `IBI[7:0]` | |
+
+The IBI is measured by the RTL on the same 50 MHz clock as the beat, so one tick
+is **20 ns**. The firmware accepts `12,000,000 <= IBI <= 100,000,000` cycles
+(0.24-2.0 s, i.e. 30-250 bpm); a value outside that range is rejected. The five
+dummy MOSI bytes are gated out of the 8-tap filter by `sample_valid`, so they do
+not disturb the waveform.
+
+If the first burst byte is not `0xC3` (an older bitstream without the burst), the
+driver discards the result and falls back to timing the beat flag with
+`esp_timer_get_time()`. That fallback is quantised by the ~100 Hz SPI poll rate;
+the burst path is the one that gives the FPGA's 20 ns resolution.
 
 ## 4. Timing
 
@@ -116,19 +131,21 @@ and it is one reason T4.1 (validate against a reference device) is documented fo
 | Link mode | SPI mode 0 (CPOL=0, CPHA=0) | `shrikefi_link_driver.c` |
 | Runtime link clock | **1 MHz** | `shrikefi_link_driver.c` |
 | One transaction | 8 bits = **8 µs** | derived |
+| IBI burst after a beat | 5 x 8 bits = **40 µs** | derived |
 | Sample cadence | **~100 Hz** (measured ~105/s over an 81 s capture) | `reports/live_test_runs/` |
-| Link duty cycle at 100 Hz | 8 µs per 10 ms ≈ **0.08 %** | derived |
+| Link duty cycle at 100 Hz | 8 µs per 10 ms → **0.08 %** (normal traffic) | derived |
 | Flashing clock | **16 MHz** | `shrikefi_link_driver.c` |
 | Bitstream | **46,408 bytes** in 256-byte chunks (182 transfers) | `forgefpga_bitstream.h` |
-| Pure clocking time to flash | 371,264 bits ÷ 16 MHz ≈ **23.2 ms** | derived |
+| Pure clocking time to flash | 371,264 bits / 16 MHz -> **23.2 ms** | derived |
 | FPGA logic clock | **50 MHz** on-chip oscillator, enabled via `OSC_EN` | `docs/reference/shrike_board/` |
 
 **On ForgeFPGA timing evidence.** The fitter report `PNR_TIMING.log` shows
-WNS −10.088 ns, but that figure is an artefact: the design declares no clock
+WNS -10.219 ns, but that figure is an artefact: the design declares no clock
 constraint, so the tool auto-constrains `clk` to 500 MHz (2000 ps). The
-**achievable period is 12,087 ps (82.73 MHz)**, so at the documented 50 MHz the
-margin is **+7.913 ns**. Do not quote −10.088 ns as a result. Adding a real
-constraint to the flow is still open work (T4.5 in `docs/REMAINING_WORK.md`).
+**achievable period is 12,218 ps (81.846 MHz)**, so at the documented 50 MHz the
+margin is **+7.782 ns**. Do not quote -10.219 ns as a result, and do not call
+81.846 MHz "timing closure". Adding a real constraint to the flow is still open
+work (T4.5 in `docs/REMAINING_WORK.md`).
 
 ## 5. FPGA configuration
 
@@ -160,24 +177,25 @@ valid and citable; it is a different interconnect, not a port of this one.
 | Interconnect | 32-bit memory-mapped at `0x43C00000` | 8-bit full-duplex SPI, one transfer per sample |
 | Write a raw sample | Write `REG_RED_RAW` / `REG_IR_RAW` | The MOSI byte of the transaction |
 | Read the filtered output | Read the filtered-output registers | Bits 6:0 of the MISO byte |
-| Read the IBI | Read `REG_IBI_CYCLES` (32-bit) | **Not available** — measured on the MCU |
+| Read the IBI | Read `REG_IBI_CYCLES` (32-bit) | Five-byte burst after the beat byte (`0xC3` + 32-bit cycles); timer fallback for older bitstreams |
 | Set the peak threshold | Write `REG_STATUS_THRESH[15:8]` | **Not implemented** — `shrikefi_set_threshold()` only stores a value; the RTL hard-codes `dyn_threshold` |
 | Clear the beat flag | Write 1 to `REG_STATUS_THRESH[0]` (W1C) | Implicit: the flag is high for the one transaction that carries it |
 | Interrupt to the host | AXI fabric interrupt to the ARM GIC | **None** — polled as bit 7 of the MISO byte |
 
-The two "not available" rows are the honest gaps between the platforms. Neither
-is required for the device to work, and both are recorded rather than papered
-over.
+The threshold row is the honest gap between the platforms. It is not required
+for the device to work, and it is recorded rather than papered over.
 
 ## 7. What is not on the wire
 
-- **No command map.** There is no `CMD_*` decode in the RTL and no `SHRIKEFI_CMD_*`
-  constant in use in the driver.
+- **No command map.** There is no `CMD_*` decode in the RTL and no
+  `SHRIKEFI_CMD_*` constant in use in the driver. The only framed sequence is the
+  fixed `0xC3` IBI burst.
 - **No strobe, no direction line, no nibble framing.**
 - **No separate beat interrupt.**
 - **No threshold write path.** `shrikefi_set_threshold()` is a no-op against real
   hardware; the FPGA's peak threshold is fixed at synthesis.
-- **No FPGA-side IBI.** See §3.
+- **No memory-mapped IBI register.** The IBI is available through the burst (with
+  a timer fallback for pre-burst bitstreams), not through an address.
 
 ## 8. History: the retired 4-bit parallel design
 

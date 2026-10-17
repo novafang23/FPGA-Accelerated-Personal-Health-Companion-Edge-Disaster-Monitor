@@ -143,7 +143,7 @@ Bit 7 is the beat flag, so only the **low seven bits** of the filter output come
 
 **There is no command map.** The write *is* the sample and the reply *is* the reading. No opcode, no register address, no payload length negotiation, no `SHRIKEFI_CMD_*` identifier anywhere in the driver, and no decode block in the Verilog.
 
-**How the MCU gets the IBI.** The FPGA does not timestamp beats and does not put a cycle count on the link. The MCU watches bit 7 of each reply and, on a rising beat flag, differences its own `esp_timer_get_time()` readings to get the interval (section 5 covers the arithmetic).
+**How the MCU gets the IBI.** The FPGA latches a 32-bit cycle count on the beat and queues a five-byte burst (`0xC3` + four bytes, MSB first) for the MCU to read. `shrikefi_link_driver.c` uses that cycle count when the magic byte is present and valid; it falls back to its own `esp_timer_get_time()` deltas only for an older bitstream without the burst (section 5 covers the arithmetic).
 
 **Why SPI is the right choice here.** The ForgeFPGA has a small I/O budget, and an SPI target costs a shift register rather than a bus. Unlike a parallel link it needs no strobe agreement, no direction turnaround and no opcode space — and a heartbeat is exactly one bit, so the one thing the link must not lose is cheap to send. The ESP32-S3 already has a hardware SPI controller (`driver/spi_master.h` on `SPI2_HOST`), so the MCU pays almost no CPU cost per sample. The runtime link runs at **1 MHz**; the same wires carry the bitstream at **16 MHz** during FPGA configuration.
 
@@ -183,7 +183,7 @@ flowchart LR
 ```
 
 > [!NOTE]
-> **One link, both directions, no interrupt pin.** The beat does not arrive on a dedicated wire: it arrives as bit 7 of the MISO byte, which the MCU is already clocking in as part of the sample transaction. The MCU derives the inter-beat interval from its own `esp_timer_get_time()` deltas between rising beat flags — the FPGA's internal 32-bit interval counter never crosses the link.
+> **One link, both directions, no interrupt pin.** The beat does not arrive on a dedicated wire: it arrives as bit 7 of the MISO byte, which the MCU is already clocking in as part of the sample transaction. On a rising beat flag the FPGA queues a five-byte IBI burst (`0xC3` + 32-bit cycle count); the MCU reads it and uses the hardware interval, falling back to `esp_timer_get_time()` deltas only if the magic byte is absent (older bitstream) or the value is out of range.
 
 ### The ForgeFPGA configuration question — handle this honestly
 
@@ -341,7 +341,7 @@ Your heart is the same. After a real systolic peak there is a **dicrotic notch**
 > **The counter counts ticks, not beats.** 2³² ticks at 20 ns is about **85.9 seconds**, not "1.5 billion beats before wrap". An earlier revision of this table said "~1.5 billion beats before wrap", which confuses a tick count with a beat count and is wrong by roughly six orders of magnitude. If a judge asks the wrap period, the answer is 85.9 seconds.
 
 > [!IMPORTANT]
-> **Be precise about what crosses the link.** The peak-detector FSM holds a 32-bit `ibi_cycles` count internally, but **no SPI register carries it and the firmware never reads it** — the reply byte is only `{beat_flag, filtered[6:0]}`. The MCU reconstructs the interval from its own `esp_timer_get_time()` deltas between rising beat flags (`s_sim_ibi = delta_us * 50` in `shrikefi_link_driver.c`). So the *detection* is cycle-accurate and jitter-free in hardware, while the interval the firmware reports is quantised by the MCU's 1 µs timer and merely *expressed* in 20 ns ticks. Do not tell a judge that the FPGA hands over a hardware timestamp — it does not.
+> **Be precise about what crosses the link.** The peak-detector FSM holds a 32-bit `ibi_cycles` count and, on a beat, transmits it in a five-byte burst: `0xC3`, then the count MSB first. The normal reply byte is still `{beat_flag, filtered[6:0]}`. `shrikefi_link_driver.c` accepts the burst only when the first byte is `0xC3` and the value is in the 30–250 bpm range; otherwise it falls back to `esp_timer_get_time()` deltas (`s_sim_ibi = delta_us * 50`). So on the current bitstream the reported interval is the FPGA's 20 ns count, not an MCU-timer estimate — but do not describe it as a memory-mapped hardware timestamp; it is a fixed five-byte SPI burst.
 
 This is the measurement that makes the whole clinical layer possible, and it is the answer to *"why is there an FPGA in this project?"*
 
@@ -359,7 +359,7 @@ beat flag   ______________________/‾\_______________   (1 cycle, sent as MISO 
 ibi_cycles  XXXXXXXXXXXXXXXXXXXXXX< 0x00000CD1 >XXXX   (3,281 internal ticks = 65.62 µs)
 ```
 
-**Reading it:** eight valid samples drive the filter output to the input value; the sample crossing the threshold arms the FSM; the descending inflection sets the beat flag for one clock, which is returned as bit 7 of the next MISO byte and then cleared. The RTL's internal 32-bit interval counter latches on that same edge — but, as noted above, that count stays inside the FPGA.
+**Reading it:** eight valid samples drive the filter output to the input value; the sample crossing the threshold arms the FSM; the descending inflection sets the beat flag for one clock, which is returned as bit 7 of the next MISO byte and then cleared. The RTL's internal 32-bit interval counter latches on that same edge, and the following five transfers carry it to the MCU (`0xC3` + 32 bits, MSB first).
 
 ### Verilog module hierarchy
 
@@ -381,12 +381,12 @@ ibi_cycles  XXXXXXXXXXXXXXXXXXXXXX< 0x00000CD1 >XXXX   (3,281 internal ticks = 6
 |---|---|---|
 | Zynq-7000 OOC (baseline, tag `v1.0-zynq-SIH`) | 185 LUT / 16 LUTRAM / 266 FF, **0 DSP, 0 BRAM**, WNS **+5.603 ns**, Fmax **69.45 MHz** | Tag + screenshots |
 | Zynq-7000 re-run (Vivado 2026.1) | **198** slice LUTs (182 logic + 16 LUTRAM), **267** FF, 0 DSP, 0 BRAM | `hardware/zynq/synthesis_evidence/ooc_utilization_synth.rpt` |
-| ForgeFPGA SLG47910C | **362 / 1120 LUT5s (32.32%)**, 204 FFs, 74/140 CLBs, 0 BRAM, PLL 0/1 | `hardware/shrikefi/synthesis_evidence/resource_utilization_spi_link.log` |
+| ForgeFPGA SLG47910C | **535 / 1120 LUT5s (47.77%)**, 303 FFs, 108/140 CLBs, 0 BRAM, PLL 0/1 | `hardware/shrikefi/synthesis_evidence/resource_utilization_spi_link.log` |
 
 > [!WARNING]
-> **Do not quote 443 LUT5s / 353 FFs / 85 CLBs** — that belongs to the superseded 4-bit parallel link build. The current SPI hardware fitter report measures **362 / 1120 LUT5s (32.32%)**, **204 FFs**, and **74/140 CLBs** with **PLL 0/1**. Two earlier SPI figures (222 and 342 LUT5s) are also real measurements of older netlists — see `hardware/shrikefi/synthesis_evidence/README.md` for the fit history. Likewise do not mix the 185-LUT baseline with the 198-LUT re-run; they are different runs measuring different scopes.
+> **Do not quote 443 LUT5s / 353 FFs / 85 CLBs** — that belongs to the superseded 4-bit parallel link build. The current SPI hardware fitter report measures **535 / 1120 LUT5s (47.77%)**, **303 FFs**, and **108/140 CLBs** with **PLL 0/1**. Earlier SPI figures (222, 342, 363 and 362 LUT5s) are also real measurements of older netlists — see `hardware/shrikefi/synthesis_evidence/README.md` for the fit history. The jump from 362 to 535 is the 32-bit IBI burst, not fitter noise. Likewise do not mix the 185-LUT baseline with the 198-LUT re-run; they are different runs measuring different scopes.
 >
-> **Do not quote WNS −10.088 ns either.** The fitter auto-constrains `clk` to 500 MHz because the design declares no clock constraint; the achievable period is 12,087 ps (82.73 MHz), so at the documented 50 MHz the margin is +7.913 ns. See the timing section of the evidence README.
+> **Do not quote WNS −10.219 ns either.** The fitter auto-constrains `clk` to 500 MHz because the design declares no clock constraint; the achievable period is 12,218 ps (81.846 MHz), so at the documented 50 MHz the margin is +7.782 ns. That is an unconstrained-fit indication, not timing closure. See the timing section of the evidence README.
 
 > [!TIP]
 > **Judge Defence Tip:** "Zero DSP, zero BRAM" is the number that impresses hardware engineers, because it proves the filter is arithmetic trickery rather than brute-force multipliers. Quote it with the mechanism: "running-sum with a bit-shift divide."
@@ -416,7 +416,7 @@ BPM    = 60,000 / IBI_ms = 60 / IBI_s = 3,000,000,000 / ibi_cycles
 
 **Real examples** (a physiological IBI is between about 0.3 s and 1.5 s):
 
-| Heart rate | Interval | Ticks at 50 MHz | MCU `esp_timer_get_time()` delta |
+| Heart rate | Interval | Ticks at 50 MHz (FPGA burst) | MCU fallback delta (`esp_timer_get_time()`) |
 |---|---|---|---|
 | **60 bpm** (resting adult) | 1.000 s | **50,000,000** | 1,000,000 µs |
 | **50 bpm** (fit athlete) | 1.200 s | **60,000,000** | 1,200,000 µs |
@@ -424,10 +424,10 @@ BPM    = 60,000 / IBI_ms = 60 / IBI_s = 3,000,000,000 / ibi_cycles
 | **120 bpm** (exertion) | 0.500 s | **25,000,000** | 500,000 µs |
 
 > [!NOTE]
-> If a demo scenario shows a few thousand ticks, that is a *simulation* interval chosen to keep the VCD waveform short — do not present it as a physiological heart rate. On hardware a 60 bpm beat is **50,000,000 ticks**, or a 1,000,000 µs `esp_timer_get_time()` delta between rising beat flags. That kind of precision is exactly what earns trust.
+> If a demo scenario shows a few thousand ticks, that is a *simulation* interval chosen to keep the VCD waveform short — do not present it as a physiological heart rate. On hardware a 60 bpm beat is **50,000,000 ticks** in the FPGA burst (or a 1,000,000 µs fallback delta between rising beat flags).
 
 > [!IMPORTANT]
-> **Where the number actually comes from.** The firmware does not read a cycle count from the FPGA — the SPI reply carries only `{beat flag, filtered[6:0]}`. `shrikefi_link_driver.c` takes the delta of `esp_timer_get_time()` on each rising beat flag and multiplies by 50 to express it in 20 ns ticks (`s_sim_ibi = delta_us * 50`). So the tick figures in the table above are the *equivalent* count at 50 MHz; the real measurement is the MCU timer delta in the right-hand column, which is quantised to 1 µs.
+> **Where the number actually comes from.** On the current bitstream, `shrikefi_link_driver.c` reads the five-byte burst and takes the 32-bit cycle count directly (`s_sim_ibi = fpga_ibi`). If the first byte is not `0xC3` — an older bitstream — it falls back to the `esp_timer_get_time()` delta multiplied by 50. The tick figures in the table are therefore the FPGA count on current hardware; the right-hand column is only the fallback and is quantised to 1 µs.
 
 ### SpO₂: the Ratio-of-Ratios
 
@@ -745,8 +745,8 @@ A tiny INT8 network learns the correction from the sensor's own humidity and tem
 ```mermaid
 flowchart TD
     A[MAX30102<br/>raw Red/IR] --> B[FPGA: filter<br/>+ peak detect]
-    B --> C["beat flag (MISO bit 7)<br/>+ filtered sample"]
-    C --> D[hrv_analysis.c<br/>RMSSD / SDNN<br/>intervals timed by esp_timer]
+    B --> C["beat flag (MISO bit 7)<br/>+ filtered sample<br/>then 0xC3 + 32-bit IBI"]
+    C --> D[hrv_analysis.c<br/>RMSSD / SDNN<br/>intervals from FPGA burst]
     A --> E[spo2_engine.c<br/>ratio-of-ratios]
     F[BME280] --> G[clinical_vitals_engine.c<br/>mNEWS2]
     H[PMSA003] --> I[pm25_calibration_int8.c]
@@ -796,8 +796,8 @@ A standalone Win32 GDI application — no Python, no browser, no dependencies. I
 **Q1. "Why did you use an FPGA when the ESP32-S3 has two 160 MHz cores?"**
 
 - **Elevator:** "Because the measurement we need is smaller than the timing error a software timestamp would introduce."
-- **Technical:** "HRV needs beat-to-beat intervals accurate to a few milliseconds. If the ESP32 timestamped beats inside a FreeRTOS task, the reading would be quantised to the 10 ms scheduler tick. Wi-Fi shares core 0, and the FPGA latches every beat, ensuring no beat is lost despite interrupt jitter on the MCU. The MCU reads its own 1 µs hardware timer."
-- **Evidence:** "`CONFIG_FREERTOS_HZ=100` in our sdkconfig; the RTL detects the peak at 50 MHz and returns the beat as **bit 7 of the MISO byte**; `shrikefi_link_driver.c` times the interval with `esp_timer_get_time()` on rising beat flags, so its resolution is 1 µs. The 6/6 and 13/13 testbenches verify the peak detector and the beat flag."
+- **Technical:** "HRV needs beat-to-beat intervals accurate to a few milliseconds. If the ESP32 timestamped beats inside a FreeRTOS task, the reading would be quantised to the 10 ms scheduler tick. Wi-Fi shares core 0, and the FPGA latches every beat and its 32-bit 20 ns interval in hardware, so the MCU does not time the beat in software. The MCU reads that count from the post-beat SPI burst."
+- **Evidence:** "`CONFIG_FREERTOS_HZ=100` in our sdkconfig; the RTL detects the peak at 50 MHz, returns the beat as **bit 7 of the MISO byte**, and queues a five-byte burst with the 32-bit cycle count. `shrikefi_link_driver.c` uses that FPGA count and falls back to `esp_timer_get_time()` only for older bitstreams. The 6/6 and 13/13 testbenches verify the peak detector, the beat flag, and the burst."
 
 ---
 
@@ -838,8 +838,8 @@ A standalone Win32 GDI application — no Python, no browser, no dependencies. I
 **Q6. "How does the FPGA communicate with the MCU?"**
 
 - **Elevator:** "Over 4-wire SPI — one 8-bit full-duplex transfer per optical sample. The MCU sends the sample; the FPGA returns the filtered waveform with the beat flag in bit 7."
-- **Technical:** "8-bit SPI, **mode 0, MSB first, on the ESP32's `SPI2_HOST`**, at 1 MHz, with chip select driven manually on GPIO10 so that each sample is exactly one transaction. There is **no command map**: the write *is* the sample, and the reply is `{beat_latched, filt_sample[6:0]}`. The FPGA holds no register file and answers no opcodes. There is no interrupt pin either — the beat arrives as bit 7 of the byte the MCU is already clocking in, and the MCU derives the inter-beat interval from its own `esp_timer_get_time()` deltas. (An earlier revision of this guide described a 4-bit parallel nibble link with a strobe, a direction line and a `0x1`–`0x8` command codebook. **That design was retired before it was ever built** and none of it exists in the code.)"
-- **Evidence:** "`firmware/shrikefi/shrikefi_link_driver.c` includes `driver/spi_master.h`, initialises `SPI2_HOST` and sets `.mode = 0`; `hardware/shrikefi/forgefpga_ppg_top.v` instantiates `spi_target`; `hardware/shrikefi/forgefpga_pins.pcf` binds `spi_sck`/`spi_ss_n`/`spi_mosi`/`spi_miso` to `PIN_16`–`PIN_19`; and `tb_forgefpga_system.v` drives the DUT exactly that way in its 5 self-checking tests. There is no `SHRIKEFI_CMD_*` identifier in the driver and no opcode decode in the RTL — grep for either and the only hits are in retired documentation."
+- **Technical:** "8-bit SPI, **mode 0, MSB first, on the ESP32's `SPI2_HOST`**, at 1 MHz, with chip select driven manually on GPIO10 so that each sample is exactly one transaction. There is **no command map**: the write *is* the sample, and the normal reply is `{beat_latched, filt_sample[6:0]}`. On a beat the FPGA follows it with a fixed five-byte burst (`0xC3` + 32-bit cycle count), which the MCU reads to get the interval; if the magic byte is absent it falls back to its own timer. The FPGA holds no register file and answers no opcodes, and there is no interrupt pin. (An earlier revision of this guide described a 4-bit parallel nibble link with a strobe, a direction line and a `0x1`–`0x8` command codebook. **That design was retired before it was ever built** and none of it exists in the code.)"
+- **Evidence:** "`firmware/shrikefi/shrikefi_link_driver.c` includes `driver/spi_master.h`, initialises `SPI2_HOST` and sets `.mode = 0`; `hardware/shrikefi/forgefpga_ppg_top.v` instantiates `spi_target`; `hardware/shrikefi/forgefpga_pins.pcf` binds `spi_sck`/`spi_ss_n`/`spi_mosi`/`spi_miso` to `PIN_16`–`PIN_19`; and `tb_forgefpga_system.v` drives the DUT exactly that way in its 5 test groups / 13 checks. There is no `SHRIKEFI_CMD_*` identifier in the driver and no opcode decode in the RTL — grep for either and the only hits are in retired documentation."
 
 ---
 
@@ -897,7 +897,7 @@ A standalone Win32 GDI application — no Python, no browser, no dependencies. I
 **Q13. "What's the battery / power consumption profile?"**
 
 - **Elevator:** "We haven't measured it on hardware — and I'd rather tell you that than quote a number I can't back."
-- **Technical:** "Architecturally, the FPGA core is small — 362 of 1120 LUT5s (32.32%), 204 FFs, 74/140 CLBs, zero DSP, zero BRAM, and zero PLL — which is a deliberately low-power profile. The dominant consumer will be the ESP32-S3 radio."
+- **Technical:** "Architecturally, the FPGA core is compact but no longer sparse — 535 of 1120 LUT5s (47.77%), 303 FFs, and 108/140 CLBs, with zero DSP, zero BRAM, and zero PLL. CLB occupancy is the number to watch; it is a deliberately low-power profile, and the dominant consumer will be the ESP32-S3 radio."
 - **Evidence:** "Synthesis reports confirm the fabric footprint. Honest position: a real power measurement needs a bench supply and a current probe, which is the next step. Treat any mW figure you've seen in our older decks as unverified."
 
 > [!TIP]
@@ -975,12 +975,12 @@ A standalone Win32 GDI application — no Python, no browser, no dependencies. I
 |---|---|
 | **Project** | SIH26181 VALOR (Vital and Atmospheric Logic for Offline Rescue) / ShrikeFi — wearable offline disaster triage |
 | **MCU** | ESP32-S3 (WROOM-1-N8R2), Xtensa LX7 dual-core, **160 MHz configured**, FreeRTOS, **8 MB flash** |
-| **FPGA** | Renesas ForgeFPGA SLG47910C, 1120 LUT5s, 50 MHz, **362 LUT5s used (32.32%)**, 204 FFs, 74 CLBs, 0 DSP, 0 BRAM, 0 PLL |
+| **FPGA** | Renesas ForgeFPGA SLG47910C, 1120 LUT5s, 50 MHz, **535 LUT5s used (47.77%)**, 303 FFs, 108 CLBs, 0 DSP, 0 BRAM, 0 PLL |
 | **Baseline** | Xilinx Zynq-7000 `xc7z020`, AXI4-Lite, 6/6 tests, 0 DSP/BRAM |
 | **Sensors** | MAX30102 (PPG), BME280 (T/H/P), PMSA003 (PM1/2.5/10), SSD1306 OLED |
-| **Link** | **8-bit SPI, mode 0 (4-wire):** SCK/SS_n/MOSI/MISO, 1 MHz, CS driven manually — one full-duplex frame per sample; beat = **MISO bit 7**. No command map, no strobe, no IRQ pin |
+| **Link** | **8-bit SPI, mode 0 (4-wire):** SCK/SS_n/MOSI/MISO, 1 MHz, CS driven manually — one full-duplex frame per sample; beat = **MISO bit 7**, followed by a 5-byte IBI burst (`0xC3` + 32-bit cycles). No command map, no strobe, no IRQ pin |
 | **DSP** | O(1) 8-tap running-sum filter (`>>3`), 4-state peak FSM, 250 ms refractory |
-| **Timing** | Peak detection at 50 MHz (**20 ns** per tick); the 32-bit interval counter is internal — the MCU times beats with `esp_timer_get_time()` (**1 µs**) |
+| **Timing** | Peak detection and IBI at 50 MHz (**20 ns** per tick). The FPGA returns the 32-bit cycle count in the post-beat burst; the MCU falls back to `esp_timer_get_time()` (**1 µs**) only for older bitstreams |
 | **AI** | 6→24→16→3, INT8, **619 bytes / 576 MACs**, error 0.0079 mean / 0.091 max, **97.32%** tier agreement |
 | **Clinical** | mNEWS2, Moran PSI, AHA autonomic strain, Charlton RSA respiration, Elgendi/Karlen SQI |
 | **MIMIC-III** | 16,387 rows / 98 patients — **94.11% accuracy, 98.19% specificity**, TP971/FP267/TN14451/FN698 |
@@ -1000,7 +1000,7 @@ A standalone Win32 GDI application — no Python, no browser, no dependencies. I
 |---|---|
 | 6/6 Zynq tests | `hardware/zynq/tb_ppg_system.v` |
 | 13/13 ShrikeFi tests | `hardware/shrikefi/tb_forgefpga_system.v` |
-| 362 / 1120 LUT5s | `hardware/shrikefi/synthesis_evidence/resource_utilization_spi_link.log` |
+| 535 / 1120 LUT5s | `hardware/shrikefi/synthesis_evidence/resource_utilization_spi_link.log` |
 | 185 LUT / +5.603 ns baseline | Tag `v1.0-zynq-SIH` |
 | 198 LUT / 267 FF re-run | `hardware/zynq/synthesis_evidence/ooc_utilization_synth.rpt` |
 | 88.47% validation accuracy | `python3 firmware/core/train_nn_risk_model.py` |

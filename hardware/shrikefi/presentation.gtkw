@@ -1,6 +1,6 @@
 [*]
 [*] GTKWave Analyzer — SIH26181 ShrikeFi (ESP32-S3 + ForgeFPGA) SPI Mode 0 Link
-[*] Post-Synthesis: 363/1120 LUT5s (32.41%), 202 FFs, 75 CLBs, 10/10 checks passing
+[*] Post-Synthesis: 535/1120 LUT5s (47.77%), 303 FFs, 108 CLBs, 13/13 checks passing
 [*]
 [dumpfile] "shrikefi_sim.vcd"
 [savefile] "presentation.gtkw"
@@ -75,7 +75,7 @@ tb_forgefpga_system.dut.led_user_oe
 @c00022
 [color] 8
 #{═══════════════════════════════════════════}
-#{   TESTBENCH SCOREBOARD (10/10 CHECKS)}
+#{   TESTBENCH SCOREBOARD (13/13 CHECKS)}
 #{═══════════════════════════════════════════}
 @22
 tb_forgefpga_system.tests_passed[31:0]

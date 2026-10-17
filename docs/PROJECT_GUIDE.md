@@ -97,7 +97,7 @@ During severe natural and industrial disasters—such as tropical cyclones, flas
 > "Valor is a rigorously verified heterogeneous embedded system designed to meet Qualcomm SIH26181 requirements for an offline Personal Health Companion and Disaster Monitor.
 > 
 > The system addresses physical layer, algorithmic, and architectural constraints:
-> 1. **Timing Closure & Jitter:** The FreeRTOS 10 ms scheduling quantum on an ESP32-S3 introduces up to 10 ms of timestamp jitter—an error that swamps physiological RMSSD variations (which range between 10 and 50 ms). Valor offloads peak detection to synthesizable Verilog RTL. The baseline architecture was verified on an AMD Xilinx Zynq-7000 (`xc7z020`) achieving timing closure at 69.45 MHz (WNS +5.603 ns) using 185 LUTs and 0 DSPs. To reduce unit costs for field deployment, we ported this core to the Renesas ForgeFPGA SLG47910C, fitting into 362 LUT5s (32.32% fabric) with an Fmax of 82.73 MHz.
+> 1. **Timing Closure & Jitter:** The FreeRTOS 10 ms scheduling quantum on an ESP32-S3 introduces up to 10 ms of timestamp jitter—an error that swamps physiological RMSSD variations (which range between 10 and 50 ms). Valor offloads peak detection to synthesizable Verilog RTL. The baseline architecture was verified on an AMD Xilinx Zynq-7000 (`xc7z020`) achieving timing closure at 69.45 MHz (WNS +5.603 ns) using 185 LUTs and 0 DSPs. To reduce unit costs for field deployment, we ported this core to the Renesas ForgeFPGA SLG47910C, fitting into 535 LUT5s (47.77% fabric), with a fitter-reported achievable frequency of 81.846 MHz (no clock constraint exists yet, so this is not timing closure).
 > 2. **Clinical Rigor:** Rather than treating health prediction as a black-box regression, Valor implements a dual-layer triage hierarchy. Deterministic medical protocols—the Royal College of Physicians Modified Early Warning Score (mNEWS2) and Si et al. humidity-calibrated PM2.5 models—govern absolute critical overrides (such as severe hypoxia SpO2 ≤ 85% or tachycardia HR ≥ 140 BPM). In parallel, an on-device 6→24→16→3 INT8 multilayer perceptron evaluates non-linear multi-hazard stressors (heat exhaustion via Moran's PSI, smog distress, and flood hypothermia).
 > 3. **Autonomous Operational Safety:** The system incorporates a state machine for emergency escalation (15-second confirmation to suppress false motion artifacts, 5-second hold-to-cancel, 30-second physiological recovery stand-down). When isolated, the device hosts an unencrypted local SoftAP web application directly from flash `.rodata`, allowing any rescuer with a standard smartphone browser to immediately access live physiological waveforms, 24-hour trend summaries, and GPS coordinates."
 
@@ -106,7 +106,7 @@ During severe natural and industrial disasters—such as tropical cyclones, flas
 | Component / Subsystem | Implementation Status | Evidence / File Path |
 | :--- | :---: | :--- |
 | **Zynq-7000 Baseline RTL** | **Fully Implemented & Verified** | `hardware/zynq/tb_ppg_system.v` (6/6 tests passing, Vivado reports) |
-| **ForgeFPGA ShrikeFi RTL** | **Fully Implemented & Verified** | `hardware/shrikefi/tb_forgefpga_system.v` (13/13 checks passing, 362 LUT5 log) |
+| **ForgeFPGA ShrikeFi RTL** | **Fully Implemented & Verified** | `hardware/shrikefi/tb_forgefpga_system.v` (13/13 checks passing, 535 LUT5 log) |
 | **SPI Target Interface** | **Fully Implemented & Verified** | `hardware/shrikefi/spi_target.v`, `firmware/shrikefi/shrikefi_link_driver.c` |
 | **MAX30102 PPG & Skin Temp** | **Fully Implemented & Verified** | `firmware/shrikefi/max30102.c` (100 Hz FIFO, on-chip die temp conversion) |
 | **BME280 / BMP280 Driver** | **Fully Implemented & Verified** | `firmware/shrikefi/bme280.c` (Temp, press, hum with 50% neutral fallback) |
@@ -279,7 +279,7 @@ Here is the step-by-step trace of a single heartbeat through the entire system:
 3. **Hardware Digital Filtering:** The sample enters `moving_average_8tap.v`. The FPGA subtracts the sample from 8 clock cycles ago and adds the new sample to an internal 11-bit accumulator. The output is bit-shifted right by 3 (`>> 3`), producing a low-pass filtered sample within a single 20 ns clock cycle.
 4. **Systolic Peak Detection:** The filtered sample enters `ppg_peak_detector.v`. When the sample rises above the threshold (120) and subsequently drops by 3 units (`MIN_FALL_STEP`), the FSM confirms a true systolic crest, sets the beat flag, asserts the blue heartbeat LED (D12), and arms the 250 ms refractory timer.
 5. **SPI Return Transfer:** On the rising edge of `spi_ss_n`, `spi_target.v` latches `{beat, filt[6:0]}` into its output register, returning it to the ESP32-S3 over MISO.
-6. **Microsecond Inter-Beat Interval Timing:** Core 0 inspects bit 7. Detecting a beat flag, it captures the hardware timer (`esp_timer_get_time()`), calculates the IBI as $\Delta t = t_{now} - t_{last}$, and pushes the interval into an 8-beat circular buffer.
+6. **Cycle-Accurate Inter-Beat Interval:** Core 0 inspects bit 7. On a beat it reads the FPGA's five-byte burst (`0xC3` + 32-bit 50 MHz cycle count, MSB first) and pushes that interval into an 8-beat circular buffer. If the burst magic is absent (older bitstream) or the value is outside 30–250 bpm, it falls back to `esp_timer_get_time()` and $\Delta t = t_{now} - t_{last}$.
 7. **Cross-Core Memory Transfer:** Core 0 writes the new heart rate, IBI, and Welford SpO2 into `g_state` under the protection of `s_data_mutex`.
 8. **Clinical Evaluation on Core 1:** At the 1 Hz evaluation boundary, Core 1 acquires `s_data_mutex`.
    - `ppg_sqi.c` verifies signal quality: if $SQI \ge 0.70$, vitals are marked trustworthy.
@@ -527,14 +527,14 @@ stateDiagram-v2
 
 #### Renesas ForgeFPGA SLG47910C (ShrikeFi Target):
 - **Toolchain:** Renesas ForgeFPGA Workshop v6.55.
-- **Evidence Log:** `hardware/shrikefi/synthesis_evidence/resource_utilization_spi_link.log` (timestamped 2026-09-21).
+- **Evidence Log:** `hardware/shrikefi/synthesis_evidence/resource_utilization_spi_link.log` (timestamped 2026-10-18).
 - **Physical Silicon Metrics:**
-  - **CLB LUT5s:** **362 / 1120 (32.32%)** (all used as logic; 0 shift-register LUTs).
-  - **Flip-Flops:** **202** (198 CLB FFs [17.68%] + 4 IOB FFs [0.54%]).
-  - **CLB Blocks Occupied:** **75 / 140 (53.57%)**.
+  - **CLB LUT5s:** **535 / 1120 (47.77%)** (all used as logic; 0 shift-register LUTs).
+  - **Flip-Flops:** **303** (298 CLB FFs [26.61%] + 5 IOB FFs [0.68%]).
+  - **CLB Blocks Occupied:** **108 / 140 (77.14%)** — 32 CLBs free.
   - **4k BRAMs:** **0 / 8 (0.00%)**.
   - **PLLs:** **0 / 1 (0.00%)** (operates from internal ring oscillator).
-  - **Timing Closure:** Fmax = **82.73 MHz** (achievable period 12,087 ps, providing +7.913 ns slack against 50 MHz target).
+  - **Timing (unconstrained fit):** achievable period **12,218 ps (81.846 MHz)**, i.e. **+7.782 ns** against the 50 MHz target. There is no SDC/clock constraint in the flow, so this is not a timing-closure claim; do not quote the auto-constrained WNS of −10.219 ns.
 
 #### AMD Xilinx Zynq-7000 (`xc7z020clg400-1` Verified Baseline):
 - **Toolchain:** AMD Vivado ML 2022.2 out-of-context synthesis.
@@ -707,7 +707,7 @@ iverilog -o sim_shrikefi.vvp -I ../common `
   tb_forgefpga_system.v forgefpga_ppg_top.v spi_target.v `
   ../common/moving_average_8tap.v ../common/ppg_peak_detector.v
 vvp sim_shrikefi.vvp
-# Expected: "RESULTS: 10 passed, 0 failed (out of 10 checks) - ALL TESTS PASSED"
+# Expected: "RESULTS: 13 passed, 0 failed (out of 13 checks) - ALL TESTS PASSED"
 
 # Zynq-7000 AXI4-Lite Golden Baseline Simulation (6 Checks)
 cd ../zynq
@@ -809,9 +809,9 @@ Digital Logic (Gates, Flip-Flops)
 ### 3. Pre-Judge Technical Revision Cheat Sheet
 - **Target Silicon:** ESP32-S3 (Xtensa LX7 @ 160 MHz) + Renesas ForgeFPGA SLG47910C.
 - **Baseline Silicon:** Xilinx Zynq-7000 `xc7z020clg400-1` (Vivado ML 2022.2).
-- **FPGA Utilization:** **362 LUT5s (32.32%)**, **204 FFs**, **74 CLBs**, **0 DSP, 0 BRAM**, Fmax = **82.73 MHz**.
+- **FPGA Utilization:** **535 LUT5s (47.77%)**, **303 FFs**, **108 CLBs**, **0 DSP, 0 BRAM**, fitter-reported achievable **81.846 MHz** (unconstrained; not timing closure).
 - **Zynq Utilization:** **185 LUTs (0.35%)**, **266 FFs**, **0 DSP, 0 BRAM**, WNS = **+5.603 ns**.
-- **SPI Interconnect:** 8-bit SPI Mode 0 (1 byte per 100 Hz sample; SCK=12, SS=10, MOSI=11, MISO=13).
+- **SPI Interconnect:** 8-bit SPI Mode 0 (1 byte per 100 Hz sample, plus a 5-byte IBI burst after each beat; SCK=12, SS=10, MOSI=11, MISO=13).
 - **TinyML Footprint:** **619 bytes**, 6 $\to$ 24 $\to$ 16 $\to$ 3 MLP, 0.38 µs host latency.
 - **Emergency Overrides:** SpO2 $\le$ 85%, HR $\ge$ 140, HR $\le$ 35, RR $\ge$ 30, RR $\le$ 6, Temp $\le$ 35.0°C.
 - **SOS Timers:** 15s confirmation window, 5s cancel hold, 30s recovery stand-down.

@@ -14,7 +14,7 @@ For interface-level physical and framing details of the FPGA↔MCU link, see [`d
 | Component | Zynq-7000 (baseline) | ShrikeFi | Status |
 |---|---|---|---|
 | **Filter + peak detector RTL** | Verified, 0 DSP/BRAM | Taken from `hardware/common/` via a **generated** flat source set (`gen_flat_source.py`) | **Shared source, single copy.** The ForgeFPGA top instantiates the same two modules the Zynq path does; the vendor-facing flat file is derived, not hand-maintained. Verified by differential simulation against the pre-refactor RTL (30,000 samples, 0 mismatches) |
-| **FPGA↔host interface** | AXI4-Lite (memory-mapped registers) | 8-bit SPI, mode 0, one transfer per sample | **Implemented & Verified:** `tb_forgefpga_system.v`, 5 test groups / 10 checks passing |
+| **FPGA↔host interface** | AXI4-Lite (memory-mapped registers) | 8-bit SPI, mode 0, one transfer per sample + 5-byte IBI burst | **Implemented & Verified:** `tb_forgefpga_system.v`, 5 test groups / 13 checks passing |
 | **Application code (HRV, SpO2, NN, risk engine)** | Runs on ARM Cortex-A9 (Zynq PS) | Runs on ESP32-S3 (ESP-IDF / FreeRTOS) | **Implemented & Verified:** Dual-core FreeRTOS `main_shrikefi.c` |
 | **Toolchain** | Vivado ML 2022.2 | Renesas ForgeFPGA design software (free, HDL mode) | **Configured:** `forgefpga_pins.pcf` + simulation flow |
 | **Connectivity** | None | WiFi 4 + BLE 5 (onboard ESP32-S3) | **Supported:** Native on ESP32-S3 SoC |
@@ -38,31 +38,31 @@ Measured post-synthesis results from **Renesas ForgeFPGA Workshop v6.55**:
 * **Target Part:** `SLG47910C` (WLCSP20 package, 1120 5-input LUTs)
 * **Resource Utilization** (current fitter run of the SPI design,
   `synthesis_evidence/resource_utilization_spi_link.log`):
-  * **CLB LUT5s:** **362 / 1120 (32.32%)** (all Lut5; 0 as shift-register)
-  * **Total Flip-Flops:** **202** (198 CLB FFs [17.68%] + 4 IOB FFs [0.54%])
-  * **CLB Blocks:** **75 / 140 (53.57%)**
+  * **CLB LUT5s:** **535 / 1120 (47.77%)** (all Lut5; 0 as shift-register)
+  * **Total Flip-Flops:** **303** (298 CLB FFs [26.61%] + 5 IOB FFs [0.68%])
+  * **CLB Blocks:** **108 / 140 (77.14%)** — 32 CLBs remain free
   * **4k BRAMs:** **0 / 8 (0.00%)**
   * **PLLs:** **0 / 1 (0.00%)** — the SPI design runs from the on-chip oscillator
-* **Verification:** `tb_forgefpga_system.v`, 5 test groups / 10 checks passing
+* **Verification:** `tb_forgefpga_system.v`, 5 test groups / 13 checks passing
 
 > **Do not quote 443 LUT5s / 353 FFs / 85 CLBs.** That is the superseded 4-bit
-> parallel-link build, committed before the SPI rewrite; it roughly doubles the
-> real figure and its "consumes the part's only PLL" caveat no longer applies.
+> parallel-link build, committed before the SPI rewrite; it describes a different
+> design and its "consumes the part's only PLL" caveat no longer applies.
 > See [`../hardware/shrikefi/synthesis_evidence/README.md`](../hardware/shrikefi/synthesis_evidence/README.md)
 > for the comparison and the port signature that distinguishes the two logs.
 >
-> **These figures are current as of the 2026-09-21 fit**, which is the first run
-> to include the H-01 slope gate in the peak detector. That gate is what moved the
-> SPI design from 342 to 362 LUT5s; the fit history is tabulated in the evidence
-> README. Two numbers appeared for the SPI design before this (222 and 342) and
-> both are real measurements of earlier netlists — the prose quoting 222 was
-> simply never updated when the 342 log replaced it.
+> **These figures are current as of the 2026-10-18 fit.** The jump from 362 to
+> 535 LUT5s is the 32-bit IBI burst (`0xC3` + cycle count) and dummy-byte
+> suppression, not fitter variation. The earlier SPI figures (222, 342, 363 and
+> 362) are real measurements of older netlists; the fit history is tabulated in
+> the evidence README. CLB occupancy (108/140) is now the constraint to watch.
 >
-> **On timing:** the same run's `PNR_TIMING.log` reports WNS −10.088 ns, but
+> **On timing:** the same run's `PNR_TIMING.log` reports WNS -10.219 ns, but
 > against an auto-generated 500 MHz constraint (no clock constraint exists in the
-> design). Achievable period is 12,087 ps (82.73 MHz), so at the documented 50 MHz
-> the margin is +7.913 ns. Do not quote the −10.088 ns figure as a real result.
-> See the timing section of the evidence README.
+> design). Achievable period is 12,218 ps (81.846 MHz), so at the documented
+> 50 MHz the margin is +7.782 ns. Do not quote the -10.219 ns figure as a real
+> result, and do not call the achievable frequency "timing closure". See the
+> timing section of the evidence README.
 
 ### Renesas ForgeFPGA Workshop GUI Synthesis Evidence & Project Tree:
 ![Renesas ForgeFPGA Resources Report](images/forgefpga_resources_report.png)

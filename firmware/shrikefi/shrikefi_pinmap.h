@@ -92,8 +92,10 @@
  * sends the 8-bit sample; the FPGA returns {beat_latched, filt_sample[6:0]} —
  * bit 7 is the beat flag and only the low 7 bits of the 8-tap average come
  * back. There is no separate interrupt line: the beat arrives as that flag.
- * The FPGA does not timestamp beats either; the MCU derives the IBI from its
- * own esp_timer_get_time() deltas between rising beat flags.
+ * The FPGA latches a 32-bit 50 MHz cycle count on a beat and queues a five-byte
+ * burst (0xC3 + four bytes, MSB first) for the MCU to read. The MCU uses that
+ * count and falls back to its own esp_timer_get_time() deltas only when the
+ * magic byte is absent (older bitstream) or the value is out of range.
  *
  * There is no parallel "link data" mode. Earlier revisions specified a 4-bit
  * parallel nibble bus with a strobe and a direction line. That design was

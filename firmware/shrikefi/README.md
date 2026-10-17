@@ -15,8 +15,9 @@ SPI link protocol.
    programmed on every boot without an external programmer.
 3. Streams raw IR samples to the FPGA over the SPI link and reads back
    `{beat_latched, filt_sample[6:0]}` — one 8-bit transaction per sample. There
-   is no IBI register and no interrupt pin: the beat is bit 7 of the reply and
-   the MCU derives the IBI from its own microsecond timestamps.
+   is no interrupt pin: the beat is bit 7 of the reply. On a beat the FPGA also
+   queues a five-byte IBI burst (`0xC3` + 32-bit 50 MHz cycle count), which the
+   driver reads; the microsecond timer is only the fallback for older bitstreams.
 4. Runs the shared, hardware-agnostic algorithm core from `../core/`
    (HRV, SpO2, mNEWS2 triage, INT8 TinyML multi-hazard model).
 5. Publishes telemetry over USB UART and WiFi/MQTT, and drives the OLED with an

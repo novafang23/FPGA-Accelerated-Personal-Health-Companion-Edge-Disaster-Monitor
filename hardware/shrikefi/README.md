@@ -18,7 +18,7 @@ The port is implemented — see [docs/MIGRATION.md](../../docs/MIGRATION.md).
 | `forgefpga_ppg_top.v` | ForgeFPGA top level: SPI target, 8-tap filter + crest detector instantiation, beat latch, LED pulse stretcher |
 | `../common/moving_average_8tap.v` | 8-tap moving-average filter — shared with the Zynq build |
 | `../common/ppg_peak_detector.v` | 4-state systolic crest detector with 250 ms refractory — shared with the Zynq build |
-| `tb_forgefpga_system.v` | Self-checking SPI testbench (5 test groups, 10 checks) |
+| `tb_forgefpga_system.v` | Self-checking SPI testbench (5 test groups, 13 checks) |
 | `gen_flat_source.py` | Generates the vendor-facing flat source set + vendor-side testbench copy |
 | `forgefpga_project/` | Renesas ForgeFPGA Workshop project |
 | `forgefpga_pins.pcf` / `.pdc` | Placement constraints — **authoritative for pin assignment** |
@@ -58,7 +58,7 @@ into the top level.
 build_shrikefi_sim.bat
 ```
 
-Expected result: `RESULTS: 10 passed, 0 failed`. The same command runs in CI.
+Expected result: `RESULTS: 13 passed, 0 failed`. The same command runs in CI.
 
 The testbench drives the DUT as the ESP32-S3 firmware actually does (8-bit SPI,
 mode 0, MSB first) and checks: the internal power-on reset releases and the link
@@ -72,37 +72,36 @@ Latest fitter run of the SPI design (`synthesis_evidence/resource_utilization_sp
 
 | Resource | Usage |
 |---|---|
-| CLB LUT5s | **362 / 1120 (32.32%)** |
-| FFs | **202** (198 CLB + 4 IOB) |
-| CLBs | **75 / 140 (53.57%)** |
+| CLB LUT5s | **535 / 1120 (47.77%)** |
+| FFs | **303** (298 CLB + 5 IOB) |
+| CLBs | **108 / 140 (77.14%)** |
 | Block RAMs | **0 / 8** |
 | PLLs | **0 / 1** (runs from the on-chip oscillator) |
 
 **Do not quote 443 LUT5s / 353 FFs / 85 CLBs.** Those figures are from the
-superseded 4-bit parallel design and roughly double the earlier SPI usage — see
+superseded 4-bit parallel design and must not be mixed with the current SPI + IBI fit — see
 [`synthesis_evidence/README.md`](synthesis_evidence/README.md) for the full
 comparison, the port signature that tells the two logs apart, and the fit history
-(342 → 362 LUT5s as the H-01 gate was added).
+(342 → 363 → 362 → 535 LUT5s; the last step is the 32-bit IBI burst).
 
 **The fitter's timing report needs reading with care.** `PNR_TIMING.log` shows
-WNS −10.088 ns, but that is measured against an auto-generated 2000 ps (500 MHz)
+WNS −10.219 ns, but that is measured against an auto-generated 2000 ps (500 MHz)
 constraint — the design declares no clock constraint. The same report gives an
-achievable period of 12,087 ps (82.73 MHz), so at the 50 MHz this design runs at
-the margin is **+7.913 ns**. See the timing section of
+achievable period of 12,218 ps (81.846 MHz), so against the documented 50 MHz
+target the margin is **+7.782 ns**. See the timing section of
 [`synthesis_evidence/README.md`](synthesis_evidence/README.md) before quoting any
 timing number.
 
 ## Interconnect
 
 The link is 8-bit SPI, mode 0, MSB first, one transfer per PPG sample: MOSI
-carries the raw sample, MISO returns `{beat_latched, filt_sample[6:0]}`. Pin
+carries the raw sample, MISO returns `{beat_latched, filt_sample[6:0]}`. When
+the beat flag rises, the FPGA queues a five-byte IBI burst on the following
+transfers (`0xC3`, then the 32-bit cycle count MSB first); the driver reads it
+and falls back to an `esp_timer_get_time()` interval for older bitstreams. Pin
 assignment is defined by `forgefpga_pins.pcf`, not by any prose document. The
-driver side is `firmware/shrikefi/shrikefi_link_driver.c`.
-
-`docs/SHRIKEFI_LINK_PROTOCOL.md` still specifies the superseded parallel nibble
-protocol, including pin numbers that now collide with the SPI assignments in the
-`.pcf`. Treat that document as describing an earlier revision until it is
-rewritten.
+driver side is `firmware/shrikefi/shrikefi_link_driver.c`; the burst framing is
+documented in `docs/SHRIKEFI_LINK_PROTOCOL.md`.
 
 ## Rebuilding the bitstream
 
