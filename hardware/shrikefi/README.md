@@ -72,7 +72,7 @@ Latest fitter run of the SPI design (`synthesis_evidence/resource_utilization_sp
 
 | Resource | Usage |
 |---|---|
-| CLB LUT5s | **363 / 1120 (32.41%)** |
+| CLB LUT5s | **362 / 1120 (32.32%)** |
 | FFs | **202** (198 CLB + 4 IOB) |
 | CLBs | **75 / 140 (53.57%)** |
 | Block RAMs | **0 / 8** |
@@ -82,7 +82,7 @@ Latest fitter run of the SPI design (`synthesis_evidence/resource_utilization_sp
 superseded 4-bit parallel design and roughly double the earlier SPI usage — see
 [`synthesis_evidence/README.md`](synthesis_evidence/README.md) for the full
 comparison, the port signature that tells the two logs apart, and the fit history
-(342 → 363 LUT5s as the H-01 gate was added).
+(342 → 362 LUT5s as the H-01 gate was added).
 
 **The fitter's timing report needs reading with care.** `PNR_TIMING.log` shows
 WNS −10.088 ns, but that is measured against an auto-generated 2000 ps (500 MHz)

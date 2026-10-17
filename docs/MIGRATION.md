@@ -38,7 +38,7 @@ Measured post-synthesis results from **Renesas ForgeFPGA Workshop v6.55**:
 * **Target Part:** `SLG47910C` (WLCSP20 package, 1120 5-input LUTs)
 * **Resource Utilization** (current fitter run of the SPI design,
   `synthesis_evidence/resource_utilization_spi_link.log`):
-  * **CLB LUT5s:** **363 / 1120 (32.41%)** (all Lut5; 0 as shift-register)
+  * **CLB LUT5s:** **362 / 1120 (32.32%)** (all Lut5; 0 as shift-register)
   * **Total Flip-Flops:** **202** (198 CLB FFs [17.68%] + 4 IOB FFs [0.54%])
   * **CLB Blocks:** **75 / 140 (53.57%)**
   * **4k BRAMs:** **0 / 8 (0.00%)**
@@ -53,7 +53,7 @@ Measured post-synthesis results from **Renesas ForgeFPGA Workshop v6.55**:
 >
 > **These figures are current as of the 2026-09-21 fit**, which is the first run
 > to include the H-01 slope gate in the peak detector. That gate is what moved the
-> SPI design from 342 to 363 LUT5s; the fit history is tabulated in the evidence
+> SPI design from 342 to 362 LUT5s; the fit history is tabulated in the evidence
 > README. Two numbers appeared for the SPI design before this (222 and 342) and
 > both are real measurements of earlier netlists — the prose quoting 222 was
 > simply never updated when the 342 log replaced it.

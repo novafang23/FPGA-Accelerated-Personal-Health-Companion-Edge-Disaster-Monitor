@@ -97,7 +97,7 @@ During severe natural and industrial disasters—such as tropical cyclones, flas
 > "Valor is a rigorously verified heterogeneous embedded system designed to meet Qualcomm SIH26181 requirements for an offline Personal Health Companion and Disaster Monitor.
 > 
 > The system addresses physical layer, algorithmic, and architectural constraints:
-> 1. **Timing Closure & Jitter:** The FreeRTOS 10 ms scheduling quantum on an ESP32-S3 introduces up to 10 ms of timestamp jitter—an error that swamps physiological RMSSD variations (which range between 10 and 50 ms). Valor offloads peak detection to synthesizable Verilog RTL. The baseline architecture was verified on an AMD Xilinx Zynq-7000 (`xc7z020`) achieving timing closure at 69.45 MHz (WNS +5.603 ns) using 185 LUTs and 0 DSPs. To reduce unit costs for field deployment, we ported this core to the Renesas ForgeFPGA SLG47910C, fitting into 363 LUT5s (32.41% fabric) with an Fmax of 82.73 MHz.
+> 1. **Timing Closure & Jitter:** The FreeRTOS 10 ms scheduling quantum on an ESP32-S3 introduces up to 10 ms of timestamp jitter—an error that swamps physiological RMSSD variations (which range between 10 and 50 ms). Valor offloads peak detection to synthesizable Verilog RTL. The baseline architecture was verified on an AMD Xilinx Zynq-7000 (`xc7z020`) achieving timing closure at 69.45 MHz (WNS +5.603 ns) using 185 LUTs and 0 DSPs. To reduce unit costs for field deployment, we ported this core to the Renesas ForgeFPGA SLG47910C, fitting into 362 LUT5s (32.32% fabric) with an Fmax of 82.73 MHz.
 > 2. **Clinical Rigor:** Rather than treating health prediction as a black-box regression, Valor implements a dual-layer triage hierarchy. Deterministic medical protocols—the Royal College of Physicians Modified Early Warning Score (mNEWS2) and Si et al. humidity-calibrated PM2.5 models—govern absolute critical overrides (such as severe hypoxia SpO2 ≤ 85% or tachycardia HR ≥ 140 BPM). In parallel, an on-device 6→24→16→3 INT8 multilayer perceptron evaluates non-linear multi-hazard stressors (heat exhaustion via Moran's PSI, smog distress, and flood hypothermia).
 > 3. **Autonomous Operational Safety:** The system incorporates a state machine for emergency escalation (15-second confirmation to suppress false motion artifacts, 5-second hold-to-cancel, 30-second physiological recovery stand-down). When isolated, the device hosts an unencrypted local SoftAP web application directly from flash `.rodata`, allowing any rescuer with a standard smartphone browser to immediately access live physiological waveforms, 24-hour trend summaries, and GPS coordinates."
 
@@ -106,7 +106,7 @@ During severe natural and industrial disasters—such as tropical cyclones, flas
 | Component / Subsystem | Implementation Status | Evidence / File Path |
 | :--- | :---: | :--- |
 | **Zynq-7000 Baseline RTL** | **Fully Implemented & Verified** | `hardware/zynq/tb_ppg_system.v` (6/6 tests passing, Vivado reports) |
-| **ForgeFPGA ShrikeFi RTL** | **Fully Implemented & Verified** | `hardware/shrikefi/tb_forgefpga_system.v` (10/10 checks passing, 363 LUT5 log) |
+| **ForgeFPGA ShrikeFi RTL** | **Fully Implemented & Verified** | `hardware/shrikefi/tb_forgefpga_system.v` (10/10 checks passing, 362 LUT5 log) |
 | **SPI Target Interface** | **Fully Implemented & Verified** | `hardware/shrikefi/spi_target.v`, `firmware/shrikefi/shrikefi_link_driver.c` |
 | **MAX30102 PPG & Skin Temp** | **Fully Implemented & Verified** | `firmware/shrikefi/max30102.c` (100 Hz FIFO, on-chip die temp conversion) |
 | **BME280 / BMP280 Driver** | **Fully Implemented & Verified** | `firmware/shrikefi/bme280.c` (Temp, press, hum with 50% neutral fallback) |
@@ -529,7 +529,7 @@ stateDiagram-v2
 - **Toolchain:** Renesas ForgeFPGA Workshop v6.55.
 - **Evidence Log:** `hardware/shrikefi/synthesis_evidence/resource_utilization_spi_link.log` (timestamped 2026-09-21).
 - **Physical Silicon Metrics:**
-  - **CLB LUT5s:** **363 / 1120 (32.41%)** (all used as logic; 0 shift-register LUTs).
+  - **CLB LUT5s:** **362 / 1120 (32.32%)** (all used as logic; 0 shift-register LUTs).
   - **Flip-Flops:** **202** (198 CLB FFs [17.68%] + 4 IOB FFs [0.54%]).
   - **CLB Blocks Occupied:** **75 / 140 (53.57%)**.
   - **4k BRAMs:** **0 / 8 (0.00%)**.
@@ -809,7 +809,7 @@ Digital Logic (Gates, Flip-Flops)
 ### 3. Pre-Judge Technical Revision Cheat Sheet
 - **Target Silicon:** ESP32-S3 (Xtensa LX7 @ 160 MHz) + Renesas ForgeFPGA SLG47910C.
 - **Baseline Silicon:** Xilinx Zynq-7000 `xc7z020clg400-1` (Vivado ML 2022.2).
-- **FPGA Utilization:** **363 LUT5s (32.41%)**, **202 FFs**, **75 CLBs**, **0 DSP, 0 BRAM**, Fmax = **82.73 MHz**.
+- **FPGA Utilization:** **362 LUT5s (32.32%)**, **204 FFs**, **74 CLBs**, **0 DSP, 0 BRAM**, Fmax = **82.73 MHz**.
 - **Zynq Utilization:** **185 LUTs (0.35%)**, **266 FFs**, **0 DSP, 0 BRAM**, WNS = **+5.603 ns**.
 - **SPI Interconnect:** 8-bit SPI Mode 0 (1 byte per 100 Hz sample; SCK=12, SS=10, MOSI=11, MISO=13).
 - **TinyML Footprint:** **619 bytes**, 6 $\to$ 24 $\to$ 16 $\to$ 3 MLP, 0.38 µs host latency.

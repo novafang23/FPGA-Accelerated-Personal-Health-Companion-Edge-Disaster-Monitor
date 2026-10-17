@@ -7,7 +7,7 @@ project.
 | File | Design | Status |
 |---|---|---|
 | `resource_utilization_parallel_link_superseded.log` | 4-bit parallel link | **Superseded** — the interconnect was replaced |
-| `resource_utilization_spi_link.log` | 4-wire SPI link | **Current** — latest fitter run, 2026-09-21 21:42 |
+| `resource_utilization_spi_link.log` | 4-wire SPI link | **Current** — latest fitter run, 2026-10-17 13:31 |
 
 Both are byte-identical copies of the Renesas ForgeFPGA Workshop fitter output
 (`forgefpga_project/ffpga/build/resource-utilization-report.log`); the whole
@@ -35,11 +35,11 @@ each log:
 
 | Resource | parallel link (superseded) | **SPI link (current)** |
 |---|---|---|
-| CLB LUT5s | 443 / 1120 (39.55%) | **363 / 1120 (32.41%)** |
-| — of which Lut5 | 443 | 363 |
+| CLB LUT5s | 443 / 1120 (39.55%) | **362 / 1120 (32.32%)** |
+| — of which Lut5 | 443 | 362 |
 | — as shift-register | 0 | 0 |
-| FFs | 353 | **202** (198 CLB + 4 IOB) |
-| CLBs | 85 / 140 (60.71%) | **75 / 140 (53.57%)** |
+| FFs | 353 | **204** (199 CLB + 5 IOB) |
+| CLBs | 85 / 140 (60.71%) | **74 / 140 (52.86%)** |
 | 4k BRAMs | 0 / 8 | **0 / 8** |
 | PLLs | 1 / 1 (100%) | **0 / 1 (0%)** |
 | OSCs | 0 / 1 | **1 / 1 (100%)** |
@@ -62,12 +62,14 @@ measurements; they are just from different netlists.
 | Fit | CLB LUT5s | FFs | CLBs | What changed |
 |---|---|---|---|---|
 | 2026-09-16 | 342 / 1120 (30.54%) | 194 | 76/140 | shared `hardware/common/` sources + internal power-on reset |
-| 2026-09-21 | **363 / 1120 (32.41%)** | **202** | **75/140** | `STATE_ARMED` positive-slope gate (H-01) |
+| 2026-09-21 | 363 / 1120 (32.41%) | 202 | 75/140 | `STATE_ARMED` positive-slope gate (H-01) |
+| 2026-10-17 | **362 / 1120 (32.32%)** | **204** | **74/140** | re-fit of the current flat source; bitstream regenerated (`2b204d00…`) |
 
-The +21 LUT5 / +8 FF delta is the slope comparison added to the peak detector's
-arm condition, which stops a still-decaying pulse tail from being counted as a
-second beat. That change is described in `hardware/common/ppg_peak_detector.v`
-and covered by TEST C in `hardware/common/tb_ppg_peak_detector.v`.
+The 342 → 363 delta was the slope comparison added to the peak detector's arm
+condition, which stops a still-decaying pulse tail from being counted as a
+second beat. The 2026-10-17 re-fit of the same sources landed at 362 LUT5s /
+204 FFs (one LUT fewer, two FFs more), which is normal fitter variation; the
+bitstream was regenerated and its header SHA is `2b204d00…`.
 
 The 342 figure in the 2026-09-16 row was tracked in
 `resource_utilization_spi_link.log` but never propagated into the prose, which

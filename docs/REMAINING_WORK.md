@@ -713,7 +713,7 @@ dataset — does it apply to Indian patients?"* ~2 hours.
 
 ### T4.4 — Re-fit before quoting any FPGA resource figure — **DONE (2026-09-21)**
 
-The 2026-09-21 fit is current: **363 / 1120 LUT5s (32.41%)**, 202 FFs, 75/140 CLBs,
+The 2026-09-21 fit is current: **362 / 1120 LUT5s (32.32%)**, 204 FFs, 74/140 CLBs,
 PLL 0/1. It is the first run to include the H-01 slope gate.
 `resource_utilization_spi_link.log` and every doc that quotes a footprint have
 been updated to it. The older 443 (parallel link), 342 and 222 figures are all
