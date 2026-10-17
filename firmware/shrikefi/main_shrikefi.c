@@ -1729,7 +1729,12 @@ static void task_disaster_monitor(void *pvParameters) {
         memset(&final_risk, 0, sizeof(final_risk));
         final_risk.overall_risk = RISK_UNKNOWN;
 
-        if (vitals_ready) {
+        /* Run when the vitals are ready OR the environment is valid. The
+         * disaster hazards do not depend on the patient: gating the whole
+         * risk/status block on vitals_ready meant that with no finger the
+         * BME280/PMS readings were never assessed or published, and the phone
+         * kept a stale UNKNOWN snapshot forever. */
+        if (vitals_ready || ambient_valid) {
             /* vitals_ready guarantees spo2 > 0, so every engine here scores a
              * measured saturation. This line was previously a "neutral 96.0f"
              * fallback for the calibrating case - but that is precisely the case
@@ -1847,6 +1852,12 @@ static void task_disaster_monitor(void *pvParameters) {
                    hr, engine_spo2, hrv_snapshot.rmssd, env.ambient_temp_c,
                    env.humidity_pct, env.pm25, rr_for_news2, sqi_for_news2,
                    rr_depth_dbg, rr_conf_dbg);
+            fflush(stdout);
+            printf("[STATUS] amb=%d h=%d p=%d f=%d c=%d rule=%d final=%d\n",
+                   (int)ambient_valid, (int)rule_risk.heat_risk,
+                   (int)rule_risk.pollution_risk, (int)rule_risk.flood_risk,
+                   (int)rule_risk.cyclone_risk, (int)rule_risk.overall_risk,
+                   (int)final_risk.overall_risk);
             fflush(stdout);
             /* The human-readable [RuleEngine]/[TinyML]/[Unified Triage] lines
              * used to sit here. They duplicate every field in [TRIAGE], and
