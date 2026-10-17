@@ -779,24 +779,42 @@ constraint is worse than none, because it produces a confident number.
 ## Suggested order
 
 ```
-DONE (2026-09-21):  T1.1 MQTT privacy · T1.6 badge · T4.4 re-fit
-DONE (2026-09-28):  T1.2 SOS card · T1.3 SoftAP status page · T1.4 stored location
-                    T1.5 RR/SQI verified · T3.4 documentation corrected
+DONE: T1.1-T1.7 core software/status; T2.3 IMU fitted (physical fall test pending);
+      T3.1, T3.3, T3.4, T3.5; T4.4 fit recorded (535 LUT5s / 303 FFs / 108 CLBs).
 
-Still open, no parts needed — in this order:
-  1. T3.3  Handover log spam (~30 min)
-  2. T1.7  README images (blocked on images from the user)
-  3. T3.5  Re-run the paced staircase to confirm the lag-2 fix did not cost the
-           paced cases; RR is no longer allowed to report above ~23 br/min at rest
+Physical gates / user actions, in this order:
+  1. Print the MAX30102 reflective cradle; assemble; recalibrate SpO2 at the fixed
+     contact (rest + breath-hold against the oximeter). Do not claim calibrated
+     SpO2 before this.
+  2. Solder the GPIO5 SOS cancel button (5 s hold firmware ready) and optional
+     buzzer. Web SOS trigger/cancel is already verified (3 s web hold).
+  3. Fit TMP117/MAX30205 on the existing I2C bus, feed env.skin_temp_c, and
+     re-enable the hypothermia path. Until then flood/hypothermia is ambient proxy only.
+  4. Set the 2.4 GHz router password to the rotated credential and verify station
+     mode/MQTT. SoftAP demo is unaffected; the ESP32-S3 has no 5 GHz radio.
+  5. Run the physical end-to-end pass: GNSS fix, PMS5003, BME280, MPU6050 and a
+     real fall test; capture the logs.
 
-With parts (roughly ₹450 total):
-  4. T2.1  MAX30205 skin temperature     <- highest-value part on this list
-  5. T2.2  SOS button + buzzer           <- also unlocks the phone POST trigger
-  6. T2.3  IMU (activity + sleep + falls)
+Validation / evidence:
+  6. T4.1 independent HRV/IBI reference (AD8232 or borrowed chest strap), compared
+     with Bland-Altman. Internal consistency is not ground-truth validation.
+  7. Full-rate capture for the detector's ~7.3% artefact rate (3 splits + 6 missed
+     per 124 intervals); decide whether the RTL crest-confirmation change is needed.
+  8. RR: 6-12 validated, 18-19 marginal (20.7 published), 27 unreachable on finger
+     PPG. A dedicated respiration sensor is the only route; do not publish 27.
 
-Before submission:
- 11. T4.1  Chest-strap validation        <- the only thing that changes what you can claim
- 12. T4.2  Indian normative HRV range
- 13. T4.3  India-specific threshold sourcing
- 14. T4.5  Real clock constraint for the FPGA flow (see T4.4 caveat)
+FPGA / claims:
+  9. T4.5 real 50 MHz clock constraint. Until it exists, quote the achievable
+     12,218 ps / 81.846 MHz, not timing closure, and never the auto-constrained WNS.
+ 10. The burst fit uses 108/140 CLBs (32 free). Check/optimise any new RTL against
+     CLBs first; LUT headroom (585 free) is misleading.
+ 11. T4.2 Indian normative HRV range and T4.3 India-specific thresholds, if claiming
+     India-specific clinical validity.
+
+Optional polish:
+  - Raise the web SOS cancel hold from 3 s to 5 s to match the physical button.
+  - Reconcile the remaining subjective latency claims (0.44/0.38/18 us) and
+    "integer-only" wording.
+  - Standalone mNEWS2/environment card, if time permits.
+  - H5 Zynq PS I2C slave address (only affects a real Zynq board).
 ```
