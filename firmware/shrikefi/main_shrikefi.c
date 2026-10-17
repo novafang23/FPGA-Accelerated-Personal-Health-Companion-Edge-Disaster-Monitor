@@ -2019,6 +2019,9 @@ static void task_disaster_monitor(void *pvParameters) {
             st.env      = s_env_text;
             st.pressure_hpa = pressure_trend.pressure_hpa;
             st.pressure_trend_hpa_per_hr = pressure_trend.slope_hpa_per_hr;
+            st.pdrop_hpa = pressure_trend.drop_hpa;
+            st.pspan_s   = pressure_trend.span_ms / 1000u;
+            st.pvalid    = pressure_trend.valid;
             st.news2    = clin_news2;
             st.storm    = risk_level_to_string(storm_risk);
             st.level    = (triage_level > 0) ? (unsigned)triage_level : 0u;

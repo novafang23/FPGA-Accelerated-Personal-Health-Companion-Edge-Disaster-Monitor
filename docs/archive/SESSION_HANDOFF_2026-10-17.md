@@ -148,6 +148,12 @@ c4f90a7 fix: resolve four correctness/safety defects found in the A-to-Z audit
   AQI/NWS categories is a policy choice. **Decision (2026-10-18): keep them
   separate** - the condition card / `[ENV]` is the literature verdict,
   `RHEAT`/`RPOLL` are the patient-response scores.
+- **Storm-watch card (2026-10-18):** warm-up state ("Collecting pressure
+  trend: x/30 min") instead of a bare UNKNOWN, the total fall and the window
+  alongside the hPa/hr slope, a colour-coded level (green/amber/orange/red),
+  and an indoor-barometer caveat ("a trend is a proxy, not an official cyclone
+  warning"). The 3-hour least-squares trend and the rate+drop thresholds
+  (-0.5/-1.0/-2.0 hPa/hr with a >=0.5 hPa fall) are unchanged.
 - **A2 safety**: an absolute-crisis override requires SQI ≥ 0.70 or two
   independent crisis criteria, so one noisy SpO2 cannot fire the SOS.
 - **C1**: GPS location is published from static storage (was a dangling

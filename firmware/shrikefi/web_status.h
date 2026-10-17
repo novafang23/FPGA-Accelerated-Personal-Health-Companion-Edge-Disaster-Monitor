@@ -52,6 +52,9 @@ typedef struct {
      * storm advisory. */
     float    pressure_hpa;
     float    pressure_trend_hpa_per_hr;
+    float    pdrop_hpa;      /* fall over the trend window (+ = pressure fell) */
+    uint32_t pspan_s;        /* seconds covered by the trend window */
+    bool     pvalid;         /* window long enough to judge (>= 30 min) */
 
     unsigned news2;
     unsigned level;      /* clinical_risk_level_t ordinal */

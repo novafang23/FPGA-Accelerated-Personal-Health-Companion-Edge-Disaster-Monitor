@@ -173,10 +173,13 @@ size_t web_status_json(const valor_status_t *s, char *buf, size_t cap) {
         buf, cap, &used,
         "\"pm25\":%.1f,"
         "\"pressure\":%.1f,\"ptrend\":%.2f,"
+        "\"pdrop\":%.1f,\"pspan\":%lu,\"pvalid\":%s,"
         "\"news2\":%u,\"level\":%u,\"flags\":%u,"
         "\"risk\":",
         (double)s->pm25,
         (double)s->pressure_hpa, (double)s->pressure_trend_hpa_per_hr,
+        (double)s->pdrop_hpa, (unsigned long)s->pspan_s,
+        s->pvalid ? "true" : "false",
         s->news2, s->level, s->flags)) return 0;
     if (!json_append_string(buf, cap, &used, s->risk ? s->risk : "UNKNOWN") ||
         !json_append(buf, cap, &used, ",\"storm\":", sizeof(",\"storm\":") - 1) ||
@@ -369,7 +372,7 @@ size_t web_status_history_json(char *buf, size_t cap) {
 static const char PAGE_HTML[] =
 "<!DOCTYPE html><html lang='en'><head><meta charset='utf-8'>"
 "<meta name='viewport' content='width=device-width,initial-scale=1'>"
-"<meta http-equiv='Content-Security-Policy' content=\"default-src 'none'; script-src 'sha256-lTKpMP1iZ49frhvBexcwoLthxsrXD9dE/3Y6F11yhk0='; style-src 'unsafe-inline'; connect-src 'self'; form-action 'self'; base-uri 'none'; object-src 'none'\">"
+"<meta http-equiv='Content-Security-Policy' content=\"default-src 'none'; script-src 'sha256-0vBwoQuetX9YSwO503kykjwvnReH87DtnX9SRsSn4yY='; style-src 'unsafe-inline'; connect-src 'self'; form-action 'self'; base-uri 'none'; object-src 'none'\">"
 "<title>VALOR - local status</title><style>"
 ":root{--bg:#070B14;--card:#0E1626;--line:#1C2740;--text:#E6EDF7;--dim:#8A9AB5;"
 "--cyan:#00E5FF;--emerald:#00FFAA;--amber:#FFB020;--crimson:#FF3B5C}"
@@ -457,6 +460,7 @@ static const char PAGE_HTML[] =
 "t('msg','Live status unavailable; current readings cleared.');"
 "['hr','spo2','rmssd','rr','sqi','temp','hum','pm','storm'].forEach(function(i){t(i,D)});"
 "t('envcond',D);"
+"document.getElementById('storm').style.color='';"
 "t('news2','NEWS2 --');t('pnote','');t('link','reconnecting');"
 "t('sos-note','Device connection lost; check the WiFi link')}"
 "function poll(){"
@@ -470,12 +474,18 @@ static const char PAGE_HTML[] =
 "t('hr',positive(s.hr,0));t('spo2',positive(s.spo2,1));t('rmssd',positive(s.rmssd,1));"
 "t('rr',positive(s.rr,0));t('sqi',s.contact&&typeof s.sqi==='number'?(s.sqi*100).toFixed(0):D);"
 "t('temp',num(s.temp,1));t('hum',num(s.hum,0));t('pm',num(s.pm25,0));"
-"t('storm',s.storm);"
+"var storm=s.storm||'UNKNOWN';"
+"if(!s.pvalid){t('storm','WARMING UP')}else{t('storm',storm)}"
+"var sc={NORMAL:'#4ADE80',MODERATE:'#FBBF24',HIGH:'#FB923C',CRITICAL:'#F87171',UNKNOWN:'#94A3B8'};"
+"document.getElementById('storm').style.color=sc[storm]||'';"
 "t('envcond',typeof s.env==='string'&&s.env?s.env:D);"
 /* The trend is the number that carries the signal; the absolute pressure is
    shown beside it only so a reader can see the barometer they are reading. */
-"t('pnote','Pressure '+(s.pressure>0?s.pressure.toFixed(1):D)+' hPa, trend '"
-"+((s.ptrend<0?'':'+')+s.ptrend.toFixed(2))+' hPa/hr');"
+"var spanMin=Math.round((typeof s.pspan==='number'?s.pspan:0)/60);"
+"if(!s.pvalid){t('pnote','Collecting pressure trend: '+Math.min(spanMin,30)+'/30 min. Indoor barometer - a trend is a proxy, not an official cyclone warning.')}"
+"else{var sh=Math.floor(spanMin/60),sm=spanMin%60;var spantxt=sh>0?(sh+'h '+sm+'m'):(sm+' min');"
+"var pd=(typeof s.pdrop==='number')?s.pdrop:0;var pc=(pd>0?'-':'+')+Math.abs(pd).toFixed(1)+' hPa';"
+"t('pnote','Pressure '+(s.pressure>0?s.pressure.toFixed(1):D)+' hPa; '+pc+' over '+spantxt+'; trend '+((s.ptrend<0?'':'+')+s.ptrend.toFixed(2))+' hPa/hr. Indoor barometer - proxy only, not an official warning.')}"
 "t('news2','NEWS2 '+s.news2);t('loc','LOC '+s.loc);"
 "t('link',s.contact?'finger detected':'no finger');"
 /* Seed the location box once. Doing it on every poll would overwrite whatever
@@ -528,7 +538,7 @@ static esp_err_t h_root(httpd_req_t *req) {
      * re-fetch every second on a network with one client. */
     httpd_resp_set_hdr(req, "Cache-Control", "no-store");
     httpd_resp_set_hdr(req, "Content-Security-Policy",
-        "default-src 'none'; script-src 'sha256-lTKpMP1iZ49frhvBexcwoLthxsrXD9dE/3Y6F11yhk0='; style-src 'unsafe-inline'; connect-src 'self'; form-action 'self'; base-uri 'none'; object-src 'none'; frame-ancestors 'none'");
+        "default-src 'none'; script-src 'sha256-0vBwoQuetX9YSwO503kykjwvnReH87DtnX9SRsSn4yY='; style-src 'unsafe-inline'; connect-src 'self'; form-action 'self'; base-uri 'none'; object-src 'none'; frame-ancestors 'none'");
     httpd_resp_set_hdr(req, "X-Content-Type-Options", "nosniff");
     httpd_resp_set_hdr(req, "X-Frame-Options", "DENY");
     httpd_resp_set_hdr(req, "Referrer-Policy", "same-origin");
