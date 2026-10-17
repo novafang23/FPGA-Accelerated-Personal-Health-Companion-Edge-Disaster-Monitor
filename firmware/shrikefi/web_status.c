@@ -192,6 +192,10 @@ size_t web_status_json(const valor_status_t *s, char *buf, size_t cap) {
         !json_append_string(buf, cap, &used, s->loc ? s->loc : "UNSET") ||
         !json_append(buf, cap, &used, ",\"env\":", sizeof(",\"env\":") - 1) ||
         !json_append_string(buf, cap, &used, s->env ? s->env : "") ||
+        !json_append_format(buf, cap, &used, ",\"aqi\":%u,\"aqicat\":", s->aqi) ||
+        !json_append_string(buf, cap, &used, s->aqi_cat ? s->aqi_cat : "") ||
+        !json_append_format(buf, cap, &used, ",\"heatc\":%.1f,\"heatcat\":", (double)s->heat_c) ||
+        !json_append_string(buf, cap, &used, s->heat_cat ? s->heat_cat : "") ||
         !json_append_format(buf, cap, &used, ",\"motion\":%.2f,\"fall\":", (double)s->motion) ||
         !json_append_string(buf, cap, &used, s->fall ? s->fall : "MONITORING") ||
         !json_append_format(buf, cap, &used, ",\"contact\":%s,\"up\":%lu}",
@@ -372,7 +376,7 @@ size_t web_status_history_json(char *buf, size_t cap) {
 static const char PAGE_HTML[] =
 "<!DOCTYPE html><html lang='en'><head><meta charset='utf-8'>"
 "<meta name='viewport' content='width=device-width,initial-scale=1'>"
-"<meta http-equiv='Content-Security-Policy' content=\"default-src 'none'; script-src 'sha256-0vBwoQuetX9YSwO503kykjwvnReH87DtnX9SRsSn4yY='; style-src 'unsafe-inline'; connect-src 'self'; form-action 'self'; base-uri 'none'; object-src 'none'\">"
+"<meta http-equiv='Content-Security-Policy' content=\"default-src 'none'; script-src 'sha256-2uU/83cXyZm/fR5I19lxos2zxsaJv/Qq7/dXeNK+Am0='; style-src 'unsafe-inline'; connect-src 'self'; form-action 'self'; base-uri 'none'; object-src 'none'\">"
 "<title>VALOR - local status</title><style>"
 ":root{--bg:#070B14;--card:#0E1626;--line:#1C2740;--text:#E6EDF7;--dim:#8A9AB5;"
 "--cyan:#00E5FF;--emerald:#00FFAA;--amber:#FFB020;--crimson:#FF3B5C}"
@@ -392,6 +396,14 @@ static const char PAGE_HTML[] =
 ".card .u{font-size:12px;color:var(--dim);font-weight:400;margin-left:3px}"
 ".wide{grid-column:1/-1}"
 ".env{display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;margin-top:10px}"
+".ec{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:8px}"
+".ec-tile{border:1px solid var(--line);border-radius:8px;padding:8px}"
+".ec-k{font-size:10.5px;letter-spacing:.06em;text-transform:uppercase;color:var(--dim)}"
+".ec-v{font-size:22px;font-weight:700;margin-top:2px}"
+".ec-v .u{font-size:11px;font-weight:400;color:var(--dim)}"
+".ec-badge{display:inline-block;margin-top:5px;padding:2px 8px;border:1px solid;border-radius:999px;font-size:10.5px;font-weight:700;line-height:1.35}"
+".ec-note{font-size:11.5px;margin-top:5px;line-height:1.35}"
+".ec-sub{font-size:10.5px;color:var(--dim);margin-top:4px}"
 ".env .v{font-size:18px}"
 ".foot{margin-top:12px;color:var(--dim);font-size:11.5px;display:flex;"
 "justify-content:space-between;gap:8px;flex-wrap:wrap}"
@@ -444,8 +456,13 @@ static const char PAGE_HTML[] =
 "<div class='card wide'><div class='k'>Storm watch &middot; barometric trend</div>"
 "<div class='v' style='font-size:19px'><span id='storm'>--</span></div>"
 "<div id='pnote'>&nbsp;</div></div>"
-"<div class='card wide'><div class='k'>Environmental condition &middot; EPA AQI / NWS</div>"
-"<div id='envcond' style='font-size:12.5px;line-height:1.45'>--</div></div>"
+"<div class='card wide'><div class='k'>Environmental condition &middot; EPA AQI 2024 / NWS heat index</div>"
+"<div class='ec'>"
+"<div class='ec-tile'><div class='ec-k'>PM2.5</div><div class='ec-v'><span id='pmv'>--</span><span class='u'> &micro;g/m&sup3;</span></div>"
+"<div class='ec-badge' id='aqibadge'>--</div><div class='ec-note' id='aqinote'>--</div><div class='ec-sub' id='whonote'>--</div></div>"
+"<div class='ec-tile'><div class='ec-k'>Heat index</div><div class='ec-v'><span id='heatv'>--</span><span class='u'> &deg;C</span></div>"
+"<div class='ec-badge' id='heatbadge'>--</div><div class='ec-note' id='heatnote'>--</div><div class='ec-sub'>NWS heat-index band</div></div>"
+"</div></div>"
 "</div>"
 "<div class='foot'>"
 "<span><span class='dot'></span><span id='link'>live</span></span>"
@@ -456,10 +473,16 @@ static const char PAGE_HTML[] =
 "function t(i,v){document.getElementById(i).textContent=v}"
 "function num(v,d){return typeof v==='number'&&isFinite(v)?v.toFixed(d):D}"
 "function positive(v,d){return typeof v==='number'&&isFinite(v)&&v>0?v.toFixed(d):D}"
+"var aqiNote={Good:'Air quality is satisfactory.',Moderate:'Acceptable; unusually sensitive people may be affected.','Unhealthy for Sensitive Groups':'Sensitive groups: reduce prolonged outdoor exertion.',Unhealthy:'Everyone: reduce outdoor exertion; sensitive groups avoid it.','Very Unhealthy':'Health alert: avoid outdoor exertion.',Hazardous:'Emergency: stay indoors.'};"
+"var aqiCol={Good:'#4ADE80',Moderate:'#FBBF24','Unhealthy for Sensitive Groups':'#FB923C',Unhealthy:'#F87171','Very Unhealthy':'#C084FC',Hazardous:'#E11D48'};"
+"var heatNote={Normal:'No heat stress.',Caution:'Fatigue possible with prolonged exposure.','Extreme Caution':'Heat cramps / exhaustion possible.',Danger:'Cramps or exhaustion likely; heat stroke possible.','Extreme Danger':'Heat stroke imminent - avoid exposure.'};"
+"var heatCol={Normal:'#4ADE80',Caution:'#FBBF24','Extreme Caution':'#FB923C',Danger:'#F87171','Extreme Danger':'#E11D48'};"
+"function setBadge(i,v,c){var e=document.getElementById(i);if(!e)return;e.textContent=v;e.style.color=c||'';e.style.borderColor=c||''}"
 "function clearReadings(){document.body.className='';t('risk','NO CONNECTION');"
 "t('msg','Live status unavailable; current readings cleared.');"
-"['hr','spo2','rmssd','rr','sqi','temp','hum','pm','storm'].forEach(function(i){t(i,D)});"
-"t('envcond',D);"
+"['hr','spo2','rmssd','rr','sqi','temp','hum','pm','storm','pmv','heatv'].forEach(function(i){t(i,D)});"
+"t('aqinote',D);t('whonote',D);t('heatnote',D);"
+"setBadge('aqibadge',D,'');setBadge('heatbadge',D,'');"
 "document.getElementById('storm').style.color='';"
 "t('news2','NEWS2 --');t('pnote','');t('link','reconnecting');"
 "t('sos-note','Device connection lost; check the WiFi link')}"
@@ -478,7 +501,13 @@ static const char PAGE_HTML[] =
 "if(!s.pvalid){t('storm','WARMING UP')}else{t('storm',storm)}"
 "var sc={NORMAL:'#4ADE80',MODERATE:'#FBBF24',HIGH:'#FB923C',CRITICAL:'#F87171',UNKNOWN:'#94A3B8'};"
 "document.getElementById('storm').style.color=sc[storm]||'';"
-"t('envcond',typeof s.env==='string'&&s.env?s.env:D);"
+"t('pmv',num(s.pm25,1));"
+"if(typeof s.aqi==='number'&&s.aqicat){setBadge('aqibadge',s.aqicat+' | AQI '+s.aqi,aqiCol[s.aqicat]||'#94A3B8');"
+"t('aqinote',aqiNote[s.aqicat]||'');"
+"t('whonote','WHO 2021 24-h 15 ug/m3'+((typeof s.pm25==='number'&&s.pm25>15)?' - '+((s.pm25/15).toFixed(1))+'x guideline':' - within guideline'))}"
+"else{setBadge('aqibadge',D,'');t('aqinote',D);t('whonote',D)}"
+"if(typeof s.heatc==='number'&&s.heatcat){t('heatv',s.heatc.toFixed(1));setBadge('heatbadge',s.heatcat,heatCol[s.heatcat]||'#94A3B8');t('heatnote',heatNote[s.heatcat]||'')}"
+"else{t('heatv',D);setBadge('heatbadge',D,'');t('heatnote',D)}"
 /* The trend is the number that carries the signal; the absolute pressure is
    shown beside it only so a reader can see the barometer they are reading. */
 "var spanMin=Math.round((typeof s.pspan==='number'?s.pspan:0)/60);"
@@ -538,7 +567,7 @@ static esp_err_t h_root(httpd_req_t *req) {
      * re-fetch every second on a network with one client. */
     httpd_resp_set_hdr(req, "Cache-Control", "no-store");
     httpd_resp_set_hdr(req, "Content-Security-Policy",
-        "default-src 'none'; script-src 'sha256-0vBwoQuetX9YSwO503kykjwvnReH87DtnX9SRsSn4yY='; style-src 'unsafe-inline'; connect-src 'self'; form-action 'self'; base-uri 'none'; object-src 'none'; frame-ancestors 'none'");
+        "default-src 'none'; script-src 'sha256-2uU/83cXyZm/fR5I19lxos2zxsaJv/Qq7/dXeNK+Am0='; style-src 'unsafe-inline'; connect-src 'self'; form-action 'self'; base-uri 'none'; object-src 'none'; frame-ancestors 'none'");
     httpd_resp_set_hdr(req, "X-Content-Type-Options", "nosniff");
     httpd_resp_set_hdr(req, "X-Frame-Options", "DENY");
     httpd_resp_set_hdr(req, "Referrer-Policy", "same-origin");

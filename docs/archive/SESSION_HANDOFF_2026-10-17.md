@@ -154,6 +154,12 @@ c4f90a7 fix: resolve four correctness/safety defects found in the A-to-Z audit
   and an indoor-barometer caveat ("a trend is a proxy, not an official cyclone
   warning"). The 3-hour least-squares trend and the rate+drop thresholds
   (-0.5/-1.0/-2.0 hPa/hr with a >=0.5 hPa fall) are unchanged.
+- **Environmental-condition card (2026-10-18):** the single paragraph was
+  replaced by two colour-coded tiles - PM2.5 with an EPA AQI badge and a
+  one-line health note, and heat index with an NWS badge and note - plus the
+  WHO 2021 24-h exceedance under PM2.5. The device publishes the structured
+  `aqi`/`aqicat`/`heatc`/`heatcat` fields and the browser only renders them;
+  the `[ENV]` serial sentence remains for logs.
 - **A2 safety**: an absolute-crisis override requires SQI ≥ 0.70 or two
   independent crisis criteria, so one noisy SpO2 cannot fire the SOS.
 - **C1**: GPS location is published from static storage (was a dangling

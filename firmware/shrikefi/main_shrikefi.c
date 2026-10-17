@@ -2017,6 +2017,12 @@ static void task_disaster_monitor(void *pvParameters) {
             static char s_env_text[192];
             disaster_environment_condition_text(&env, s_env_text, sizeof(s_env_text));
             st.env      = s_env_text;
+            /* Structured copy for the page tiles: the device is the single
+             * source of truth, the browser only renders. */
+            st.aqi      = (unsigned)disaster_epa_pm25_aqi(env.pm25);
+            st.aqi_cat  = disaster_epa_pm25_category((int)st.aqi);
+            st.heat_c   = disaster_calculate_heat_index_c(env.ambient_temp_c, env.humidity_pct);
+            st.heat_cat = disaster_nws_heat_category(st.heat_c);
             st.pressure_hpa = pressure_trend.pressure_hpa;
             st.pressure_trend_hpa_per_hr = pressure_trend.slope_hpa_per_hr;
             st.pdrop_hpa = pressure_trend.drop_hpa;

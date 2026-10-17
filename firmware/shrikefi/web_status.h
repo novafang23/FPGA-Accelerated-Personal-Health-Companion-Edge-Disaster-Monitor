@@ -45,6 +45,12 @@ typedef struct {
     /* Literature-based environmental condition sentence (EPA AQI / WHO 2021 /
      * NWS heat index). Pointer to static storage owned by the publisher. */
     const char *env;
+    /* Structured form of the same verdict, so the page can render tiles and
+     * colour-coded badges without re-deriving the EPA/NWS categories. */
+    unsigned    aqi;
+    const char *aqi_cat;
+    float       heat_c;
+    const char *heat_cat;
 
     /* Barometric pressure and its fitted trend (T3.1). The trend is the useful
      * number: absolute pressure varies with altitude and season, so the page
