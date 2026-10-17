@@ -155,17 +155,21 @@ c4f90a7 fix: resolve four correctness/safety defects found in the A-to-Z audit
   - SpO2 rest 98.8 vs 98; nadir 96.6 vs 96.
   - No false Tachypnea/CRITICAL/SOS after the RR hardening.
   - RR unavailable at rest (see above).
+  - **SOS web path (2026-10-17):** TRIGGER SOS latched "medical emergency";
+    a **3 s hold on CANCEL SOS** stood it down. The physical GPIO5 button is
+    **not soldered yet**, so the button hold-cancel is untested. The
+    fall-detection physical trigger is still pending (the FSM is host-tested).
 
 ## Remaining work / options
 
-1. **Make RR functional.** Options, in order of reliability:
-   - add a dedicated respiration sensor (chest band / thermistor / airflow);
-   - capture raw PPG at a higher rate and derive respiration offline;
-   - accept RR unavailable (current, safe).
-   Do **not** lower the confidence bar just to publish.
-2. **H7 — unauthenticated SOS cancel on the open AP.** Recommendation:
+1. **RR is documented.** Baseline/DC is validated at 6-12, marginal at 12-19
+   (20.7 against a counted 18-19), and 27 is outside finger PPG. A dedicated
+   respiration sensor is the only route to tachypnoea; do not lower the
+   confidence bar to publish.
+2. **H7 - unauthenticated SOS cancel on the open AP.** Recommendation:
    keep the remote *trigger*, require a deliberate **5-second hold** for
-   remote *cancel* (mirrors the physical button). Not yet implemented.
+   remote *cancel* (mirrors the physical button). The 3 s hold is implemented
+   and verified; consider raising it to 5 s.
 3. **Docs reconciliation.** Update the ForgeFPGA numbers (363/202 → 362/204/74),
    and reconcile the known contradictions (latency 0.44/0.38/18 µs, Fmax
    "82.73 MHz", DONE/probe liveness, "integer-only", SOS confirm 3 s vs 15 s).
