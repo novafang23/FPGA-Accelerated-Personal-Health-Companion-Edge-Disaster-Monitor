@@ -33,10 +33,12 @@
 #define PPG_BASE_RR_WIN        150                                 /* 30 s at 5 Hz */
 
 #define PPG_BASE_RR_MIN_BPM    6.0f
-/* Same publication ceiling as the IBI/AM estimator: a rate above 24 br/min is
- * the range where the false-alarm history lives, so the baseline path must not
- * be the one that breaks that policy. */
-#define PPG_BASE_RR_MAX_BPM    24.0f
+/* Cover the full clinical range, including tachypnoea. The old 24 br/min cap
+ * was there to stop the FM path's 3-beat artifact; the baseline path does not
+ * have that artifact, and it is the only path that tracked the paced reference
+ * (6.4 at 6, 11.7-12.2 at 12). It still refuses a peak pinned to the search
+ * boundary and still has the absolute modulation gate. */
+#define PPG_BASE_RR_MAX_BPM    36.0f
 /* Publication bar for the ACF confidence. This is NOT the IBI estimator's 0.60:
  * that number is a blend of periodicity and RSA depth, while this is the raw
  * autocorrelation peak of a band-passed signal. A paced 12 br/min test produced

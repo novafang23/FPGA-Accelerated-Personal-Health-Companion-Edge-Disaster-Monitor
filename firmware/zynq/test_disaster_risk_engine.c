@@ -1690,7 +1690,7 @@ static void test_rr_am_corroboration(void) {
  * pulse is itself periodic, so a filter that leaves enough of it behind will
  * alias into the respiratory band and look like breathing. */
 static void test_rr_baseline_path(void) {
-    static const float rates[] = { 0.15f, 0.20f, 0.30f };
+    static const float rates[] = { 0.15f, 0.20f, 0.30f, 0.45f, 0.50f };
     ppg_baseline_rr_t s;
     float rr_bpm = 0.0f, conf = 0.0f;
 

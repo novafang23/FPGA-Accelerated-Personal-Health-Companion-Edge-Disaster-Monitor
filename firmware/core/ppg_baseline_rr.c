@@ -3,10 +3,11 @@
 #include <math.h>
 #include <string.h>
 
-/* At 5 Hz these give roughly a 0.06 Hz high-pass and a 0.48 Hz low-pass, i.e.
- * the 0.1-0.5 Hz respiratory band with the DC/LED drift removed. */
+/* At 5 Hz these give roughly a 0.06 Hz high-pass and a 0.65 Hz low-pass. The
+ * low-pass used to sit at 0.48 Hz, which attenuated 30 br/min (0.5 Hz) by ~67%
+ * across the three stages and made the top of the range unreachable. */
 #define PPG_BASE_HP_A  0.92f
-#define PPG_BASE_LP_A  0.45f
+#define PPG_BASE_LP_A  0.55f
 
 void ppg_baseline_rr_init(ppg_baseline_rr_t *s) {
     if (!s) return;
@@ -42,9 +43,11 @@ void ppg_baseline_rr_add(ppg_baseline_rr_t *s, float ir_sample) {
     s->decim = 0;
 
     /* High-pass (one-pole DC blocker), then three cascaded one-pole low-passes.
-     * Three stages are deliberate: a single pole leaves ~16% of a 1.2 Hz pulse
-     * after the 1 s average, and the autocorrelation cannot tell that residual
-     * from a real respiratory rhythm. Three stages take it to ~5%. */
+     * Three stages keep the real baseline modulation above the amplitude gate;
+     * six stages rejected the cardiac residual better but also attenuated the
+     * genuine 6-12 br/min signal, dropping its confidence from ~0.55 to ~0.3 on
+     * hardware. The subharmonic that motivated six stages is handled by the
+     * harmonic guard below instead. */
     float hp = baseline - s->hp_x1 + PPG_BASE_HP_A * s->hp_y1;
     s->hp_x1 = baseline;
     s->hp_y1 = hp;
@@ -129,6 +132,32 @@ bool ppg_baseline_rr_estimate(ppg_baseline_rr_t *s, float *rr_bpm, float *conf) 
     }
     if (best_lag < 0) return false;
     best_r = acf[best_lag];
+
+    /* Harmonic guard. At 30 br/min the cardiac-pulse residual makes lag 2L
+     * correlate higher than lag L, so the winner is the subharmonic (15 br/min).
+     * If half the winner is itself a positive local maximum with at least half
+     * the correlation, the shorter lag is the fundamental. A genuine slow rate
+     * has a negative ACF at L/2, so it is not affected.
+     *
+     * Check the nearest half in BOTH directions: a 12 br/min signal at lag 25
+     * was once read as lag 49 (6.1 br/min), and 49 is odd, so an even-only
+     * check missed it. */
+    {
+        int half_lo = best_lag / 2;
+        int half_hi = half_lo + 1;
+        for (int attempt = 0; attempt < 2; attempt++) {
+            int half = (attempt == 0) ? half_lo : half_hi;
+            if (half >= lag_min && half < best_lag &&
+                acf[half] > 0.0f &&
+                acf[half] >= 0.5f * best_r &&
+                acf[half] >= acf[half - 1] &&
+                acf[half] >= acf[half + 1]) {
+                best_lag = half;
+                best_r   = acf[half];
+                break;
+            }
+        }
+    }
 
     /* A peak pinned to either edge of the search range is not a measurement:
      * it means the real periodicity is outside the band (or the loop fell back

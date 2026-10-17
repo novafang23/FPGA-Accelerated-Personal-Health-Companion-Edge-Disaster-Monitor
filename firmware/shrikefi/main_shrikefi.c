@@ -302,7 +302,7 @@ static void ibi_pipeline_reset(ibi_pipeline_t *p) {
  * RSA needs a clean IBI series more than a 20 ns timestamp, so this is
  * switchable while the two detectors are compared on hardware. */
 #ifndef SHRIKEFI_IBI_SOFTWARE
-#define SHRIKEFI_IBI_SOFTWARE 1
+#define SHRIKEFI_IBI_SOFTWARE 0
 #endif
 
 static float    s_rr_ibis[PPG_RR_HISTORY];

@@ -99,6 +99,24 @@ c4f90a7 fix: resolve four correctness/safety defects found in the A-to-Z audit
     band edge still resolves. Tests: resolution 0/10 outside 1.5 br/min (worst
     0.27). On hardware the FM now reports `lag=-1` when only the artifact is
     present, and RR stays unavailable rather than inventing tachypnoea.
+  - **Baseline band extended to 6-36** (was 6-24) with a harmonic guard that
+    checks both half-lags (odd and even), so the 30->15 and 12->6 subharmonics
+    are rejected. Host tests: 9/12/18/27/30 br/min all resolve; pulse-only
+    signal rejected.
+  - **Finger-only paced calibration (2026-10-17):**
+
+    | Target | Baseline | FM | Published |
+    |---|---|---|---|
+    | 6 | 6.4 (conf 0.58) | none | 6.4 |
+    | 12 | 11.9-12.8 (0.33-0.51) | none | 12.0-12.4 |
+    | 18-19 (counted 27-29/90 s) | 11.7 / 16.7 (0.21-0.31) | 20.4 (lag 4) | 20.7 (0.63) |
+    | 27 | - | - | - |
+
+    The baseline is validated at 6-12. At 18-19 the FM publishes 20.7 - a +1.4 to
+    +2.7 bias within the lag-4 resolution and normal PPG RR accuracy - while the
+    baseline is erratic. Perfusion/contact (SpO2 92-95, SQI 0.3-0.5) is the
+    limiting factor. Above ~19 the device withholds; 27 is outside the finger
+    sensor's reach without a dedicated respiration sensor.
 - **A2 safety**: an absolute-crisis override requires SQI ≥ 0.70 or two
   independent crisis criteria, so one noisy SpO2 cannot fire the SOS.
 - **C1**: GPS location is published from static storage (was a dangling
