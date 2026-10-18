@@ -648,6 +648,89 @@ re-scaling from paced-breathing data.
 
 ---
 
+### T3.6 — Web dashboard demo polish  **AUDITED 2026-10-18, NOT YET APPLIED**
+
+The offline/CSP baseline is sound: `valor_dashboard.html` has no CDN or external
+assets, its CSP hash matches the inline script, dynamic text uses
+`textContent`/numeric `innerHTML`, and both `verify_dashboard.py` and
+`verify_softap_page.py` pass. The remaining issues are demo credibility,
+accessibility and a few UI bugs.
+
+**Highest-value demo fixes:**
+
+1. **Live perfusion index is always `--`.** `V.pi` is set only by `simPPG()`;
+   `[TELEMETRY]` has no `PI=` field. Add `PI=%.2f` from
+   `sqi.perfusion_index` (or `spo2_get_perfusion_index()`) to telemetry and parse
+   it, or remove the card from live mode. The README's claim that it is "actually
+   computed" is true on-device but not visible on the dashboard.
+2. **The page re-derives NEWS2 sub-scores.** `n2hr()`, `n2spo2()`, `n2rr()` and
+   the `n2-grid` tiles are local implementations, while the device sends only
+   the total `NEWS2`. The README calls the page a "pure view". Either send
+   `HRPTS/SPO2PTS/RRPTS` in `[TRIAGE]` and render those, or label the tiles as
+   a local display reconstruction.
+3. **The ECG and RR traces look like measurements.** The ECG is generated from
+   HR and the RR envelope from the published rate, not from the actual RSA
+   modulation. Add a visible "schematic / illustrative" chip, or use
+   `RRDEPTH`/`RRCONF` to make the RR trace honest.
+4. **Clinical wording:** change "normal sinus rhythm" to "normal rate" (PPG
+   cannot establish sinus rhythm), and change the heat gauge's "core temp model"
+   to "heat index + physiological strain" (no core-temperature sensor is fitted).
+5. **Device verdict is parsed but unused.** `[TRIAGE]` carries `RISK`, `LEVEL`
+   and `FLAGS`; the page stores them in `V.risk/V.level/V.flags` and never shows
+   them. A compact device-verdict chip would demonstrate the end-to-end edge
+   decision and prevent the local NEWS2 band from contradicting the device.
+
+**Concrete UI bugs:**
+
+- `renderIdle()` sets `rr-note` with `textContent = 'PPG-derived &middot; ...'`,
+  so idle mode displays the literal entity. Use `\u00b7` or `innerHTML`.
+- `?sim=1` hides the Simulation button, so an interactive simulation cannot
+  return to idle. Hide it only for `?full=1`; keep it visible for `?sim=1`.
+- `readLoop()` reports `SERIAL ERROR` after an intentional Disconnect. Guard the
+  catch with `if (!keepReading) return;`.
+- `connect()` labels every failure `CONNECT CANCELLED`, including a busy port or
+  permission error. Distinguish `NotFoundError` from other failures.
+- `render()` runs at 60 fps and rebuilds `n2-grid.innerHTML` every frame. Throttle
+  DOM updates to 4–10 Hz; keep the canvases at 60 fps.
+- The RR note says "calculating (takes 15s)"; the estimator needs 30 beats
+  (roughly 20–30 s at rest).
+- `ml-note` says "rule-vs-NN agreement 100%"; the reported agreement is 99.95%
+  (FP32↔INT8 tier agreement is 97.32%). Do not round this to 100%.
+
+**Accessibility:**
+
+- Several note/unit colours fail WCAG AA on the dark background: `#334155`
+  ≈ 1.9:1, `#1e2d47` ≈ 1.4:1, `#475569` ≈ 2.6:1. Use `--text-dim` / `#7587a0`
+  or lighter; remove `.subscore.na { opacity: 0.4 }`.
+- The entry gate is a visual overlay, not a dialog: add `role="dialog"`,
+  `aria-modal="true"`, `aria-labelledby`, move focus to the first button, and
+  return focus on close.
+- The header has no persistent `h1` after the gate hides (the brand is a
+  `span`); add an `h1` in the header or keep a visually hidden one.
+- The status pill should have `role="status" aria-live="polite"` for connection
+  changes. Do not make the 60 fps vitals live regions.
+- The history chart is mouse-only; add `tabindex="0"` plus arrow-key handling
+  and a text summary, or provide an accessible table.
+- Add `type="button"` to the gate/header buttons and respect
+  `prefers-reduced-motion` for the pulsing status dot.
+
+**Demo polish:**
+
+- Add a persistent "research prototype — not a medical device" footnote. SpO2 is
+  still awaiting cradle recalibration, and HRV is not clinically validated.
+- Strengthen the simulation watermark in `?full=1` kiosk mode; the status pill
+  and footer are small.
+- Optional: `launch_web_dashboard.bat` profile shortcuts for the six scenarios,
+  a local `?profile=` argument helper, and a 5 s web SOS cancel to match the
+  physical button.
+
+**Verification before closing:** run `python
+firmware/shrikefi/dashboard/verify_dashboard.py` and `python
+firmware/shrikefi/dashboard/verify_softap_page.py` after any inline-script edit,
+because the CSP hash must be updated whenever the script changes.
+
+---
+
 ## Tier 4 — Validation and evidence
 
 ### T4.1 — Validate against a reference device
@@ -846,6 +929,9 @@ FPGA / claims:
      India-specific clinical validity.
 
 Optional polish:
+  - T3.6 web dashboard demo polish: live PI, device-verdict chip, honest
+    schematic labels for the ECG/RR traces, contrast/dialog/keyboard fixes,
+    and the idle `&middot;` / `?sim=1` toggle bugs.
   - Raise the web SOS cancel hold from 3 s to 5 s to match the physical button.
   - Reconcile the remaining subjective latency claims (0.44/0.38/18 us) and
     "integer-only" wording.
