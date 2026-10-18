@@ -229,10 +229,28 @@ initialized; SoftAP `VALOR-0081`; `[PPG]` streaming; `PI=` present in telemetry.
 - RR baseline path briefly published **7.2–8.0 br/min** with `RRDEPTH=0` and
   confidence 0.5–0.64, then returned to 0; the RSA path itself had `r=0.000`.
 
-**Interpretation:** HR, SpO₂, SQI and PI are live and plausible. RMSSD is still
-sensitive to FPGA split pairs; capture 1's 50.5 ms should not be quoted as a
-validated HRV value. The next HRV work is a pair-sum rejection rule or the RTL
-crest-confirmation change, followed by an independent ECG/chest-strap comparison.
+**Capture 3 (peak/4 crest bitstream `d9d58daa`, 2026-10-19 01:22):**
+
+- 95 s, 115 IBI log rows: **113 ok, 1 gap, 1 low**, all FPGA (source 2)
+- HR 69.8–78.6 BPM, SpO₂ 97.3–99.1 %, SQI 0.87–0.91, PI 0.6–1.8 %
+- The old **888/645, 781/641, 666/797** split-pair signature is **absent**
+- One **2380 ms gap** at t=126.1 s while status moved ACQUIRING→LOCKED and the
+  reported AC jumped 847→4590: contact/motion, not a missing R peak
+- Two short/long-looking pairs remain at the start (746/958 and 938/737); after
+  beat 20 there are **zero pair-sum hits** by the 0.92/1.08 + 10 % rule
+- Clean-tail RMSSD is **46.2 ms** over the last 53 ok intervals (49.2 ms from
+  beat 20; 46.6 ms from beat 30); firmware showed 52.7 ms because its 300-beat
+  ring still contained the startup gap and post-gap beats
+- Max successive difference in the settled tail: 140 ms (856→716 ms)
+
+**Interpretation:** the crest-threshold change removed the specific early-crest
+pairs, but this capture is **not evidence that HRV is stable or accurate**. The
+firmware's 300-beat RMSSD window holds startup motion for roughly 4 minutes at
+75 BPM, and the settled RMSSD is still higher than capture 2. The next two
+candidate fixes are: (a) timestamp the **true peak** rather than the threshold
+crossing, which removes confirmation-latency jitter, and (b) a contact-settling
+gate that excludes the first stable-lock transient from HRV. Neither is applied
+yet. T4.1 ECG/chest-strap comparison remains required before quoting RMSSD.
 
 ### Open decisions to record after the run
 

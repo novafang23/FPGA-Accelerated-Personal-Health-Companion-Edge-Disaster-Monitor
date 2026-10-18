@@ -814,14 +814,15 @@ constraint is worse than none, because it produces a confident number.
 
 ---
 
-### T4.6 — Flash and verify HRV readiness / OLED state — **FLASHED; LIVE VERIFICATION PENDING**
+### T4.6 — Flash and verify HRV readiness / OLED state — **FLASHED; FIRST CAPTURE DONE, HRV NOT SETTLED**
 
-**Status: flashed on COM5, live behaviour not yet verified.** The current tree
+**Status: flashed on COM5 and first 95 s capture assessed.** The current tree
 passes the host suite, the 34-test Zynq suite and the ESP-IDF build; the HRV
 readiness change itself is `a2000ba` (firmware build fix `666faea`), and the
-2026-10-19 peak/4 bitstream is in the firmware header. The board booted with
-`configuration COMPLETE! (46408 bytes loaded)`, but no steady-contact HRV capture
-has been assessed yet.
+2026-10-19 peak/4 bitstream is in the firmware header. Boot is verified
+(`configuration COMPLETE! (46408 bytes loaded)`). The first capture removed the
+old 888/645-style pair signature but still contains a startup gap and settled
+RMSSD ~46 ms, so HRV is **not** validated.
 
 With the board on COM5, follow
 [`docs/HARDWARE_DEBUG_HANDOVER.md`](HARDWARE_DEBUG_HANDOVER.md) §6. The short
@@ -903,10 +904,12 @@ Validation / evidence:
      with Bland-Altman. Internal consistency is not ground-truth validation.
   7. The RTL crest threshold is now **peak/4 (25 %)**, up from peak/8, after live
      captures still showed 888/645, 781/641 and 666/797 ms split pairs. The
-     2026-10-19 bitstream (`d9d58daa…`, 515 LUT5s / 105 CLBs) is regenerated,
-     updated in the firmware header, and flashed. **Live 90 s capture is still
-     pending:** quantify split pairs and RMSSD before claiming the artefact is
-     gone.
+     2026-10-19 bitstream (`d9d58daa…`, 515 LUT5s / 105 CLBs) is flashed.
+     **First 95 s capture:** the old split-pair signature is absent, but a
+     2380 ms startup/contact gap and two pair-like startup events remain; clean
+     tail RMSSD 46.2 ms, firmware 52.7 ms while the 300-beat ring holds startup.
+     Do **not** claim HRV fixed. Next: true-peak timestamping and/or a
+     contact-settling gate, then a 5-minute still capture.
   8. RR: 6-12 validated, 18-19 marginal (20.7 published), 27 unreachable on finger
      PPG. A dedicated respiration sensor is the only route; do not publish 27.
 
