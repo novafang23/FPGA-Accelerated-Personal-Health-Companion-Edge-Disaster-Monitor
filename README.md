@@ -105,7 +105,7 @@ The system operates across four coordinated processing tiers, moving from raw ph
 │                                  PROCESSING SYSTEM (ARM CORTEX-A9 / ESP32-S3)                        │
 │                                                                                                      │
 │   • driver_ppg.c          : Register-level hardware abstraction & IBI extraction                     │
-│   • hrv_analysis.c        : 20-sample circular buffer computing RMSSD (vagal tone) and SDNN          │
+│   • hrv_analysis.c        : 300-interval circular buffer computing RMSSD (vagal tone) and SDNN       │
 │   • spo2_engine.c         : Beer-Lambert Ratio-of-Ratios SpO₂ calibration (R = (AC/DC)R / (AC/DC)IR) │
 │   • nn_risk_model_int8.c  : 6→24→16→3 TinyML Neural Network, INT8, 0.44 µs/inference     │
 │   • disaster_risk_engine.c: Multi-disaster scoring engine (CTSI Heat Strain & PRSI Pollution Index)  │

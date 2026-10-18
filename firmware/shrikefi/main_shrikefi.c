@@ -157,8 +157,14 @@ static uint32_t         s_pressure_next_due_ms = 0;
  * diluted, and an RMSSD of 190 ms that was mostly the one 400 ms step between
  * the two groups rather than anything physiological.
  *
- * So: a change of detector flushes the window. Intervals measured by two
- * different detectors are never mixed in one statistic.
+ * So: a change of detector resets the local rhythm reference and forces an
+ * NN-adjacency break. The accumulated HRV window is retained so the 10-beat
+ * acquisition counter does not restart, but the first accepted interval after
+ * the handover cannot pair across the boundary; RMSSD therefore never bridges
+ * two detectors. SDNN and mean HR still include the earlier beats, which is
+ * why the FPGA is authoritative while it is producing beats; a 2.5 s silence
+ * hands over to the software fallback, which re-primes rather than resetting
+ * the accumulated window.
  */
 #define IBI_SRC_NONE      0
 #define IBI_SRC_SOFTWARE  1
@@ -169,19 +175,23 @@ static uint32_t         s_pressure_next_due_ms = 0;
  * last few DETECTED intervals.
  *
  * THE REFERENCE IS FED BY EVERY INTERVAL THAT PASSES THE ABSOLUTE BOUNDS,
- * ACCEPTED OR NOT. That is the whole trick, and it is what makes a lower bound
- * safe. An earlier version derived its floor from a median over ACCEPTED
- * intervals only, and it latched: rejecting short intervals removed exactly the
- * values that would have pulled the median down, so the floor ratcheted upward
+ * ACCEPTED OR NOT - except an extreme outlier below 0.55x or above 1.80x the
+ * current median, which is held out so a split pair cannot poison the window.
+ * That is the whole trick, and it is what makes a lower bound safe: acceptance
+ * itself never controls what enters the median. An earlier version derived its
+ * floor from a median over ACCEPTED intervals only, and it latched: rejecting
+ * short intervals removed exactly the values that would have pulled the median
+ * down, so the floor ratcheted upward
  * until it excluded the subject's real rhythm permanently. Measured on
  * hardware - four intervals in (1470, 720, 759, 1400 ms), median 1400 ms, a
  * 0.80x floor of 1120 ms, and every subsequent ~740 ms beat rejected. The
  * sample counter froze at 4, took 12.5 s to reach 5, 49 s to reach 6 and 62 s
  * more to reach 7 while the FPGA detected ~80 BPM throughout.
  *
- * When the reference is fed by everything plausible, a rejection cannot change
- * it at all, so no bound derived from it can ratchet. There is no feedback path
- * left to latch. This is why the ratio bounds below are allowed to be
+ * When the reference is fed by every plausible interval that is not an extreme
+ * outlier, a rejection cannot change it at all, so no bound derived from it can
+ * ratchet. There is no feedback path left to latch. This is why the ratio bounds
+ * below are allowed to be
  * two-sided, which they must be: the detector's errors come in PAIRS.
  *
  * WHY TWO-SIDED IS NECESSARY - measured, not assumed
@@ -206,11 +216,12 @@ static uint32_t         s_pressure_next_due_ms = 0;
  * vice versa; either one alone still injects a ~350 ms successive difference.
  * Both halves have to go, so the window is symmetric.
  *
- * A +/-30% window was too permissive on the attached hardware: a live capture
- * at a stable reference of 810 ms admitted a 669/1020 ms split pair and
- * reported RMSSD=136.8 ms. A +/-15% local window rejects both halves while
- * still allowing gradual rate changes; sustained genuine changes reach the
- * rejection escape and reseed the reference rather than ratcheting it. */
+ * A 0.70-1.30 (+/-30%) window was too permissive on the attached hardware: a
+ * live capture at a stable reference of 810 ms admitted a 669/1020 ms split
+ * pair and reported RMSSD=136.8 ms. The current 0.83-1.20 window rejects both
+ * halves (669/810 = 0.826, 1020/810 = 1.259) while still allowing gradual rate
+ * changes; sustained genuine changes reach the rejection escape and reseed the
+ * reference rather than ratcheting it. */
 #define IBI_MIN_MS    272.0f   /* hard floor (220 BPM): allows tachycardia >= 150 BPM; above 250 ms FPGA blanking */
 #define IBI_MAX_MS   1500.0f   /* hard ceiling: above this a whole cycle was lost  */
 #define IBI_LOW_RATIO  0.83f   /* reject below this x the reference median (rejects split-beats <=669ms) */
@@ -231,10 +242,10 @@ static uint32_t         s_pressure_next_due_ms = 0;
  * sessions settled cleanly (RMSSD 39.4, 41.6 and 27.3 ms, no jumps). The fourth
  * started noisily - a 420 ms interval, a 959 ms pair, a 1559 ms gap and a
  * 1390 ms interval inside its first three accepted beats - and once past that,
- * a 540 ms interval was accepted at a reference of about 771 ms. Its ratio was
- * 0.7004, a hair inside the 0.70 floor. Against the 839 ms beat before it that
- * is a 299 ms successive difference, and at n=6 it took RMSSD from 41.6 to
- * 127.7 ms.
+ * a 540 ms interval was accepted at a reference of about 771 ms. Under the
+ * then-current 0.70 floor its ratio was 0.7004, a hair inside. Against the
+ * 839 ms beat before it that is a 299 ms successive difference, and at n=6 it
+ * took RMSSD from 41.6 to 127.7 ms.
  *
  * Priming removes the whole class: the junk that a fresh contact produces is
  * spent building the reference instead of entering the series. It costs
@@ -450,7 +461,7 @@ static void ppg_update_respiration_and_sqi(hrv_state_t *hrv,
                          (g_state.ppg_sqi >= PPG_SQI_THRESHOLD_VALID);
         s_hrv_sqi_valid = hrv_quality_ok;
         if (hrv_quality_ok) {
-            if (hrv != NULL && hrv->count >= HRV_MIN_SAMPLES && hrv->rmssd > 0.0f && g_state.hrv_rmssd <= 0.0f) {
+            if (hrv != NULL && hrv_is_ready(hrv) && hrv->rmssd > 0.0f && g_state.hrv_rmssd <= 0.0f) {
                 g_state.hrv_rmssd = hrv->rmssd;
                 g_state.hrv_sdnn  = hrv->sdnn;
             }
@@ -516,10 +527,11 @@ static bool ibi_pipeline_submit(ibi_pipeline_t *p, hrv_state_t *hrv,
      * estimate. */
     bool plausible = (ibi_ms >= IBI_MIN_MS && ibi_ms <= IBI_MAX_MS);
 
-    /* Reference rhythm, or 0.0f until its window is full. The full-window
-     * requirement matters: a median over a partly-filled window can be
-     * dominated by its own outliers - which is exactly how the old latch was
-     * seeded (4 entries, 2 of them artefacts). */
+    /* Reference rhythm, or 0.0f until at least five entries exist. The minimum
+     * matters: a median over four entries can be dominated by its own outliers,
+     * which is exactly how the old latch was seeded (4 entries, 2 of them
+     * artefacts). Five is the first count where a single artefact cannot
+     * capture the middle. */
     float ref = hrv_median_value(&p->ref);
 
     if (plausible) {
@@ -664,8 +676,8 @@ static void task_ppg_accelerator(void *pvParameters) {
      * whether the FPGA has ever reported a beat during the current contact. */
     static uint32_t s_last_fpga_beat_ms  = 0;
 
-    /* Split-beat guard + artifact filter + detector-handover flushing. Every
-     * interval from either detector goes through this one pipeline; see
+    /* Split-beat guard + artifact filter + detector-handover resynchronisation.
+     * Every interval from either detector goes through this one pipeline; see
      * ibi_pipeline_submit() for why. */
     ibi_pipeline_t  ibi_pipe;
     ibi_pipeline_reset(&ibi_pipe);
@@ -974,8 +986,8 @@ static void task_ppg_accelerator(void *pvParameters) {
                  * beats, and the first interval after any handover resets
                  * prime_count to 0. So liveness would never latch, the software
                  * fallback would keep running for want of it, and every software
-                 * beat would hand the source back and flush the window - which
-                 * resets priming again.
+                 * beat would hand the source back and reset the reference - which
+                 * restarts priming again.
                  *
                  * Measured on hardware in that state: the two detectors
                  * alternated on every single beat, "IBI detector handover" fired
@@ -1015,7 +1027,8 @@ static void task_ppg_accelerator(void *pvParameters) {
                  * averaging window), which requires re-synthesising the
                  * bitstream in the Renesas ForgeFPGA GUI. Until that happens
                  * this guard removes the symptom, and ibi_pipeline_submit()
-                 * removes the residual one-in-N split with a median filter. */
+                 * removes the residual one-in-N split with its ratio/pair
+                 * gate; the median only supplies the local rhythm reference. */
                 float beat_amp = (float)s_ir_peak_since_beat;
                 s_ir_peak_since_beat = 0;
                 if (!SHRIKEFI_IBI_SOFTWARE &&
@@ -1025,8 +1038,7 @@ static void task_ppg_accelerator(void *pvParameters) {
                         g_state.r_peak_interval_ms = ibi_ms;
                         g_state.heart_rate = (g_state.heart_rate > 30.0f) ?
                                              (0.70f * g_state.heart_rate + 0.30f * inst_hr) : inst_hr;
-                        bool hrv_ready = hrv_is_ready(&hrv_state) ||
-                                         (hrv_state.count >= HRV_MIN_SAMPLES && hrv_state.rmssd > 0.0f);
+                        bool hrv_ready = hrv_is_ready(&hrv_state);
                         if (s_hrv_sqi_valid && hrv_ready) {
                             g_state.hrv_rmssd = (g_state.hrv_rmssd > 0.0f) ?
                                                 (0.85f * g_state.hrv_rmssd + 0.15f * hrv_state.rmssd) : hrv_state.rmssd;
@@ -1057,28 +1069,29 @@ static void task_ppg_accelerator(void *pvParameters) {
                  * autonomic-strain terms in the risk engines read too low.
                  * While the FPGA is healthy it is the authoritative detector and
                  * the fallback must not contribute. If the FPGA goes quiet for
-                 * SW_FALLBACK_ARM_MS, the fallback resumes by itself. */
-                /* Sticky for the whole contact session: once the ForgeFPGA has
-                 * produced a beat, it stays the authoritative detector until
-                 * the finger comes off. It is NOT a rolling window.
+                 * 2.5 s, the fallback resumes by itself. */
+                /* Authoritative while alive, with a 2.5 s liveness window. This
+                 * is deliberately NOT sticky: if the FPGA goes silent, the
+                 * software fallback must still register vitals and reach ten
+                 * beats. The reference and priming are reset on that handover,
+                 * so RMSSD does not bridge the two detectors.
                  *
-                 * It used to be `(now_ms - s_last_fpga_beat_ms) <
-                 * SW_FALLBACK_ARM_MS`, i.e. 3 s. Measured cost of that, from the
-                 * 02:49 capture: the FPGA's crest detector went silent for
-                 * 3.38 s four times in three minutes while the optical signal
-                 * was perfectly healthy (raw IR mean 106,800, peak-to-peak
-                 * ~1300, uninterrupted across the gaps). Each silence tripped
-                 * the 3 s gate, flipped the source to the software fallback for
-                 * a few hundred milliseconds - not even one beat at 78 BPM -
-                 * and each flip flushed the entire 300-interval HRV window.
+                 * Measured cost of the earlier 3 s gate, from the 02:49
+                 * capture: the FPGA's crest detector went silent for 3.38 s
+                 * four times in three minutes while the optical signal was
+                 * perfectly healthy (raw IR mean 106,800, peak-to-peak ~1300,
+                 * uninterrupted across the gaps). Each silence tripped the gate,
+                 * flipped the source to the software fallback for a few hundred
+                 * milliseconds - not even one beat at 78 BPM - and, under that
+                 * code, each flip flushed the entire 300-interval HRV window.
                  * The measurement restarted four times, which is why the
                  * reported RMSSD appeared to "settle" at four different values.
                  *
-                 * A brief detector dropout should cost the intervals it spans,
-                 * not the whole session. Swapping in a different detector
-                 * mid-measurement is worse than briefly showing no data. */
-                /* If ForgeFPGA detects beats, it is authoritative. If it goes quiet for >2.5s,
-                 * software fallback resumes so patient vitals always register and reach 10 beats. */
+                 * The current handover retains the window and only re-primes the
+                 * reference, so a brief dropout costs the beats it spans rather
+                 * than the whole measurement. A longer liveness window would
+                 * ride out the measured 3.38 s gaps, at the cost of a longer
+                 * no-vitals period if the FPGA has actually died. */
                 bool fpga_alive = (s_last_fpga_beat_ms != 0) && ((now_ms - s_last_fpga_beat_ms) < 2500);
 
                 if (sw_finger_start_ms == 0) {
@@ -1143,8 +1156,7 @@ static void task_ppg_accelerator(void *pvParameters) {
                                                     g_state.heart_rate = (g_state.heart_rate > 30.0f) ?
                                                                          (0.70f * g_state.heart_rate + 0.30f * inst_hr) : inst_hr;
                                                 }
-                                                bool hrv_ready = hrv_is_ready(&hrv_state) ||
-                                                                 (hrv_state.count >= HRV_MIN_SAMPLES && hrv_state.rmssd > 0.0f);
+                                                bool hrv_ready = hrv_is_ready(&hrv_state);
                                                 if (s_hrv_sqi_valid && hrv_ready) {
                                                     g_state.hrv_rmssd = (g_state.hrv_rmssd > 0.0f) ?
                                                                         (0.85f * g_state.hrv_rmssd + 0.15f * hrv_state.rmssd) : hrv_state.rmssd;
@@ -2201,6 +2213,8 @@ static void task_disaster_monitor(void *pvParameters) {
                 snprintf(buf_hrv, sizeof(buf_hrv), "HRV RMSSD:%4.1fms", hrv_snapshot.rmssd);
             } else if (sqi_pub < 0.50f) {
                 snprintf(buf_hrv, sizeof(buf_hrv), "Hold Finger Still");
+            } else if (sqi_pub < PPG_SQI_THRESHOLD_VALID) {
+                snprintf(buf_hrv, sizeof(buf_hrv), "HRV: Low Signal");
             } else {
                 snprintf(buf_hrv, sizeof(buf_hrv), "HRV: Stabilizing");
             }

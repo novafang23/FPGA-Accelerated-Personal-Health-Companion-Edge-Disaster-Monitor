@@ -1,5 +1,18 @@
 # Handoff — ForgeFPGA PPG pipeline fixes
 
+> **Historical document (2026-10-16, firmware base `d5baf3f`).** It records the
+> investigation that produced the current pipeline, not a description of the
+> current tree. Two prescriptions below were later superseded and must not be
+> applied blindly:
+>
+> * the median is now the **local rhythm reference** in
+>   `ibi_pipeline_submit()`, not a feed-forward smoother of the HRV series;
+> * a detector handover resets the reference and re-primes, but **retains** the
+>   HRV window; it does not flush it.
+>
+> Current behaviour is defined by the code and comments in
+> `firmware/shrikefi/main_shrikefi.c` and `firmware/core/hrv_analysis.h`.
+
 **Audience:** Antigravity (or any agent/human continuing this work)
 **Board:** ShrikeFi — ESP32-S3-WROOM-1-N8R2 + Renesas ForgeFPGA SLG47910C
 **Firmware base:** `d5baf3f`
@@ -139,22 +152,26 @@ crawled from 4 to 7 over two minutes instead of climbing steadily.
 
 ### Fix
 
-1. **The plausibility window is absolute again** — `[IBI_MIN_MS, IBI_MAX_MS]` =
-   `[400, 1500] ms`. These are constants in `main_shrikefi.c` and there is a
+1. **The plausibility window is absolute** — `[IBI_MIN_MS, IBI_MAX_MS]`, now
+   `[272, 1500] ms`. These are constants in `main_shrikefi.c`, and there is a
    long comment above them explaining why they must stay absolute. Do not
    "improve" them.
-2. **The median filter is feed-forward only.** It smooths the series that goes
-   into the HRV statistics. It never feeds back into the accept/reject decision,
-   so it structurally cannot latch.
-3. **`IBI_REJECT_ESCAPE = 12`.** After 12 consecutive rejections the artifact
-   reference is discarded and rebuilt from live data, with an `ESP_LOGW`. Any
-   residual lockout now costs ~10 s instead of being permanent. This is the
-   general lesson: *an artifact filter that keeps rejecting is itself producing
-   an artifact, and every rejection rule needs a way out.*
+2. **The median is the local rhythm reference, not a smoother of the HRV
+   series.** It is fed by every plausible interval except an extreme outlier
+   (<0.55× or >1.80× the current median), whether that interval is later
+   accepted or rejected. Acceptance therefore cannot change the median, so the
+   latch above cannot recur; the raw accepted interval, not the median, enters
+   `hrv_add_ibi()`.
+3. **`IBI_REJECT_ESCAPE = 12`.** After 12 consecutive rejections the reference
+   is discarded and rebuilt from live data, with an `ESP_LOGW`. Any residual
+   lockout costs ~10 s instead of being permanent. This is the general lesson:
+   *an artifact filter that keeps rejecting is itself producing an artifact,
+   and every rejection rule needs a way out.*
 
-`hrv_median_peek()` was added in `59ebaf1` and **removed** in `fccfaea` precisely
-so that nothing can read the median back into the rejection path. If you find
-yourself wanting it, that is a signal you are rebuilding the bug.
+`hrv_median_peek()` was an earlier accessor. The current code uses
+`hrv_median_value()` only as the ratio-gate reference, and the reference feed is
+independent of accept/reject. If a future change makes the median depend on
+accepted beats, that is the bug returning.
 
 ---
 
@@ -192,13 +209,17 @@ from the other detector.
 
 `ibi_pipeline_t` + `ibi_pipeline_submit()` in `main_shrikefi.c` — a single
 acceptance path that **every** interval from **either** detector goes through.
-When the source detector changes, the HRV window and the median filter are
-flushed, so intervals measured by two different detectors are never averaged into
-one statistic. The handover is logged:
+When the source detector changes, the reference is reset and the pipeline
+re-primes, but the HRV window is retained so the 10-beat acquisition counter does
+not restart. Priming and every rejected interval call `hrv_break_sequence()`, so
+the first accepted interval after the handover cannot pair across the boundary;
+RMSSD therefore does not bridge the two detectors. SDNN and mean HR still include
+the earlier beats, which is why the FPGA is authoritative while it is producing
+beats; a 2.5 s silence hands over to the software fallback. The handover is
+logged:
 
 ```
-I (16072) SHRIKEFI_MAIN: IBI detector handover -> ForgeFPGA; HRV window flushed
-          so the two detectors' intervals are never averaged together
+I (16072) SHRIKEFI_MAIN: IBI detector handover -> ForgeFPGA (current progress: 7/10)
 ```
 
 `ibi_pipeline_reset()` is called on finger removal, and the pipeline state lives
@@ -206,9 +227,9 @@ in the PPG task so it is scoped to one contact session.
 
 ### Consequence to be aware of
 
-After handover the HRV window is empty and the UI reads `Reading... (0/10)`
-again. That is correct behaviour — those early beats were not usable — but it
-does cost a couple of seconds of extra lock time.
+The beat count is preserved, but RMSSD is withheld until the post-handover primes
+are accepted and `hrv_is_ready()` is true. That costs a few beats, not the whole
+window.
 
 ---
 

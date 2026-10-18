@@ -104,7 +104,7 @@ int hrv_is_ready(const hrv_state_t *state) {
 
     /* Support summary/snapshot structs (e.g., Core 1 hrv_snapshot or host test
      * profiles) that populate rmssd/sdnn/count directly without a ring buffer. */
-    if (state->head == 0 && state->rmssd > 0.0f) return 1;
+    if (state->head == 0 && state->count < HRV_BUFFER_SIZE && state->rmssd > 0.0f) return 1;
 
     int n = state->count;
     int start = (state->head - n + HRV_BUFFER_SIZE) % HRV_BUFFER_SIZE;
@@ -126,9 +126,10 @@ void hrv_median_init(hrv_median_t *m) {
 }
 
 /* Insertion sort of at most HRV_MEDIAN_WINDOW floats, then take the middle.
- * For an even count n/2 selects the upper of the two middle values; the filter
- * output feeds HRV statistics only and never feeds back into the rejection
- * rule, so that bias is harmless. */
+ * For an even count n/2 selects the upper of the two middle values. The median
+ * is a control input to the ratio gate, not a published IBI, so this small
+ * upward bias is acceptable; it slightly favours rejecting short intervals,
+ * which is the split-beat side. */
 static float hrv_median_of(const float *v, int n) {
     float s[HRV_MEDIAN_WINDOW];
     for (int i = 0; i < n; i++) s[i] = v[i];

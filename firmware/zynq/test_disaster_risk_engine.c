@@ -94,6 +94,29 @@ static void test_hrv_rmssd_does_not_bridge_rejected_interval(void) {
     printf("test_hrv_rmssd_does_not_bridge_rejected_interval: PASS\n");
 }
 
+static void test_hrv_full_buffer_does_not_take_summary_shortcut(void) {
+    hrv_state_t hrv;
+    hrv_init(&hrv);
+
+    /* One valid pair, then 298 isolated intervals: count=300, head=0, and
+     * rmssd>0 from the single pair. A full ring must not be mistaken for the
+     * summary/snapshot struct (head=0, count<300) that carries rmssd directly. */
+    hrv_add_ibi(&hrv, 800.0f);
+    hrv_add_ibi(&hrv, 810.0f);
+    for (int i = 0; i < HRV_BUFFER_SIZE - 2; i++) {
+        hrv_break_sequence(&hrv);
+        hrv_add_ibi(&hrv, 800.0f);
+    }
+    hrv_compute(&hrv);
+
+    assert(hrv.count == HRV_BUFFER_SIZE);
+    assert(hrv.head == 0);
+    assert(hrv.rmssd > 0.0f);
+    assert(!hrv_is_ready(&hrv));
+
+    printf("test_hrv_full_buffer_does_not_take_summary_shortcut: PASS\n");
+}
+
 static void test_heat_risk() {
     hrv_state_t hrv;
     init_hrv_ready(&hrv, 75.0f);  // Normal HRV
@@ -1875,6 +1898,7 @@ int main() {
     setvbuf(stdout, NULL, _IONBF, 0);
     printf("Running unit tests for disaster_risk_engine...\n");
     test_hrv_rmssd_does_not_bridge_rejected_interval();
+    test_hrv_full_buffer_does_not_take_summary_shortcut();
     test_heat_risk();
     test_pollution_risk();
     test_flood_risk();
