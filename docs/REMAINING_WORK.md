@@ -793,8 +793,9 @@ constraint is worse than none, because it produces a confident number.
 ### T4.6 — Flash and verify HRV readiness / OLED state — **WAITING FOR BOARD**
 
 **Status: code fixed, not flashed.** The board is disconnected. The current tree
-(`a2000ba`, build fix `666faea`) passes the host suite, the 33-test Zynq suite and
-the ESP-IDF build, but none of the HRV readiness changes have run on hardware.
+passes the host suite, the 33-test Zynq suite and the ESP-IDF build; the HRV
+readiness change itself is `a2000ba` (firmware build fix `666faea`). None of the
+HRV readiness changes have run on hardware.
 
 When COM4 is reconnected, follow
 [`docs/HARDWARE_DEBUG_HANDOVER.md`](HARDWARE_DEBUG_HANDOVER.md) §6. The short
