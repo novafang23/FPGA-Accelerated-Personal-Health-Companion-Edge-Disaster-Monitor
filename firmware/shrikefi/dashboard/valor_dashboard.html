@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'sha256-HZcF4epTRWFs0S40gTyJE7rWOLYKVL5Dgb5/xPYb23Q='; style-src 'unsafe-inline'; connect-src 'self'; form-action 'self'; base-uri 'none'; object-src 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'sha256-b4cW3z7DKEguy3Bn4OLN91wFpZTgx5hIt0uNwwc6JzQ='; style-src 'unsafe-inline'; connect-src 'self'; form-action 'self'; base-uri 'none'; object-src 'none'">
 <title>VALOR â€” Edge Health &amp; Disaster Triage</title>
 <!--
   VALOR dashboard â€” single self-contained file.
@@ -1420,7 +1420,7 @@ function render() {
     ? 'Raw 18-bit IR · 100 Hz FIFO · 1:4 stream · auto-ranged'
     : 'Synthetic PPG · demo waveform · auto-ranged';
 
-  $('m-pi').textContent  = V.pi > 0 ? V.pi.toFixed(2) + ' %' : '--';
+  $('m-pi').textContent  = (V.pi > 0 && V.sqi >= 70) ? V.pi.toFixed(2) + ' %' : '--';
   $('m-rr').textContent  = V.rr > 0 ? V.rr.toFixed(1) + ' br/min' : '--';
   $('m-hrv').textContent = V.hrv > 0 ? V.hrv.toFixed(1) + ' ms' : '--';
   $('m-sqi').textContent = sqiOn ? sqiPct + ' %' : '--';
@@ -1527,7 +1527,7 @@ function render() {
       $('rr-note').textContent = 'acquiring';
       $('rr-note').style.color = '';
     } else if (!rrOn) {
-      $('rr-note').textContent = (V.rrConf > 0) ? 'low confidence (wait)' : 'needs 30 beats (~20 s)';
+      $('rr-note').textContent = (V.rrConf > 0) ? 'low confidence (wait)' : 'RSA not resolved';
       $('rr-note').style.color = (V.rrConf > 0) ? C.amber : '';
     } else if (mode === 'live') {
       const depth = V.rrDepth > 0 ? V.rrDepth.toFixed(0) + ' ms RSA depth' : 'RSA depth unavailable';

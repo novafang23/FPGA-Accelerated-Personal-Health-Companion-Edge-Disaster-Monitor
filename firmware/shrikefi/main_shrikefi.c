@@ -460,8 +460,16 @@ static void ppg_update_respiration_and_sqi(hrv_state_t *hrv,
         }
         hrv_quality_ok = (sqi.overall_sqi >= PPG_SQI_THRESHOLD_VALID) &&
                          (g_state.ppg_sqi >= PPG_SQI_THRESHOLD_VALID);
-        g_state.perfusion_index = (s_sqi_raw_n >= PPG_FIFO_RATE_HZ)
-                                  ? sqi.perfusion_index : 0.0f;
+        /* Publish PI only when the SQI window is clinically usable and the
+         * AC/DC ratio is plausible. Contact transients produced 10-113 % on
+         * hardware while HR was 0 and SQI was 0.30-0.43; those are not
+         * perfusion values and must not reach the dashboard. */
+        g_state.perfusion_index =
+            (s_sqi_raw_n >= PPG_FIFO_RATE_HZ &&
+             sqi.overall_sqi >= PPG_SQI_THRESHOLD_VALID &&
+             sqi.perfusion_index >= 0.02f &&
+             sqi.perfusion_index <= 20.0f)
+            ? sqi.perfusion_index : 0.0f;
         s_hrv_sqi_valid = hrv_quality_ok;
         if (hrv_quality_ok) {
             if (hrv != NULL && hrv_is_ready(hrv) && hrv->rmssd > 0.0f && g_state.hrv_rmssd <= 0.0f) {
