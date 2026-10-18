@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'sha256-qMw1Nz+z3l+uyVuuw8MzpTj1uYG5pPvy7BT7Sk8Omyg='; style-src 'unsafe-inline'; connect-src 'self'; form-action 'self'; base-uri 'none'; object-src 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'sha256-HZcF4epTRWFs0S40gTyJE7rWOLYKVL5Dgb5/xPYb23Q='; style-src 'unsafe-inline'; connect-src 'self'; form-action 'self'; base-uri 'none'; object-src 'none'">
 <title>VALOR â€” Edge Health &amp; Disaster Triage</title>
 <!--
   VALOR dashboard â€” single self-contained file.
@@ -160,6 +160,7 @@
     border: 1px solid var(--border); border-radius: 4px; padding: 2px 7px;
     font-family: var(--mono);
   }
+  button.chip:hover { color: var(--text-mid); border-color: #26375a; }
 
   .scope-frame {
     height: 200px; border-radius: 8px; overflow: hidden;
@@ -552,7 +553,7 @@
   <div class="card-head" style="margin-bottom:14px;flex-wrap:wrap;gap:10px">
     <div>
       <div class="card-title">24-Hour Clinical &amp; Environmental Trajectory</div>
-      <div class="dim">On-device rolling hourly summaries &middot; 24-point circular buffer &middot; since boot &middot; zero cloud</div>
+      <div class="dim" id="hist-sub">On-device rolling hourly summaries &middot; 24-point circular buffer &middot; since boot &middot; zero cloud</div>
     </div>
     <div style="display:flex;gap:14px;align-items:center;flex-wrap:wrap">
       <div style="display:flex;gap:12px;align-items:center;font-size:11px;font-family:var(--mono)">
@@ -573,6 +574,7 @@
         </span>
       </div>
       <span class="chip" id="hist-span">SINCE BOOT</span>
+      <button type="button" class="chip" id="hist-export" style="cursor:pointer" aria-label="Export 24-hour history as CSV">EXPORT CSV</button>
     </div>
   </div>
 
@@ -582,6 +584,15 @@
     </canvas>
     <div id="hist-help" class="sr-only">Use the left and right arrow keys to inspect the hourly trend points.</div>
     <div id="hist-tooltip" style="position:absolute;display:none;pointer-events:none;background:rgba(11,17,32,0.92);border:1px solid #2d3f5c;border-radius:6px;padding:6px 10px;font-family:var(--mono);font-size:10px;color:#e2e8f0;box-shadow:0 4px 12px rgba(0,0,0,0.5);z-index:10"></div>
+  </div>
+
+  <div class="faint" id="hist-scale" style="margin-top:8px;font-family:var(--mono);font-size:10px">
+    Display scales:
+    <span style="color:var(--emerald)">HR 40&ndash;160 bpm</span> &middot;
+    <span style="color:var(--cyan)">SpO&#8322; 80&ndash;100%</span> &middot;
+    <span style="color:var(--violet)">RMSSD 0&ndash;80 ms</span> &middot;
+    <span style="color:var(--amber)">PM2.5 0&ndash;350 &micro;g/m&sup3;</span> &middot;
+    <span style="color:var(--crimson)">NEWS2 0&ndash;9</span>
   </div>
 
   <div class="metric-row" style="margin-top:14px;justify-content:space-between">
@@ -1081,6 +1092,14 @@ function makeHistory() {
     const pN2 = $('h-peak-news2'); if (pN2) pN2.textContent = peakN2 + (peakN2 >= 5 ? ' (HIGH)' : ' pts');
     const pPm = $('h-peak-pm25'); if (pPm) pPm.textContent = peakPm.toFixed(0) + ' \u00b5g/m\u00b3';
     const cnt = $('h-sample-count'); if (cnt) cnt.textContent = n + '/24';
+    const sub = $('hist-sub');
+    if (sub) {
+      sub.textContent = (mode === 'sim')
+        ? 'Synthetic 24-point demo history \u2014 not device data'
+        : 'Device hourly summaries \u00b7 since boot \u00b7 ' + n + '/24 hours populated';
+    }
+    const chip = $('hist-span');
+    if (chip) chip.textContent = (mode === 'sim') ? 'SYNTHETIC' : 'SINCE BOOT';
   }
 
   function draw() {
@@ -1213,7 +1232,7 @@ function makeHistory() {
       tt.style.left = clamp(leftPx, 10, rect.width - 170) + 'px';
       tt.style.top = '14px';
       tt.innerHTML =
-        '<b>T' + (hIdx === 0 ? '0 (this hour)' : ' -' + hIdx + 'h') + '</b><br>' +
+        '<b>T' + (hIdx === 0 ? '0 (this hour, avg)' : ' -' + hIdx + 'h') + '</b><br>' +
         'HR: <span style="color:' + C.emerald + '">' + Math.round(pt.hr) + ' bpm</span><br>' +
         'SpO2: <span style="color:' + C.cyan + '">' + pt.spo2.toFixed(1) + '%</span><br>' +
         'RMSSD: <span style="color:' + C.violet + '">' + pt.rmssd.toFixed(1) + ' ms</span><br>' +
@@ -1255,6 +1274,37 @@ function makeHistory() {
    ========================================================================== */
 
 const PPG = makePPG(), ECG = makeECG(), RRC = makeRR(), HIST = makeHistory();
+
+function exportHistoryCsv() {
+  const pts = HIST.getPoints();
+  const rows = [[
+    'source', 'hour_offset', 'hr_bpm', 'spo2_pct', 'rmssd_ms',
+    'pm25_ugm3', 'news2', 'valid'
+  ]];
+  pts.forEach((p, i) => {
+    rows.push([
+      mode === 'sim' ? 'simulation' : 'device',
+      i,
+      p.valid && p.hr > 0 ? p.hr.toFixed(1) : '',
+      p.valid && p.spo2 > 0 ? p.spo2.toFixed(1) : '',
+      p.valid && p.rmssd > 0 ? p.rmssd.toFixed(1) : '',
+      p.valid ? p.pm25.toFixed(1) : '',
+      p.valid ? String(p.news2) : '',
+      p.valid ? '1' : '0',
+    ]);
+  });
+  const csv = rows.map((r) => r.join(',')).join('\r\n') + '\r\n';
+  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  const stamp = new Date().toISOString().replace(/[:.]/g, '-');
+  a.href = url;
+  a.download = 'valor_24h_history_' + (mode === 'sim' ? 'simulation' : 'device') + '_' + stamp + '.csv';
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
 
 function setStatus(kind, text) {
   const pill = $('status-pill');
@@ -1348,6 +1398,9 @@ function renderIdle() {
     $('g-' + k + '-sub').textContent = '';
   }
   if (typeof HIST !== 'undefined') HIST.reset();
+  $('hist-sub').textContent = 'No history yet \u2014 connect a device or start a simulation';
+  $('hist-span').textContent = 'NO DATA';
+  $('hist-export').disabled = true;
 }
 
 function render() {
@@ -1355,6 +1408,7 @@ function render() {
      number: an unconnected dashboard showing a plausible heart rate is worse
      than one showing nothing. */
   if (mode === 'idle') { renderIdle(); return; }
+  $('hist-export').disabled = !HIST.getPoints().some((p) => p.valid);
   /* â”€â”€ PPG card header + derived metrics â”€â”€ */
   const sqiOn = (V.hr > 0 && V.sqi > 0);
   const sqiPct = Math.round(V.sqi);
@@ -1995,6 +2049,7 @@ if (!('serial' in navigator)) {
 
 buildControls();
 HIST.initEvents();
+$('hist-export').onclick = exportHistoryCsv;
 enterIdle();
 
 /* Kiosk / automated start.

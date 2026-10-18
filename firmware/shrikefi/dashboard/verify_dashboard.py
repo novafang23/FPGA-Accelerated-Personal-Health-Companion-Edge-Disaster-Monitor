@@ -80,6 +80,9 @@ window.onerror = function (m) { window.__err = String(m); };
       rr: txt('v-rr'), rrNumCol: col('v-rr'), rrNote: txt('rr-note'),
       pi: txt('m-pi'), idleRrNote: idleRrNote, hrSource: txt('hr-source'),
       deviceVerdict: txt('device-verdict'),
+      histSub: txt('hist-sub'), histSpan: txt('hist-span'),
+      histExport: txt('hist-export'),
+      histExportDisabled: document.getElementById('hist-export').disabled,
       temp: txt('v-temp'),
       status: txt('status-text').indexOf('NO DATA') === 0,
       sqi: txt('v-sqi'), sqiPill: txt('sqi-pill'), sqiNumCol: col('v-sqi'),
@@ -193,6 +196,8 @@ for case in ("zero", "healthy", "nofinger", "sensor_missing", "pi", "stale"):
             "hrNote": "acquiring", "spo2Note": "calibrating",
             "hrvNote": "needs 10 beats", "sqiPill": "waiting for contact",
             "histMeanHr": "--", "histSampleCount": "0/24",
+            "histSub": "No history yet \u2014 connect a device or start a simulation",
+            "histSpan": "NO DATA", "histExportDisabled": True,
             "n2": ["RR=--", "SpO2=--", "HR=--", "SBP=n/a", "Temp=n/a", "Consc=n/a"],
         }
     elif case == "healthy":
@@ -201,6 +206,9 @@ for case in ("zero", "healthy", "nofinger", "sensor_missing", "pi", "stale"):
             "hrNote": "normal rate", "spo2Note": "normal",
             "hrSource": "device IBI", "deviceVerdict": "Device verdict: NORMAL",
             "idleRrNote": "PPG-derived \u00b7 RSA modulation",
+            "histSub": "Device hourly summaries \u00b7 since boot \u00b7 1/24 hours populated",
+            "histSpan": "SINCE BOOT", "histExport": "EXPORT CSV",
+            "histExportDisabled": False,
             "hrvNote": "Adequate reserve", "sqiPill": "clean signal",
             "histMeanHr": "72 bpm", "histSampleCount": "1/24",
             "n2": ["RR=+0", "SpO2=+0", "HR=+0", "SBP=n/a", "Temp=n/a", "Consc=n/a"],

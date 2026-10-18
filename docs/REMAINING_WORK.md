@@ -677,6 +677,9 @@ were applied. `verify_dashboard.py` and `verify_softap_page.py` pass.
   keeps stale clinical values, and the page no longer overwrites slot 0 with an
   instantaneous reading. The chart now says "since boot"; a 34th unit test covers
   the hourly rollover and zero-skip behavior.
+- The history chart now prints its fixed display ranges, labels the
+  simulation history **SYNTHETIC**, shows `n/24 hours populated` in live mode,
+  uses an "hourly average" tooltip, and offers **EXPORT CSV** for the 24 rows.
 - Accessibility: contrast raised for notes/units/n-a tiles, gate is a labelled
   dialog with focus on the first action, header has a persistent `h1`, status is
   a polite live region, history chart supports arrow keys, buttons have explicit

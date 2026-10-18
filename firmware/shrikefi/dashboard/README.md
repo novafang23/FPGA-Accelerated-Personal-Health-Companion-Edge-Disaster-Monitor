@@ -157,6 +157,12 @@ device's current-hour average (not an instantaneous reading). The page now takes
 that point from `[HISTORY]` rather than overwriting it with live vitals, and the
 summary averages only hours that contain valid clinical values.
 
+In simulation the chart is explicitly labelled **SYNTHETIC** and says it is not
+device data; in live mode it shows `SINCE BOOT` and `n/24 hours populated`. The
+chart's fixed display ranges are printed below it, and **EXPORT CSV** downloads
+the 24 rows with `source, hour_offset, hr_bpm, spo2_pct, rmssd_ms, pm25_ugm3,
+news2, valid` so a demo capture can be analysed off-device.
+
 ## ShrikeFi SoftAP dashboard
 
 The ESP32-S3 serves a compact phone dashboard at `http://192.168.4.1` after you
