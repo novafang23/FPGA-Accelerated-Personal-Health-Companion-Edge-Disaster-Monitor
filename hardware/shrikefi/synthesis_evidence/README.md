@@ -69,6 +69,14 @@ last row as current.
 | 2026-10-17 | 362 / 1120 (32.32%) | 204 | 74/140 | re-fit of the pre-burst flat source; bitstream `2b204d00…` |
 | 2026-10-18 | **535 / 1120 (47.77%)** | **303** | **108/140** | 32-bit IBI burst (`0xC3`) + dummy-byte suppression; bitstream `50623aa2…` |
 
+> **2026-10-19: re-fit pending.** `crest_fall_min` changed from `peak/8` to
+> `peak/4` to reject the dicrotic notch that produced 888/645, 781/641 and
+> 666/797 ms split pairs. No fit exists yet for that netlist, so the 2026-10-18
+> row is **not current**. The change is a constant bit-select in an existing
+> comparator (no new registers or state), so it is expected to be
+> resource-neutral; the fitter must confirm it stays at or below 108 CLBs before
+> the figure is quoted again.
+
 The 342 → 363 delta was the slope comparison added to the peak detector's arm
 condition, which stops a still-decaying pulse tail from being counted as a
 second beat. The 2026-10-17 re-fit of the same pre-burst sources landed at 362

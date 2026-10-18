@@ -468,6 +468,12 @@ this as a detector bug. It is logged in the report as a recommended RTL change.
 > recorded in `hardware/shrikefi/README.md`. **Item 2 is still open**: the return
 > byte is still `filt_sample[6:0]`, so the reported waveform still wraps at 128.
 >
+> **2026-10-19 follow-up:** live captures still contained 888/645, 781/641 and
+> 666/797 ms split pairs, so `crest_fall_min` was raised from `peak/8` (12.5 %)
+> to **`peak/4` (25 %)**. The RTL and its unit test are updated; the bitstream
+> must be re-generated in the Renesas GUI and re-flashed before this change is
+> on hardware.
+>
 > The original text is kept below because it explains why the ordering matters —
 > editing the Verilog without re-fitting silently desynchronises source from
 > silicon, which is exactly what had happened here.
@@ -481,8 +487,8 @@ re-synthesising the bitstream in the Renesas ForgeFPGA GUI:
    the *first* maximum. The two maxima are **21 samples (210 ms) apart**, so the
    second lands well inside the 250 ms refractory and is discarded. That produces
    one short and one long interval (600 ms then 1010 ms against an ~800 ms
-   rhythm). Requiring a fall of, say, 8% of the peak — or widening the averaging
-   window — would give the detector one consistent fiducial point.
+   rhythm). Requiring a fall of 25% of the peak (`peak/4`) — or widening the
+   averaging window — gives the detector one consistent fiducial point.
    This matters more than the raw artefact count suggests: Sheridan et al.
    (*Psychiatry Investig* 2020;17(9):960-965) show RMSSD tolerates **removing up
    to 36% of intervals** within a 5% change, but degrades by >5% once beats are

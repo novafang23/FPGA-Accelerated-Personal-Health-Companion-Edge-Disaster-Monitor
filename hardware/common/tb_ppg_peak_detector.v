@@ -233,15 +233,15 @@ module tb_ppg_peak_detector;
         end
         beat_count = 0;
 
-        // True pulse. The 200 -> 170 drop of 30 exceeds crest_fall_min(200)=25,
+        // True pulse. The 200 -> 140 drop of 60 exceeds crest_fall_min(200)=50,
         // so the crest is committed here and the refractory timer starts.
         feed_sample(8'd130);
         feed_sample(8'd160);
         feed_sample(8'd200);
-        feed_sample(8'd170);
+        feed_sample(8'd140);
 
-        // Tail decays slowly and is still >= dyn_threshold (120) when the
-        // refractory timer runs out.
+        // Tail is still >= dyn_threshold (120) when the refractory timer runs
+        // out.
         feed_sample(8'd160);
         repeat (60) @(posedge clk); // REFRACTORY_CYC=50 fully elapses
 
@@ -264,6 +264,55 @@ module tb_ppg_peak_detector;
         end else begin
             $display("  FAIL: expected exactly 1 beat_detected pulse, got %0d (phantom split beat on the pulse tail)", beat_count);
             tests_failed = tests_failed + 1;
+        end
+
+        // -------------------------------------------------------------
+        // TEST D: dicrotic-notch rejection. The first systolic maximum
+        // (200), a shallow notch (171, only 29 below the peak), then a
+        // second maximum (199). With a peak/8 rule the notch confirms the
+        // first peak early; with peak/4 it must wait for the real
+        // downstroke below 145.
+        // -------------------------------------------------------------
+        $display("");
+        $display("[TEST D] Dicrotic notch must not confirm an early crest");
+        reset_dut();
+        beat_count = 0;
+
+        // Warm-up pulse to clear first_beat_seen.
+        feed_sample(8'd130);
+        feed_sample(8'd170);
+        feed_sample(8'd150);
+        feed_sample(8'd80);
+        for (i = 0; i < 10; i = i + 1) begin
+            feed_sample(8'd50);
+            repeat (4) @(posedge clk);
+        end
+        beat_count = 0;
+
+        feed_sample(8'd130);
+        feed_sample(8'd160);
+        feed_sample(8'd200); // first systolic maximum
+        feed_sample(8'd187);
+        feed_sample(8'd171); // notch: 29 below, < peak/4 (50)
+        if (beat_count != 0) begin
+            $display("  FAIL: notch at 171 confirmed an early crest (beat_count=%0d)", beat_count);
+            tests_failed = tests_failed + 1;
+        end else begin
+            feed_sample(8'd185);
+            feed_sample(8'd199); // second maximum
+            feed_sample(8'd145); // real downstroke: 54 below, > peak/4
+            repeat (10) @(posedge clk);
+            if (beat_count == 1) begin
+                $display("  PASS: exactly one crest after the real downstroke, not at the notch");
+                tests_passed = tests_passed + 1;
+            end else begin
+                $display("  FAIL: expected one crest after the downstroke, got %0d", beat_count);
+                tests_failed = tests_failed + 1;
+            end
+        end
+        for (i = 0; i < 10; i = i + 1) begin
+            feed_sample(8'd50);
+            repeat (4) @(posedge clk);
         end
 
         $display("");

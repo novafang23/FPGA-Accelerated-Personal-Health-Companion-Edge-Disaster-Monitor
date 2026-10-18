@@ -410,15 +410,21 @@ module ppg_peak_detector #(
     reg        first_beat_seen;            // guard: IBI is only valid from the 2nd beat
 
     // Required drop from peak_val to confirm a crest.
-    //   peak > 48 : peak/8 -- proportional, so a tall pulse is not confirmed by
-    //               a ripple-sized dip on its own shoulder.
+    //   peak > 48 : peak/4 -- 25 %. The earlier peak/8 (12.5 %) rule still
+    //               confirmed the first systolic maximum when the dicrotic
+    //               notch dipped more than 12.5 % on the actual filtered
+    //               signal. That produced short/long pairs (measured
+    //               888/645 ms, 781/641, 666/797 against ~730 ms rhythm).
+    //               A real systolic downstroke falls well past 25 % of the
+    //               peak, so peak/4 rejects the notch without a time-based
+    //               holdoff.
     //   peak <= 48: fixed floor of 6 -- a weak pulse (poor contact) has a small
     //               absolute swing, and a proportional-only rule would demand a
     //               drop smaller than the ADC noise floor or larger than the
     //               pulse itself.
     // Constants assume the 8-bit sample path used by both platforms.
     wire [DATA_WIDTH-1:0] crest_fall_min =
-        (peak_val > 8'd48) ? (peak_val >> 3) : 8'd6;
+        (peak_val > 8'd48) ? (peak_val >> 2) : 8'd6;
 
     // Sequential state, timers and running-peak tracking
     always @(posedge clk or negedge rst_n) begin

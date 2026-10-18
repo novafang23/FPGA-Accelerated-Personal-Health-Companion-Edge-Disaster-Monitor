@@ -765,12 +765,18 @@ dataset — does it apply to Indian patients?"* ~2 hours.
 
 ---
 
-### T4.4 — Re-fit before quoting any FPGA resource figure — **DONE (2026-10-18)**
+### T4.4 — Re-fit before quoting any FPGA resource figure — **DONE (2026-10-18), RE-OPENED (2026-10-19)**
 
-The 2026-10-18 fit is current: **535 / 1120 LUT5s (47.77%)**, 303 FFs, 108/140 CLBs,
-PLL 0/1. It adds the 32-bit IBI burst (`0xC3` + cycle count) and dummy-byte filter gate;
-`resource_utilization_spi_link.log` and every doc that quotes a footprint have
-been updated to it. The older 443 (parallel link), 222, 342, 363 and 362 figures are all
+**2026-10-19 caveat:** the RTL crest threshold changed from peak/8 to peak/4
+after the live split-pair captures. The last fit (2026-10-18) is **535 / 1120
+LUT5s (47.77%)**, 303 FFs, 108/140 CLBs, PLL 0/1, but it describes the old
+crest comparator. The new fit must be run and must confirm the CLB count before
+this figure is quoted again. The change is a constant bit-select in an existing
+comparator, so it is expected to be resource-neutral — not verified.
+
+The 2026-10-18 fit adds the 32-bit IBI burst (`0xC3` + cycle count) and
+dummy-byte filter gate; `resource_utilization_spi_link.log` and every doc that
+quotes a footprint have been updated to it. The older 443 (parallel link), 222, 342, 363 and 362 figures are all
 real measurements of earlier netlists — see
 `hardware/shrikefi/synthesis_evidence/README.md` for the history. CLB occupancy
 (32 blocks free) is now the constraint to watch.
@@ -887,8 +893,11 @@ Physical gates / user actions, in this order:
 Validation / evidence:
   6. T4.1 independent HRV/IBI reference (AD8232 or borrowed chest strap), compared
      with Bland-Altman. Internal consistency is not ground-truth validation.
-  7. Full-rate capture for the detector's ~7.3% artefact rate (3 splits + 6 missed
-     per 124 intervals); decide whether the RTL crest-confirmation change is needed.
+  7. The RTL crest threshold is now **peak/4 (25 %)**, up from peak/8, after live
+     captures still showed 888/645, 781/641 and 666/797 ms split pairs. The flat
+     vendor source is regenerated; the **bitstream is stale** and must be re-fit
+     in the Renesas GUI, re-flashed, and re-captured. Replay the captured waveform
+     before claiming the split pairs are gone.
   8. RR: 6-12 validated, 18-19 marginal (20.7 published), 27 unreachable on finger
      PPG. A dedicated respiration sensor is the only route; do not publish 27.
 
