@@ -151,6 +151,11 @@ cannot be mistaken for measured ECG or respiration waveforms. The HR number
 itself comes from the device's accepted IBI pipeline, not from the browser
 waveform.
 
+With **no finger**, the MAX30102 still streams ambient/reflected IR. The page
+now labels that state **AMBIENT**, draws the trace in grey, and overlays
+**“NO CONTACT — ambient IR (not a pulse)”**. It does not colour it as a red
+medical alarm, and SQI/HR/SpO₂ remain `--` until real contact telemetry arrives.
+
 The **24-hour trajectory is a 24-slot RAM buffer since boot**, not a calendar
 history persisted in NVS. It fills only as uptime accumulates, and slot 0 is the
 device's current-hour average (not an instantaneous reading). The page now takes

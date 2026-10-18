@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'sha256-b4cW3z7DKEguy3Bn4OLN91wFpZTgx5hIt0uNwwc6JzQ='; style-src 'unsafe-inline'; connect-src 'self'; form-action 'self'; base-uri 'none'; object-src 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'sha256-mglj+asDTPrV0DS4ABjj38s7ah6EJvG1LTV9+BrB4Ms='; style-src 'unsafe-inline'; connect-src 'self'; form-action 'self'; base-uri 'none'; object-src 'none'">
 <title>VALOR â€” Edge Health &amp; Disaster Triage</title>
 <!--
   VALOR dashboard â€” single self-contained file.
@@ -656,7 +656,7 @@ const C = {
    looking number, so every field starts at zero and render() prints "--" for it
    until a device connects or a simulation is explicitly started. */
 const V = {
-  hr: 0, spo2: 0, hrv: 0, rr: 0, rrConf: 0, rrDepth: 0, sqi: 0,
+  hr: 0, spo2: 0, hrv: 0, rr: 0, rrConf: 0, rrDepth: 0, sqi: 0, contact: false,
   temp: 0, hum: 0, pmRaw: 0, pmCal: 0, loc: '',
   psi: 0, aha: 0, heat: 0, poll: 0, flood: 0, storm: 0, news2: 0,
   pi: 0, level: 0, flags: 0, risk: 'UNKNOWN',
@@ -826,8 +826,9 @@ function makePPG() {
 
     if (n < 2) return;
 
-    const bad = V.sqi < 50;
-    const color = bad ? C.crimson : C.cyan;
+    const noContact = (mode === 'live' && !V.contact);
+    const bad = !noContact && V.sqi < 50;
+    const color = noContact ? 'rgba(148,163,184,0.85)' : (bad ? C.crimson : C.cyan);
     const xAt = (i) => (i / (n - 1)) * w;
     const yAt = (i) => {
       const idx = (head - n + i + N * 2) % N;
@@ -850,6 +851,13 @@ function makePPG() {
     for (let i = 0; i < n; i++) { const x = xAt(i), y = yAt(i); i ? ctx.lineTo(x, y) : ctx.moveTo(x, y); }
     ctx.stroke();
     ctx.shadowBlur = 0;
+
+    if (noContact) {
+      ctx.fillStyle = 'rgba(245,158,11,0.9)';
+      ctx.font = '12px ' + getComputedStyle(document.body).fontFamily;
+      ctx.textAlign = 'left';
+      ctx.fillText('NO CONTACT — ambient IR (not a pulse)', 12, 20);
+    }
 
     /* sweep */
     const sx = (head < N) ? w : ((head % N) / N) * w;
@@ -1314,7 +1322,7 @@ function setStatus(kind, text) {
 
 function clearLiveReadings() {
   Object.assign(V, {
-    hr: 0, spo2: 0, hrv: 0, rr: 0, rrConf: 0, rrDepth: 0, sqi: 0, pi: 0,
+    hr: 0, spo2: 0, hrv: 0, rr: 0, rrConf: 0, rrDepth: 0, sqi: 0, contact: false, pi: 0,
     temp: 0, hum: 0, pmRaw: 0, pmCal: 0, loc: '',
     psi: 0, aha: 0, heat: 0, poll: 0, flood: 0, storm: 0, news2: 0,
     level: 0, flags: 0, risk: 'UNKNOWN', rHeat: 'UNKNOWN',
@@ -1415,9 +1423,13 @@ function render() {
   $('scope-sqi').textContent = sqiOn ? 'SQI ' + sqiPct + '%' : 'SQI --';
   $('scope-sqi').style.color = !sqiOn ? '' : (V.sqi < 50 ? C.crimson : C.mid);
   $('scope-rate').textContent = (mode === 'live' ? (sampleRate || '--') : '50') + ' Hz';
-  $('scope-src').textContent = (mode === 'live') ? (ppgSeen ? 'LIVE IR' : 'GATED') : (mode === 'sim' ? 'SIM PPG' : 'NONE');
-  $('scope-sub').textContent = mode === 'live'
-    ? 'Raw 18-bit IR · 100 Hz FIFO · 1:4 stream · auto-ranged'
+  $('scope-src').textContent = (mode === 'live')
+    ? (!V.contact ? 'AMBIENT' : (ppgSeen ? 'LIVE IR' : 'GATED'))
+    : (mode === 'sim' ? 'SIM PPG' : 'NONE');
+  $('scope-sub').textContent = (mode === 'live')
+    ? (!V.contact
+        ? 'No finger · raw ambient IR, not a pulse'
+        : 'Raw 18-bit IR · 100 Hz FIFO · 1:4 stream · auto-ranged')
     : 'Synthetic PPG · demo waveform · auto-ranged';
 
   $('m-pi').textContent  = (V.pi > 0 && V.sqi >= 70) ? V.pi.toFixed(2) + ' %' : '--';
@@ -1794,13 +1806,15 @@ function handleLine(line) {
   if (line.startsWith('[TELEMETRY]')) {
     if (line.indexOf('NO_FINGER') >= 0) {
       V.hr = 0; V.spo2 = 0; V.hrv = 0; V.rr = 0; V.rrConf = 0; V.rrDepth = 0;
-      V.sqi = 0; V.pi = 0; V.level = 0; V.flags = 0; V.risk = 'UNKNOWN';
+      V.sqi = 0; V.pi = 0; V.contact = false;
+      V.level = 0; V.flags = 0; V.risk = 'UNKNOWN';
       const k = parseKV(line.replace('[TELEMETRY]', ''));
       if (k.TEMP) V.temp = num(k.TEMP);
       if (k.HUM)  V.hum  = num(k.HUM);
       if (k.PM25) { V.pmCal = num(k.PM25); V.pmRaw = num(k.PM25); }
       return;
     }
+    V.contact = true;   /* normal or ACQUIRING telemetry means tissue contact */
     const k = parseKV(line.replace('[TELEMETRY]', ''));
     if (k.HR)    V.hr   = num(k.HR);
     if (k.SPO2)  V.spo2 = num(k.SPO2);
@@ -1981,7 +1995,7 @@ function enterIdle() {
   if (port) disconnect();
   mode = 'idle';
   Object.assign(V, {
-    hr: 0, spo2: 0, hrv: 0, rr: 0, rrConf: 0, rrDepth: 0, sqi: 0,
+    hr: 0, spo2: 0, hrv: 0, rr: 0, rrConf: 0, rrDepth: 0, sqi: 0, contact: false,
     temp: 0, hum: 0, pmRaw: 0, pmCal: 0, loc: '',
     psi: 0, aha: 0, heat: 0, poll: 0, flood: 0, news2: 0,
     pi: 0, level: 0, flags: 0, risk: 'UNKNOWN',

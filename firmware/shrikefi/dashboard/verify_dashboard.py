@@ -58,7 +58,8 @@ window.onerror = function (m) { window.__err = String(m); };
       handleLine('[TELEMETRY] HR=72.0,SPO2=98.0,RMSSD=42.0,TEMP=25.0,HUM=50.0,PM25=12.0,RR=15.0,SQI=0.90,RRDEPTH=42.5,RRCONF=0.80,PI=3.21');
     } else {
       V.hr = 72; V.spo2 = 98; V.hrv = 42; V.rr = 15; V.sqi = 95; V.pi = 1.2;
-      V.news2 = 0; V.risk = 'NORMAL'; V.level = 0; V.flags = 0;
+      V.news2 = 0; V.risk = 'NORMAL'; V.level = 0; V.flags = 0; V.contact = true;
+      ppgSeen = true;
       handleLine('[HISTORY] H0,HR=72.0,SPO2=98.0,RMSSD=42.0,NEWS2=0,PM25=12.0');
     }
     if (new URLSearchParams(location.search).get('case') !== 'stale') render();
@@ -83,6 +84,7 @@ window.onerror = function (m) { window.__err = String(m); };
       histSub: txt('hist-sub'), histSpan: txt('hist-span'),
       histExport: txt('hist-export'),
       histExportDisabled: document.getElementById('hist-export').disabled,
+      scopeSrc: txt('scope-src'),
       temp: txt('v-temp'),
       status: txt('status-text').indexOf('NO DATA') === 0,
       sqi: txt('v-sqi'), sqiPill: txt('sqi-pill'), sqiNumCol: col('v-sqi'),
@@ -198,6 +200,7 @@ for case in ("zero", "healthy", "nofinger", "sensor_missing", "pi", "stale"):
             "histMeanHr": "--", "histSampleCount": "0/24",
             "histSub": "No history yet \u2014 connect a device or start a simulation",
             "histSpan": "NO DATA", "histExportDisabled": True,
+            "scopeSrc": "AMBIENT",
             "n2": ["RR=--", "SpO2=--", "HR=--", "SBP=n/a", "Temp=n/a", "Consc=n/a"],
         }
     elif case == "healthy":
@@ -205,6 +208,7 @@ for case in ("zero", "healthy", "nofinger", "sensor_missing", "pi", "stale"):
             "hr": "72", "spo2": "98.0", "hrv": "42.0", "rr": "15", "sqi": "95",
             "hrNote": "normal rate", "spo2Note": "normal",
             "hrSource": "device IBI", "deviceVerdict": "Device verdict: NORMAL",
+            "scopeSrc": "LIVE IR",
             "idleRrNote": "PPG-derived \u00b7 RSA modulation",
             "histSub": "Device hourly summaries \u00b7 since boot \u00b7 1/24 hours populated",
             "histSpan": "SINCE BOOT", "histExport": "EXPORT CSV",

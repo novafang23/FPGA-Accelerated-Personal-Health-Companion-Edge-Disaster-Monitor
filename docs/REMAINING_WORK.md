@@ -680,6 +680,9 @@ were applied. `verify_dashboard.py` and `verify_softap_page.py` pass.
 - The history chart now prints its fixed display ranges, labels the
   simulation history **SYNTHETIC**, shows `n/24 hours populated` in live mode,
   uses an "hourly average" tooltip, and offers **EXPORT CSV** for the 24 rows.
+- No-finger live PPG is labelled **AMBIENT** with a grey trace and a
+  **“NO CONTACT — ambient IR (not a pulse)”** overlay; it is not painted as a
+  red alarm.
 - Accessibility: contrast raised for notes/units/n-a tiles, gate is a labelled
   dialog with focus on the first action, header has a persistent `h1`, status is
   a polite live region, history chart supports arrow keys, buttons have explicit
