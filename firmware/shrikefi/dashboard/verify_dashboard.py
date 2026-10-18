@@ -2,10 +2,12 @@
 
 The dashboard is one self-contained file with no build step, and a reviewer
 reading the source cannot see what it actually renders. This renders the real
-file in Chrome with mode forced to 'live' and reads the resulting DOM, twice:
+file in Chrome with mode forced to 'live' and reads the resulting DOM for several
+states:
 
   zero    - every vital absent (0), i.e. connected but still acquiring
   healthy - HR 72, SpO2 98, RMSSD 42, RR 15
+  pi      - a real PI/RRDEPTH/RRCONF telemetry line is parsed and displayed
 
 The rule being enforced is that an absent reading must render as absent - a
 dash, a neutral colour and a note saying the reading is still coming. A raw 0
@@ -39,6 +41,7 @@ window.__err = null;
 window.onerror = function (m) { window.__err = String(m); };
 (function () {
   try {
+    const idleRrNote = document.getElementById('rr-note').textContent.trim();
     mode = 'live';
     if (new URLSearchParams(location.search).get('case') === 'zero') {
       V.hr = 0; V.spo2 = 0; V.hrv = 0; V.rr = 0; V.sqi = 0; V.pi = 0;
@@ -51,9 +54,11 @@ window.onerror = function (m) { window.__err = String(m); };
       handleLine('[TELEMETRY] NO_FINGER,TEMP=25.0,HUM=50.0,PM25=12.0');
     } else if (new URLSearchParams(location.search).get('case') === 'sensor_missing') {
       handleLine('[TELEMETRY] NO_FINGER,TEMP=-100.0,HUM=-1.0,PM25=12.0');
+    } else if (new URLSearchParams(location.search).get('case') === 'pi') {
+      handleLine('[TELEMETRY] HR=72.0,SPO2=98.0,RMSSD=42.0,TEMP=25.0,HUM=50.0,PM25=12.0,RR=15.0,SQI=0.90,RRDEPTH=42.5,RRCONF=0.80,PI=3.21');
     } else {
       V.hr = 72; V.spo2 = 98; V.hrv = 42; V.rr = 15; V.sqi = 95; V.pi = 1.2;
-      V.news2 = 0;
+      V.news2 = 0; V.risk = 'NORMAL'; V.level = 0; V.flags = 0;
     }
     if (new URLSearchParams(location.search).get('case') !== 'stale') render();
     const txt = (id) => {
@@ -71,7 +76,9 @@ window.onerror = function (m) { window.__err = String(m); };
       hr: txt('v-hr'), hrNote: txt('hr-note'), hrNumCol: col('v-hr'),
       spo2: txt('v-spo2'), spo2Note: txt('spo2-note'), spo2NumCol: col('v-spo2'),
       hrv: txt('v-hrv'), hrvNote: txt('hrv-note'), hrvNumCol: col('v-hrv'),
-      rr: txt('v-rr'), rrNumCol: col('v-rr'),
+      rr: txt('v-rr'), rrNumCol: col('v-rr'), rrNote: txt('rr-note'),
+      pi: txt('m-pi'), idleRrNote: idleRrNote, hrSource: txt('hr-source'),
+      deviceVerdict: txt('device-verdict'),
       temp: txt('v-temp'),
       status: txt('status-text').indexOf('NO DATA') === 0,
       sqi: txt('v-sqi'), sqiPill: txt('sqi-pill'), sqiNumCol: col('v-sqi'),
@@ -167,7 +174,7 @@ def check(case, r, expect):
 
 
 failures = []
-for case in ("zero", "healthy", "nofinger", "sensor_missing", "stale"):
+for case in ("zero", "healthy", "nofinger", "sensor_missing", "pi", "stale"):
     try:
         r = render(case)
     except (RuntimeError, json.JSONDecodeError) as e:
@@ -190,7 +197,9 @@ for case in ("zero", "healthy", "nofinger", "sensor_missing", "stale"):
     elif case == "healthy":
         expect = {
             "hr": "72", "spo2": "98.0", "hrv": "42.0", "rr": "15", "sqi": "95",
-            "hrNote": "normal sinus rhythm", "spo2Note": "normal",
+            "hrNote": "normal rate", "spo2Note": "normal",
+            "hrSource": "device IBI", "deviceVerdict": "Device verdict: NORMAL",
+            "idleRrNote": "PPG-derived \u00b7 RSA modulation",
             "hrvNote": "Adequate reserve", "sqiPill": "clean signal",
             "histMeanHr": "72 bpm", "histSampleCount": "1/24",
             "n2": ["RR=+0", "SpO2=+0", "HR=+0", "SBP=n/a", "Temp=n/a", "Consc=n/a"],
@@ -199,6 +208,11 @@ for case in ("zero", "healthy", "nofinger", "sensor_missing", "stale"):
         expect = {"hr": "--", "temp": "25.0"}
     elif case == "sensor_missing":
         expect = {"hr": "--", "temp": "--"}
+    elif case == "pi":
+        expect = {
+            "pi": "3.21 %",
+            "rrNote": "43 ms RSA depth \u00b7 conf 80%",
+        }
     else:
         expect = {
             "hr": chr(0x2014),

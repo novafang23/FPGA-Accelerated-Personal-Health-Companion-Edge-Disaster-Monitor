@@ -96,6 +96,7 @@ typedef struct {
     float pm25_ugm3;
     float respiratory_rate_bpm; /* PPG-derived (Charlton 2018 RSA); 0 = unavailable */
     float ppg_sqi;              /* composite signal quality index [0,1]        */
+    float perfusion_index;      /* AC/DC ratio percent from the SQI window     */
     /* The estimator's own inputs for the respiratory rate, published so the
      * thresholds can be set from measurements of real data rather than from
      * first principles. On hardware RR published in 4 of 118 frames in one
@@ -459,6 +460,8 @@ static void ppg_update_respiration_and_sqi(hrv_state_t *hrv,
         }
         hrv_quality_ok = (sqi.overall_sqi >= PPG_SQI_THRESHOLD_VALID) &&
                          (g_state.ppg_sqi >= PPG_SQI_THRESHOLD_VALID);
+        g_state.perfusion_index = (s_sqi_raw_n >= PPG_FIFO_RATE_HZ)
+                                  ? sqi.perfusion_index : 0.0f;
         s_hrv_sqi_valid = hrv_quality_ok;
         if (hrv_quality_ok) {
             if (hrv != NULL && hrv_is_ready(hrv) && hrv->rmssd > 0.0f && g_state.hrv_rmssd <= 0.0f) {
@@ -1246,6 +1249,7 @@ static void task_ppg_accelerator(void *pvParameters) {
                     g_state.spo2_percent       = 0.0f;
                     g_state.respiratory_rate_bpm = 0.0f;
                     g_state.ppg_sqi            = 0.0f;
+                    g_state.perfusion_index    = 0.0f;
                     g_state.signal_status      = SIGNAL_STATUS_NO_FINGER;
                     xSemaphoreGive(s_data_mutex);
                 }
@@ -1314,6 +1318,7 @@ static void task_ppg_accelerator(void *pvParameters) {
                         g_state.rr_confidence        = 0.0f;
                         g_state.rr_rsa_depth_ms      = 0.0f;
                         g_state.ppg_sqi              = 0.0f;
+                        g_state.perfusion_index      = 0.0f;
                         g_state.signal_status        = SIGNAL_STATUS_NO_FINGER;
                         xSemaphoreGive(s_data_mutex);
                     }
@@ -1584,6 +1589,7 @@ static void task_disaster_monitor(void *pvParameters) {
          * Snapshotted here so the ACQUIRING line can carry them. */
         float rr_pub      = 0.0f;
         float sqi_pub     = 0.0f;
+        float pi_pub      = 0.0f;
         float rrdepth_pub = 0.0f;
         float rrconf_pub  = 0.0f;
 
@@ -1699,6 +1705,7 @@ static void task_disaster_monitor(void *pvParameters) {
             vitals_ready = (hrv_snapshot.count >= 10 && hr > 30.0f && spo2 > 0.0f);
             rr_pub      = g_state.respiratory_rate_bpm;
             sqi_pub     = g_state.ppg_sqi;
+            pi_pub      = g_state.perfusion_index;
             rrdepth_pub = g_state.rr_rsa_depth_ms;
             rrconf_pub  = g_state.rr_confidence;
             xSemaphoreGive(s_data_mutex);
@@ -1886,11 +1893,13 @@ static void task_disaster_monitor(void *pvParameters) {
                    /* RRDEPTH and RRCONF are the estimator's own inputs, appended
                     * so the existing parsers are unaffected. They are published
                     * whether or not RR is, because the question they answer is
-                    * why the gate did or did not open. */
-                   "RRDEPTH=%.1f,RRCONF=%.2f\n",
+                    * why the gate did or did not open. PI is the AC/DC perfusion
+                    * index from the same SQI window, shown live by the web
+                    * dashboard; it is appended for the same compatibility reason. */
+                   "RRDEPTH=%.1f,RRCONF=%.2f,PI=%.2f\n",
                    hr, engine_spo2, hrv_snapshot.rmssd, env.ambient_temp_c,
                    env.humidity_pct, env.pm25, rr_for_news2, sqi_for_news2,
-                   rr_depth_dbg, rr_conf_dbg);
+                   rr_depth_dbg, rr_conf_dbg, pi_pub);
             fflush(stdout);
             /* The temporary [STATUS] diagnostic lived here; the structured
              * [TRIAGE] line below carries the same risk fields. */
@@ -1907,8 +1916,10 @@ static void task_disaster_monitor(void *pvParameters) {
              * scores from the raw numbers - a second implementation of the
              * clinical logic, running on the PC, in a project whose whole claim
              * is edge-first. This line publishes what the device already
-             * computed, so a dashboard is a pure view and the device stays the
-             * single source of truth.
+             * computed, so the final verdict stays on the device and the
+             * dashboard only renders it. The Windows dashboard reconstructs the
+             * NEWS2 sub-score tiles from these values; the total remains the
+             * device's score.
              *
              * LEVEL is the clinical_risk_level_t ordinal (0 normal, 1 elevated,
              * 2 high, 3 critical) and FLAGS is the clinical_alert_flags_t

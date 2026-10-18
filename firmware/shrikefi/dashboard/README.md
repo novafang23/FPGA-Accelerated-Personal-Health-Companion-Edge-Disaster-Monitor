@@ -81,11 +81,11 @@ so each was replaced. This table is the record of that.
 
 | Mock-up showed | Problem | Replaced with |
 |---|---|---|
-| **Systolic est. 118 mmHg**, **Diastolic est. 76 mmHg** | No blood-pressure sensor and no BP algorithm anywhere in the project. Pure invention. | **Perfusion index** — actually computed (`ppg_sqi.c`) |
+| **Systolic est. 118 mmHg**, **Diastolic est. 76 mmHg** | No blood-pressure sensor and no BP algorithm anywhere in the project. Pure invention. | **Perfusion index** — computed by `ppg_sqi.c` and transmitted as `PI=` |
 | **PTT 248 ms** | No pulse-transit-time measurement exists. | **RMSSD** and **signal quality** — both real |
 | **AHA Autonomic …/10** | `disaster_calculate_aha_autonomic_strain()` returns **[0.0, 1.0]**. Showing it over 10 overstated it tenfold. | Same value on its real **/1.0** scale |
 | NEWS2 tiles for **SBP** and **Consc** | The device measures neither, and the on-device score is HR + SpO₂ + RR only. The mock-up showed them as `+0`, which reads as "measured and normal". | Shown as **n/a — not instrumented**, greyed |
-| **AUC 0.974** | Not measured anywhere in this project. | **Rule-vs-NN agreement 100%** (`accuracy_evaluator`) |
+| **AUC 0.974** | Not measured anywhere in this project. | **Rule-vs-NN agreement 99.95%** (`accuracy_evaluator`); FP32↔INT8 tier agreement 97.32% |
 | **6 ms latency** | Never benchmarked. | Removed |
 | **940 nm IR reflectance** | MAX30102/MAX30100 use 660 nm red and **880 nm** IR. | "AC-coupled reflectance" |
 | **BME688 · SHT40** | Neither part is on this board. | **BME280** (and labelled *ambient, not skin*) |
@@ -98,7 +98,10 @@ plausible-looking number that nothing measures.
 
 ## The architecture change this forced
 
-The page is a **pure view**. It computes no clinical logic.
+The page is a **pure view of the final triage**. The total NEWS2, `RISK`, the hazard
+risks and the TinyML scores arrive from the board. The six NEWS2 sub-score tiles are
+reconstructed locally from the displayed vitals using the same RCP tables so the
+breakdown is visible; they cannot change the device's total score.
 
 That matters because of what the firmware used to send. `[TELEMETRY]` carried
 raw vitals only, so the old Win32 dashboard had to re-derive NEWS2, the three
@@ -125,19 +128,28 @@ are now calculated for real on-device.
 ## Serial contract
 
 ```
-[TELEMETRY] HR=..,SPO2=..,RMSSD=..,TEMP=..,HUM=..,PM25=..,RR=..,SQI=..
+[TELEMETRY] HR=..,SPO2=..,RMSSD=..,TEMP=..,HUM=..,PM25=..,RR=..,SQI=..,
+            RRDEPTH=..,RRCONF=..,PI=..
 [TELEMETRY] NO_FINGER,TEMP=..,HUM=..,PM25=..
 [TELEMETRY] ACQUIRING,HR=..,SPO2=..,RMSSD=..,TEMP=..,HUM=..,PM25=..
 [TRIAGE]    NEWS2=..,LEVEL=..,FLAGS=0x..,RISK=..,NNHEAT=..,NNPOLL=..,NNFLOOD=..
             RHEAT=..,RPOLL=..,RFLOOD=..,PSI=..,AHA=..
-[PPG]       <raw IR counts, ~100 Hz>
+[PPG]       <raw IR counts, 25 Hz decimated from the 100 Hz FIFO>
 ```
 
 `SQI` arrives as 0–1 and is shown as a percentage. `NN*` arrive as 0–1 and are
-shown as percentages. Everything else is already in display units.
+shown as percentages. `PI` is the AC/DC perfusion index in percent and is now
+shown live. Everything else is already in display units.
 
 If no telemetry arrives for 3 seconds while connected, the header says so rather
 than freezing on stale numbers.
+
+The **PPG scope is real data in live mode**: it plots the `[PPG]` raw-IR stream
+(the firmware decimates the 100 Hz FIFO 1:4). The ECG sparkline and RR envelope
+are schematic visualisations, and both carry a visible `SCHEMATIC` tag so they
+cannot be mistaken for measured ECG or respiration waveforms. The HR number
+itself comes from the device's accepted IBI pipeline, not from the browser
+waveform.
 
 ## ShrikeFi SoftAP dashboard
 
