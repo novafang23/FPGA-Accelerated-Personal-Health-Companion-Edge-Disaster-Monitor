@@ -71,10 +71,10 @@
 
 ### Q4.1 (Advanced): Why did you choose the Renesas ForgeFPGA SLG47910C over a Xilinx Artix-7 or Zynq?
 - **Direct Answer:** "Cost, power, and board footprint. The Renesas ForgeFPGA costs approximately $0.50 and consumes under 5 milliwatts, making a mass-deployed disaster wearable economically feasible. The Zynq-7000 costs $50 to $150 and consumes watts, which is unsuitable for a low-cost wearable. We used the Zynq-7000 as our verified golden baseline and ported the core to the ForgeFPGA."
-- **Technical Explanation:** The Zynq-7000 was verified in Vivado ML 2022.2 (185 LUTs, 0 DSP, 0 BRAM, Fmax 69.45 MHz). The ForgeFPGA SLG47910C fits into 535 LUT5s (47.77% fabric), 303 flip-flops and 108/140 CLBs, with a fitter-reported achievable frequency of 81.846 MHz — no Block RAM or dedicated DSPs are needed. (No clock constraint exists yet, so this is an unconstrained fit result, not timing closure.)
+- **Technical Explanation:** The Zynq-7000 was verified in Vivado ML 2022.2 (185 LUTs, 0 DSP, 0 BRAM, Fmax 69.45 MHz). The ForgeFPGA SLG47910C fits into 515 LUT5s (45.98% fabric), 303 flip-flops and 105/140 CLBs, with a fitter-reported achievable frequency of 88.059 MHz — no Block RAM or dedicated DSPs are needed. (No clock constraint exists yet, so this is an unconstrained fit result, not timing closure.)
 - **Evidence:** `docs/MIGRATION.md`, `hardware/shrikefi/synthesis_evidence/resource_utilization_spi_link.log`.
 - **Follow-up Challenge:** "Does the ForgeFPGA have enough logic remaining for feature expansion?"
-- **Safe Response:** "Yes. With 535 LUT5s utilized out of 1120, 52.23% of the LUT fabric remains uncommitted; CLB occupancy is the tighter number at 108 of 140 blocks."
+- **Safe Response:** "Yes. With 515 LUT5s utilized out of 1120, 54.02% of the LUT fabric remains uncommitted; CLB occupancy is the tighter number at 105 of 140 blocks."
 
 ---
 

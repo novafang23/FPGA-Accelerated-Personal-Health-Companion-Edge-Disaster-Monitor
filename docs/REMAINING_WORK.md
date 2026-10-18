@@ -765,27 +765,31 @@ dataset — does it apply to Indian patients?"* ~2 hours.
 
 ---
 
-### T4.4 — Re-fit before quoting any FPGA resource figure — **DONE (2026-10-18), RE-OPENED (2026-10-19)**
+### T4.4 — Re-fit before quoting any FPGA resource figure — **DONE (2026-10-19)**
 
-**2026-10-19 caveat:** the RTL crest threshold changed from peak/8 to peak/4
-after the live split-pair captures. The last fit (2026-10-18) is **535 / 1120
-LUT5s (47.77%)**, 303 FFs, 108/140 CLBs, PLL 0/1, but it describes the old
-crest comparator. The new fit must be run and must confirm the CLB count before
-this figure is quoted again. The change is a constant bit-select in an existing
-comparator, so it is expected to be resource-neutral — not verified.
+The peak/4 crest refit completed on 2026-10-19. It is **smaller** than the
+2026-10-18 burst fit:
 
-The 2026-10-18 fit adds the 32-bit IBI burst (`0xC3` + cycle count) and
-dummy-byte filter gate; `resource_utilization_spi_link.log` and every doc that
-quotes a footprint have been updated to it. The older 443 (parallel link), 222, 342, 363 and 362 figures are all
-real measurements of earlier netlists — see
-`hardware/shrikefi/synthesis_evidence/README.md` for the history. CLB occupancy
-(32 blocks free) is now the constraint to watch.
+- **515 / 1120 LUT5s (45.98%)** — 605 LUTs free
+- **303 FFs** (298 CLB + 5 IOB)
+- **105 / 140 CLBs (75.00%)** — **35 CLBs free**
+- **0 BRAM, PLL 0/1**
+- Bitstream SHA-256 `d9d58daa59eda5a4d99dd8fe44060f31d8f2e0cfb2d5a5d29a9998b2abd055d0`
+- Firmware header regenerated with `convert_bitstream.py`; board flashed and booted
+  (`configuration COMPLETE! (46408 bytes loaded)`).
+
+The 2026-10-18 fit was 535 LUT5s / 303 FFs / 108 CLBs; its jump from 362 was the
+32-bit IBI burst (`0xC3` + cycle count), not fitter noise. The older 443
+(parallel link), 222, 342, 363 and 362 figures are also real measurements of
+earlier netlists — see `hardware/shrikefi/synthesis_evidence/README.md` for the
+history. **CLB occupancy (105/140) is still the constraint to watch.**
 
 **One caveat carried forward:** the design declares no clock constraint, so the
-fitter auto-constrains `clk` to 500 MHz and reports WNS −10.219 ns, which is
-meaningless. Achievable period is 12,218 ps (81.846 MHz); at 50 MHz the margin is
-+7.782 ns. Adding a real constraint to the flow is still open work — until then
-the timing report cannot be cited either way.
+fitter auto-constrains `clk` to 500 MHz. The 2026-10-19 report gives WNS
+−9.357 ns, which is meaningless against that constraint. Achievable period is
+11,356 ps (88.059 MHz); at 50 MHz the margin is +8.644 ns. Adding a real
+constraint to the flow is still open work — until then the timing report cannot
+be cited either way. The previous 81.846 MHz / +7.782 ns figures are historical.
 
 ---
 
@@ -793,11 +797,12 @@ the timing report cannot be cited either way.
 
 Split out of T4.4 because the re-fit is done but this is not. `forgefpga_pins.pcf` declares only
 `set_io` lines, so the fitter auto-constrains `clk` to 2000 ps (500 MHz) and every register in the
-design "fails". The reported WNS of −10.219 ns is therefore unusable in either direction — it is
+design "fails". The reported WNS of −9.357 ns is therefore unusable in either direction — it is
 not evidence that timing fails, and not evidence that it closes.
 
-The design's achievable period is 12,218 ps (81.846 MHz), so at the documented 50 MHz the margin is
-+7.782 ns. That is a good sign, not a result.
+The 2026-10-19 design's achievable period is 11,356 ps (88.059 MHz), so at the documented 50 MHz
+the margin is +8.644 ns. That is a good sign, not a result. The previous fit's 81.846 MHz /
++7.782 ns is historical.
 
 **Do:** find whether the Renesas flow accepts a frequency constraint (an SDC, or a `set_frequency`
 in the PCF — the repo's reference docs under `docs/reference/shrike_board/` do not say), apply
@@ -809,14 +814,16 @@ constraint is worse than none, because it produces a confident number.
 
 ---
 
-### T4.6 — Flash and verify HRV readiness / OLED state — **WAITING FOR BOARD**
+### T4.6 — Flash and verify HRV readiness / OLED state — **FLASHED; LIVE VERIFICATION PENDING**
 
-**Status: code fixed, not flashed.** The board is disconnected. The current tree
+**Status: flashed on COM5, live behaviour not yet verified.** The current tree
 passes the host suite, the 34-test Zynq suite and the ESP-IDF build; the HRV
-readiness change itself is `a2000ba` (firmware build fix `666faea`). None of the
-HRV readiness changes have run on hardware.
+readiness change itself is `a2000ba` (firmware build fix `666faea`), and the
+2026-10-19 peak/4 bitstream is in the firmware header. The board booted with
+`configuration COMPLETE! (46408 bytes loaded)`, but no steady-contact HRV capture
+has been assessed yet.
 
-When the board's COM port is reconnected (currently COM5), follow
+With the board on COM5, follow
 [`docs/HARDWARE_DEBUG_HANDOVER.md`](HARDWARE_DEBUG_HANDOVER.md) §6. The short
 version:
 
@@ -871,11 +878,12 @@ still open.
 
 ```
 DONE: T1.1-T1.7 core software/status; T2.3 IMU fitted (physical fall test pending);
-      T3.1, T3.3, T3.4, T3.5; T4.4 fit recorded (535 LUT5s / 303 FFs / 108 CLBs).
+      T3.1, T3.3, T3.4, T3.5; T4.4 fit recorded (515 LUT5s / 303 FFs / 105 CLBs).
 
 BOARD RECONNECT GATE — do this before the next measurement:
-  Flash the HRV readiness fix and run docs/HARDWARE_DEBUG_HANDOVER.md §6.
-  No HRV/OLED behaviour in the current tree is hardware-verified yet.
+  The HRV readiness fix and the 2026-10-19 peak/4 bitstream are flashed on COM5.
+  Run docs/HARDWARE_DEBUG_HANDOVER.md §6 and the 90 s finger capture; live HRV
+  behaviour is not yet hardware-validated.
 
 Physical gates / user actions, in this order:
   1. Print the MAX30102 reflective cradle; assemble; recalibrate SpO2 at the fixed
@@ -894,18 +902,20 @@ Validation / evidence:
   6. T4.1 independent HRV/IBI reference (AD8232 or borrowed chest strap), compared
      with Bland-Altman. Internal consistency is not ground-truth validation.
   7. The RTL crest threshold is now **peak/4 (25 %)**, up from peak/8, after live
-     captures still showed 888/645, 781/641 and 666/797 ms split pairs. The flat
-     vendor source is regenerated; the **bitstream is stale** and must be re-fit
-     in the Renesas GUI, re-flashed, and re-captured. Replay the captured waveform
-     before claiming the split pairs are gone.
+     captures still showed 888/645, 781/641 and 666/797 ms split pairs. The
+     2026-10-19 bitstream (`d9d58daa…`, 515 LUT5s / 105 CLBs) is regenerated,
+     updated in the firmware header, and flashed. **Live 90 s capture is still
+     pending:** quantify split pairs and RMSSD before claiming the artefact is
+     gone.
   8. RR: 6-12 validated, 18-19 marginal (20.7 published), 27 unreachable on finger
      PPG. A dedicated respiration sensor is the only route; do not publish 27.
 
 FPGA / claims:
   9. T4.5 real 50 MHz clock constraint. Until it exists, quote the achievable
-     12,218 ps / 81.846 MHz, not timing closure, and never the auto-constrained WNS.
- 10. The burst fit uses 108/140 CLBs (32 free). Check/optimise any new RTL against
-     CLBs first; LUT headroom (585 free) is misleading.
+     11,356 ps / 88.059 MHz, not timing closure, and never the auto-constrained
+     WNS of −9.357 ns.
+ 10. The current crest refit uses 105/140 CLBs (35 free). Check/optimise any new
+     RTL against CLBs first; LUT headroom (605 free) is misleading.
  11. T4.2 Indian normative HRV range and T4.3 India-specific thresholds, if claiming
      India-specific clinical validity.
 

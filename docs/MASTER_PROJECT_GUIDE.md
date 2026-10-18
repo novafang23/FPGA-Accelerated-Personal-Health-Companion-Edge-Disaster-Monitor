@@ -381,12 +381,12 @@ ibi_cycles  XXXXXXXXXXXXXXXXXXXXXX< 0x00000CD1 >XXXX   (3,281 internal ticks = 6
 |---|---|---|
 | Zynq-7000 OOC (baseline, tag `v1.0-zynq-SIH`) | 185 LUT / 16 LUTRAM / 266 FF, **0 DSP, 0 BRAM**, WNS **+5.603 ns**, Fmax **69.45 MHz** | Tag + screenshots |
 | Zynq-7000 re-run (Vivado 2026.1) | **198** slice LUTs (182 logic + 16 LUTRAM), **267** FF, 0 DSP, 0 BRAM | `hardware/zynq/synthesis_evidence/ooc_utilization_synth.rpt` |
-| ForgeFPGA SLG47910C | **535 / 1120 LUT5s (47.77%)**, 303 FFs, 108/140 CLBs, 0 BRAM, PLL 0/1 | `hardware/shrikefi/synthesis_evidence/resource_utilization_spi_link.log` |
+| ForgeFPGA SLG47910C | **515 / 1120 LUT5s (45.98%)**, 303 FFs, 105/140 CLBs, 0 BRAM, PLL 0/1 | `hardware/shrikefi/synthesis_evidence/resource_utilization_spi_link.log` |
 
 > [!WARNING]
-> **Do not quote 443 LUT5s / 353 FFs / 85 CLBs** — that belongs to the superseded 4-bit parallel link build. The current SPI hardware fitter report measures **535 / 1120 LUT5s (47.77%)**, **303 FFs**, and **108/140 CLBs** with **PLL 0/1**. Earlier SPI figures (222, 342, 363 and 362 LUT5s) are also real measurements of older netlists — see `hardware/shrikefi/synthesis_evidence/README.md` for the fit history. The jump from 362 to 535 is the 32-bit IBI burst, not fitter noise. Likewise do not mix the 185-LUT baseline with the 198-LUT re-run; they are different runs measuring different scopes.
+> **Do not quote 443 LUT5s / 353 FFs / 85 CLBs** — that belongs to the superseded 4-bit parallel link build. The current SPI hardware fitter report (2026-10-19, peak/4 crest refit) measures **515 / 1120 LUT5s (45.98%)**, **303 FFs**, and **105/140 CLBs** with **PLL 0/1**. Earlier SPI figures (222, 342, 363, 362 and 535 LUT5s) are also real measurements of older netlists — see `hardware/shrikefi/synthesis_evidence/README.md` for the fit history. The jump from 362 to 535 was the 32-bit IBI burst; the 2026-10-19 crest refit landed at 515. Likewise do not mix the 185-LUT baseline with the 198-LUT re-run; they are different runs measuring different scopes.
 >
-> **Do not quote WNS −10.219 ns either.** The fitter auto-constrains `clk` to 500 MHz because the design declares no clock constraint; the achievable period is 12,218 ps (81.846 MHz), so at the documented 50 MHz the margin is +7.782 ns. That is an unconstrained-fit indication, not timing closure. See the timing section of the evidence README.
+> **Do not quote WNS −9.357 ns either.** The fitter auto-constrains `clk` to 500 MHz because the design declares no clock constraint; the 2026-10-19 achievable period is 11,356 ps (88.059 MHz), so at the documented 50 MHz the margin is +8.644 ns. That is an unconstrained-fit indication, not timing closure. The previous 2026-10-18 fit reported 81.846 MHz / +7.782 ns; those are historical. See the timing section of the evidence README.
 
 > [!TIP]
 > **Judge Defence Tip:** "Zero DSP, zero BRAM" is the number that impresses hardware engineers, because it proves the filter is arithmetic trickery rather than brute-force multipliers. Quote it with the mechanism: "running-sum with a bit-shift divide."
@@ -897,7 +897,7 @@ A standalone Win32 GDI application — no Python, no browser, no dependencies. I
 **Q13. "What's the battery / power consumption profile?"**
 
 - **Elevator:** "We haven't measured it on hardware — and I'd rather tell you that than quote a number I can't back."
-- **Technical:** "Architecturally, the FPGA core is compact but no longer sparse — 535 of 1120 LUT5s (47.77%), 303 FFs, and 108/140 CLBs, with zero DSP, zero BRAM, and zero PLL. CLB occupancy is the number to watch; it is a deliberately low-power profile, and the dominant consumer will be the ESP32-S3 radio."
+- **Technical:** "Architecturally, the FPGA core is compact but no longer sparse — 515 of 1120 LUT5s (45.98%), 303 FFs, and 105/140 CLBs, with zero DSP, zero BRAM, and zero PLL. CLB occupancy is the number to watch; it is a deliberately low-power profile, and the dominant consumer will be the ESP32-S3 radio."
 - **Evidence:** "Synthesis reports confirm the fabric footprint. Honest position: a real power measurement needs a bench supply and a current probe, which is the next step. Treat any mW figure you've seen in our older decks as unverified."
 
 > [!TIP]
@@ -975,7 +975,7 @@ A standalone Win32 GDI application — no Python, no browser, no dependencies. I
 |---|---|
 | **Project** | SIH26181 VALOR (Vital and Atmospheric Logic for Offline Rescue) / ShrikeFi — wearable offline disaster triage |
 | **MCU** | ESP32-S3 (WROOM-1-N8R2), Xtensa LX7 dual-core, **160 MHz configured**, FreeRTOS, **8 MB flash** |
-| **FPGA** | Renesas ForgeFPGA SLG47910C, 1120 LUT5s, 50 MHz, **535 LUT5s used (47.77%)**, 303 FFs, 108 CLBs, 0 DSP, 0 BRAM, 0 PLL |
+| **FPGA** | Renesas ForgeFPGA SLG47910C, 1120 LUT5s, 50 MHz, **515 LUT5s used (45.98%)**, 303 FFs, 105 CLBs, 0 DSP, 0 BRAM, 0 PLL |
 | **Baseline** | Xilinx Zynq-7000 `xc7z020`, AXI4-Lite, 6/6 tests, 0 DSP/BRAM |
 | **Sensors** | MAX30102 (PPG), BME280 (T/H/P), PMSA003 (PM1/2.5/10), SSD1306 OLED |
 | **Link** | **8-bit SPI, mode 0 (4-wire):** SCK/SS_n/MOSI/MISO, 1 MHz, CS driven manually — one full-duplex frame per sample; beat = **MISO bit 7**, followed by a 5-byte IBI burst (`0xC3` + 32-bit cycles). No command map, no strobe, no IRQ pin |
@@ -1000,7 +1000,7 @@ A standalone Win32 GDI application — no Python, no browser, no dependencies. I
 |---|---|
 | 6/6 Zynq tests | `hardware/zynq/tb_ppg_system.v` |
 | 13/13 ShrikeFi tests | `hardware/shrikefi/tb_forgefpga_system.v` |
-| 535 / 1120 LUT5s | `hardware/shrikefi/synthesis_evidence/resource_utilization_spi_link.log` |
+| 515 / 1120 LUT5s | `hardware/shrikefi/synthesis_evidence/resource_utilization_spi_link.log` |
 | 185 LUT / +5.603 ns baseline | Tag `v1.0-zynq-SIH` |
 | 198 LUT / 267 FF re-run | `hardware/zynq/synthesis_evidence/ooc_utilization_synth.rpt` |
 | 88.47% validation accuracy | `python3 firmware/core/train_nn_risk_model.py` |

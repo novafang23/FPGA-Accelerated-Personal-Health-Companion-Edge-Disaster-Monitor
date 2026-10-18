@@ -139,13 +139,14 @@ the burst path is the one that gives the FPGA's 20 ns resolution.
 | Pure clocking time to flash | 371,264 bits / 16 MHz -> **23.2 ms** | derived |
 | FPGA logic clock | **50 MHz** on-chip oscillator, enabled via `OSC_EN` | `docs/reference/shrike_board/` |
 
-**On ForgeFPGA timing evidence.** The fitter report `PNR_TIMING.log` shows
-WNS -10.219 ns, but that figure is an artefact: the design declares no clock
-constraint, so the tool auto-constrains `clk` to 500 MHz (2000 ps). The
-**achievable period is 12,218 ps (81.846 MHz)**, so at the documented 50 MHz the
-margin is **+7.782 ns**. Do not quote -10.219 ns as a result, and do not call
-81.846 MHz "timing closure". Adding a real constraint to the flow is still open
-work (T4.5 in `docs/REMAINING_WORK.md`).
+**On ForgeFPGA timing evidence.** The 2026-10-19 fitter report `PNR_TIMING.log`
+shows WNS -9.357 ns, but that figure is an artefact: the design declares no
+clock constraint, so the tool auto-constrains `clk` to 500 MHz (2000 ps). The
+**achievable period is 11,356 ps (88.059 MHz)**, so at the documented 50 MHz the
+margin is **+8.644 ns**. Do not quote -9.357 ns as a result, and do not call
+88.059 MHz "timing closure". The previous fit's 81.846 MHz / +7.782 ns is
+historical. Adding a real constraint to the flow is still open work (T4.5 in
+`docs/REMAINING_WORK.md`).
 
 ## 5. FPGA configuration
 

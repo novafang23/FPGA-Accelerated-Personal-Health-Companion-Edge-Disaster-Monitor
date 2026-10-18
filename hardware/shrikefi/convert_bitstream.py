@@ -74,7 +74,11 @@ def render_header(binary_data, sha256_hex):
 
     lines.append("};")
     lines.append("")
-    return "\n".join(lines)
+    # The original generator left a space after the comma at each 12-byte
+    # line break. Keep the byte layout but strip that trailing whitespace so
+    # `git diff --check` stays clean.
+    text = "\n".join(lines)
+    return "\n".join(line.rstrip() for line in text.split("\n"))
 
 
 def convert_bin_to_header(bin_path, header_path):

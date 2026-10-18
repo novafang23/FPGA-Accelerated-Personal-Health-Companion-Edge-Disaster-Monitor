@@ -38,9 +38,9 @@ Measured post-synthesis results from **Renesas ForgeFPGA Workshop v6.55**:
 * **Target Part:** `SLG47910C` (WLCSP20 package, 1120 5-input LUTs)
 * **Resource Utilization** (current fitter run of the SPI design,
   `synthesis_evidence/resource_utilization_spi_link.log`):
-  * **CLB LUT5s:** **535 / 1120 (47.77%)** (all Lut5; 0 as shift-register)
+  * **CLB LUT5s:** **515 / 1120 (45.98%)** (all Lut5; 0 as shift-register)
   * **Total Flip-Flops:** **303** (298 CLB FFs [26.61%] + 5 IOB FFs [0.68%])
-  * **CLB Blocks:** **108 / 140 (77.14%)** — 32 CLBs remain free
+  * **CLB Blocks:** **105 / 140 (75.00%)** — 35 CLBs remain free
   * **4k BRAMs:** **0 / 8 (0.00%)**
   * **PLLs:** **0 / 1 (0.00%)** — the SPI design runs from the on-chip oscillator
 * **Verification:** `tb_forgefpga_system.v`, 5 test groups / 13 checks passing
@@ -51,17 +51,20 @@ Measured post-synthesis results from **Renesas ForgeFPGA Workshop v6.55**:
 > See [`../hardware/shrikefi/synthesis_evidence/README.md`](../hardware/shrikefi/synthesis_evidence/README.md)
 > for the comparison and the port signature that distinguishes the two logs.
 >
-> **These figures are current as of the 2026-10-18 fit.** The jump from 362 to
-> 535 LUT5s is the 32-bit IBI burst (`0xC3` + cycle count) and dummy-byte
-> suppression, not fitter variation. The earlier SPI figures (222, 342, 363 and
-> 362) are real measurements of older netlists; the fit history is tabulated in
-> the evidence README. CLB occupancy (108/140) is now the constraint to watch.
+> **These figures are current as of the 2026-10-19 peak/4 crest refit.** The
+> 2026-10-18 jump from 362 to 535 LUT5s was the 32-bit IBI burst (`0xC3` + cycle
+> count) and dummy-byte suppression, not fitter variation; the 2026-10-19 crest
+> refit landed at 515 LUT5s / 105 CLBs. The earlier SPI figures (222, 342, 363,
+> 362 and 535) are real measurements of older netlists; the fit history is
+> tabulated in the evidence README. CLB occupancy (105/140, 35 free) is still the
+> constraint to watch.
 >
-> **On timing:** the same run's `PNR_TIMING.log` reports WNS -10.219 ns, but
+> **On timing:** the 2026-10-19 `PNR_TIMING.log` reports WNS -9.357 ns, but
 > against an auto-generated 500 MHz constraint (no clock constraint exists in the
-> design). Achievable period is 12,218 ps (81.846 MHz), so at the documented
-> 50 MHz the margin is +7.782 ns. Do not quote the -10.219 ns figure as a real
-> result, and do not call the achievable frequency "timing closure". See the
+> design). Achievable period is 11,356 ps (88.059 MHz), so at the documented
+> 50 MHz the margin is +8.644 ns. Do not quote the -9.357 ns figure as a real
+> result, and do not call the achievable frequency "timing closure". The previous
+> 2026-10-18 fit reported 81.846 MHz / +7.782 ns; those are historical. See the
 > timing section of the evidence README.
 
 ### Renesas ForgeFPGA Workshop GUI Synthesis Evidence & Project Tree:

@@ -3,22 +3,28 @@
 **Target Platform:** Vicharak ShrikeFi (ESP32-S3 Dual-Core Xtensa LX7 + Renesas ForgeFPGA SLG47910)  
 **Port:** COM5 @ 115200 baud (460800 baud for flashing); the port can change
 between USB reconnects — confirm in Device Manager.
-**Date:** October 15, 2026 (updated October 18, 2026)
+**Date:** October 15, 2026 (updated October 19, 2026)
 
 ---
 
 ## 1. Executive Summary & Current System State
 
-* **Firmware Flashing**: The last hardware flash predates the 2026-10-18 HRV
-  readiness fix. The current tree builds cleanly, but the board is disconnected
-  and **has not been flashed** with it. See Section 6.
-* **FPGA Link**: Renesas ForgeFPGA SLG47910 bitstream (46,408 bytes) loads cleanly on SPI2 on every boot (`SLG47910 configuration COMPLETE!`).
+* **Firmware Flashing**: Flashed on **2026-10-19** with the peak/4 crest bitstream
+  (`d9d58daa…`, 46,408 bytes) and the HRV readiness firmware. Boot verified on
+  COM5: `configuration COMPLETE! (46408 bytes loaded)`, then MAX30102, BME280,
+  PMS5003, GNSS, MPU6050, OLED and SoftAP initialized. Live HRV validation is
+  still pending (Section 6).
+* **FPGA Link**: The current Renesas ForgeFPGA SLG47910 bitstream (46,408 bytes,
+  SHA-256 prefix `d9d58daa`) loads cleanly on SPI2 on every boot
+  (`SLG47910 configuration COMPLETE!`).
 * **SoftAP**: `VALOR-0081` active on `192.168.4.1`.
 * **UART Peripherals**: u-blox NEO-M8N GNSS (UART2: GPIO16/17) and PMS5003 PM2.5 (UART1: GPIO14) are active and streaming.
 * **I2C Bus Status**:
   * **SSD1306 OLED (0x3C)**: Active and communicating; 1024-byte framebuffers transfer cleanly.
   * **MPU6050 IMU (0x68)**: Active and communicating at 40 Hz; fall detection running.
-  * **MAX30102 (0x57) & BME280 (0x76)**: Currently not acknowledging on I2C (`ESP_FAIL`). Requires physical jumper re-seating on the breadboard (see Section 4).
+  * **MAX30102 (0x57) & BME280 (0x76)**: Active on the 2026-10-19 boot; both
+    initialized OK. The earlier `ESP_FAIL` was a breadboard jumper seating
+    problem, now resolved (see Section 4).
 
 ---
 
@@ -57,7 +63,13 @@ between USB reconnects — confirm in Device Manager.
 ## 3. Hardware Questions Answered
 
 ### Q1: Do I need to regenerate the ForgeFPGA bitstream?
-**NO.** The bitstream in `forgefpga_bitstream.h` (46,408 bytes) is verified and loads into the SLG47910 without error over SPI2. The reason the FPGA heartbeat LED was not pulsing earlier was that the optical threshold was rejecting the raw signal (`< 10000 counts`), causing firmware to stream zeroes (`shrikefi_write_ir_sample(0)`) to the FPGA (`FG ... 0 0 0`).
+**Not for the current peak/4 build — it is already done.** The 2026-10-19
+bitstream (`d9d58daa…`, 46,408 bytes) is in `forgefpga_bitstream.h`, was flashed
+on COM5, and loads into the SLG47910 without error over SPI2. The earlier
+heartbeat-LED problem was the optical threshold rejecting the raw signal
+(`< 10000 counts`), which streamed zeroes to the FPGA (`FG ... 0 0 0`), not a
+bad bitstream. If you change the RTL again, **yes**: regenerate the flat source,
+re-fit in the Renesas GUI, run `convert_bitstream.py`, and reflash.
 
 ### Q2: What happens if I accidentally press the BOOT button on ShrikeFi?
 **Nothing harmful.** GPIO 0 (BOOT) is only sampled by the ESP32-S3 ROM bootloader during chip reset (when holding BOOT while pulsing RST or during power-up). Pressing BOOT during normal runtime does not alter flash memory or reset the MCU.
@@ -66,20 +78,24 @@ between USB reconnects — confirm in Device Manager.
 
 ## 4. Current Hardware Breadboard Action Checklist
 
-In the live serial startup scan:
+Current 2026-10-19 boot scan:
 ```
-I (983) I2C_SCAN:  -> Found device at 0x3C (SSD1306 OLED)
-I (993) I2C_SCAN:  -> Found device at 0x68 (MPU6050 6-Axis IMU)
+0x3C  SSD1306 OLED        OK
+0x57  MAX30102 PPG        OK
+0x68  MPU6050 IMU         OK
+0x76  BME280 T/H/P        OK
 ```
-OLED and MPU6050 are communicating properly on GPIO 1 (SDA) and GPIO 2 (SCL). However, MAX30102 (0x57) and BME280 (0x76) are currently returning `ESP_FAIL`.
+All four devices are communicating on GPIO 1 (SDA) and GPIO 2 (SCL). The earlier
+MAX30102/BME280 `ESP_FAIL` was a breadboard jumper-seating problem; the runtime
+retry recovered both. If it recurs:
 
-**Steps to resolve:**
-1. **Physical Finger Flexion**: When pressing a finger on the MAX30102 sensor, the breadboard header pins can easily rock or lose contact.
-2. **Re-seat 3.3V and GND**: Ensure the 3.3V and GND jumper wires to the MAX30102 and BME280 are seated tightly in fresh breadboard tie-points.
-3. **Re-seat SDA & SCL**: Verify that the MAX30102 SDA pin connects to GPIO 1 and SCL connects to GPIO 2.
-4. The firmware's runtime retry loop automatically probes the bus every second; as soon as the wires make solid contact, MAX30102 will log:
+1. **Physical finger flexion**: pressing the MAX30102 can rock the breadboard
+   header pins and lose contact.
+2. **Re-seat 3.3 V and GND** to MAX30102 and BME280 in fresh tie-points.
+3. **Re-seat SDA/SCL**: MAX30102 SDA -> GPIO 1, SCL -> GPIO 2.
+4. The runtime retry probes every second; when contact is solid, expect:
    `I (...) SHRIKEFI_MAIN: MAX30102 initialized after a runtime I2C retry`
-   and beat counting will immediately begin.
+   followed by beat counting.
 
 ---
 
@@ -104,16 +120,18 @@ python -c "import serial, time; s = serial.Serial('COM5', 115200, timeout=1); [p
 
 ---
 
-## 6. Pending HRV / RMSSD Readiness Verification (2026-10-18)
+## 6. Pending HRV / RMSSD Readiness Verification (updated 2026-10-19)
 
-**Status: NOT FLASHED — the board is disconnected.** The current tree passes the
-host suite, the 34-test Zynq suite and the ESP-IDF build, but the HRV readiness
-changes have not run on hardware.
+**Status: FLASHED; live HRV verification pending.** The current tree passes the
+host suite, the 34-test Zynq suite and the ESP-IDF build. The HRV readiness
+changes and the 2026-10-19 peak/4 bitstream are flashed on COM5, and boot
+initialization is verified. A steady-contact 60–90 s capture has not yet been
+assessed.
 
-This is the first thing to do when the board is reconnected (currently COM5). Do not claim the OLED
-HRV behaviour as hardware-verified until this section is complete.
+Do not claim the OLED HRV behaviour as hardware-verified until this section is
+complete.
 
-### What changed in the unflashed firmware
+### What changed in the flashed firmware
 
 - `hrv_is_ready()` no longer takes the snapshot shortcut when a real 300-interval
   ring has wrapped to `head == 0`.

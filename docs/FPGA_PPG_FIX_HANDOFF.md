@@ -470,9 +470,10 @@ this as a detector bug. It is logged in the report as a recommended RTL change.
 >
 > **2026-10-19 follow-up:** live captures still contained 888/645, 781/641 and
 > 666/797 ms split pairs, so `crest_fall_min` was raised from `peak/8` (12.5 %)
-> to **`peak/4` (25 %)**. The RTL and its unit test are updated; the bitstream
-> must be re-generated in the Renesas GUI and re-flashed before this change is
-> on hardware.
+> to **`peak/4` (25 %)**. The RTL and unit test are updated. The bitstream was
+> re-generated (`d9d58daa…`, 515 LUT5s / 105 CLBs) and flashed on COM5; boot
+> configuration is verified. A live split-pair capture is still pending before
+> claiming the artefact is gone.
 >
 > The original text is kept below because it explains why the ordering matters —
 > editing the Verilog without re-fitting silently desynchronises source from
@@ -594,7 +595,7 @@ the bitstream and the `.v` have diverged, or a pin has moved.
 | Docs claim 443 LUT5s | **fixed** | The tracked evidence log was from the **superseded 4-bit parallel build** (port signature 8 in / 6 out, PLL 1/1), not the SPI design. Corrected across `README.md`, `docs/MIGRATION.md`, `hardware/shrikefi/README.md`, `hardware/shrikefi/synthesis_evidence/`, `docs/MASTER_PROJECT_GUIDE.md`, `docs/theory/THEORY_NOTES.md`, `scripts/generate_sih_presentation.py`, `scripts/generate_sih_official_presentation.py`, and `hardware/shrikefi/presentation.gtkw`. The SPI figure has since been re-measured twice; see the footprint row below. |
 | `rst_n` was tied to `1'b1` | **fixed** | Nothing drove PIN_13, so it could not be an input — but tying it high left every register without a defined start state. Simulation started entirely X, which is the deeper reason the testbench could never have passed. Replaced with an internal power-on reset counter; `POR_CYC` is a parameter so a testbench can shorten it. |
 | Bitstream vs RTL | **verified consistent** | The RTL was re-fitted in the Renesas tool on 2026-09-21, after the last change to `hardware/common/`, and `firmware/shrikefi/forgefpga_bitstream.h` was regenerated from that fit. The caveat that used to sit here — byte-identity between header and `.bin` does not prove the `.bin` came from this RTL — is now closed by ordering: the flat vendor source was regenerated at 21:16, the place-and-route ran 21:40–21:42, and `convert_bitstream.py --check` and `gen_flat_source.py --check` both pass. The design's configuration bits changed by 41.7% relative to the previous fit, which is what a real re-fit looks like. |
-| ForgeFPGA footprint figure | **superseded by the 2026-10-18 burst fit** | The current fit is **535 / 1120 LUT5s (47.77%), 303 FFs (298 CLB + 5 IOB), 108/140 CLBs, PLL 0/1, 0 BRAM**; the jump from 362 is the 32-bit IBI burst. Earlier SPI figures (222, 342, 363 and 362) were real measurements of older netlists; `hardware/shrikefi/synthesis_evidence/README.md` tabulates the history. **Do not quote WNS -10.219 ns** - the design declares no clock constraint, so the fitter auto-constrains `clk` to 500 MHz; achievable period is 12,218 ps (81.846 MHz), giving +7.782 ns at 50 MHz. |
+| ForgeFPGA footprint figure | **current: 2026-10-19 peak/4 crest refit** | **515 / 1120 LUT5s (45.98%), 303 FFs (298 CLB + 5 IOB), 105/140 CLBs, PLL 0/1, 0 BRAM**. The 2026-10-18 burst fit was 535/303/108; the jump from 362 was the 32-bit IBI burst. Earlier SPI figures (222, 342, 363 and 362) were real measurements of older netlists; `hardware/shrikefi/synthesis_evidence/README.md` tabulates the history. **Do not quote WNS -9.357 ns** - the design declares no clock constraint, so the fitter auto-constrains `clk` to 500 MHz; achievable period is 11,356 ps (88.059 MHz), giving +8.644 ns at 50 MHz. The previous fit's 81.846 MHz / +7.782 ns is historical. |
 | `ppg_sqi.c`, `ppg_respiratory_rate.c` | **fixed** | Both were written and exercised only in the host harness — neither was in `main/CMakeLists.txt`, so on the device NEWS2 ran with its respiratory rate defaulted to a normal 14 (`clinical_vitals_engine.c:106`) and could not flag tachypnoea or bradypnoea. Both are now compiled into the ESP build, fed from rolling windows of accepted IBIs and raw IR, and `clinical_vitals_assess_full()` is used so RR and SQI actually reach the score. Telemetry now carries `RR=` and `SQI=` (appended, so older dashboard builds still parse). |
 | Flood/hypothermia risk not instrumented | known | No skin-temperature sensor. The engine reports an ambient proxy, capped at `RISK_HIGH`, and labels it `(ambient proxy)` in the log. State this honestly. |
 
