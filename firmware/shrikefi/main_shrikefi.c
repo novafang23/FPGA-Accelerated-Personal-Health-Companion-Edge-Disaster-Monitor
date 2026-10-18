@@ -919,7 +919,11 @@ static void task_ppg_accelerator(void *pvParameters) {
              * disappeared entirely while [TELEMETRY] and [PPG] kept flowing).
              * One in four keeps the old 25 Hz oscilloscope rate. */
             static uint32_t s_ppg_log_decim = 0;
-            if ((s_ppg_log_decim++ & 3u) == 0u) {
+            /* Only stream the oscilloscope samples while a finger is actually
+             * present. With no contact this is ambient/reflected light, not a
+             * PPG; it also floods the console at 25 Hz and can starve the
+             * 1 Hz [TELEMETRY]/[TRIAGE] lines that the dashboard needs. */
+            if (raw_contact && ((s_ppg_log_decim++ & 3u) == 0u)) {
                 printf("[PPG] %lu\n", (unsigned long)ppg_sample.ir);
             }
 #endif

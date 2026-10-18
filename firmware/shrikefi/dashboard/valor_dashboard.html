@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'sha256-A1HRmsD2lRZmOHktdqXcePeSnKUdaW+9ZrS9CiJ2fF4='; style-src 'unsafe-inline'; connect-src 'self'; form-action 'self'; base-uri 'none'; object-src 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'sha256-9itVPYOleCjcxmvMK223SPBXBwqgsZL2bVg9O9WkVdM='; style-src 'unsafe-inline'; connect-src 'self'; form-action 'self'; base-uri 'none'; object-src 'none'">
 <title>VALOR â€” Edge Health &amp; Disaster Triage</title>
 <!--
   VALOR dashboard â€” single self-contained file.
@@ -675,7 +675,7 @@ const C = {
    until a device connects or a simulation is explicitly started. */
 const V = {
   hr: 0, spo2: 0, hrv: 0, rr: 0, rrConf: 0, rrDepth: 0, sqi: 0, contact: false,
-  temp: 0, hum: 0, pmRaw: 0, pmCal: 0, loc: '',
+  temp: -100, hum: -1, pmRaw: 0, pmCal: 0, loc: '',
   psi: 0, aha: 0, heat: 0, poll: 0, flood: 0, storm: 0, news2: 0,
   pi: 0, level: 0, flags: 0, risk: 'UNKNOWN',
   rHeat: 'UNKNOWN', rPoll: 'UNKNOWN', rFlood: 'UNKNOWN',
@@ -823,10 +823,32 @@ function makePPG() {
       return;
     }
 
-    /* Live, but the firmware is not sending [PPG]. That is what
+    if (mode === 'live' && !V.contact) {
+      const ta = (isFinite(V.temp) && V.temp >= 5 && V.temp <= 65)
+        ? V.temp.toFixed(1) + ' °C' : '--';
+      const rh = (isFinite(V.hum) && V.hum >= 0 && V.hum <= 100)
+        ? V.hum.toFixed(0) + ' %' : '--';
+      const pm = (isFinite(V.pmCal) && V.pmCal > 0)
+        ? V.pmCal.toFixed(1) + ' \u00b5g/m\u00b3' : '--';
+      ctx.strokeStyle = 'rgba(100,116,139,0.30)';
+      ctx.lineWidth = 1;
+      ctx.setLineDash([6, 6]);
+      ctx.beginPath(); ctx.moveTo(0, h / 2); ctx.lineTo(w, h / 2); ctx.stroke();
+      ctx.setLineDash([]);
+      ctx.fillStyle = 'rgba(245,158,11,0.9)';
+      ctx.font = '12px ' + getComputedStyle(document.body).fontFamily;
+      ctx.textAlign = 'center';
+      ctx.fillText('NO CONTACT — ambient IR (not a pulse)', w / 2, h / 2 - 16);
+      ctx.fillStyle = 'rgba(203,213,225,0.9)';
+      ctx.font = '11px ' + getComputedStyle(document.body).fontFamily;
+      ctx.fillText('Ta ' + ta + ' · RH ' + rh + ' · PM2.5 ' + pm, w / 2, h / 2 + 8);
+      ctx.textAlign = 'left';
+      return;
+    }
+
+    /* Contact is present but no [PPG] samples arrived. That is what
        CONFIG_SHRIKEFI_STREAM_PPG=n looks like from here - every number still
-       arrives on [TELEMETRY]/[TRIAGE], only the waveform is missing. Say so
-       rather than drawing an unexplained flat line. */
+       arrives on [TELEMETRY]/[TRIAGE], only the waveform is missing. */
     if (mode === 'live' && !ppgSeen && performance.now() - liveStart > 5000) {
       ctx.strokeStyle = 'rgba(245,158,11,0.35)';
       ctx.lineWidth = 1;
@@ -836,17 +858,16 @@ function makePPG() {
       ctx.fillStyle = 'rgba(245,158,11,0.9)';
       ctx.font = '12px ' + getComputedStyle(document.body).fontFamily;
       ctx.textAlign = 'center';
-      ctx.fillText('PPG stream disabled in firmware (CONFIG_SHRIKEFI_STREAM_PPG=n)', w / 2, h / 2 - 12);
-      ctx.fillText('readings are live; reconnect with the option on for the waveform', w / 2, h / 2 + 8);
+      ctx.fillText('NO PPG SAMPLES — check contact or stream config', w / 2, h / 2 - 12);
+      ctx.fillText('readings can still be live; only the waveform is missing', w / 2, h / 2 + 8);
       ctx.textAlign = 'left';
       return;
     }
 
     if (n < 2) return;
 
-    const noContact = (mode === 'live' && !V.contact);
-    const bad = !noContact && V.sqi < 50;
-    const color = noContact ? 'rgba(148,163,184,0.85)' : (bad ? C.crimson : C.cyan);
+    const bad = V.sqi < 50;
+    const color = bad ? C.crimson : C.cyan;
     const xAt = (i) => (i / (n - 1)) * w;
     const yAt = (i) => {
       const idx = (head - n + i + N * 2) % N;
@@ -869,23 +890,6 @@ function makePPG() {
     for (let i = 0; i < n; i++) { const x = xAt(i), y = yAt(i); i ? ctx.lineTo(x, y) : ctx.moveTo(x, y); }
     ctx.stroke();
     ctx.shadowBlur = 0;
-
-    if (noContact) {
-      const ta = (isFinite(V.temp) && V.temp >= -40 && V.temp <= 85)
-        ? V.temp.toFixed(1) + ' °C' : '--';
-      const rh = (isFinite(V.hum) && V.hum >= 0 && V.hum <= 100)
-        ? V.hum.toFixed(0) + ' %' : '--';
-      const pm = (isFinite(V.pmCal) && V.pmCal > 0)
-        ? V.pmCal.toFixed(1) + ' \u00b5g/m\u00b3' : '--';
-      ctx.fillStyle = 'rgba(245,158,11,0.9)';
-      ctx.font = '12px ' + getComputedStyle(document.body).fontFamily;
-      ctx.textAlign = 'center';
-      ctx.fillText('NO CONTACT — ambient IR (not a pulse)', w / 2, h / 2 - 16);
-      ctx.fillStyle = 'rgba(203,213,225,0.9)';
-      ctx.font = '11px ' + getComputedStyle(document.body).fontFamily;
-      ctx.fillText('Ta ' + ta + ' · RH ' + rh + ' · PM2.5 ' + pm, w / 2, h / 2 + 8);
-      ctx.textAlign = 'left';
-    }
 
     /* sweep */
     const sx = (head < N) ? w : ((head % N) / N) * w;
@@ -1351,7 +1355,7 @@ function setStatus(kind, text) {
 function clearLiveReadings() {
   Object.assign(V, {
     hr: 0, spo2: 0, hrv: 0, rr: 0, rrConf: 0, rrDepth: 0, sqi: 0, contact: false, pi: 0,
-    temp: 0, hum: 0, pmRaw: 0, pmCal: 0, loc: '',
+    temp: -100, hum: -1, pmRaw: 0, pmCal: 0, loc: '',
     psi: 0, aha: 0, heat: 0, poll: 0, flood: 0, storm: 0, news2: 0,
     level: 0, flags: 0, risk: 'UNKNOWN', rHeat: 'UNKNOWN',
     rPoll: 'UNKNOWN', rFlood: 'UNKNOWN', cyclone: 'UNKNOWN', ptrend: null,
@@ -1591,8 +1595,9 @@ function render() {
   pill.className = 'pill' + ((sqiOn && V.sqi < 50) ? ' bad' : '');
 
   /* â”€â”€ Environment â”€â”€ */
-  const ambientValid = isFinite(V.temp) && V.temp >= -40 && V.temp <= 85;
-  const humidityValid = isFinite(V.hum) && V.hum >= 0 && V.hum <= 100;
+  const ambientValid = isFinite(V.temp) && V.temp >= 5 && V.temp <= 65;
+  const humidityValid = ambientValid && isFinite(V.hum) && V.hum >= 0 && V.hum <= 100;
+  const pmValid = isFinite(V.pmCal) && V.pmCal > 0;
   const tempColor = !ambientValid ? 'var(--text-faint)' : V.temp > 38 ? C.crimson : V.temp > 35 ? C.amber : '#e2e8f0';
   $('v-temp').textContent = ambientValid ? V.temp.toFixed(1) : '--';
   $('v-temp').style.color = tempColor;
@@ -1608,12 +1613,12 @@ function render() {
   bHum.style.width = humidityValid ? pct(V.hum, 100) + '%' : '0%';
   bHum.style.background = V.hum > 90 ? C.crimson : V.hum > 70 ? C.amber : C.cyan;
 
-  const aqi = aqiBand(V.pmCal);
-  $('v-pm').textContent = V.pmCal.toFixed(1);
-  $('v-pm').style.color = aqi.color;
-  $('pm-raw').textContent = 'raw ' + V.pmRaw.toFixed(1);
+  const aqi = pmValid ? aqiBand(V.pmCal) : { label: '--', color: C.faint };
+  $('v-pm').textContent = pmValid ? V.pmCal.toFixed(1) : '--';
+  $('v-pm').style.color = pmValid ? aqi.color : 'var(--text-faint)';
+  $('pm-raw').textContent = pmValid ? 'raw ' + V.pmRaw.toFixed(1) : 'raw --';
   $('pm-label').textContent = aqi.label;
-  $('pm-label').style.color = aqi.color;
+  $('pm-label').style.color = pmValid ? aqi.color : 'var(--text-faint)';
 
   /* Compact always-visible environment strip. The full cards are below the
      fold on short screens; this keeps temperature/RH/PM2.5 visible even when
@@ -2036,7 +2041,7 @@ function enterIdle() {
   mode = 'idle';
   Object.assign(V, {
     hr: 0, spo2: 0, hrv: 0, rr: 0, rrConf: 0, rrDepth: 0, sqi: 0, contact: false,
-    temp: 0, hum: 0, pmRaw: 0, pmCal: 0, loc: '',
+    temp: -100, hum: -1, pmRaw: 0, pmCal: 0, loc: '',
     psi: 0, aha: 0, heat: 0, poll: 0, flood: 0, news2: 0,
     pi: 0, level: 0, flags: 0, risk: 'UNKNOWN',
     rHeat: 'UNKNOWN', rPoll: 'UNKNOWN', rFlood: 'UNKNOWN',
