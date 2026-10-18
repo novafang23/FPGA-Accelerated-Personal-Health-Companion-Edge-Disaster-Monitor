@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'sha256-mglj+asDTPrV0DS4ABjj38s7ah6EJvG1LTV9+BrB4Ms='; style-src 'unsafe-inline'; connect-src 'self'; form-action 'self'; base-uri 'none'; object-src 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'sha256-A1HRmsD2lRZmOHktdqXcePeSnKUdaW+9ZrS9CiJ2fF4='; style-src 'unsafe-inline'; connect-src 'self'; form-action 'self'; base-uri 'none'; object-src 'none'">
 <title>VALOR â€” Edge Health &amp; Disaster Triage</title>
 <!--
   VALOR dashboard â€” single self-contained file.
@@ -195,6 +195,8 @@
   .unit { font-size: 13px; color: var(--text-dim); margin-left: 4px; }
 
   /* â”€â”€ NEWS2 â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
+  .news2-card { padding: 20px; display: flex; flex-direction: column; gap: 16px; }
+  .news2-hero { text-align: center; padding: 20px 0 16px; }
   .news2-score { font-family: var(--mono); font-size: 72px; font-weight: 900; line-height: 1; }
   .news2-label { margin-top: 8px; font-size: 15px; font-weight: 700; letter-spacing: 0.02em; }
   .news2-sub   { margin-top: 6px; font-size: 11px; color: var(--text-mid); line-height: 1.6; padding: 0 8px; }
@@ -254,6 +256,21 @@
     }
   }
 
+  @media (max-height: 760px) {
+    body { padding-top: 10px; }
+    .row { gap: 8px; margin-bottom: 8px; }
+    .row-1 { align-items: start; }
+    .ppg-card .scope-frame { flex: 0 0 180px; min-height: 180px; }
+    .news2-card { padding: 14px; gap: 10px; }
+    .news2-hero { padding: 10px 0 8px; }
+    .news2-score { font-size: 48px; }
+    .news2-sub { font-size: 10px; }
+    #n2-note { font-size: 10px; line-height: 1.35; }
+    .device-verdict { margin-top: 6px; padding: 3px 6px; }
+    .subscore { padding: 4px 3px; }
+    .subscore-grid { gap: 4px; }
+  }
+
   @media (max-width: 1180px) {
     .row-1 { grid-template-columns: 1fr; }
     .row-2 { grid-template-columns: 1fr 1fr 1fr; }
@@ -301,6 +318,7 @@
     </div>
     <div class="board-sub">ShrikeFi ESP32-S3 + Renesas ForgeFPGA SLG47910</div>
     <div class="board-sub" id="v-loc" style="margin-top:2px">LOC --</div>
+    <div class="board-sub" id="v-env" style="margin-top:2px">Ta -- · RH -- · PM2.5 --</div>
   </div>
   <div class="controls">
     <button type="button" id="btn-connect" class="primary">Connect to device</button>
@@ -340,12 +358,12 @@
     </div>
   </div>
 
-  <div class="card" style="padding:20px;display:flex;flex-direction:column;gap:16px">
+  <div class="card news2-card">
     <div>
       <div class="faint" style="margin-bottom:4px">mNEWS2 &middot; RCP Clinical Triage &middot; DEVICE</div>
       <div style="font-size:15px;font-weight:700;color:var(--text);letter-spacing:-0.015em">Deterioration Score</div>
     </div>
-    <div style="text-align:center;padding:20px 0 16px">
+    <div class="news2-hero">
       <div class="news2-score" id="n2-score">0</div>
       <div class="news2-label" id="n2-label">Stable</div>
       <div class="news2-sub" id="n2-sub"></div>
@@ -853,10 +871,20 @@ function makePPG() {
     ctx.shadowBlur = 0;
 
     if (noContact) {
+      const ta = (isFinite(V.temp) && V.temp >= -40 && V.temp <= 85)
+        ? V.temp.toFixed(1) + ' °C' : '--';
+      const rh = (isFinite(V.hum) && V.hum >= 0 && V.hum <= 100)
+        ? V.hum.toFixed(0) + ' %' : '--';
+      const pm = (isFinite(V.pmCal) && V.pmCal > 0)
+        ? V.pmCal.toFixed(1) + ' \u00b5g/m\u00b3' : '--';
       ctx.fillStyle = 'rgba(245,158,11,0.9)';
       ctx.font = '12px ' + getComputedStyle(document.body).fontFamily;
+      ctx.textAlign = 'center';
+      ctx.fillText('NO CONTACT — ambient IR (not a pulse)', w / 2, h / 2 - 16);
+      ctx.fillStyle = 'rgba(203,213,225,0.9)';
+      ctx.font = '11px ' + getComputedStyle(document.body).fontFamily;
+      ctx.fillText('Ta ' + ta + ' · RH ' + rh + ' · PM2.5 ' + pm, w / 2, h / 2 + 8);
       ctx.textAlign = 'left';
-      ctx.fillText('NO CONTACT — ambient IR (not a pulse)', 12, 20);
     }
 
     /* sweep */
@@ -1375,6 +1403,7 @@ function renderIdle() {
   sp.textContent = 'waiting for signal';
   sp.className = 'pill';
 
+  $('v-env').textContent = 'Ta -- · RH -- · PM2.5 --';
   $('v-temp').textContent = D; $('v-temp').style.color = 'var(--text-faint)';
   [...$('temp-band').children].forEach((b) => { b.className = ''; });
   $('v-hum').textContent = D;  $('v-hum').style.color = 'var(--text-faint)';
@@ -1585,6 +1614,14 @@ function render() {
   $('pm-raw').textContent = 'raw ' + V.pmRaw.toFixed(1);
   $('pm-label').textContent = aqi.label;
   $('pm-label').style.color = aqi.color;
+
+  /* Compact always-visible environment strip. The full cards are below the
+     fold on short screens; this keeps temperature/RH/PM2.5 visible even when
+     the finger is absent. */
+  const envTa = ambientValid ? V.temp.toFixed(1) + ' °C' : '--';
+  const envRh = humidityValid ? V.hum.toFixed(0) + ' %' : '--';
+  const envPm = (isFinite(V.pmCal) && V.pmCal > 0) ? V.pmCal.toFixed(1) + ' µg/m³' : '--';
+  $('v-env').textContent = 'Ta ' + envTa + ' · RH ' + envRh + ' · PM2.5 ' + envPm;
 
   const psiColor = V.psi > 7 ? C.crimson : V.psi > 4 ? C.amber : C.mid;
   $('psi-val').innerHTML = V.psi.toFixed(1) +
@@ -1814,7 +1851,6 @@ function handleLine(line) {
       if (k.PM25) { V.pmCal = num(k.PM25); V.pmRaw = num(k.PM25); }
       return;
     }
-    V.contact = true;   /* normal or ACQUIRING telemetry means tissue contact */
     const k = parseKV(line.replace('[TELEMETRY]', ''));
     if (k.HR)    V.hr   = num(k.HR);
     if (k.SPO2)  V.spo2 = num(k.SPO2);
@@ -1824,6 +1860,10 @@ function handleLine(line) {
     if (k.RRDEPTH) V.rrDepth = num(k.RRDEPTH);
     if (k.PI)    V.pi   = num(k.PI);
     if (k.SQI)   V.sqi  = num(k.SQI) * 100;
+    /* The firmware sends a normal telemetry line even with no finger when
+       ambient sensors are valid. Infer tissue contact from a real pulse/signal,
+       not from the mere presence of a packet. */
+    V.contact = (V.hr > 0 || V.sqi > 0);
     if (k.TEMP)  V.temp = num(k.TEMP);
     if (k.HUM)   V.hum  = num(k.HUM);
     if (k.PM25)  { V.pmCal = num(k.PM25); V.pmRaw = num(k.PM25); }

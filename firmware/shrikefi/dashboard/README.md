@@ -153,8 +153,11 @@ waveform.
 
 With **no finger**, the MAX30102 still streams ambient/reflected IR. The page
 now labels that state **AMBIENT**, draws the trace in grey, and overlays
-**“NO CONTACT — ambient IR (not a pulse)”**. It does not colour it as a red
-medical alarm, and SQI/HR/SpO₂ remain `--` until real contact telemetry arrives.
+**“NO CONTACT — ambient IR (not a pulse)”** plus the current Ta/RH/PM2.5. It
+does not colour it as a red medical alarm, and SQI/HR/SpO₂ remain `--` until
+real contact telemetry arrives. A compact **Ta / RH / PM2.5** strip under the
+header keeps the environmental readings visible even when the full cards are
+below the fold on a short screen.
 
 The **24-hour trajectory is a 24-slot RAM buffer since boot**, not a calendar
 history persisted in NVS. It fills only as uptime accumulates, and slot 0 is the

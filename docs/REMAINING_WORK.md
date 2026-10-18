@@ -682,7 +682,8 @@ were applied. `verify_dashboard.py` and `verify_softap_page.py` pass.
   uses an "hourly average" tooltip, and offers **EXPORT CSV** for the 24 rows.
 - No-finger live PPG is labelled **AMBIENT** with a grey trace and a
   **“NO CONTACT — ambient IR (not a pulse)”** overlay; it is not painted as a
-  red alarm.
+  red alarm. A compact Ta/RH/PM2.5 strip in the header keeps those values
+  visible when the full environmental cards are below the fold.
 - Accessibility: contrast raised for notes/units/n-a tiles, gate is a labelled
   dialog with focus on the first action, header has a persistent `h1`, status is
   a polite live region, history chart supports arrow keys, buttons have explicit

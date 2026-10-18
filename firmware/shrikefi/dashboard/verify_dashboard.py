@@ -54,6 +54,8 @@ window.onerror = function (m) { window.__err = String(m); };
       handleLine('[TELEMETRY] NO_FINGER,TEMP=25.0,HUM=50.0,PM25=12.0');
     } else if (new URLSearchParams(location.search).get('case') === 'sensor_missing') {
       handleLine('[TELEMETRY] NO_FINGER,TEMP=-100.0,HUM=-1.0,PM25=12.0');
+    } else if (new URLSearchParams(location.search).get('case') === 'ambient') {
+      handleLine('[TELEMETRY] HR=0.0,SPO2=0.0,RMSSD=0.0,TEMP=29.7,HUM=63.3,PM25=86.6,RR=0.0,SQI=0.00,RRDEPTH=0.0,RRCONF=0.00,PI=0.00');
     } else if (new URLSearchParams(location.search).get('case') === 'pi') {
       handleLine('[TELEMETRY] HR=72.0,SPO2=98.0,RMSSD=42.0,TEMP=25.0,HUM=50.0,PM25=12.0,RR=15.0,SQI=0.90,RRDEPTH=42.5,RRCONF=0.80,PI=3.21');
     } else {
@@ -84,8 +86,8 @@ window.onerror = function (m) { window.__err = String(m); };
       histSub: txt('hist-sub'), histSpan: txt('hist-span'),
       histExport: txt('hist-export'),
       histExportDisabled: document.getElementById('hist-export').disabled,
-      scopeSrc: txt('scope-src'),
-      temp: txt('v-temp'),
+      scopeSrc: txt('scope-src'), envStrip: txt('v-env'),
+      temp: txt('v-temp'), hum: txt('v-hum'), pm: txt('v-pm'),
       status: txt('status-text').indexOf('NO DATA') === 0,
       sqi: txt('v-sqi'), sqiPill: txt('sqi-pill'), sqiNumCol: col('v-sqi'),
       histMeanHr: txt('h-mean-hr'),
@@ -180,7 +182,7 @@ def check(case, r, expect):
 
 
 failures = []
-for case in ("zero", "healthy", "nofinger", "sensor_missing", "pi", "stale"):
+for case in ("zero", "healthy", "nofinger", "sensor_missing", "ambient", "pi", "stale"):
     try:
         r = render(case)
     except (RuntimeError, json.JSONDecodeError) as e:
@@ -221,6 +223,12 @@ for case in ("zero", "healthy", "nofinger", "sensor_missing", "pi", "stale"):
         expect = {"hr": "--", "temp": "25.0"}
     elif case == "sensor_missing":
         expect = {"hr": "--", "temp": "--"}
+    elif case == "ambient":
+        expect = {
+            "hr": "--", "temp": "29.7", "hum": "63", "pm": "86.6",
+            "scopeSrc": "AMBIENT",
+            "envStrip": "Ta 29.7 \u00b0C \u00b7 RH 63 % \u00b7 PM2.5 86.6 \u00b5g/m\u00b3",
+        }
     elif case == "pi":
         expect = {
             "pi": "3.21 %",
