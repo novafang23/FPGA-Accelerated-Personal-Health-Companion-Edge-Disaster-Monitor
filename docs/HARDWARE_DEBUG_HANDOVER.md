@@ -1,7 +1,8 @@
 # Hardware Debug & Stability Handover Guide
 **Project:** VALOR — FPGA-Accelerated Personal Health Companion & Edge Disaster Monitor (SIH26181)  
 **Target Platform:** Vicharak ShrikeFi (ESP32-S3 Dual-Core Xtensa LX7 + Renesas ForgeFPGA SLG47910)  
-**Port:** COM4 @ 115200 baud (460800 baud for flashing)  
+**Port:** COM5 @ 115200 baud (460800 baud for flashing); the port can change
+between USB reconnects — confirm in Device Manager.
 **Date:** October 15, 2026 (updated October 18, 2026)
 
 ---
@@ -90,15 +91,15 @@ cd /d C:\Users\abhin\OneDrive\Desktop\verilog\firmware\shrikefi
 run_host_test.bat
 ```
 
-### Re-flash Firmware to ShrikeFi (COM4):
+### Re-flash Firmware to ShrikeFi (COM5):
 *Note: Due to Windows terminal sandboxing intercepts on Xtensa tool DLL relocations, run flash commands with `BypassSandbox: true`.*
 ```cmd
-cmd.exe /c "call C:\Espressif\frameworks\esp-idf-v5.5.5\export.bat && idf.py -p COM4 flash"
+cmd.exe /c "call C:\Espressif\frameworks\esp-idf-v5.5.5\export.bat && idf.py -p COM5 flash"
 ```
 
-### Live Serial Monitor (COM4 @ 115200 baud):
+### Live Serial Monitor (COM5 @ 115200 baud):
 ```python
-python -c "import serial, time; s = serial.Serial('COM4', 115200, timeout=1); [print(s.readline().decode('utf-8', 'replace').strip()) for _ in range(50)]; s.close()"
+python -c "import serial, time; s = serial.Serial('COM5', 115200, timeout=1); [print(s.readline().decode('utf-8', 'replace').strip()) for _ in range(50)]; s.close()"
 ```
 
 ---
@@ -109,7 +110,7 @@ python -c "import serial, time; s = serial.Serial('COM4', 115200, timeout=1); [p
 host suite, the 34-test Zynq suite and the ESP-IDF build, but the HRV readiness
 changes have not run on hardware.
 
-This is the first thing to do when COM4 is reconnected. Do not claim the OLED
+This is the first thing to do when the board is reconnected (currently COM5). Do not claim the OLED
 HRV behaviour as hardware-verified until this section is complete.
 
 ### What changed in the unflashed firmware
@@ -127,11 +128,12 @@ HRV behaviour as hardware-verified until this section is complete.
 
 ### Flash and boot
 
-1. Connect the board and confirm the port is still COM4.
+1. Connect the board and confirm its current port (COM5 on 2026-10-19; it can
+   change after a USB reconnect).
 2. Flash and monitor:
 
    ```cmd
-   cmd.exe /c "call C:\Espressif\frameworks\esp-idf-v5.5.5\export.bat && idf.py -p COM4 flash monitor"
+   cmd.exe /c "call C:\Espressif\frameworks\esp-idf-v5.5.5\export.bat && idf.py -p COM5 flash monitor"
    ```
 
    If the Windows sandbox intercepts the Xtensa tool DLLs, use the same command
@@ -183,6 +185,36 @@ before RMSSD publishes.
 - No detector handover every few seconds during steady contact. If it happens,
   capture the timestamps — it is the 2.5 s fallback interacting with the
   measured 3.38 s FPGA silences, not the RMSSD arithmetic.
+
+### Live capture results — 2026-10-19 (COM5)
+
+Boot and sensor verification passed: ForgeFPGA bitstream 46,408 bytes; I²C
+0x3C/0x57/0x68/0x76; MAX30102, BME280, PMS5003, GNSS, MPU6050 and OLED all
+initialized; SoftAP `VALOR-0081`; `[PPG]` streaming; `PI=` present in telemetry.
+
+**Capture 1 (before PI gate):**
+
+- HR 81–85 BPM, SpO₂ 97.3–98.2 %, SQI 0.84–0.88
+- PI ~4.5 % during contact, but false transients of **113 %, 88 %, 10 %** when
+  HR=0 and SQI 0.30–0.43
+- 93 accepted IBIs, all FPGA after priming; 9 prime, 2 low, 1 high, 1 gap
+- RMSSD 50.5 ms, inflated by split pairs **888→645**, **781→641**, **666→797**
+  (each about two cardiac cycles); removing those gives ~30 ms
+- RR correctly 0 / RSA unresolved
+
+**Capture 2 (after PI gate and RR-note fix):**
+
+- HR 79.5–90.3 BPM, SpO₂ 97.8–99.2 %, SQI 0.88–0.91
+- PI 1.1–3.1 %, no impossible transients
+- 151 accepted IBIs, 158 FPGA / 1 software, 6 prime, 1 low, 1 high
+- RMSSD **35.6 ms**; one residual >100 ms successive difference
+- RR baseline path briefly published **7.2–8.0 br/min** with `RRDEPTH=0` and
+  confidence 0.5–0.64, then returned to 0; the RSA path itself had `r=0.000`.
+
+**Interpretation:** HR, SpO₂, SQI and PI are live and plausible. RMSSD is still
+sensitive to FPGA split pairs; capture 1's 50.5 ms should not be quoted as a
+validated HRV value. The next HRV work is a pair-sum rejection rule or the RTL
+crest-confirmation change, followed by an independent ECG/chest-strap comparison.
 
 ### Open decisions to record after the run
 

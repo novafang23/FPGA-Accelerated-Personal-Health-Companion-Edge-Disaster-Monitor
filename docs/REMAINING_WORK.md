@@ -806,7 +806,7 @@ passes the host suite, the 34-test Zynq suite and the ESP-IDF build; the HRV
 readiness change itself is `a2000ba` (firmware build fix `666faea`). None of the
 HRV readiness changes have run on hardware.
 
-When COM4 is reconnected, follow
+When the board's COM port is reconnected (currently COM5), follow
 [`docs/HARDWARE_DEBUG_HANDOVER.md`](HARDWARE_DEBUG_HANDOVER.md) §6. The short
 version:
 
