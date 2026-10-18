@@ -785,6 +785,44 @@ static void test_sqi_requires_beat_intervals() {
  * knock dismissing one, the recovery stand-down that stops a false trigger
  * holding the screen until the battery dies, and the re-arm rule that lets a
  * cancelled emergency be replaced by a genuine one. */
+static void test_web_status_history_skips_unavailable_fields(void) {
+    web_status_history_init();
+
+    valor_status_t s;
+    memset(&s, 0, sizeof(s));
+    s.contact = true;
+    s.hr = 72.0f;
+    s.pm25 = 10.0f;
+    s.uptime_s = 0;
+    web_status_publish(&s);          /* SpO2/RMSSD still unavailable */
+
+    s.spo2 = 98.0f;
+    s.rmssd = 40.0f;
+    s.uptime_s = 10;
+    web_status_publish(&s);
+
+    /* Cross the hour boundary with no finger. The completed hour must retain
+     * the valid clinical averages, while the new current hour must be empty -
+     * the old code left the previous hour's values/valid flag in slot 0. */
+    memset(&s, 0, sizeof(s));
+    s.uptime_s = 3600;
+    web_status_publish(&s);
+
+    valor_history_point_t h[VALOR_HISTORY_HOURS];
+    web_status_history_snapshot(h, VALOR_HISTORY_HOURS);
+
+    assert(!h[0].valid);
+    assert(h[1].valid);
+    assert(fabsf(h[1].avg_hr - 72.0f) < 0.01f);
+    assert(fabsf(h[1].avg_spo2 - 98.0f) < 0.01f);
+    assert(fabsf(h[1].avg_rmssd - 40.0f) < 0.01f);
+    assert(fabsf(h[1].peak_pm25 - 10.0f) < 0.01f);
+
+    printf("test_web_status_history_skips_unavailable_fields: PASS "
+           "(hour avg HR=%.1f SpO2=%.1f RMSSD=%.1f)\n",
+           h[1].avg_hr, h[1].avg_spo2, h[1].avg_rmssd);
+}
+
 static void test_sos_state_machine(void) {
     sos_config_t cfg;
     sos_default_config(&cfg);
@@ -1916,6 +1954,7 @@ int main() {
     test_sqi_requires_beat_intervals();
     test_sos_state_machine();
     test_web_status_json();
+    test_web_status_history_skips_unavailable_fields();
     test_web_status_origin_check();
     test_location_store();
     test_pressure_trend();

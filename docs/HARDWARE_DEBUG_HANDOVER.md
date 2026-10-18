@@ -106,7 +106,7 @@ python -c "import serial, time; s = serial.Serial('COM4', 115200, timeout=1); [p
 ## 6. Pending HRV / RMSSD Readiness Verification (2026-10-18)
 
 **Status: NOT FLASHED — the board is disconnected.** The current tree passes the
-host suite, the 33-test Zynq suite and the ESP-IDF build, but the HRV readiness
+host suite, the 34-test Zynq suite and the ESP-IDF build, but the HRV readiness
 changes have not run on hardware.
 
 This is the first thing to do when COM4 is reconnected. Do not claim the OLED

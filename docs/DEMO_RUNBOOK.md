@@ -196,7 +196,7 @@ In competitive hackathons, physical hardware can suffer broken jumper wires, dea
 | :--- | :--- | :--- | :--- |
 | **FPGA Peak Detector** | Physical Blue LED (D12) flashes to real pulse | `tb_forgefpga_system.v` simulation in Icarus Verilog | Proves 100% cycle-accurate Verilog logic and 20 ns timing closure |
 | **Zero-Cloud INT8 AI** | ESP32-S3 runs inference in 18 µs on live vitals | `shrikefi_host.exe` host test suite under GCC 15.2 | Proves mathematical quantization fidelity (max error 0.091) |
-| **mNEWS2 Triage Engine** | OLED displays live clinical levels and alerts | `test_disaster_risk_engine.exe` (33 unit tests) | Proves all clinical boundary sweeps and crisis overrides |
+| **mNEWS2 Triage Engine** | OLED displays live clinical levels and alerts | `test_disaster_risk_engine.exe` (34 unit tests) | Proves all clinical boundary sweeps and crisis overrides |
 | **Fall Detection FSM** | MPU6050 physical drop triggers countdown | `test_fall_detect.exe` (16 FSM unit tests) | Proves 3-stage FSM state transitions and angle math |
 | **GUI & Triage Dashboard** | Live Web Serial stream on COM4 port | `valor_dashboard.html` with built-in Simulation Profiles | Proves UI rendering, gauge math, and multi-hazard response |
 

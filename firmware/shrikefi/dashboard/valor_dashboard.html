@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'sha256-R8iZ0RLKbLMhGTA2MXbj/CdNJlgVYtxNzFj8AM6qEaE='; style-src 'unsafe-inline'; connect-src 'self'; form-action 'self'; base-uri 'none'; object-src 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'sha256-qMw1Nz+z3l+uyVuuw8MzpTj1uYG5pPvy7BT7Sk8Omyg='; style-src 'unsafe-inline'; connect-src 'self'; form-action 'self'; base-uri 'none'; object-src 'none'">
 <title>VALOR â€” Edge Health &amp; Disaster Triage</title>
 <!--
   VALOR dashboard â€” single self-contained file.
@@ -552,7 +552,7 @@
   <div class="card-head" style="margin-bottom:14px;flex-wrap:wrap;gap:10px">
     <div>
       <div class="card-title">24-Hour Clinical &amp; Environmental Trajectory</div>
-      <div class="dim">On-device rolling hourly summaries &middot; 24-point circular buffer &middot; zero cloud</div>
+      <div class="dim">On-device rolling hourly summaries &middot; 24-point circular buffer &middot; since boot &middot; zero cloud</div>
     </div>
     <div style="display:flex;gap:14px;align-items:center;flex-wrap:wrap">
       <div style="display:flex;gap:12px;align-items:center;font-size:11px;font-family:var(--mono)">
@@ -572,7 +572,7 @@
           <i style="display:inline-block;width:8px;height:8px;border-radius:2px;background:var(--crimson)"></i>NEWS2
         </span>
       </div>
-      <span class="chip" id="hist-span">24h ROLLING</span>
+      <span class="chip" id="hist-span">SINCE BOOT</span>
     </div>
   </div>
 
@@ -999,18 +999,6 @@ function makeHistory() {
     }
   }
 
-  function setLivePoint(v) {
-    if (v.hr > 0) {
-      H[0].hr = v.hr;
-      H[0].spo2 = v.spo2;
-      H[0].rmssd = v.hrv;
-      H[0].pm25 = v.pmCal;
-      H[0].news2 = v.news2;
-      H[0].valid = true;
-      updateSummary();
-    }
-  }
-
   function generateSim(name) {
     const b = PROFILES[name] || PROFILES['Normal Baseline'];
     for (let i = 0; i < N; i++) {
@@ -1075,18 +1063,21 @@ function makeHistory() {
       return;
     }
 
-    let sumHr = 0, minSpo2 = 100, sumRmssd = 0, peakN2 = 0, peakPm = 0;
+    let sumHr = 0, nHr = 0, minSpo2 = 100, nSpo2 = 0;
+    let sumRmssd = 0, nRmssd = 0, peakN2 = 0, peakPm = 0;
     validPts.forEach((p) => {
-      sumHr += p.hr;
-      if (p.spo2 < minSpo2) minSpo2 = p.spo2;
-      sumRmssd += p.rmssd;
+      /* An environmental-only hour has valid=true but no clinical values.
+         Do not average its zeros into HR/SpO2/RMSSD. */
+      if (p.hr > 0) { sumHr += p.hr; nHr++; }
+      if (p.spo2 > 0) { if (p.spo2 < minSpo2) minSpo2 = p.spo2; nSpo2++; }
+      if (p.rmssd > 0) { sumRmssd += p.rmssd; nRmssd++; }
       if (p.news2 > peakN2) peakN2 = p.news2;
       if (p.pm25 > peakPm) peakPm = p.pm25;
     });
 
-    const mHr = $('h-mean-hr'); if (mHr) mHr.textContent = Math.round(sumHr / n) + ' bpm';
-    const mSp = $('h-min-spo2'); if (mSp) mSp.textContent = minSpo2.toFixed(1) + ' %';
-    const mRm = $('h-mean-rmssd'); if (mRm) mRm.textContent = (sumRmssd / n).toFixed(1) + ' ms';
+    const mHr = $('h-mean-hr'); if (mHr) mHr.textContent = nHr ? Math.round(sumHr / nHr) + ' bpm' : '--';
+    const mSp = $('h-min-spo2'); if (mSp) mSp.textContent = nSpo2 ? minSpo2.toFixed(1) + ' %' : '--';
+    const mRm = $('h-mean-rmssd'); if (mRm) mRm.textContent = nRmssd ? (sumRmssd / nRmssd).toFixed(1) + ' ms' : '--';
     const pN2 = $('h-peak-news2'); if (pN2) pN2.textContent = peakN2 + (peakN2 >= 5 ? ' (HIGH)' : ' pts');
     const pPm = $('h-peak-pm25'); if (pPm) pPm.textContent = peakPm.toFixed(0) + ' \u00b5g/m\u00b3';
     const cnt = $('h-sample-count'); if (cnt) cnt.textContent = n + '/24';
@@ -1159,8 +1150,9 @@ function makeHistory() {
       let started = false;
       for (let i = N - 1; i >= 0; i--) {
         const pt = H[i];
-        if (!pt.valid) continue;
+        if (!pt.valid) { started = false; continue; }
         const val = getter(pt);
+        if (!(val > 0)) { started = false; continue; }
         const norm = clamp((val - minVal) / (maxVal - minVal), 0, 1);
         const x = xAt(i);
         const y = padT + (1 - norm) * plotH;
@@ -1221,7 +1213,7 @@ function makeHistory() {
       tt.style.left = clamp(leftPx, 10, rect.width - 170) + 'px';
       tt.style.top = '14px';
       tt.innerHTML =
-        '<b>T' + (hIdx === 0 ? ' (Now)' : ' -' + hIdx + 'h') + '</b><br>' +
+        '<b>T' + (hIdx === 0 ? '0 (this hour)' : ' -' + hIdx + 'h') + '</b><br>' +
         'HR: <span style="color:' + C.emerald + '">' + Math.round(pt.hr) + ' bpm</span><br>' +
         'SpO2: <span style="color:' + C.cyan + '">' + pt.spo2.toFixed(1) + '%</span><br>' +
         'RMSSD: <span style="color:' + C.violet + '">' + pt.rmssd.toFixed(1) + ' ms</span><br>' +
@@ -1255,7 +1247,7 @@ function makeHistory() {
     });
   }
 
-  return { reset, setPoint, setLivePoint, generateSim, draw, initEvents, getPoints: () => H };
+  return { reset, setPoint, generateSim, draw, initEvents, getPoints: () => H };
 }
 
 /* ==========================================================================
@@ -1596,9 +1588,9 @@ function render() {
   setGauge('flood', flood, C.sky, V.rFlood);
   setGauge('storm', storm, C.violet, V.cyclone);
 
-  if (mode === 'live' && V.hr > 0 && typeof HIST !== 'undefined') {
-    HIST.setLivePoint(V);
-  }
+  /* The current-hour point comes from the device's [HISTORY] hourly summary,
+     not from the instantaneous vital cards. Mixing the two would put a live
+     reading beside 23 hourly averages and call the whole trace "24-hour". */
 }
 
 function setGauge(id, value, color, ruleRisk) {

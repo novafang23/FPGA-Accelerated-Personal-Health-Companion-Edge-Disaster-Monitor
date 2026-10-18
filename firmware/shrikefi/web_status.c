@@ -25,11 +25,16 @@ static valor_status_t s_snap;
 /* ------------------------------------------------------------------------- */
 /* 24-Hour Rolling History (Requirement 7 / T3.2)                            */
 /* ------------------------------------------------------------------------- */
+/* RAM-only by design: the 24 slots reset on reboot and fill only as uptime
+ * accumulates. The UI labels this "since boot" rather than implying a
+ * calendar 24-hour record persisted in flash. */
 
 static valor_history_point_t s_history[VALOR_HISTORY_HOURS];
 static uint32_t s_last_hour_s = 0;
 static bool     s_last_hour_init = false;
-static uint32_t s_accum_count = 0;
+static uint32_t s_accum_count = 0;      /* HR samples                                  */
+static uint32_t s_accum_spo2_n = 0;     /* samples with a valid SpO2                    */
+static uint32_t s_accum_rmssd_n = 0;    /* samples with a valid RMSSD                   */
 static float    s_accum_hr = 0.0f;
 static float    s_accum_spo2 = 0.0f;
 static float    s_accum_rmssd = 0.0f;
@@ -223,6 +228,8 @@ void web_status_history_init(void) {
     s_last_hour_s = 0;
     s_last_hour_init = false;
     s_accum_count = 0;
+    s_accum_spo2_n = 0;
+    s_accum_rmssd_n = 0;
     s_accum_hr = 0.0f;
     s_accum_spo2 = 0.0f;
     s_accum_rmssd = 0.0f;
@@ -254,9 +261,19 @@ static void history_feed_locked(const valor_status_t *s) {
     /* Accumulate vitals when tissue contact is present */
     if (s->contact && s->hr >= 30.0f && s->hr <= 240.0f) {
         s_accum_hr += s->hr;
-        s_accum_spo2 += s->spo2;
-        s_accum_rmssd += s->rmssd;
         s_accum_count++;
+        /* Average each clinical field over its own valid samples. SpO2 is 0
+         * while the engine is calibrating, and RMSSD is 0 until the SQI/9-pair
+         * gate opens; including those zeros would drag the hourly averages down
+         * and make a normal hour look hypoxic or low-HRV. */
+        if (s->spo2 > 0.0f) {
+            s_accum_spo2 += s->spo2;
+            s_accum_spo2_n++;
+        }
+        if (s->rmssd > 0.0f) {
+            s_accum_rmssd += s->rmssd;
+            s_accum_rmssd_n++;
+        }
         if (s->news2 > s_accum_news2) {
             s_accum_news2 = s->news2;
         }
@@ -272,10 +289,13 @@ static void history_feed_locked(const valor_status_t *s) {
             s_history[i].hour_offset = (uint32_t)i;
         }
         s_history[0].hour_offset = 0;
-        if (s_accum_count > 0) {
-            s_history[0].avg_hr = s_accum_hr / (float)s_accum_count;
-            s_history[0].avg_spo2 = s_accum_spo2 / (float)s_accum_count;
-            s_history[0].avg_rmssd = s_accum_rmssd / (float)s_accum_count;
+        if (s_accum_count > 0 || s_accum_pm25 > 0.0f) {
+            s_history[0].avg_hr = (s_accum_count > 0)
+                                  ? s_accum_hr / (float)s_accum_count : 0.0f;
+            s_history[0].avg_spo2 = (s_accum_spo2_n > 0)
+                                    ? s_accum_spo2 / (float)s_accum_spo2_n : 0.0f;
+            s_history[0].avg_rmssd = (s_accum_rmssd_n > 0)
+                                     ? s_accum_rmssd / (float)s_accum_rmssd_n : 0.0f;
             s_history[0].peak_pm25 = s_accum_pm25;
             s_history[0].max_news2 = s_accum_news2;
             s_history[0].valid = true;
@@ -283,12 +303,14 @@ static void history_feed_locked(const valor_status_t *s) {
             s_history[0].avg_hr = 0.0f;
             s_history[0].avg_spo2 = 0.0f;
             s_history[0].avg_rmssd = 0.0f;
-            s_history[0].peak_pm25 = s_accum_pm25;
+            s_history[0].peak_pm25 = 0.0f;
             s_history[0].max_news2 = 0;
-            s_history[0].valid = (s_accum_pm25 > 0.0f);
+            s_history[0].valid = false;
         }
         s_last_hour_s += 3600;
         s_accum_count = 0;
+        s_accum_spo2_n = 0;
+        s_accum_rmssd_n = 0;
         s_accum_hr = 0.0f;
         s_accum_spo2 = 0.0f;
         s_accum_rmssd = 0.0f;
@@ -304,20 +326,26 @@ static void history_feed_locked(const valor_status_t *s) {
 
     /* Update slot 0 live with running averages for the current hour */
     s_history[0].hour_offset = 0;
-    if (s_accum_count > 0) {
-        s_history[0].avg_hr = s_accum_hr / (float)s_accum_count;
-        s_history[0].avg_spo2 = s_accum_spo2 / (float)s_accum_count;
-        s_history[0].avg_rmssd = s_accum_rmssd / (float)s_accum_count;
+    if (s_accum_count > 0 || s_accum_pm25 > 0.0f) {
+        s_history[0].avg_hr = (s_accum_count > 0)
+                              ? s_accum_hr / (float)s_accum_count : 0.0f;
+        s_history[0].avg_spo2 = (s_accum_spo2_n > 0)
+                                ? s_accum_spo2 / (float)s_accum_spo2_n : 0.0f;
+        s_history[0].avg_rmssd = (s_accum_rmssd_n > 0)
+                                 ? s_accum_rmssd / (float)s_accum_rmssd_n : 0.0f;
         s_history[0].peak_pm25 = s_accum_pm25;
         s_history[0].max_news2 = s_accum_news2;
         s_history[0].valid = true;
-    } else if (s->contact && s->hr >= 30.0f) {
-        s_history[0].avg_hr = s->hr;
-        s_history[0].avg_spo2 = s->spo2;
-        s_history[0].avg_rmssd = s->rmssd;
-        s_history[0].peak_pm25 = s->pm25;
-        s_history[0].max_news2 = s->news2;
-        s_history[0].valid = true;
+    } else {
+        /* No clinical contact and no environmental sample this hour. Clearing
+         * this is important: the old code left the previous hour's valid flag
+         * and values in slot 0, so the chart showed a stale current point. */
+        s_history[0].avg_hr = 0.0f;
+        s_history[0].avg_spo2 = 0.0f;
+        s_history[0].avg_rmssd = 0.0f;
+        s_history[0].peak_pm25 = 0.0f;
+        s_history[0].max_news2 = 0;
+        s_history[0].valid = false;
     }
 }
 

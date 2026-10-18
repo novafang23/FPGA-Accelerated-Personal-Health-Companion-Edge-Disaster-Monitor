@@ -59,6 +59,7 @@ window.onerror = function (m) { window.__err = String(m); };
     } else {
       V.hr = 72; V.spo2 = 98; V.hrv = 42; V.rr = 15; V.sqi = 95; V.pi = 1.2;
       V.news2 = 0; V.risk = 'NORMAL'; V.level = 0; V.flags = 0;
+      handleLine('[HISTORY] H0,HR=72.0,SPO2=98.0,RMSSD=42.0,NEWS2=0,PM25=12.0');
     }
     if (new URLSearchParams(location.search).get('case') !== 'stale') render();
     const txt = (id) => {

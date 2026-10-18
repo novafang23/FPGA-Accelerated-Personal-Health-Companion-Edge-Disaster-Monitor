@@ -302,15 +302,16 @@ correctly reads UNKNOWN until the window is long enough to mean anything.
 
 ---
 
-### T3.2 — Dashboard history and daily summaries
+### T3.2 — Dashboard history and daily summaries  **PARTIAL (2026-10-18)**
 
-Requirement 7 asks for *"daily health summaries and trend analysis"*. The current dashboard is
-live-only.
+Requirement 7 asks for *"daily health summaries and trend analysis"*. The dashboard is no
+longer live-only: `web_status.c` keeps 24 hourly slots and the standalone page renders a
+24-hour trajectory chart with mean/nadir/peak summaries.
 
-- Persist rolling summaries (hourly HR/SpO2/RMSSD/risk) to NVS or SD.
-- Show a trend line alongside the live view.
-
-~4 hours.
+**Still open:** the 24 slots live in RAM only and are not persisted to NVS or SD, so a reboot
+clears them. The chart is therefore *since boot*, not a calendar 24-hour record, and it takes
+24 hours of continuous uptime to fill. Persisting the 24-point history is the remaining
+~2–4 hour task; the chart and hourly averaging (including the zero-skip fix) are done.
 
 ---
 
@@ -671,6 +672,11 @@ were applied. `verify_dashboard.py` and `verify_softap_page.py` pass.
   connect failures distinguish cancel from a busy/blocked port.
 - DOM/history updates are throttled to ~5 Hz while the canvases stay at 60 fps;
   the simulated PPG now advances phase per sample and pre-fills the scope.
+- 24-hour history accuracy: SpO2/RMSSD are averaged over their own valid samples
+  instead of being divided by every HR sample, an empty current hour no longer
+  keeps stale clinical values, and the page no longer overwrites slot 0 with an
+  instantaneous reading. The chart now says "since boot"; a 34th unit test covers
+  the hourly rollover and zero-skip behavior.
 - Accessibility: contrast raised for notes/units/n-a tiles, gate is a labelled
   dialog with focus on the first action, header has a persistent `h1`, status is
   a polite live region, history chart supports arrow keys, buttons have explicit
@@ -793,7 +799,7 @@ constraint is worse than none, because it produces a confident number.
 ### T4.6 — Flash and verify HRV readiness / OLED state — **WAITING FOR BOARD**
 
 **Status: code fixed, not flashed.** The board is disconnected. The current tree
-passes the host suite, the 33-test Zynq suite and the ESP-IDF build; the HRV
+passes the host suite, the 34-test Zynq suite and the ESP-IDF build; the HRV
 readiness change itself is `a2000ba` (firmware build fix `666faea`). None of the
 HRV readiness changes have run on hardware.
 
@@ -843,7 +849,7 @@ still open.
 | 4 | Environmental awareness | **Strong** | — |
 | 5 | Privacy-preserving edge AI | **Satisfied** — cloud publishing off by default | — |
 | 6 | Emergency assistance | **Partial — SOS latch + OLED emergency card + local status page + stored location shipped (T1.2-T1.4)** | a POST SOS trigger endpoint, and a button (T2.2) |
-| 7 | Wellness dashboard | Live only, no history or trends | T3.2 |
+| 7 | Wellness dashboard | **24-slot hourly history + chart, RAM-only since boot** | T3.2 persistence (NVS/SD) |
 | 8 | Scalable deployment | Roadmap only | — |
 
 ---
