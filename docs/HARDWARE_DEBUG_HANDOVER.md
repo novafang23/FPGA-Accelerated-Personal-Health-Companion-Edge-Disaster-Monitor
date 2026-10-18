@@ -2,13 +2,15 @@
 **Project:** VALOR — FPGA-Accelerated Personal Health Companion & Edge Disaster Monitor (SIH26181)  
 **Target Platform:** Vicharak ShrikeFi (ESP32-S3 Dual-Core Xtensa LX7 + Renesas ForgeFPGA SLG47910)  
 **Port:** COM4 @ 115200 baud (460800 baud for flashing)  
-**Date:** October 15, 2026
+**Date:** October 15, 2026 (updated October 18, 2026)
 
 ---
 
 ## 1. Executive Summary & Current System State
 
-* **Firmware Flashing**: Successfully compiled and flashed to **COM4** via ESP-IDF v5.5.5.
+* **Firmware Flashing**: The last hardware flash predates the 2026-10-18 HRV
+  readiness fix. The current tree builds cleanly, but the board is disconnected
+  and **has not been flashed** with it. See Section 6.
 * **FPGA Link**: Renesas ForgeFPGA SLG47910 bitstream (46,408 bytes) loads cleanly on SPI2 on every boot (`SLG47910 configuration COMPLETE!`).
 * **SoftAP**: `VALOR-0081` active on `192.168.4.1`.
 * **UART Peripherals**: u-blox NEO-M8N GNSS (UART2: GPIO16/17) and PMS5003 PM2.5 (UART1: GPIO14) are active and streaming.
@@ -98,3 +100,98 @@ cmd.exe /c "call C:\Espressif\frameworks\esp-idf-v5.5.5\export.bat && idf.py -p 
 ```python
 python -c "import serial, time; s = serial.Serial('COM4', 115200, timeout=1); [print(s.readline().decode('utf-8', 'replace').strip()) for _ in range(50)]; s.close()"
 ```
+
+---
+
+## 6. Pending HRV / RMSSD Readiness Verification (2026-10-18)
+
+**Status: NOT FLASHED — the board is disconnected.** The current tree passes the
+host suite, the 33-test Zynq suite and the ESP-IDF build, but the HRV readiness
+changes have not run on hardware.
+
+This is the first thing to do when COM4 is reconnected. Do not claim the OLED
+HRV behaviour as hardware-verified until this section is complete.
+
+### What changed in the unflashed firmware
+
+- `hrv_is_ready()` no longer takes the snapshot shortcut when a real 300-interval
+  ring has wrapped to `head == 0`.
+- All three publication paths now require `hrv_is_ready()`. The old
+  `count >= 10 && rmssd > 0` fallback no longer bypasses the requirement for
+  nine contiguous valid pairs.
+- The OLED shows `HRV: Low Signal` for SQI 0.50–0.69. `HRV: Stabilizing` is now
+  reserved for SQI >= 0.70 with RMSSD still withheld.
+- `firmware/zynq/Makefile` links `ppg_baseline_rr.c` and
+  `pm25_calibration_int8.c`; its three host targets compile and the test target
+  passes.
+
+### Flash and boot
+
+1. Connect the board and confirm the port is still COM4.
+2. Flash and monitor:
+
+   ```cmd
+   cmd.exe /c "call C:\Espressif\frameworks\esp-idf-v5.5.5\export.bat && idf.py -p COM4 flash monitor"
+   ```
+
+   If the Windows sandbox intercepts the Xtensa tool DLLs, use the same command
+   with sandbox bypass as noted in Section 5.
+3. Confirm the boot log still reports:
+   - `SLG47910 configuration COMPLETE!`
+   - SSD1306 at `0x3C`, MPU6050 at `0x68`
+   - MAX30102 at `0x57` and BME280 at `0x76` (re-seat jumpers if not)
+4. Expect the storm card to show `CYCLONE=UNKNOWN` after a flash: the 30-minute
+   pressure window is reset. This is not an HRV fault.
+
+### Finger test
+
+Run at least two contacts:
+
+1. **Steady contact, 60–90 s:** rest the finger without pressing hard or moving.
+2. **Deliberate mild movement or light contact:** force SQI below 0.70 so the
+   guidance path is exercised.
+
+Capture the full serial log for both. The useful lines are:
+
+- `IBI <source> <ms> <verdict> ref=<median> n=<count> rmssd=<ms>`
+- `[PPG] ...`
+- `[TELEMETRY] ...`
+- `[TRIAGE] ...`
+
+### Expected OLED progression
+
+| Condition | Expected line |
+|---|---|
+| Fewer than 10 accepted intervals | `Reading... (n/10)` |
+| 10+ accepted, RMSSD still withheld, SQI 0.50–0.69 | `HRV: Low Signal` |
+| SQI below 0.50 | `Hold Finger Still` |
+| SQI >= 0.70 but fewer than 9 contiguous valid pairs | `HRV: Stabilizing` |
+| Ready | `HRV RMSSD:xx.xms` |
+
+`HRV: Stabilizing` is a UI state, not a separate filter. With a steady finger
+and SQI >= 0.70 it means a rejection in the current window has broken NN
+adjacency; one rejected interval should cost roughly one extra accepted beat
+before RMSSD publishes.
+
+### Acceptance criteria
+
+- `n` reaches 10 and then continues past it; it must not freeze.
+- RMSSD publishes a nonzero, plausible resting value with SQI >= 0.70; it must
+  not jump to the old ~190 ms artefact value.
+- `HRV: Stabilizing` must not appear while SQI is below 0.70.
+- The OLED RMSSD matches the `[TELEMETRY]` RMSSD at the same time.
+- No detector handover every few seconds during steady contact. If it happens,
+  capture the timestamps — it is the 2.5 s fallback interacting with the
+  measured 3.38 s FPGA silences, not the RMSSD arithmetic.
+
+### Open decisions to record after the run
+
+- **FPGA fallback window:** 2.5 s is current. The 02:49 capture had 3.38 s
+  silences, so a longer 5 s window (or a true sticky detector) may keep HRV from
+  re-priming repeatedly. Do not change it until the handover frequency is
+  measured on the current build.
+- **SQI gate:** keep `PPG_SQI_THRESHOLD_VALID` at 0.70. Do not lower it just to
+  make the OLED publish RMSSD; a low-SQI RMSSD is not a measurement.
+- **Clinical validation remains open:** this run verifies readiness and display
+  logic only. T4.1 (independent ECG/chest-strap comparison) is still required
+  before claiming RMSSD accuracy.

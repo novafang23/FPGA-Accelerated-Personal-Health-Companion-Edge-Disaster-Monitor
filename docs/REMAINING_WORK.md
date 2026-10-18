@@ -749,6 +749,36 @@ constraint is worse than none, because it produces a confident number.
 
 ---
 
+### T4.6 — Flash and verify HRV readiness / OLED state — **WAITING FOR BOARD**
+
+**Status: code fixed, not flashed.** The board is disconnected. The current tree
+(`a2000ba`, build fix `666faea`) passes the host suite, the 33-test Zynq suite and
+the ESP-IDF build, but none of the HRV readiness changes have run on hardware.
+
+When COM4 is reconnected, follow
+[`docs/HARDWARE_DEBUG_HANDOVER.md`](HARDWARE_DEBUG_HANDOVER.md) §6. The short
+version:
+
+1. Flash and confirm FPGA configuration plus the I2C scan (OLED, IMU, MAX30102,
+   BME280). Expect `CYCLONE=UNKNOWN` initially; flashing resets the 30-minute
+   pressure window.
+2. Take one steady 60–90 s finger contact and one deliberately noisy contact.
+   Capture `[PPG]`, `IBI`, `[TELEMETRY]` and `[TRIAGE]`.
+3. Verify the OLED progression: `Reading... (n/10)` → (`HRV: Low Signal` below
+   SQI 0.70) → `HRV: Stabilizing` only with SQI >= 0.70 and fewer than nine
+   contiguous pairs → `HRV RMSSD:xx.xms`.
+4. Confirm `n` does not freeze, RMSSD is plausible (not the old ~190 ms
+   artefact), and OLED RMSSD matches telemetry.
+5. Record whether the 2.5 s FPGA fallback hands over repeatedly during steady
+   contact. If it does, compare a 5 s window or a true sticky detector on a
+   later build; do not change it without a captured handover count.
+
+**Do not** lower the 0.70 SQI gate just to make the OLED publish. This run
+verifies readiness and display logic only; T4.1 independent HRV validation is
+still open.
+
+---
+
 ## Out of scope — and why
 
 | Item | Why not |
@@ -781,6 +811,10 @@ constraint is worse than none, because it produces a confident number.
 ```
 DONE: T1.1-T1.7 core software/status; T2.3 IMU fitted (physical fall test pending);
       T3.1, T3.3, T3.4, T3.5; T4.4 fit recorded (535 LUT5s / 303 FFs / 108 CLBs).
+
+BOARD RECONNECT GATE — do this before the next measurement:
+  Flash the HRV readiness fix and run docs/HARDWARE_DEBUG_HANDOVER.md §6.
+  No HRV/OLED behaviour in the current tree is hardware-verified yet.
 
 Physical gates / user actions, in this order:
   1. Print the MAX30102 reflective cradle; assemble; recalibrate SpO2 at the fixed
