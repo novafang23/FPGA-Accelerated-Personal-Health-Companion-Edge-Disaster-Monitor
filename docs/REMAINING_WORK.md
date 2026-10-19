@@ -904,12 +904,12 @@ still open.
 
 | # | Requirement | State today | What still closes it |
 |---|---|---|---|
-| 1 | Continuous monitoring | HR, SpO₂, RR, SQI — **body temperature not measured** | **T2.1** (MAX30205, ~₹200); activity + sleep need T2.3 |
-| 2 | AI anomaly detection | **Strong** — real RR in NEWS2, SQI gating, INT8 TinyML head | fall detection via T2.3 |
+| 1 | Continuous monitoring | HR, SpO₂, RR, SQI and IMU motion energy — **body temperature not measured**; activity classification and sleep staging are not implemented | **T2.1** (MAX30205/TMP117, ~₹200) closes body temperature; activity would be new work on the already-fitted IMU, sleep is scoped out |
+| 2 | AI anomaly detection | **Strong** — real RR in NEWS2, SQI gating, INT8 TinyML head, 5-state fall FSM on the fitted MPU6050 | fall detection is implemented and unit-tested but not field-validated (multi-trial drops pending) |
 | 3 | Disaster alerts | Heat + air quality good; **cyclone done via the pressure trend (T3.1)**; flood still not instrumented | a water sensor; the flood path still runs on an ambient cold-stress proxy |
 | 4 | Environmental awareness | **Strong** | — |
 | 5 | Privacy-preserving edge AI | **Satisfied** — cloud publishing off by default | — |
-| 6 | Emergency assistance | **Partial — SOS latch + OLED emergency card + local status page + stored location shipped (T1.2-T1.4)** | a POST SOS trigger endpoint, and a button (T2.2) |
+| 6 | Emergency assistance | **Partial — SOS latch + OLED emergency card + local SoftAP page + stored location + POST `/api/emergency/trigger`/`cancel` all shipped and exercised (T1.2-T1.4)** | only the **physical** GPIO5 SOS cancel button (T2.2) remains unbuilt |
 | 7 | Wellness dashboard | **24-slot hourly history + chart, NVS-persisted (device-hours, no wall clock)** | — |
 | 8 | Scalable deployment | Roadmap only | — |
 
