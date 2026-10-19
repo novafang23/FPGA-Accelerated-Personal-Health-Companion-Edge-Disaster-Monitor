@@ -80,7 +80,9 @@ this report covers is the RAM feed only.
 
 **Shows:** steady-contact HR/SpO₂/SQI are internally consistent; the old
 split-peak (888/645-style) IBI signature did not recur in 318 accepted intervals;
-the SQI gate withholds HRV during motion; the on-device history feed works.
+the SQI gate withholds HRV during motion; the on-device history feed works. It
+also provides the settling curve the 2026-10-20 contact-settling gate is
+calibrated against (240 of 300 beats and a 120 s span before RMSSD is published).
 
 **Does not show:** that RMSSD is accurate. 76 ms is higher than the 46 ms clean
 tail of capture 3 and could still contain PPG timing jitter rather than true RR

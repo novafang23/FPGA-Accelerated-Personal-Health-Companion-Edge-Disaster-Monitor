@@ -14,6 +14,24 @@ extern "C" {
 
 #define HRV_BUFFER_SIZE 300  /* Rolling window of last 300 IBI intervals (~5 min at 60 BPM) */
 #define HRV_MIN_SAMPLES 10   /* Minimum accepted IBIs before publishing HRV */
+/* Window fill required before RMSSD may be published.
+ *
+ * hrv_compute() averages over whatever the window currently holds, so a
+ * 10-beat window yields a 10-beat RMSSD that is not comparable with the
+ * 300-beat window the dashboard and OLED claim to display. A 302 s
+ * still-contact capture on 2026-10-19 measured exactly that artefact: RMSSD
+ * climbed 31.3 -> 77.5 ms over the first ~3 minutes and then flattened near
+ * 76 ms. Publishing before then means publishing a number that is still
+ * converging, so 80 % of the window (240 beats) is required before
+ * hrv_is_ready() reports true. HRV_MIN_SAMPLES remains the absolute floor used
+ * by guards and by directly-populated summary structs. */
+#define HRV_SETTLE_MIN_SAMPLES 240
+/* Minimum time span the window must cover before RMSSD may be published.
+ * Expressed in milliseconds of summed IBI, not wall-clock time: the window is
+ * what gets published, so the gate is stated on the window itself and is
+ * testable without a clock. 120 s is the settling period the 2026-10-19 capture
+ * showed was needed. */
+#define HRV_SETTLE_MIN_SPAN_MS 120000.0f
 
 typedef struct {
     float ibi_ms[HRV_BUFFER_SIZE];

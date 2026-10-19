@@ -103,16 +103,39 @@ int hrv_is_ready(const hrv_state_t *state) {
     if (state == NULL || state->count < HRV_MIN_SAMPLES) return 0;
 
     /* Support summary/snapshot structs (e.g., Core 1 hrv_snapshot or host test
-     * profiles) that populate rmssd/sdnn/count directly without a ring buffer. */
-    if (state->head == 0 && state->count < HRV_BUFFER_SIZE && state->rmssd > 0.0f) return 1;
+     * profiles) that populate rmssd/sdnn/count directly without a ring buffer.
+     * These must clear the same fill threshold: a summary claiming a 300-beat
+     * RMSSD while carrying a 50-beat count is exactly the under-filled case the
+     * settle gate exists to suppress. */
+    if (state->head == 0 && state->count < HRV_BUFFER_SIZE && state->rmssd > 0.0f) {
+        return state->count >= HRV_SETTLE_MIN_SAMPLES;
+    }
 
+    /* A partially filled window yields a RMSSD over fewer beats than the
+     * published window claims, and it is still converging: the 2026-10-19
+     * capture measured 31.3 -> 77.5 ms across the first ~3 minutes of contact
+     * before it flattened. Wait for 80 % fill. */
+    if (state->count < HRV_SETTLE_MIN_SAMPLES) return 0;
+
+    /* Walk the window exactly as hrv_compute() does, so the fill, span and
+     * contiguity checks all describe the same set of intervals. */
     int n = state->count;
     int start = (state->head - n + HRV_BUFFER_SIZE) % HRV_BUFFER_SIZE;
     int valid_pairs = 0;
-    for (int i = 1; i < n; i++) {
+    float span_ms = 0.0f;
+    for (int i = 0; i < n; i++) {
         int idx = (start + i) % HRV_BUFFER_SIZE;
-        if (state->pair_valid[idx]) valid_pairs++;
+        span_ms += state->ibi_ms[idx];
+        if (i > 0 && state->pair_valid[idx]) valid_pairs++;
     }
+
+    /* The window must span the settling period. Summing the intervals states
+     * the requirement on the window itself ("covers >= 120 s of contact")
+     * rather than on a wall clock, so it cannot drift from the sample data and
+     * it is testable without a timer. Rejected intervals break the sequence and
+     * are not added to the window, so this counts contiguous beats only. */
+    if (span_ms < HRV_SETTLE_MIN_SPAN_MS) return 0;
+
     return valid_pairs >= (HRV_MIN_SAMPLES - 1);
 }
 

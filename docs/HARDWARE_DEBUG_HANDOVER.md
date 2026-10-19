@@ -137,9 +137,13 @@ absence of the old split-pair signature, and the SQI gate withholding HRV during
 motion (full numbers in
 [`reports/HRV_STILL_CAPTURE_2026-10-19.md`](reports/HRV_STILL_CAPTURE_2026-10-19.md)).
 It also showed RMSSD takes ~3 minutes to settle, so the first 1–2 minutes of an
-RMSSD reading are window-fill, not measurement. The physical **OLED** state
-progression (the table below) has **not** been visually confirmed, and T4.1
-(ECG/chest-strap comparison) is still open. Do not claim HRV accuracy or the
+RMSSD reading are window-fill, not measurement. **That artefact is now gated in
+firmware (2026-10-20):** `hrv_is_ready()` withholds RMSSD until the window holds
+240 of 300 beats *and* spans ≥ 120 s of contact, so the panel should read
+`HRV: Stabilizing` for ~2–3 minutes and then hold a stable value. That withheld
+period has **not** yet been confirmed by a capture, so the physical **OLED**
+state progression (the table below) is still **not** visually confirmed, and
+T4.1 (ECG/chest-strap comparison) is still open. Do not claim HRV accuracy or the
 OLED HRV states as hardware-verified.
 
 ### What changed in the flashed firmware
@@ -287,7 +291,8 @@ consistent and the split-peak artefact stayed gone, but the settled RMSSD
 ~3 minutes to stabilise. This is **not** evidence of HRV accuracy. It strengthens
 the case for a contact-settling gate (discard the first 1–2 minutes) and keeps
 T4.1 (independent ECG/chest-strap comparison) as the blocking requirement before
-quoting RMSSD. SpO₂ remains prototype-calibrated.
+quoting RMSSD. That gate is now implemented (2026-10-20, host-tested): RMSSD is
+withheld until the window holds 240 of 300 beats *and* spans 120 s of contact. SpO₂ remains prototype-calibrated.
 
 ### Open decisions to record after the run
 

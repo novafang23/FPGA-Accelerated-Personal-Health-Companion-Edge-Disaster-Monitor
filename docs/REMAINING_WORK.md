@@ -881,6 +881,24 @@ HRV during a motion episode, but **RMSSD took ~3 minutes to settle**
 tail. That instability means HRV is **not** validated; see
 [`reports/HRV_STILL_CAPTURE_2026-10-19.md`](reports/HRV_STILL_CAPTURE_2026-10-19.md).
 
+**Contact-settling gate — implemented 2026-10-20 (host-tested; board capture
+pending).** `hrv_is_ready()` no longer publishes RMSSD out of a partially filled
+window. It now requires **240 of 300 beats (80 % fill) AND a window spanning
+≥ 120 s of contact**, with the span summed from the accepted IBIs rather than
+read from a wall clock — the requirement is stated on the window that actually
+gets published, so it cannot drift from the sample data and it is testable
+without a timer. Directly-populated summary structs (the Core 1 snapshot path)
+clear the same threshold instead of bypassing it. The host suite proves three
+cases: 50 beats / ~40 s withheld, 240 beats / ~192 s published (RMSSD 50.0 ms),
+and **240 beats / 96 s withheld** — that last one is the leg a time-only or
+fill-only gate would miss, and it is what stops a fast heart rate from
+publishing an under-settled window. On the device the effect is that the OLED
+shows `HRV: Stabilizing` for ~2–3 minutes before any RMSSD appears, instead of
+showing a number that is still climbing. **Pending:** one ≥ 6-minute still
+capture to confirm the withheld period and a flat value afterwards, plus a visual
+check of the OLED `Stabilizing` state. The gate makes the number honest; it does
+not make it accurate — T4.1 remains the validation step.
+
 With the board on COM4, follow
 [`docs/HARDWARE_DEBUG_HANDOVER.md`](HARDWARE_DEBUG_HANDOVER.md) §6. The short
 version:

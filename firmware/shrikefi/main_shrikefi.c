@@ -3015,6 +3015,73 @@ int main(void) {
     }
     printf("  [History Guard] Truncated, bad-magic and checksum-failed blobs rejected\n");
 
+    /* HRV contact-settling gate. The 2026-10-19 302 s still-contact capture
+     * measured RMSSD climbing 31.3 -> 77.5 ms over the first ~3 minutes of
+     * contact and then flattening: that is the window still filling, not the
+     * patient changing. hrv_is_ready() must refuse to publish until the window
+     * holds 80 % of its beats AND spans at least 120 s of contact. */
+    printf("\nHost Test - HRV Contact-Settling Gate:\n");
+    {
+        hrv_state_t settle;
+        hrv_init(&settle);
+        /* 50 beats x ~800 ms = ~40 s: fill and span both short. */
+        for (int i = 0; i < 50; i++) {
+            hrv_add_ibi(&settle, 800.0f + ((i % 2) ? 25.0f : -25.0f));
+        }
+        hrv_compute(&settle);
+        if (hrv_is_ready(&settle)) {
+            fprintf(stderr, "[FAIL] A 50-beat / ~40 s window must not publish RMSSD\n");
+            return 1;
+        }
+        printf("  [HRV Settle] 50 beats / ~40 s withheld (count=%d)\n", settle.count);
+
+        /* Grow to 240 beats x ~800 ms = ~192 s: both legs satisfied. */
+        for (int i = 50; i < 240; i++) {
+            hrv_add_ibi(&settle, 800.0f + ((i % 2) ? 25.0f : -25.0f));
+        }
+        hrv_compute(&settle);
+        if (!hrv_is_ready(&settle)) {
+            fprintf(stderr, "[FAIL] A 240-beat / ~192 s window must publish RMSSD\n");
+            return 1;
+        }
+        printf("  [HRV Settle] 240 beats / ~192 s published (RMSSD %.1f ms)\n",
+               hrv_get_rmssd(&settle));
+
+        /* 240 beats x 400 ms = 96 s: fill satisfied, span not. The gate must
+         * still hold, or a fast heart rate would publish an under-settled
+         * window. This is the leg a time-only or fill-only gate would miss. */
+        hrv_state_t fast;
+        hrv_init(&fast);
+        for (int i = 0; i < 240; i++) hrv_add_ibi(&fast, 400.0f);
+        hrv_compute(&fast);
+        if (hrv_is_ready(&fast)) {
+            fprintf(stderr, "[FAIL] A 240-beat window spanning only 96 s must not publish\n");
+            return 1;
+        }
+        printf("  [HRV Settle] 240 beats / 96 s withheld (span below 120 s)\n");
+
+        /* Directly-populated summary structs (the Core 1 snapshot path) must
+         * clear the same threshold instead of bypassing it. */
+        hrv_state_t summary;
+        hrv_init(&summary);
+        summary.count = 50;
+        summary.rmssd = 45.0f;
+        summary.sdnn  = 40.0f;
+        if (hrv_is_ready(&summary)) {
+            fprintf(stderr, "[FAIL] A 50-beat summary struct must not publish RMSSD\n");
+            return 1;
+        }
+        summary.count = HRV_SETTLE_MIN_SAMPLES;
+        if (!hrv_is_ready(&summary)) {
+            fprintf(stderr, "[FAIL] A %d-beat summary struct must publish RMSSD\n",
+                    HRV_SETTLE_MIN_SAMPLES);
+            return 1;
+        }
+        printf("  [HRV Settle] Summary structs use the same %d-beat threshold\n",
+               HRV_SETTLE_MIN_SAMPLES);
+        printf("  [PASS] HRV settling gate withholds an under-settled window\n");
+    }
+
     /* Profile 9: Sustained Tachycardia Acceptance & IBI Pipeline Verification */
     printf("\nHost Test - Profile 9: Sustained Tachycardia Acceptance & IBI Pipeline:\n");
     ibi_pipeline_t tachy_pipe;
