@@ -406,7 +406,7 @@ static void history_feed_locked(const valor_status_t *s) {
     /* Finalise every hour that has fully elapsed BEFORE this sample is added, so
      * the sample that crosses the boundary counts toward the hour that is
      * starting, not the hour that just ended. */
-    while (s->uptime_s >= s_last_hour_s + 3600) {
+    while (s->uptime_s >= s_last_hour_s + VALOR_HISTORY_HOUR_SECONDS) {
         for (int i = VALOR_HISTORY_HOURS - 1; i > 0; i--) {
             s_history[i] = s_history[i - 1];
             s_history[i].hour_offset = (uint32_t)i;
@@ -434,7 +434,7 @@ static void history_feed_locked(const valor_status_t *s) {
          * lock is released (history_persist_if_dirty). Even when the hour is
          * invalid this is written, so a genuine gap is preserved as a gap. */
         s_history_dirty = true;
-        s_last_hour_s += 3600;
+        s_last_hour_s += VALOR_HISTORY_HOUR_SECONDS;
         s_accum_count = 0;
         s_accum_spo2_n = 0;
         s_accum_rmssd_n = 0;
@@ -445,7 +445,7 @@ static void history_feed_locked(const valor_status_t *s) {
         s_accum_news2 = 0;
 
         /* Prevent infinite loop on massive jumps (e.g. sleep/wake) */
-        if (s->uptime_s >= s_last_hour_s + (3600 * VALOR_HISTORY_HOURS)) {
+        if (s->uptime_s >= s_last_hour_s + (VALOR_HISTORY_HOUR_SECONDS * VALOR_HISTORY_HOURS)) {
             s_last_hour_s = s->uptime_s;
             break;
         }

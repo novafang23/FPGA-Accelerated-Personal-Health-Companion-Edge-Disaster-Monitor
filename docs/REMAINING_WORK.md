@@ -330,6 +330,23 @@ blob always encodes — the first version logged "24 completed hourly summaries"
 uptime, which over-claimed. Still open: only a multi-hour session can populate enough slots to
 exercise a full 24-hour window and the oldest-slot drop.
 
+**Ring wrap and eviction — DONE (2026-10-20, COM4).** The oldest-slot drop was exercised directly
+by building the firmware with `VALOR_HISTORY_HOUR_SECONDS = 60` (a bench-only override; the shipped
+default is 3600 s and the blob does not store the value). Over a 1560 s run with a finger present
+early: 25 NVS writes at 58.5–60.8 s spacing (mean 59.9 s, one per completed hour), ring growth
+3 → 24 slots at t ≈ 1281.8 s, then a steady 24 slots while the hour that had occupied H23 was
+evicted at the next rollover. Heart rate survives the round-trip: `dbg blob` showed `hr_slots`
+growing 2 → 3 → 4 as contact hours were added, and two separate reboots restored
+`24 of 24 slots populated, 5 with a heart-rate average` with identical HR/SpO₂/RMSSD/NEWS2 values
+(hours shifted two slots older on the second boot because the ring had rolled twice). Evidence:
+[`reports/HISTORY_RING_FASTHOUR_2026-10-19.md`](reports/HISTORY_RING_FASTHOUR_2026-10-19.md).
+The bench blob was then erased and the stored location restored by writing a generated NVS image
+(`valor/loc`) at `0x9000`. **Open anomaly:** one boot right after that long run reported
+`24 of 24 slots populated, 0 with a heart-rate average` although the in-RAM ring held an HR hour in
+H23; it did not reproduce in three later restores and is recorded rather than explained. A future
+multi-hour soak should watch for it. Still open: a genuine 23–24 h window with a calendar time
+source.
+
 ---
 
 ### T3.3 — Cosmetic: log spam on repeated handover  ✅ **DONE (2026-10-06)**

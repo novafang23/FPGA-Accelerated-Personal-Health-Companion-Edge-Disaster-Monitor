@@ -100,6 +100,16 @@ bool web_status_request_is_same_origin(const char *origin, const char *referer);
 
 #define VALOR_HISTORY_HOURS 24
 
+/* Length of one history "hour" in seconds of device uptime. This is not a
+ * calendar hour and there is no wall clock: the ring fills at this rate from
+ * boot. The default is a real hour. A bench build may override it (for example
+ * -DVALOR_HISTORY_HOUR_SECONDS=60) to exercise ring wrap and oldest-slot
+ * eviction in minutes instead of waiting a day; nothing else depends on the
+ * value, and the on-flash format does not store it. */
+#ifndef VALOR_HISTORY_HOUR_SECONDS
+#define VALOR_HISTORY_HOUR_SECONDS 3600u
+#endif
+
 typedef struct {
     uint32_t hour_offset; /* 0 = current hour, 1 = 1 hour ago, ... up to 23 */
     float    avg_hr;

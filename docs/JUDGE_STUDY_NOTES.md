@@ -667,6 +667,19 @@ The PC sees structured lines:
 - The restore log counts **populated slots**, not the 24 slots the blob always
   encodes. A full 24-hour window has not been exercised — that needs a multi-hour
   session.
+- **Wrap and eviction were exercised on hardware (2026-10-20)** with a bench build
+  that sets `VALOR_HISTORY_HOUR_SECONDS` to 60 instead of 3600, so one "hour" is a
+  minute. Over 26 minutes: 25 NVS writes at 58.5–60.8 s spacing, the ring filled
+  3 → 24 slots, and the hour that had reached the oldest slot was then dropped
+  while the ring stayed at 24. Heart rate survived the round-trip: two reboots
+  restored `5 with a heart-rate average` with identical values. The shipped build
+  still uses a real hour. Details:
+  [`reports/HISTORY_RING_FASTHOUR_2026-10-19.md`](reports/HISTORY_RING_FASTHOUR_2026-10-19.md).
+- **One unexplained boot:** after that long bench run a single boot reported
+  `24 of 24 slots populated, 0 with a heart-rate average` even though the ring in
+  RAM held a heart-rate hour. It did not reproduce in three later restores. Do not
+  claim the persisted history is free of anomalies; a longer soak should watch for
+  this.
 
 ---
 
@@ -688,7 +701,7 @@ Be precise. Judges reward this.
 | Skin temperature | **Not fitted**; flood/hypothermia uses ambient proxy, capped at HIGH |
 | Fall detection | **5-state FSM; 16/16 host tests; 1/1 physical drop trial passed**; false-positive rate not characterised |
 | SOS escalation | **4-state FSM implemented**; 10 s fall grace + 5 s cancel hold; countdown + buzzer + cancel verified in the physical trial |
-| 24-hour history | **NVS-persisted device-hours** (24 slots, reboot-safe); **not a calendar record** |
+| 24-hour history | **NVS-persisted device-hours** (24 slots, reboot-safe); wrap + oldest-slot eviction exercised on hardware with a compressed-hour bench build; **not a calendar record** |
 | ForgeFPGA timing | **No real 50 MHz constraint**; 88.059 MHz is an unconstrained-fit indication |
 | MQTT/cloud | **Dev only / off by default** |
 | Medical device status | **Prototype; not a medical device** |
