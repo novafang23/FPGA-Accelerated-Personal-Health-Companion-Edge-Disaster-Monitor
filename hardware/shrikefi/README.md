@@ -82,15 +82,21 @@ Latest fitter run of the SPI design (`synthesis_evidence/resource_utilization_sp
 superseded 4-bit parallel design and must not be mixed with the current SPI + IBI fit — see
 [`synthesis_evidence/README.md`](synthesis_evidence/README.md) for the full
 comparison, the port signature that tells the two logs apart, and the fit history
-(342 → 363 → 362 → 535 → 515 LUT5s; the 535 step is the 32-bit IBI burst, and
-the 515 step is the 2026-10-19 peak/4 crest refit).
+(342 → 363 → 362 → 535 → 515 LUT5s; the 535 step is the 32-bit IBI burst, the
+515 step is the 2026-10-19 peak/4 crest refit, and the 2026-10-20
+clock-constraint re-fit changed no resource count).
 
-**The fitter's timing report needs reading with care.** The 2026-10-19
-`PNR_TIMING.log` shows WNS −9.357 ns, but that is measured against an
-auto-generated 2000 ps (500 MHz) constraint — the design declares no clock
-constraint. The same report gives an achievable period of 11,356 ps
-(88.059 MHz), so against the documented 50 MHz target the margin is
-**+8.644 ns**. See the timing section of
+**Timing is now constrained and closes at 50 MHz (2026-10-20).** The design has
+exactly one clock — `clk`, the SLG47910 internal 50 MHz oscillator — and the
+project now declares it in
+`forgefpga_project/ffpga/timing-constraints/timing_constraints.sdc` (referenced
+from `FPGA-SHRIKE.ffpga`). The fitter therefore no longer times every register
+against a meaningless 2000 ps (500 MHz) placeholder. The 2026-10-20
+`PNR_TIMING.log` reports **WNS +7.316 ns, TNS 0, zero failing endpoints** across
+1260 endpoints, with an achievable period of 12,683 ps (78.846 MHz). Reproducing
+this requires a Renesas ForgeFPGA Workshop build — the vendor flow ships no
+headless CLI, so the constraint only takes effect on a rebuild. Tracked copy:
+`synthesis_evidence/timing_summary_spi_link_50mhz.log`; see the timing section of
 [`synthesis_evidence/README.md`](synthesis_evidence/README.md) before quoting any
 timing number.
 

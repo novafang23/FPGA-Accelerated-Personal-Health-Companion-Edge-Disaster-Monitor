@@ -7,11 +7,17 @@ project.
 | File | Design | Status |
 |---|---|---|
 | `resource_utilization_parallel_link_superseded.log` | 4-bit parallel link | **Superseded** — the interconnect was replaced |
-| `resource_utilization_spi_link.log` | 4-wire SPI link + 32-bit IBI burst | **Current** — latest fitter run, 2026-10-18 01:40 |
+| `resource_utilization_spi_link.log` | 4-wire SPI link + 32-bit IBI burst | **Current** — latest fitter run, 2026-10-19 |
+| `timing_summary_spi_link_50mhz.log` | 4-wire SPI link + 32-bit IBI burst | **Current** — first fit checked against a real 50 MHz constraint, 2026-10-20 |
 
-Both are byte-identical copies of the Renesas ForgeFPGA Workshop fitter output
-(`forgefpga_project/ffpga/build/resource-utilization-report.log`); the whole
-`ffpga/build/` tree is gitignored, so these are the tracked copies.
+All are byte-identical copies of Renesas ForgeFPGA Workshop fitter output
+(`forgefpga_project/ffpga/build/resource-utilization-report.log` and
+`.../PNR_TIMING.log`); the whole `ffpga/build/` tree is gitignored, so these are
+the tracked copies. `resource_utilization_spi_link.log` is still byte-identical
+after the 2026-10-20 constrained re-fit: adding the clock constraint moved
+routing but changed no resource count. The timing file is the report header only
+— the full `PNR_TIMING.log` is 6.8 MB of per-path detail and the header carries
+the summary.
 
 ## Why there are two
 
@@ -70,6 +76,8 @@ last row as current.
 | 2026-10-18 | 535 / 1120 (47.77%) | 303 | 108/140 | 32-bit IBI burst (`0xC3`) + dummy-byte suppression; bitstream `50623aa2…` |
 | 2026-10-19 | **515 / 1120 (45.98%)** | **303** | **105/140 (75.00%)** | `crest_fall_min` raised from peak/8 to **peak/4** to reject the dicrotic notch; bitstream `d9d58daa…` |
 
+| 2026-10-20 | **515 / 1120 (45.98%)** | **303** | **105/140 (75.00%)** | no RTL change: a real 50 MHz `create_clock` was added, so this is the first fit timed against its actual clock; bitstream `6930ba88...` |
+
 The 2026-10-19 crest refit is **smaller** than the 2026-10-18 burst fit:
 515 LUT5s / 303 FFs / 105 CLBs, with **35 CLBs free**. The change was a constant
 bit-select in an existing comparator, so this is consistent with fitter
@@ -87,39 +95,52 @@ byte-select muxes. It also suppresses the dummy MOSI bytes during a burst so
 they never enter the 8-tap filter. That is a deliberate capability increase; it
 is still well inside the fabric, but it is no longer a "small" fit.
 
-## Timing: read the constraint before believing the report
+## Timing: constrained at 50 MHz and closed (2026-10-20)
 
-`PNR_TIMING.log` from the 2026-10-19 run reports, at POST-ROUTE:
+Until 2026-10-20 the project carried **no clock constraint at all**:
+`forgefpga_pins.pcf` declares only `set_io` lines and `FPGA-SHRIKE.ffpga` had an
+empty `<timing-constraints/>` element, so the fitter auto-constrained every
+register to a **2000 ps (500 MHz)** placeholder. Every WNS reported before that
+date was therefore measured against a frequency this design never runs at, and
+was unusable in both directions.
+
+The project now has `ffpga/timing-constraints/timing_constraints.sdc`, referenced
+from `FPGA-SHRIKE.ffpga`, and it contains one line:
+
+```tcl
+create_clock -name clk {clk} -period 20.000 -waveform {0 10.000}
+```
+
+That is the **complete** constraint, because the design has exactly one clock:
+`clk`, the SLG47910 internal 50 MHz oscillator (`clk_en -> OSC_EN`; it has no
+`set_io` line because it is an internal resource, not a pin). `spi_sck` is **not**
+a clock domain — the SPI lines are sampled inside the `clk` domain. The ESP32
+drives SCK at 1 MHz for the runtime link and 16 MHz while flashing, both far
+below 50 MHz, so a second `create_clock` and a `set_clock_groups` would describe
+hardware that does not exist. The syntax follows Renesas AN-FG-036 and the
+installed `an-fg-024` example project verbatim.
+
+`PNR_TIMING.log` from the 2026-10-20 constrained run reports, at POST-ROUTE:
 
 ```
-Group        No. Clocks  No. Clock Pairs  WNS(ps)   TNS(ps)     TNS Endpoints
-<UDEF_clk>   1           1                -9357     -5805440    1260
+Group        No. Clocks  No. Clock Pairs  WNS(ps)  TNS(ps)  TNS Endpoints
+<DEFAULT>    1           1                +7316    0        0
 ```
 
-That looks alarming and is **not** a timing failure. `forgefpga_pins.pcf`
-declares only `set_io` lines — there is no clock constraint anywhere in the
-design — so the fitter auto-constrains `clk` to **2000 ps (500 MHz)**. The same
-report gives the design's achievable period:
+| Clock | Constrained period | Waveform | Achievable period | Achievable frequency |
+|---|---|---|---|---|
+| `clk` | **20,000 ps (50 MHz)** | (0, 10,000) | 12,683 ps | 78.846 MHz |
 
-| Constrained period | Achievable period | Achievable frequency |
-|---|---|---|
-| (auto) 2000 ps | 11356 ps | **88.059 MHz** |
+**WNS +7,316 ps (+7.316 ns), TNS 0, zero failing endpoints** across 1260
+endpoints: the design closes timing at the 50 MHz it is specified for, and the
+fitter still finds headroom to 78.846 MHz. The tracked copy is
+`timing_summary_spi_link_50mhz.log`.
 
-The reported slack is exactly the gap between those two numbers:
-`2000 − 11356 = −9356 ps`, against a reported WNS of −9357 ps. Every register
-in the design "fails" a 500 MHz check, which is why the 1260 endpoints are spread
-across the whole design rather than sitting on one path.
-
-At the **50 MHz** this design is specified and documented at (20,000 ps), the
-margin is **+8,644 ps (+8.644 ns)**.
-
-So: the auto-generated report is not evidence that timing fails, and it is not
-evidence that timing closes either — the constraint it checks against is
-meaningless. A real `set_frequency`/SDC constraint for 50 MHz is the missing
-piece, and until it exists this log cannot be used as timing evidence either way.
-**Do not quote WNS −9.357 ns as a real number**, and do not quote 88.059 MHz as
-"timing closure". The previous 2026-10-18 fit reported −10.219 ns / 81.846 MHz /
-+7.782 ns; those numbers are historical.
+The earlier unconstrained run reported `-9357 ps` against `(auto) 2000 ps` with
+an achievable period of 11,356 ps (88.059 MHz); the 2026-10-18 run reported
+-10.219 ns / 81.846 MHz. Both are historical. Adding the constraint changed
+routing without changing resources: the bitstream hash moved from `d9d58daa…` to
+`6930ba88…`, while `resource_utilization_spi_link.log` is byte-identical.
 
 ## Reproducing
 

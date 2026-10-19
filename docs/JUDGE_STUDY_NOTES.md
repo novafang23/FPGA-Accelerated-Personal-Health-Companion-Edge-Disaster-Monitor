@@ -388,11 +388,12 @@ Four-state FSM:
 | CLBs | **105 / 140 — 75.00 %** |
 | Free CLBs | **35** |
 | BRAMs / PLL | 0 / 8, 0 / 1 |
-| Achievable period | **11,356 ps** |
-| Fitter-reported frequency | **88.059 MHz** |
-| Margin at 50 MHz | **+8.644 ns** |
+| Clock constraint | **20,000 ps (50 MHz)** |
+| Achievable period | **12,683 ps** |
+| Fitter-reported frequency | **78.846 MHz** |
+| WNS at 50 MHz | **+7.316 ns** (TNS 0, 0 failing endpoints) |
 
-The WNS in the report is **−9.357 ns**, but that is measured against an auto-generated 500 MHz constraint because the design declares no real clock constraint. **Do not call it timing closure.** At the documented 50 MHz, the margin is +8.644 ns, which is a good sign, not a formal closure.
+The design's single clock, `clk` (the SLG47910 internal 50 MHz oscillator), is declared in `ffpga/timing-constraints/timing_constraints.sdc`, so the fitter no longer checks every register against a placeholder 500 MHz. **Timing closes at 50 MHz with 7.316 ns of slack.** The older −9.357 ns WNS and 88.059 MHz / +8.644 ns figures were artefacts of the missing constraint and are historical.
 
 ### Zynq baseline (for comparison)
 
@@ -702,7 +703,7 @@ Be precise. Judges reward this.
 | Fall detection | **5-state FSM; 16/16 host tests; 1/1 physical drop trial passed**; false-positive rate not characterised |
 | SOS escalation | **4-state FSM implemented**; 10 s fall grace + 5 s cancel hold; countdown + buzzer + cancel verified in the physical trial |
 | 24-hour history | **NVS-persisted device-hours** (24 slots, reboot-safe); wrap + oldest-slot eviction exercised on hardware with a compressed-hour bench build; **not a calendar record** |
-| ForgeFPGA timing | **No real 50 MHz constraint**; 88.059 MHz is an unconstrained-fit indication |
+| ForgeFPGA timing | **Constrained at 50 MHz and closed** — WNS +7.316 ns, TNS 0, 0 failing endpoints; achievable 78.846 MHz |
 | MQTT/cloud | **Dev only / off by default** |
 | Medical device status | **Prototype; not a medical device** |
 
@@ -740,7 +741,7 @@ Do not say “HRV is fixed” or “HRV is accurate” yet.
 | ECG / chest-strap reference | **Pending**; needed for HRV validation |
 | Physical drop/fall test | **1/1 passed (2026-10-19)**; countdown + buzzer + cancel verified; multi-trial and false-positive testing still open |
 | NVS history | **Implemented** — 24 device-hour slots written to NVS as a checksummed blob and restored after reboot; a calendar time source is still missing |
-| Real 50 MHz FPGA constraint | **Still open**; current timing is unconstrained-fit indication |
+| Real 50 MHz FPGA constraint | **Done (2026-10-20)** — `create_clock` at 20 ns in the project; WNS +7.316 ns, 0 failing endpoints |
 | Cellular / emergency call | **Not present** |
 
 ### 14.4 Failure modes and demo recovery
@@ -988,8 +989,8 @@ If the judge asks for HRV, show it but add the caveat immediately. Do not wait f
 | **46,408 bytes** | Bitstream size |
 | **515 / 1120** | LUT5s used |
 | **105 / 140** | CLBs used; 35 free |
-| **88.059 MHz** | Fitter-reported achievable frequency (unconstrained) |
-| **+8.644 ns** | Margin at 50 MHz (unconstrained indication) |
+| **78.846 MHz** | Fitter-reported achievable frequency at the 50 MHz constraint |
+| **+7.316 ns** | WNS at 50 MHz — timing closes, 0 failing endpoints |
 | **250 ms** | Peak-detector refractory |
 | **25 %** | Current crest fall confirmation |
 | **300** | HRV beat window |
@@ -1041,7 +1042,7 @@ If the judge asks for HRV, show it but add the caveat immediately. Do not wait f
 - “offline-first”
 - “we hold rather than fabricate a value”
 - “rule engine with a distilled TinyML approximation”
-- “unconstrained fit indication, not timing closure”
+- “timing that closes at 50 MHz (+7.316 ns)”
 
 ### Avoid
 - “medical-grade”

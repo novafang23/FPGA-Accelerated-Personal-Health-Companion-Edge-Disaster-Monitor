@@ -59,13 +59,14 @@ Measured post-synthesis results from **Renesas ForgeFPGA Workshop v6.55**:
 > tabulated in the evidence README. CLB occupancy (105/140, 35 free) is still the
 > constraint to watch.
 >
-> **On timing:** the 2026-10-19 `PNR_TIMING.log` reports WNS -9.357 ns, but
-> against an auto-generated 500 MHz constraint (no clock constraint exists in the
-> design). Achievable period is 11,356 ps (88.059 MHz), so at the documented
-> 50 MHz the margin is +8.644 ns. Do not quote the -9.357 ns figure as a real
-> result, and do not call the achievable frequency "timing closure". The previous
-> 2026-10-18 fit reported 81.846 MHz / +7.782 ns; those are historical. See the
-> timing section of the evidence README.
+> **On timing (2026-10-20):** the flow now carries a real 50 MHz clock
+> constraint (`ffpga/timing-constraints/timing_constraints.sdc`), so the fit is
+> no longer checked against an auto-generated 500 MHz placeholder. POST-ROUTE
+> result: **WNS +7,316 ps (+7.316 ns), TNS 0, 0 failing endpoints** of 1260;
+> achievable period 12,683 ps (78.846 MHz). The old -9.357 ns WNS, the
+> 88.059 MHz / +8.644 ns unconstrained figures, and the 2026-10-18
+> 81.846 MHz / +7.782 ns are all historical. See the timing section of the
+> evidence README.
 
 ### Renesas ForgeFPGA Workshop GUI Synthesis Evidence & Project Tree:
 ![Renesas ForgeFPGA Resources Report](images/forgefpga_resources_report.png)

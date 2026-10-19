@@ -820,33 +820,50 @@ The 2026-10-18 fit was 535 LUT5s / 303 FFs / 108 CLBs; its jump from 362 was the
 earlier netlists — see `hardware/shrikefi/synthesis_evidence/README.md` for the
 history. **CLB occupancy (105/140) is still the constraint to watch.**
 
-**One caveat carried forward:** the design declares no clock constraint, so the
-fitter auto-constrains `clk` to 500 MHz. The 2026-10-19 report gives WNS
-−9.357 ns, which is meaningless against that constraint. Achievable period is
-11,356 ps (88.059 MHz); at 50 MHz the margin is +8.644 ns. Adding a real
-constraint to the flow is still open work — until then the timing report cannot
-be cited either way. The previous 81.846 MHz / +7.782 ns figures are historical.
+**Timing caveat — resolved (2026-10-20).** The design used to declare no clock
+constraint, so the fitter auto-constrained `clk` to 500 MHz and the 2026-10-19
+report's WNS of −9.357 ns was meaningless in both directions. That is now fixed;
+see T4.5.
 
 ---
 
-### T4.5 — Give the FPGA flow a real clock constraint
+### T4.5 — Give the FPGA flow a real clock constraint — ✅ **DONE (2026-10-20)**
 
-Split out of T4.4 because the re-fit is done but this is not. `forgefpga_pins.pcf` declares only
-`set_io` lines, so the fitter auto-constrains `clk` to 2000 ps (500 MHz) and every register in the
-design "fails". The reported WNS of −9.357 ns is therefore unusable in either direction — it is
-not evidence that timing fails, and not evidence that it closes.
+**Done.** `hardware/shrikefi/forgefpga_project/ffpga/timing-constraints/timing_constraints.sdc`
+declares the design's single clock, and `FPGA-SHRIKE.ffpga` now references it in
+place of the empty `<timing-constraints/>` element that caused the placeholder:
 
-The 2026-10-19 design's achievable period is 11,356 ps (88.059 MHz), so at the documented 50 MHz
-the margin is +8.644 ns. That is a good sign, not a result. The previous fit's 81.846 MHz /
-+7.782 ns is historical.
+```tcl
+create_clock -name clk {clk} -period 20.000 -waveform {0 10.000}
+```
 
-**Do:** find whether the Renesas flow accepts a frequency constraint (an SDC, or a `set_frequency`
-in the PCF — the repo's reference docs under `docs/reference/shrike_board/` do not say), apply
-50 MHz, and re-run. Until that exists, quote the achievable period and state that the constraint
-is missing rather than quoting WNS.
+`clk` is the SLG47910 internal 50 MHz oscillator (`clk_en -> OSC_EN`), which is
+why it has no `set_io` line in `forgefpga_pins.pcf`. `spi_sck` is **not** a clock
+domain — the SPI lines are sampled inside `clk`, and SCK runs at 1 MHz (runtime)
+and 16 MHz (flashing) — so a second `create_clock` or a `set_clock_groups` would
+have described hardware that does not exist. The syntax was verified against
+Renesas AN-FG-036 and the installed `an-fg-024` example project before use;
+nothing was invented.
 
-Do **not** invent a constraint syntax and commit it without re-running the fitter — a wrong
-constraint is worse than none, because it produces a confident number.
+Result, POST-ROUTE, 2026-10-20:
+
+| Metric | Value |
+|---|---|
+| Constrained period | **20,000 ps (50 MHz)** |
+| WNS | **+7,316 ps (+7.316 ns)** |
+| TNS / failing endpoints | **0 / 0** of 1260 |
+| Achievable period / frequency | 12,683 ps / **78.846 MHz** |
+
+The design closes timing at the 50 MHz it is designed for, with 7.316 ns of
+slack. Resource counts are unchanged (515 LUT5s / 303 FFs / 105 CLBs — the
+resource log is byte-identical), but routing changed, so the bitstream hash moved
+from `d9d58daa…` to `6930ba88…`; the firmware header was regenerated and reflashed
+(boot: `configuration COMPLETE! (46408 bytes loaded)`). Tracked evidence:
+`hardware/shrikefi/synthesis_evidence/timing_summary_spi_link_50mhz.log`.
+
+**Reproducing it requires the Renesas GUI.** The vendor flow ships no headless
+CLI, so the constraint only takes effect on a ForgeFPGA Workshop rebuild — that
+is why this item stayed open until 2026-10-20.
 
 ---
 
@@ -958,9 +975,9 @@ Validation / evidence:
      PPG. A dedicated respiration sensor is the only route; do not publish 27.
 
 FPGA / claims:
-  9. T4.5 real 50 MHz clock constraint. Until it exists, quote the achievable
-     11,356 ps / 88.059 MHz, not timing closure, and never the auto-constrained
-     WNS of −9.357 ns.
+  9. T4.5 real 50 MHz clock constraint — DONE 2026-10-20. Quote WNS +7.316 ns /
+     TNS 0 at a 20,000 ps constraint (achievable 78.846 MHz). The old −9.357 ns
+     and 88.059 MHz figures are historical; reproducing the fit needs the GUI.
  10. The current crest refit uses 105/140 CLBs (35 free). Check/optimise any new
      RTL against CLBs first; LUT headroom (605 free) is misleading.
  11. T4.2 Indian normative HRV range and T4.3 India-specific thresholds, if claiming
