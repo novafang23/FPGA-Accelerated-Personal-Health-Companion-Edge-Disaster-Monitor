@@ -259,6 +259,8 @@ These talk the sensor’s own protocol (I²C or UART), handle recovery, and expo
 | “Where is HRV?” | `firmware/core/hrv_analysis.c/.h` |
 | “Where is SpO₂?” | `firmware/core/spo2_engine.c/.h` |
 | “Where is the risk logic?” | `firmware/core/clinical_vitals_engine.c`, `disaster_risk_engine.c` |
+| “Where is the fall FSM?” | `firmware/shrikefi/fall_detect.c/.h`, `test_fall_detect.c` |
+| “Where is the SOS FSM?” | `firmware/shrikefi/sos.c/.h` |
 | “Where is the AI?” | `firmware/core/nn_risk_model_int8.c`, `train_nn_risk_model.py` |
 | “Where is the web page?” | `firmware/shrikefi/dashboard/valor_dashboard.html` |
 | “Where is the history?” | `firmware/shrikefi/web_status.c` |
@@ -505,6 +507,86 @@ We use it as a **triage/advisory** score, not a diagnosis. Body temperature is c
 - A measured critical vital can override a low-SQI hold.
 - The device reports “UNKNOWN / not assessed” rather than inventing normal values.
 
+### Fall detection and SOS FSM — yes, it is implemented
+
+There are **two separate state machines**:
+
+1. **Fall detector** — `fall_detect.c/.h`, a 5-state biomechanical FSM.
+2. **Emergency/SOS state machine** — `sos.c/.h`, a 4-state escalation FSM.
+
+#### Fall detector FSM
+
+```text
+MONITORING ── A_mag < 0.60 g ──▶ FREE_FALL
+    │                               │
+    │                               │ impact > 2.50 g
+    │                               │ + gyro >= 80 dps
+    │                               ▼
+    │                          INACTIVITY
+    │                               │ 1.5 s stillness
+    │                               │ + posture check
+    └──── movement / timeout ◀──────┤
+                                    ▼
+                               CONFIRMED
+```
+
+| State | Meaning |
+|---|---|
+| `MONITORING` | normal activity; tracks the gravity/orientation baseline |
+| `FREE_FALL` | weightlessness detected (`A_mag < 0.60 g`) |
+| `IMPACT` | high deceleration shock (`A_mag > 2.50 g`, gyro ≥ 80 dps) |
+| `INACTIVITY` | post-impact stillness/incapacitation check |
+| `CONFIRMED` | fall latched; SOS is armed |
+
+Key timings and thresholds:
+
+| Parameter | Value |
+|---|---:|
+| Free-fall threshold | **< 0.60 g** |
+| Impact threshold | **> 2.50 g** |
+| Rotational impact gate | **≥ 80 dps** |
+| Free-fall-to-impact window | **800 ms** |
+| Post-impact rebound settling | **400 ms** |
+| Stillness duration to confirm | **1.5 s** |
+| Stillness tolerance | **±0.30 g**, < 40 dps |
+| Soft-fall path | impact ≥ 1.80 g + posture change ≥ 55° |
+| Auto-standby if not cleared | **60 s** |
+
+There is also a **soft-fall path** for a slump/faint that does not produce true weightlessness: a moderate impact plus a large posture change can confirm a fall. A bump with no posture change is rejected.
+
+#### SOS FSM
+
+| State | Meaning |
+|---|---|
+| `IDLE` | monitoring |
+| `ARMED` | a trigger is present but the confirmation timer is running |
+| `ACTIVE` | emergency latched; OLED card + buzzer |
+| `CANCELLED` | deliberate stand-down; latched until the condition clears |
+
+Triggers: **critical triage**, **fall**, **manual**, and (implemented but disabled by default) **prolonged contact loss**.
+
+| Parameter | Value |
+|---|---:|
+| Critical triage confirmation | **3 s** |
+| Fall grace/cancel window | **10 s** |
+| Cancel hold | **5 s** |
+| Recovery stand-down | configurable; critical condition must clear |
+
+Integration:
+
+- `task_imu_monitor` reads the MPU6050 at **40 Hz**.
+- `fall_detect_update()` runs the FSM.
+- On confirmation, `sos_arm_fall()` starts the **10 s** grace period.
+- The OLED shows the countdown and “HOLD CANCEL TO STOP”; the buzzer chirps during the countdown.
+- If not cancelled, the SOS latches `ACTIVE`; the buzzer sounds and the rescue card is shown.
+- A confirmed fall can be cleared by the SOS cancel path or the 60 s auto-standby.
+
+**Validation status:** the fall FSM has **16/16 host unit tests passing** (free-fall timeout, impact without free-fall rejected, gyro gate, rebound settling, recovery motion, stillness reset, soft-fall, bed-rest baseline, auto-standby, null-pointer safety). The **physical drop/fall test on the real board is still pending**, so do not call the fall detector “field validated.” It is implemented and unit-tested, not physically calibrated.
+
+Safe judge answer:
+
+> “Yes — a 5-state fall FSM: free-fall, impact, post-impact inactivity and confirmation, with a gyro gate and a soft-fall/posture path. It arms a 10-second SOS countdown with a 5-second cancel hold. The FSM has 16/16 host tests; the physical drop test is the remaining validation step.”
+
 ---
 
 ## 11. Outputs and interfaces
@@ -570,7 +652,8 @@ Be precise. Judges reward this.
 | SpO₂ accuracy | **Rough two-point calibration**, not clinical |
 | Respiratory rate | **Often unresolved**; RSA from finger PPG is weak |
 | Skin temperature | **Not fitted**; flood/hypothermia uses ambient proxy, capped at HIGH |
-| Fall detection | Code present; **physical fall test still pending** |
+| Fall detection | **5-state FSM implemented; 16/16 host tests pass**; physical drop test still pending |
+| SOS escalation | **4-state FSM implemented**; 10 s fall grace + 5 s cancel hold |
 | 24-hour history | **RAM only since boot**, not persistent |
 | ForgeFPGA timing | **No real 50 MHz constraint**; 88.059 MHz is an unconstrained-fit indication |
 | MQTT/cloud | **Dev only / off by default** |
@@ -667,6 +750,15 @@ Do not say “HRV is fixed” or “HRV is accurate” yet.
 ### Q27. Why does HRV keep changing?
 > “RMSSD is a 300-beat rolling window. It keeps incorporating new beats, so it moves; at 75 bpm it takes about four minutes to fill. Also, RMSSD is still under validation, so we do not present it as a stable clinical number.”
 
+### Q28. Does it detect falls?
+> “Yes. A 5-state FSM: monitoring, free-fall, impact, post-impact inactivity, confirmed. It needs weightlessness, a high-g impact with rotation, and then sustained stillness — plus a soft-fall path using posture change for a slump or faint. It arms a 10-second SOS countdown.”
+
+### Q29. What happens after a fall?
+> “The fall detector confirms, the SOS state machine moves to ARMED, the OLED shows a countdown, and the buzzer chirps. If nobody cancels with a 5-second hold within 10 seconds, it latches ACTIVE and shows the rescue card.”
+
+### Q30. Is the fall detector validated?
+> “The FSM has 16/16 host unit tests. The physical drop test on the board is still pending, so I would call it implemented and unit-tested, not field-validated.”
+
 ---
 
 ## 14. Demo script — 2 minutes
@@ -726,6 +818,9 @@ If the judge asks for HRV, show it but add the caveat immediately. Do not wait f
 | **300** | HRV beat window |
 | **619 bytes** | INT8 TinyML model |
 | **0.70** | SQI validity threshold |
+| **0.60 g / 2.50 g** | Fall free-fall / impact thresholds |
+| **1.5 s** | Post-impact stillness needed to confirm a fall |
+| **10 s / 5 s** | Fall SOS grace / cancel hold |
 | **3.3 V** | All logic; 5 V only PMS VCC |
 
 ---
@@ -747,6 +842,9 @@ If the judge asks for HRV, show it but add the caveat immediately. Do not wait f
 | **AHA strain** | Autonomic-strain heuristic motivated by the AHA pollution statement |
 | **TinyML** | Small neural network running on a microcontroller |
 | **INT8** | 8-bit quantized neural-network weights/activations |
+| **FSM** | Finite-state machine — a fixed sequence of states and transitions |
+| **Free-fall** | Near-weightless acceleration (< 0.60 g) before an impact |
+| **SOS** | Local emergency escalation state machine (ARMED → ACTIVE) |
 | **SoftAP** | ESP32-created Wi-Fi access point |
 | **Web Serial** | Browser API used by the standalone dashboard to read COM5 |
 | **NVS** | ESP32 non-volatile storage (not used for history yet) |
