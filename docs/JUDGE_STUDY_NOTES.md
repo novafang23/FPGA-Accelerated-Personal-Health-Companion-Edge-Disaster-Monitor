@@ -8,7 +8,7 @@
 >
 > **Last updated:** 2026-10-19. Current ForgeFPGA bitstream is the 25 % crest/peak-4 build (`d9d58daa…`, 46,408 bytes), flashed on COM5.
 
-**Quick jump:** [30-second pitch](#1-the-30-second-explanation) · [System diagram](#3-system-at-a-glance) · [Sensors](#4-hardware) · [I2C/SPI/UART](#5-the-three-buses---i2c-spi-uart) · [Code layers](#6-code-structure--the-layers) · [Data flow](#8-data-flow--from-light-to-advisory) · [FPGA](#9-the-fpga--what-it-does-and-why) · [Algorithms](#10-algorithms--in-plain-language) · [Verified vs not](#12-what-is-verified-vs-what-is-not) · [Judge Q&A](#13-judge-qa--short-answers) · [Demo script](#14-demo-script--2-minutes) · [Cheat sheet](#15-numbers-to-memorize)
+**Quick jump:** [30-second pitch](#1-the-30-second-explanation) · [System diagram](#3-system-at-a-glance) · [Sensors](#4-hardware) · [I2C/SPI/UART](#5-the-three-buses---i2c-spi-uart) · [Code layers](#6-code-structure--the-layers) · [Data flow](#8-data-flow--from-light-to-advisory) · [FPGA](#9-the-fpga--what-it-does-and-why) · [Algorithms](#10-algorithms--in-plain-language) · [Fall/SOS FSM](#fall-detection-and-sos-fsm--yes-it-is-implemented) · [Verified vs not](#12-what-is-verified-vs-what-is-not) · [Judge Q&A](#13-judge-qa--short-answers) · [Demo script](#14-demo-script--2-minutes) · [Cheat sheet](#15-numbers-to-memorize)
 
 ---
 
@@ -106,7 +106,7 @@ Shared data is protected by a FreeRTOS mutex (`s_data_mutex`).
 | **MPU6050** | 6-axis IMU | Motion artifact gate, fall detection |
 | **SSD1306** | 128×64 OLED | Offline advisory display |
 | **Active buzzer** | GPIO 4 | Audible alert |
-| **SOS cancel button** | GPIO 5 | 5 s hold to cancel an alert |
+| **SOS cancel button** | GPIO 5 | 5 s hold to cancel an alert; firmware ready, physical button still pending |
 
 ### Power / voltage — very important
 
@@ -114,7 +114,7 @@ Shared data is protected by a FreeRTOS mutex (`s_data_mutex`).
 - **5 V is only for the PMS5003 VCC rail** (fan + laser), from USB-C VBUS.
 - **Never put 5 V on an ESP32-S3 or ForgeFPGA GPIO.** It permanently damages the parts.
 - Common ground is required.
-- The prototype is USB-powered. We have **not** measured battery runtime or mW; do not quote a battery figure.
+- The prototype is **USB-powered**; no battery/charger is fitted. We have **not** measured battery runtime or mW; do not quote a battery figure.
 
 ---
 
@@ -665,6 +665,111 @@ Be precise. Judges reward this.
 
 Do not say “HRV is fixed” or “HRV is accurate” yet.
 
+### 12.1 Five assumptions that are not true
+
+1. **It is not a medical device.** It is a triage/engineering prototype.
+2. **It is not a finished wearable.** It is a breadboard/USB bench prototype; no enclosure, battery or charger.
+3. **It cannot call an ambulance.** There is no cellular modem or SMS path; SOS is local OLED + buzzer + local web.
+4. **It does not keep a persistent 24-hour record.** The 24 slots are RAM-only since boot.
+5. **It does not use a cloud AI.** TinyML runs on the ESP32; the cloud/MQTT path is optional and off by default.
+
+### 12.2 Live data vs simulated data — never mix them
+
+- **Live hardware mode:** the dashboard connects to **COM5** over Web Serial; values come from `[TELEMETRY]`/`[TRIAGE]` lines produced by the board.
+- **Simulation mode:** the dashboard has six synthetic disaster profiles. They are for UI demonstration and are labelled as simulated. Do not present a simulation profile as live sensor data.
+- **MIMIC evidence:** the 94.11% figure is agreement with our triage rule on 16,387 ICU rows. HR and SpO₂ are real chart values; **RMSSD is synthesised** because MIMIC-III v1.4 has no waveform data; the labels are rule-derived. It is **not** independent clinical validation of the wearable.
+- **24-hour chart:** the 24 hourly slots are accumulated since boot, not a calendar history; empty lanes show as gaps, not zero.
+
+### 12.3 Physical build status — what is not fitted yet
+
+| Item | Status |
+|---|---|
+| Enclosure / strap | **Not fitted**; breadboard prototype |
+| Battery / charger | **Not fitted**; USB-powered |
+| GPIO5 SOS cancel button | Firmware path ready; **physical button still pending** |
+| MAX30102 reflective cradle | **Not printed**; SpO₂ uses a rough two-point calibration |
+| TMP117 / skin-temperature sensor | **Not fitted**; flood/hypothermia uses ambient proxy, capped at HIGH |
+| ECG / chest-strap reference | **Pending**; needed for HRV validation |
+| Physical drop/fall test | **Pending** |
+| NVS history | **Not implemented**; needs a time-source decision |
+| Real 50 MHz FPGA constraint | **Still open**; current timing is unconstrained-fit indication |
+| Cellular / emergency call | **Not present** |
+
+### 12.4 Failure modes and demo recovery
+
+| Symptom | What to do / what it means |
+|---|---|
+| Dashboard blank after reflash | Refresh `Ctrl+Shift+R`, **Connect → COM5**, close other serial monitors |
+| No HR after finger | Wait 6–8 s; check finger contact; check `[PPG]`/`[FPGA ACCEL]`; power-cycle if FPGA is wedged |
+| SpO₂ shows `CALC` | Wait 15–25 s; press firmer; check SQI/PI |
+| No finger but red trace | Old build or wrong page; current build should show **AMBIENT / NO CONTACT** |
+| GNSS `NO FIX` | Indoors/near window; stored deployment location is used as fallback |
+| Wi-Fi/MQTT fails | Offline OLED, USB dashboard and SoftAP still work; MQTT is optional |
+| Sensor NACK | Firmware retries I²C; UI shows `--`/UNKNOWN rather than a fake value |
+| Low SQI | Device holds/qualifies the reading; critical vitals can still override |
+| FPGA silent | Software peak-detector fallback after ~2.5 s; HRV may re-prime; do not hide this |
+| Web page refuses a request | SoftAP page has same-origin checks; open it from the device AP, not an arbitrary host |
+
+### 12.5 Security and privacy — honest version
+
+- The **SoftAP is open** (`WIFI_AUTH_OPEN`) so a rescuer can join without a password. It has **no authentication**; it is a local emergency-access page, not a hardened service.
+- The page uses **same-origin checks and a CSP**, but that is not a full security audit.
+- **MQTT is off by default**; the demo does not need the cloud.
+- Data stays on the device by default; the stored location is local NVS text. Do not claim TLS or end-to-end encryption.
+- Do not expose the SoftAP to an untrusted network or the public internet.
+
+### 12.6 GNSS and location
+
+- Receiver: **u-blox NEO-M8N / Quectel L89HS class**, UART2 at **9600 8N1**, NMEA-0183.
+- Pins: **GPIO16 RX**, **GPIO17 TX**.
+- A live 3D fix takes precedence; after **5 s** without a fix, the device falls back to the stored deployment location.
+- There is **no map and no cellular uplink**; the OLED/page shows coordinates/text, not a rescue dispatch.
+- Indoors, a GNSS fix is often unavailable. That is a physical limitation, not a firmware failure.
+
+### 12.7 Reproduce the evidence in two minutes
+
+```powershell
+# Firmware host suite (link, drivers, risk, web)
+cd firmware/shrikefi
+.\run_host_test.bat
+
+# Dashboard and SoftAP regressions
+python dashboard/verify_dashboard.py
+python dashboard/verify_softap_page.py
+
+# Fall FSM (16/16)
+gcc -std=c11 -I. test_fall_detect.c fall_detect.c -lm -o "$env:TEMP\fall_test.exe"
+& "$env:TEMP\fall_test.exe"
+
+# ForgeFPGA simulation (13/13)
+cd ../../hardware/shrikefi
+build_shrikefi_sim.bat
+
+# Bitstream/source consistency
+python gen_flat_source.py --check
+python convert_bitstream.py --check
+
+# Rebuild and flash (ESP-IDF v5.5.x shell)
+cd ../../firmware/shrikefi
+idf.py build flash -p COM5
+```
+
+If a judge asks for a number you cannot reproduce on the spot, say **“I can show the file and the command, but I haven’t re-run it in this session.”** Do not invent a result.
+
+### 12.8 If you do not know
+
+Use this three-part answer:
+
+1. **What is implemented** — point to the file.
+2. **What is tested** — point to the test/result.
+3. **What is not validated** — say it plainly.
+
+Example:
+
+> “The fall FSM is implemented in `fall_detect.c` and has 16 host tests. We have not done the physical drop test yet, so I would not call it field-validated.”
+
+That answer is stronger than guessing.
+
 ---
 
 ## 13. Judge Q&A — short answers
@@ -759,6 +864,21 @@ Do not say “HRV is fixed” or “HRV is accurate” yet.
 ### Q30. Is the fall detector validated?
 > “The FSM has 16/16 host unit tests. The physical drop test on the board is still pending, so I would call it implemented and unit-tested, not field-validated.”
 
+### Q31. How does it know the location?
+> “A u-blox NEO-M8N on UART2 gives NMEA coordinates. A live fix takes precedence; if there is no fix for five seconds, the device falls back to the stored deployment location. It does not have a map or a cellular uplink.”
+
+### Q32. Is the local web page secure?
+> “The SoftAP is intentionally open for emergency access and has no authentication; it is a local rescue page, not a hardened service. The page has same-origin checks and a CSP, and MQTT is off by default. We do not claim TLS or production-grade security.”
+
+### Q33. Is the dashboard showing real data?
+> “In live mode, yes — it reads `[TELEMETRY]`/`[TRIAGE]` from COM5. It also has six deliberately synthetic disaster profiles for UI demonstration. We never present a synthetic profile as live hardware data.”
+
+### Q34. What is still missing for a production device?
+> “A proper SpO₂ cradle and calibration, ECG/chest-strap HRV validation, a physical fall test, a real 50 MHz FPGA constraint, NVS history with a time source, an enclosure, battery/charger and power measurement, and a physical SOS button.”
+
+### Q35. Is the 24-hour history persistent?
+> “No. It is 24 hourly slots in RAM, filled since boot. It resets on reboot and is labelled ‘since boot.’ NVS persistence needs a real time source, which we have not added yet.”
+
 ---
 
 ## 14. Demo script — 2 minutes
@@ -795,6 +915,9 @@ If the judge asks for HRV, show it but add the caveat immediately. Do not wait f
 - [ ] No-finger state shows **AMBIENT / NO CONTACT**, with Ta/RH/PM2.5 visible.
 - [ ] Finger session: wait for HR (~6–8 s) and SpO₂ (~15–25 s) before judging.
 - [ ] Do not call HRV “validated” or “stable.”
+- [ ] If the physical GPIO5 button is not fitted, demo SOS via the local web page and say so.
+- [ ] GNSS may not fix indoors; know that the stored location is the fallback.
+- [ ] Do not show a synthetic profile as live data.
 - [ ] Keep the 3.3 V rule in mind; never probe with 5 V.
 
 ---
