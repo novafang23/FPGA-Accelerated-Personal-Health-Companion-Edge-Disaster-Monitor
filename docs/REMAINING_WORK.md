@@ -922,6 +922,19 @@ sibling dashboard mean by "valid"), and `hrv_is_settled()` owns the 240-beat /
 300-interval window with RMSSD 0.0 declines, RMSSD 40.0 scores) and the settle
 cases; `verify_dashboard.py` has `ai_declined` and `ai_scored` cases (11 total).
 
+**Hold is not a finding — fixed 2026-10-20.** With no finger the firmware still
+assesses the environment (by design: weather does not need a patient) and calls
+the clinical engine with hr = 0 / SpO2 = 0. That returns `CLINICAL_ELEVATED` as a
+*hold* marker, and the fusion mapped ELEVATED to `RISK_MODERATE` — so an
+untouched device published a moderate-risk verdict for a patient nobody had
+measured (hardware: `NEWS2=0, LEVEL=1, FLAGS=0x00, RISK=MODERATE`). The
+invalid-input path now sets `ALERT_SIGNAL_NOISE` like the two SQI hold paths, and
+`clinical_fuse_triage()` drops the clinical contribution while a hold is in
+force: a genuine environmental hazard still stands on its own, and with none the
+verdict is `RISK_UNKNOWN` with "Patient not assessed". Host case `[Hold]` covers
+both halves (calm + no patient → UNKNOWN; hazard + no patient → hazard
+survives).
+
 With the board on COM4, follow
 [`docs/HARDWARE_DEBUG_HANDOVER.md`](HARDWARE_DEBUG_HANDOVER.md) §6. The short
 version:

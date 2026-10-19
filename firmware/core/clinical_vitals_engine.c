@@ -112,6 +112,12 @@ void clinical_vitals_assess_ext(float hr, float spo2, float rmssd, float rr, flo
     if (!isfinite(hr) || !isfinite(spo2) ||
         !(hr > 0.0f && hr < 350.0f && spo2 > 0.0f && spo2 <= 100.0f)) {
         out->level = CLINICAL_ELEVATED;
+        /* Mark the hold the same way the two SQI hold paths below do, so a
+         * consumer can tell "holding, nothing measured" from a real clinical
+         * elevation. Verified on hardware 2026-10-20: with no finger this path
+         * ran and published LEVEL=1 with FLAGS=0x00, which the fusion then
+         * mapped to RISK=MODERATE for a patient who was never measured. */
+        out->alert_flags = ALERT_SIGNAL_NOISE;
         snprintf(out->advisory, sizeof(out->advisory), "Clinical vitals: sensor calibrating or invalid");
         return;
     }
@@ -316,6 +322,28 @@ void clinical_fuse_triage(const clinical_assessment_t *clinical,
         case CLINICAL_ELEVATED: clin_level = RISK_MODERATE; break;
         case CLINICAL_HIGH:     clin_level = RISK_HIGH;     break;
         case CLINICAL_CRITICAL: clin_level = RISK_CRITICAL; break;
+    }
+
+    /* A "hold" is not a finding. The three hold paths in
+     * clinical_vitals_assess_ext() (invalid input, SQI == 0 warm-up, SQI < 0.70
+     * without corroboration) set ALERT_SIGNAL_NOISE and mark the level
+     * ELEVATED so the panel can say "holding triage". ELEVATED maps to MODERATE
+     * above, so before this check a device with nobody on the sensor published
+     * RISK=MODERATE (hardware, 2026-10-20: NEWS2=0, LEVEL=1, FLAGS=0x00,
+     * RISK=MODERATE). Nothing was measured, so nothing may be graded: the
+     * clinical side contributes no level, a genuine environmental hazard still
+     * stands on its own, and when neither is present the verdict is UNKNOWN
+     * rather than a NORMAL that implies a patient was assessed. */
+    const bool clinical_holding = (clinical->alert_flags & ALERT_SIGNAL_NOISE) != 0;
+    if (clinical_holding) clin_level = RISK_NORMAL;
+
+    if (clinical_holding && disaster_level <= RISK_NORMAL) {
+        fused->overall_risk = RISK_UNKNOWN;
+        snprintf(fused->overall_advisory, sizeof(fused->overall_advisory),
+                 "Patient not assessed: %.200s | Environment: %s",
+                 clinical->advisory,
+                 (disaster_level == RISK_UNKNOWN) ? "not assessed" : "no hazard detected");
+        return;
     }
 
     /* Maximum risk wins - but an UNKNOWN environmental assessment must not be

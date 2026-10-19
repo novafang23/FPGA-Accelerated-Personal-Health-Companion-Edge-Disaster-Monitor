@@ -3167,6 +3167,63 @@ int main(void) {
         printf("  [PASS] HRV settling gate withholds an under-settled window\n");
     }
 
+    /* A hold is not a finding. With no finger the device still evaluates the
+     * environment, so the clinical engine is called with hr = 0 / spo2 = 0 and
+     * returns a HOLD (ALERT_SIGNAL_NOISE). Hardware 2026-10-20 showed that hold
+     * fusing to RISK=MODERATE for a patient who was never measured. The
+     * environment fixtures here are built by hand so the test isolates the
+     * fusion rule rather than re-testing the hazard thresholds. */
+    printf("\nHost Test - Hold Is Not A Finding:\n");
+    {
+        clinical_assessment_t hold;
+        clinical_vitals_assess_ext(0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, &hold);
+        if (!(hold.alert_flags & ALERT_SIGNAL_NOISE)) {
+            fprintf(stderr, "[FAIL] Invalid vitals must be flagged as a hold\n");
+            return 1;
+        }
+        printf("  [Hold] Invalid vitals flagged as a hold (LEVEL=%d FLAGS=0x%02X)\n",
+               (int)hold.level, hold.alert_flags);
+
+        risk_assessment_t calm;
+        memset(&calm, 0, sizeof(calm));
+        calm.heat_risk = calm.pollution_risk = calm.flood_risk = RISK_NORMAL;
+        calm.cyclone_risk = RISK_UNKNOWN;
+        calm.overall_risk = RISK_NORMAL;
+        snprintf(calm.overall_advisory, sizeof(calm.overall_advisory), "%s",
+                 "No environmental hazard");
+
+        risk_assessment_t fused;
+        memset(&fused, 0, sizeof(fused));
+        clinical_fuse_triage(&hold, &calm, &fused);
+        if (fused.overall_risk != RISK_UNKNOWN) {
+            fprintf(stderr, "[FAIL] A hold with a calm environment must fuse to UNKNOWN, got %s\n",
+                    risk_level_to_string(fused.overall_risk));
+            return 1;
+        }
+        printf("  [Hold] No patient + calm environment -> %s\n",
+               risk_level_to_string(fused.overall_risk));
+
+        risk_assessment_t hot;
+        memset(&hot, 0, sizeof(hot));
+        hot.heat_risk = RISK_HIGH;
+        hot.heat_advisory = "Heat hazard (fixture)";
+        hot.cyclone_risk = RISK_UNKNOWN;
+        hot.overall_risk = RISK_HIGH;
+        snprintf(hot.overall_advisory, sizeof(hot.overall_advisory), "%s",
+                 "Heat hazard (fixture)");
+
+        memset(&fused, 0, sizeof(fused));
+        clinical_fuse_triage(&hold, &hot, &fused);
+        if (fused.overall_risk <= RISK_NORMAL) {
+            fprintf(stderr, "[FAIL] A hold must not mask an environmental hazard, got %s\n",
+                    risk_level_to_string(fused.overall_risk));
+            return 1;
+        }
+        printf("  [Hold] Environmental hazard survives the hold -> %s\n",
+               risk_level_to_string(fused.overall_risk));
+        printf("  [PASS] A hold is reported as UNKNOWN, never as MODERATE\n");
+    }
+
     /* Profile 9: Sustained Tachycardia Acceptance & IBI Pipeline Verification */
     printf("\nHost Test - Profile 9: Sustained Tachycardia Acceptance & IBI Pipeline:\n");
     ibi_pipeline_t tachy_pipe;

@@ -124,6 +124,7 @@ I (2455) PPG_OPTICAL: Raw: IR=1048, Red=1094 | AC=0 | Status: NO FINGER | HR: 0.
 2. **Spoken Dialogue:**
    > *"Judges, in an active flood or cyclone disaster, the cloud does not exist. We have zero cellular connectivity and zero server backhaul. This is Valor. It is a dual-brain architecture: a Renesas ForgeFPGA executing optical signal conditioning with 20-nanosecond hardware timing, and a dual-core ESP32-S3 executing clinical triage and a zero-cloud integer neural network."*
 3. **Physical Action:** Plug in the USB cable. Point out the OLED display lighting up with live sensor telemetry and the blue LED (D12) on the board.
+   - Before any finger is placed, the triage verdict is **UNKNOWN ("Patient not assessed")**, not NORMAL and not MODERATE. The environment is still being measured and its own hazards are still reported, but the device does not grade a patient it has not measured. If a judge asks why it is not "NORMAL", that is the answer.
 
 ---
 
