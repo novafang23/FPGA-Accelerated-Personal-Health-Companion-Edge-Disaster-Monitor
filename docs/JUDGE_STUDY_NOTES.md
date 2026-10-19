@@ -583,6 +583,8 @@ Integration:
 
 **Validation status:** the fall FSM has **16/16 host unit tests passing** (free-fall timeout, impact without free-fall rejected, gyro gate, rebound settling, recovery motion, stillness reset, soft-fall, bed-rest baseline, auto-standby, null-pointer safety). The **physical drop/fall test on the real board is still pending**, so do not call the fall detector “field validated.” It is implemented and unit-tested, not physically calibrated.
 
+**Important form-factor caveat:** the fall FSM assumes the IMU is attached to the body. The current bench prototype is a fingertip/breadboard setup, not a worn device, so the fall path is implemented but not yet demonstrated as a wearable. The physical enclosure/strap is the missing link.
+
 Safe judge answer:
 
 > “Yes — a 5-state fall FSM: free-fall, impact, post-impact inactivity and confirmation, with a gyro gate and a soft-fall/posture path. It arms a 10-second SOS countdown with a 5-second cancel hold. The FSM has 16/16 host tests; the physical drop test is the remaining validation step.”
@@ -665,13 +667,14 @@ Be precise. Judges reward this.
 
 Do not say “HRV is fixed” or “HRV is accurate” yet.
 
-### 12.1 Five assumptions that are not true
+### 12.1 Six assumptions that are not true
 
 1. **It is not a medical device.** It is a triage/engineering prototype.
-2. **It is not a finished wearable.** It is a breadboard/USB bench prototype; no enclosure, battery or charger.
-3. **It cannot call an ambulance.** There is no cellular modem or SMS path; SOS is local OLED + buzzer + local web.
+2. **It is not a finished wearable.** It is a breadboard/USB bench prototype; no enclosure, battery or charger. The PPG is currently **fingertip contact**, not a wrist strap.
+3. **It cannot call an ambulance.** There is no cellular modem or SMS path; SOS is local OLED + buzzer + local web. A bystander must be nearby to act on it.
 4. **It does not keep a persistent 24-hour record.** The 24 slots are RAM-only since boot.
 5. **It does not use a cloud AI.** TinyML runs on the ESP32; the cloud/MQTT path is optional and off by default.
+6. **The fall FSM assumes the IMU is worn on the body.** The code and host tests exist, but the current bench prototype is not a worn device and the physical drop test is pending.
 
 ### 12.2 Live data vs simulated data — never mix them
 
@@ -684,7 +687,7 @@ Do not say “HRV is fixed” or “HRV is accurate” yet.
 
 | Item | Status |
 |---|---|
-| Enclosure / strap | **Not fitted**; breadboard prototype |
+| Enclosure / strap | **Not fitted**; breadboard prototype, fingertip PPG, not a worn wrist device |
 | Battery / charger | **Not fitted**; USB-powered |
 | GPIO5 SOS cancel button | Firmware path ready; **physical button still pending** |
 | MAX30102 reflective cradle | **Not printed**; SpO₂ uses a rough two-point calibration |
@@ -878,6 +881,12 @@ That answer is stronger than guessing.
 
 ### Q35. Is the 24-hour history persistent?
 > “No. It is 24 hourly slots in RAM, filled since boot. It resets on reboot and is labelled ‘since boot.’ NVS persistence needs a real time source, which we have not added yet.”
+
+### Q36. Is it wearable? How is it worn?
+> “Not yet as a finished device. The current build is a breadboard bench prototype with a fingertip PPG. The wearable version needs a reflective cradle/strap and an enclosure; the fall FSM assumes the IMU is body-worn, so the physical fall test comes after that.”
+
+### Q37. What happens if the wearer is alone and unconscious?
+> “The device can latch a local SOS and sound the buzzer, but it has no cellular modem or SMS path. It is a local alarm/triage aid, not an emergency dispatch system; a bystander or rescuer must be nearby.”
 
 ---
 
