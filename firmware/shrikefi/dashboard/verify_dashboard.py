@@ -58,6 +58,11 @@ window.onerror = function (m) { window.__err = String(m); };
       handleLine('[TELEMETRY] HR=0.0,SPO2=0.0,RMSSD=0.0,TEMP=29.7,HUM=63.3,PM25=86.6,RR=0.0,SQI=0.00,RRDEPTH=0.0,RRCONF=0.00,PI=0.00');
     } else if (new URLSearchParams(location.search).get('case') === 'pi') {
       handleLine('[TELEMETRY] HR=72.0,SPO2=98.0,RMSSD=42.0,TEMP=25.0,HUM=50.0,PM25=12.0,RR=15.0,SQI=0.90,RRDEPTH=42.5,RRCONF=0.80,PI=3.21');
+    } else if (new URLSearchParams(location.search).get('case') === 'hrv_settle') {
+      /* Contact present but RMSSD withheld: the device's beat window is 120/240
+         beats, so the card must show progress rather than a bare dash. */
+      V.contact = true; V.hr = 72; V.spo2 = 98; V.hrv = 0; V.hrvN = 120; V.sqi = 95;
+      V.news2 = 0; V.level = 0; V.flags = 0; V.pi = 1.2;
     } else if (new URLSearchParams(location.search).get('case') === 'device_pts') {
       V.hr = 72; V.spo2 = 98; V.hrv = 42; V.rr = 15; V.sqi = 95; V.contact = true;
       handleLine('[TRIAGE] NEWS2=6,LEVEL=2,FLAGS=0x00,RISK=HIGH,NNHEAT=0.0,NNPOLL=0.0,NNFLOOD=0.0,RHEAT=NORMAL,RPOLL=NORMAL,RFLOOD=NORMAL,PSI=0,AHA=0,CYCLONE=UNKNOWN,PTREND=0,HRPTS=1,SPO2PTS=2,RRPTS=3');
@@ -84,6 +89,7 @@ window.onerror = function (m) { window.__err = String(m); };
       hr: txt('v-hr'), hrNote: txt('hr-note'), hrNumCol: col('v-hr'),
       spo2: txt('v-spo2'), spo2Note: txt('spo2-note'), spo2NumCol: col('v-spo2'),
       hrv: txt('v-hrv'), hrvNote: txt('hrv-note'), hrvNumCol: col('v-hrv'),
+      mHrv: txt('m-hrv'),
       rr: txt('v-rr'), rrNumCol: col('v-rr'), rrNote: txt('rr-note'),
       pi: txt('m-pi'), idleRrNote: idleRrNote, hrSource: txt('hr-source'),
       deviceVerdict: txt('device-verdict'),
@@ -186,7 +192,7 @@ def check(case, r, expect):
 
 
 failures = []
-for case in ("zero", "healthy", "device_pts", "nofinger", "sensor_missing", "ambient", "pi", "stale"):
+for case in ("zero", "healthy", "hrv_settle", "device_pts", "nofinger", "sensor_missing", "ambient", "pi", "stale"):
     try:
         r = render(case)
     except (RuntimeError, json.JSONDecodeError) as e:
@@ -202,7 +208,7 @@ for case in ("zero", "healthy", "device_pts", "nofinger", "sensor_missing", "amb
         expect = {
             "hr": "--", "spo2": "--", "hrv": "--", "rr": "--", "sqi": "--",
             "hrNote": "acquiring", "spo2Note": "calibrating",
-            "hrvNote": "needs 10 beats", "sqiPill": "waiting for contact",
+            "hrvNote": "needs 240 beats \u00b7 120 s", "sqiPill": "waiting for contact",
             "histMeanHr": "--", "histSampleCount": "0/24",
             "histSub": "No history yet \u2014 connect a device or start a simulation",
             "histSpan": "NO DATA", "histExportDisabled": True,
@@ -241,6 +247,11 @@ for case in ("zero", "healthy", "device_pts", "nofinger", "sensor_missing", "amb
     elif case == "device_pts":
         expect = {
             "n2": ["RR=+3", "SpO2=+2", "HR=+1", "SBP=n/a", "Temp=n/a", "Consc=n/a"],
+        }
+    elif case == "hrv_settle":
+        expect = {
+            "hrv": "120", "mHrv": "120/240",
+            "hrvNote": "settling \u00b7 120 of 240 beats",
         }
     else:
         expect = {

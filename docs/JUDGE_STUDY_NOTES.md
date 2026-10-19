@@ -462,7 +462,7 @@ RMSSD = sqrt( mean( (IBI[k+1] − IBI[k])² ) )
 ```
 
 - 300-beat rolling window (about 4 minutes at 75 bpm).
-- **Contact-settling gate (2026-10-20):** RMSSD is withheld until the window holds **240 of 300 beats (80 %)** *and* spans **≥ 120 s** of contact, so a partially filled window is never published. The OLED reads `HRV: Stabilizing` during that period, which is ~2–3 minutes of normal use.
+- **Contact-settling gate (2026-10-20):** RMSSD is withheld until the window holds **240 of 300 beats (80 %)** *and* spans **≥ 120 s** of contact, so a partially filled window is never published. The OLED reads `HRV settle n/240` while the window fills and `HRV: Stabilizing` once it is full (the dashboard shows the same count from `[TELEMETRY] HRVN=`) during that period, which is ~2–3 minutes of normal use.
 - **Current limitation:** split pairs from the dicrotic notch and startup/contact transients can still inflate RMSSD. The peak-4 bitstream removed the old 888/645-style signature — it did not recur in a 302 s still-contact capture (0 split-pair candidates across 318 accepted intervals). However, in that same capture **RMSSD was unstable for the first ~3 minutes**: it climbed from 31 ms to ~77 ms as the 300-beat window filled, then settled near 76 ms (higher than the earlier 95 s clean tail of ~46 ms). SDNN was ~59 ms. That climb is what the settling gate above now suppresses; anything the device publishes has cleared it. **Do not present RMSSD as clinically validated.** ECG/chest-strap comparison is still pending.
 - This is also why the number climbed for the first few minutes: the 300-beat window was still filling.
 
@@ -902,7 +902,7 @@ That answer is stronger than guessing.
 > “That is deliberate. With no contact, the IR signal is ambient light, not a pulse. The firmware stops streaming raw PPG and the page shows AMBIENT / NO CONTACT rather than drawing a fake waveform.”
 
 ### Q27. Why does HRV keep changing?
-> “RMSSD is a 300-beat rolling window. It keeps incorporating new beats, so it moves; at 75 bpm it takes about four minutes to fill. We measured that: in a 5-minute still capture the value climbed from 31 to 77 ms over the first three minutes before settling. The firmware now withholds RMSSD until the window is 80 % full *and* covers 120 s of contact — roughly three minutes — so anything on screen has already cleared that settling period; the OLED reads `HRV: Stabilizing` until then. RMSSD is still under validation, so we do not present it as a stable clinical number.”
+> “RMSSD is a 300-beat rolling window. It keeps incorporating new beats, so it moves; at 75 bpm it takes about four minutes to fill. We measured that: in a 5-minute still capture the value climbed from 31 to 77 ms over the first three minutes before settling. The firmware now withholds RMSSD until the window is 80 % full *and* covers 120 s of contact — roughly three minutes — so anything on screen has already cleared that settling period; the OLED reads `HRV settle n/240` while the window fills and `HRV: Stabilizing` until then. RMSSD is still under validation, so we do not present it as a stable clinical number.”
 
 ### Q28. Does it detect falls?
 > “Yes. A 5-state FSM: monitoring, free-fall, impact, post-impact inactivity, confirmed. It needs weightlessness, a high-g impact with rotation, and then sustained stillness — plus a soft-fall path using posture change for a slump or faint. It arms a 10-second SOS countdown.”

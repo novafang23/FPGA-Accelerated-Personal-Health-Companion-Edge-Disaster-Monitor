@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'sha256-bs56nKNi/U3GT2kIMwUS34PgyQtZrLsBSvzL+eii6qw='; style-src 'unsafe-inline'; connect-src 'self'; form-action 'self'; base-uri 'none'; object-src 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'sha256-wK74qz138vWB9gTZxpcFXQPaij3ISSwaLAB9hN+wu6k='; style-src 'unsafe-inline'; connect-src 'self'; form-action 'self'; base-uri 'none'; object-src 'none'">
 <title>VALOR â€” Edge Health &amp; Disaster Triage</title>
 <!--
   VALOR dashboard â€” single self-contained file.
@@ -681,6 +681,11 @@ const V = {
      firmware did not send them (older build) or this is a simulation, in which
      case the tiles fall back to the local RCP tables for display only. */
   n2hrPts: null, n2spo2Pts: null, n2rrPts: null,
+  /* Beats currently in the device's HRV window, from [TELEMETRY] HRVN. The
+     firmware withholds RMSSD until the window holds 240 of 300 beats and spans
+     120 s of contact, so this is the progress toward a publishable value.
+     null means the field was not reported (older build) or this is a sim. */
+  hrvN: null,
   pi: 0, level: 0, flags: 0, risk: 'UNKNOWN',
   rHeat: 'UNKNOWN', rPoll: 'UNKNOWN', rFlood: 'UNKNOWN',
   cyclone: 'UNKNOWN', ptrend: null,
@@ -1362,6 +1367,7 @@ function clearLiveReadings() {
     temp: -100, hum: -1, pmRaw: 0, pmCal: 0, loc: '',
     psi: 0, aha: 0, heat: 0, poll: 0, flood: 0, storm: 0, news2: 0,
     n2hrPts: null, n2spo2Pts: null, n2rrPts: null,
+    hrvN: null,
     level: 0, flags: 0, risk: 'UNKNOWN', rHeat: 'UNKNOWN',
     rPoll: 'UNKNOWN', rFlood: 'UNKNOWN', cyclone: 'UNKNOWN', ptrend: null,
     nnHeat: null, nnPoll: null, nnFlood: null,
@@ -1472,7 +1478,22 @@ function render() {
 
   $('m-pi').textContent  = (V.pi > 0 && V.sqi >= 70) ? V.pi.toFixed(2) + ' %' : '--';
   $('m-rr').textContent  = V.rr > 0 ? V.rr.toFixed(1) + ' br/min' : '--';
-  $('m-hrv').textContent = V.hrv > 0 ? V.hrv.toFixed(1) + ' ms' : '--';
+  /* RMSSD is withheld by the firmware until its beat window has settled, so
+     while it fills show the progress instead of an indistinguishable "--". The
+     240 matches HRV_SETTLE_MIN_SAMPLES in firmware/core/hrv_analysis.h. When
+     the window is full but the value is still withheld (span or signal), the
+     tile falls back to "--" like any other absent reading. */
+  if (V.hrv > 0) {
+    $('m-hrv').textContent = V.hrv.toFixed(1) + ' ms';
+    $('m-hrv').title = '';
+  } else if (V.contact && V.hrvN !== null && V.hrvN < 240) {
+    $('m-hrv').textContent = V.hrvN + '/240';
+    $('m-hrv').title = 'RMSSD settling: ' + V.hrvN + ' of 240 beats (' +
+                       '120 s of contact required)';
+  } else {
+    $('m-hrv').textContent = '--';
+    $('m-hrv').title = '';
+  }
   $('m-sqi').textContent = sqiOn ? sqiPct + ' %' : '--';
 
   /* â”€â”€ NEWS2 â”€â”€ */
@@ -1567,13 +1588,21 @@ function render() {
 
   const hrvOn = V.hrv > 0;
   const hrvColor = !hrvOn ? C.text : V.hrv < 20 ? C.crimson : V.hrv < 30 ? C.amber : C.violet;
-  $('v-hrv').textContent = V.hrv > 0 ? V.hrv.toFixed(1) : '--';
-  $('v-hrv').style.color = hrvColor;
+  /* While the device's beat window is still filling it withholds RMSSD
+     entirely, so the card shows the fill progress instead of "--" beside a
+     note that would suggest nothing is happening. 240 beats and 120 s of
+     contact is the publish gate (HRV_SETTLE_MIN_SAMPLES / HRV_SETTLE_MIN_SPAN_MS
+     in firmware/core/hrv_analysis.h). */
+  const hrvSettling = (!hrvOn && V.contact && V.hrvN !== null && V.hrvN < 240);
+  $('v-hrv').textContent = hrvOn ? V.hrv.toFixed(1) : hrvSettling ? V.hrvN : '--';
+  $('v-hrv').style.color = hrvOn ? hrvColor : C.text;
   const bHrv = $('bar-hrv');
-  bHrv.style.width = pct(V.hrv, 60) + '%';
-  bHrv.style.background = hrvColor;
-  $('hrv-note').textContent = !hrvOn ? 'needs 10 beats'
-    : V.hrv < 20 ? 'Low vagal reserve' : V.hrv < 30 ? 'Reduced' : 'Adequate reserve';
+  bHrv.style.width = (hrvOn ? pct(V.hrv, 60) : hrvSettling ? pct(V.hrvN, 240) : 0) + '%';
+  bHrv.style.background = hrvOn ? hrvColor : 'var(--text-faint)';
+  $('hrv-note').textContent = hrvOn
+    ? (V.hrv < 20 ? 'Low vagal reserve' : V.hrv < 30 ? 'Reduced' : 'Adequate reserve')
+    : hrvSettling ? 'settling \u00b7 ' + V.hrvN + ' of 240 beats'
+    : 'needs 240 beats \u00b7 120 s';
 
   const rrOn = V.rr > 0;
   $('v-rr').textContent = rrOn ? V.rr.toFixed(0) : '--';
@@ -1742,6 +1771,7 @@ function applyProfile(name) {
     cyclone: base.cyclone || 'NORMAL', ptrend: base.ptrend !== undefined ? base.ptrend : 0.0,
     news2: n2hr(base.hr) + n2spo2(base.spo2) + n2rr(base.rr),
     n2hrPts: null, n2spo2Pts: null, n2rrPts: null,
+    hrvN: null,
     nnHeat: null, nnPoll: null, nnFlood: null,
     rHeat: 'NORMAL', rPoll: 'NORMAL', rFlood: 'UNKNOWN',
   });
@@ -1868,6 +1898,7 @@ function handleLine(line) {
       V.sqi = 0; V.pi = 0; V.contact = false;
       V.level = 0; V.flags = 0; V.risk = 'UNKNOWN';
       V.n2hrPts = null; V.n2spo2Pts = null; V.n2rrPts = null;
+      V.hrvN = null;
       const k = parseKV(line.replace('[TELEMETRY]', ''));
       if (k.TEMP) V.temp = num(k.TEMP);
       if (k.HUM)  V.hum  = num(k.HUM);
@@ -1884,6 +1915,10 @@ function handleLine(line) {
     if (k.HR)    V.hr   = num(k.HR);
     if (k.SPO2)  V.spo2 = num(k.SPO2);
     if (k.RMSSD) V.hrv  = num(k.RMSSD);
+    /* Beats in the device's HRV window. Absent on older firmware, so it is
+       null rather than 0 and the tile stays "--" instead of claiming progress
+       the device never reported. */
+    if (k.HRVN !== undefined) V.hrvN = pts(k.HRVN);
     if (k.RR)    V.rr   = num(k.RR);
     if (k.RRCONF) V.rrConf = num(k.RRCONF);
     if (k.RRDEPTH) V.rrDepth = num(k.RRDEPTH);

@@ -200,13 +200,16 @@ Capture the full serial log for both. The useful lines are:
 | Fewer than 10 accepted intervals | `Reading... (n/10)` |
 | 10+ accepted, RMSSD still withheld, SQI 0.50–0.69 | `HRV: Low Signal` |
 | SQI below 0.50 | `Hold Finger Still` |
-| SQI >= 0.70 but fewer than 9 contiguous valid pairs | `HRV: Stabilizing` |
+| SQI >= 0.70, window still filling (`count` < 240) | `HRV settle n/240` |
+| SQI >= 0.70, window >= 240 beats but span or pair continuity unmet | `HRV: Stabilizing` |
 | Ready | `HRV RMSSD:xx.xms` |
 
-`HRV: Stabilizing` is a UI state, not a separate filter. With a steady finger
-and SQI >= 0.70 it means a rejection in the current window has broken NN
-adjacency; one rejected interval should cost roughly one extra accepted beat
-before RMSSD publishes.
+`HRV settle n/240` is the publish gate made visible: RMSSD is withheld until the
+window holds 240 of 300 beats **and** spans 120 s of contact, so the line reports
+how far the window has filled. `HRV: Stabilizing` is then a UI state, not a
+separate filter — with a steady finger and SQI >= 0.70 the window is full but the
+120 s span or NN adjacency is not yet met; one rejected interval costs roughly one
+extra accepted beat before RMSSD publishes.
 
 ### Acceptance criteria
 
@@ -214,6 +217,8 @@ before RMSSD publishes.
 - RMSSD publishes a nonzero, plausible resting value with SQI >= 0.70; it must
   not jump to the old ~190 ms artefact value.
 - `HRV: Stabilizing` must not appear while SQI is below 0.70.
+- The HRV line passes through `HRV settle n/240` with `n` climbing before any
+  RMSSD appears; `n` must advance steadily to 240 rather than freeze.
 - The OLED RMSSD matches the `[TELEMETRY]` RMSSD at the same time.
 - No detector handover every few seconds during steady contact. If it happens,
   capture the timestamps — it is the 2.5 s fallback interacting with the

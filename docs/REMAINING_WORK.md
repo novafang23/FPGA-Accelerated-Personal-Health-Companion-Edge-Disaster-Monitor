@@ -893,8 +893,11 @@ cases: 50 beats / ~40 s withheld, 240 beats / ~192 s published (RMSSD 50.0 ms),
 and **240 beats / 96 s withheld** — that last one is the leg a time-only or
 fill-only gate would miss, and it is what stops a fast heart rate from
 publishing an under-settled window. On the device the effect is that the OLED
-shows `HRV: Stabilizing` for ~2–3 minutes before any RMSSD appears, instead of
-showing a number that is still climbing. **Pending:** one ≥ 6-minute still
+shows `HRV settle n/240` while the window fills and `HRV: Stabilizing` once it is
+full, for ~2-3 minutes before any RMSSD appears, instead of showing a number that
+is still climbing. The same progress reaches the PC: the firmware appends
+`HRVN=n` (beats currently in the HRV window) to `[TELEMETRY] ACQUIRING`, so the
+RMSSD card and tile read `settling n/240` / `n/240` rather than a bare dash. **Pending:** one ≥ 6-minute still
 capture to confirm the withheld period and a flat value afterwards, plus a visual
 check of the OLED `Stabilizing` state. The gate makes the number honest; it does
 not make it accurate — T4.1 remains the validation step.

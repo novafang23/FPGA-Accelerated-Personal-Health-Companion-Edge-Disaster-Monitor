@@ -2013,10 +2013,11 @@ static void task_disaster_monitor(void *pvParameters) {
                        env.ambient_temp_c, env.humidity_pct, env.pm25);
             } else {
                 float tele_spo2 = (spo2 > 0.0f) ? spo2 : g_state.spo2_percent;
-                printf("[TELEMETRY] ACQUIRING,HR=%.1f,SPO2=%.1f,RMSSD=%.1f,TEMP=%.1f,HUM=%.1f,PM25=%.1f,RR=%.1f,SQI=%.2f,RRDEPTH=%.1f,RRCONF=%.2f\n",
+                printf("[TELEMETRY] ACQUIRING,HR=%.1f,SPO2=%.1f,RMSSD=%.1f,TEMP=%.1f,HUM=%.1f,PM25=%.1f,RR=%.1f,SQI=%.2f,RRDEPTH=%.1f,RRCONF=%.2f,HRVN=%d\n",
                        hr, tele_spo2, hrv_snapshot.rmssd,
                        env.ambient_temp_c, env.humidity_pct, env.pm25,
-                       rr_pub, sqi_pub, rrdepth_pub, rrconf_pub);
+                       rr_pub, sqi_pub, rrdepth_pub, rrconf_pub,
+                       hrv_snapshot.count);
             }
             fflush(stdout);
         }
@@ -2244,6 +2245,14 @@ static void task_disaster_monitor(void *pvParameters) {
                 snprintf(buf_hrv, sizeof(buf_hrv), "Hold Finger Still");
             } else if (sqi_pub < PPG_SQI_THRESHOLD_VALID) {
                 snprintf(buf_hrv, sizeof(buf_hrv), "HRV: Low Signal");
+            } else if (hrv_snapshot.count < HRV_SETTLE_MIN_SAMPLES) {
+                /* Settling progress. RMSSD is withheld until the beat window
+                 * holds HRV_SETTLE_MIN_SAMPLES beats AND spans 120 s of contact
+                 * (see hrv_analysis.h), so show how far the window has filled
+                 * instead of a bare "Stabilizing". Quality checks come first,
+                 * so an unusable signal still reads Low Signal / Hold Still. */
+                snprintf(buf_hrv, sizeof(buf_hrv), "HRV settle %d/%d",
+                         hrv_snapshot.count, HRV_SETTLE_MIN_SAMPLES);
             } else {
                 snprintf(buf_hrv, sizeof(buf_hrv), "HRV: Stabilizing");
             }
