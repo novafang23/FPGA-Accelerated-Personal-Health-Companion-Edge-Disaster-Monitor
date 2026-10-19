@@ -127,14 +127,20 @@ python -c "import serial, time; s = serial.Serial('COM4', 115200, timeout=1); [p
 
 ## 6. Pending HRV / RMSSD Readiness Verification (updated 2026-10-19)
 
-**Status: FLASHED; live HRV verification pending.** The current tree passes the
-host suite, the 34-test Zynq suite and the ESP-IDF build. The HRV readiness
-changes and the 2026-10-19 peak/4 bitstream are flashed on COM4, and boot
-initialization is verified. A steady-contact 60–90 s capture has not yet been
-assessed.
+**Status: FLASHED; one 5-minute steady capture assessed (see Capture 4).** The
+current tree passes the host suite, the 34-test Zynq suite and the ESP-IDF build.
+The HRV readiness changes and the 2026-10-19 peak/4 bitstream are flashed on
+COM4, and boot initialization is verified.
 
-Do not claim the OLED HRV behaviour as hardware-verified until this section is
-complete.
+A 302 s still-contact capture on 2026-10-19 confirmed steady HR/SpO₂/SQI, the
+absence of the old split-pair signature, and the SQI gate withholding HRV during
+motion (full numbers in
+[`reports/HRV_STILL_CAPTURE_2026-10-19.md`](reports/HRV_STILL_CAPTURE_2026-10-19.md)).
+It also showed RMSSD takes ~3 minutes to settle, so the first 1–2 minutes of an
+RMSSD reading are window-fill, not measurement. The physical **OLED** state
+progression (the table below) has **not** been visually confirmed, and T4.1
+(ECG/chest-strap comparison) is still open. Do not claim HRV accuracy or the
+OLED HRV states as hardware-verified.
 
 ### What changed in the flashed firmware
 
@@ -256,6 +262,32 @@ candidate fixes are: (a) timestamp the **true peak** rather than the threshold
 crossing, which removes confirmation-latency jitter, and (b) a contact-settling
 gate that excludes the first stable-lock transient from HRV. Neither is applied
 yet. T4.1 ECG/chest-strap comparison remains required before quoting RMSSD.
+
+**Capture 4 (5-minute still contact, 2026-10-19, COM4):**
+
+- 302 s, 361 IBI rows: **318 ok**, 8 prime, 17 gap, 11 high, 7 low (all FPGA)
+- HR 70.3–84.1 BPM (median 76.3); SpO₂ 94.0–99.0 % (median 96.6);
+  SQI 0.42–0.92 (median 0.87), **94 % of frames ≥ 0.70**; PI 0.46–5.49 %
+- **0 split-pair candidates** (consecutive ok IBIs at ratio 1.6–2.5): the old
+  888/645 signature did not recur across 318 accepted intervals
+- RMSSD published from t=20.7 s but **climbed 31.3 → 68.4 ms by t≈134 s → 77.5 ms
+  at t≈202 s**, then settled 75.7–76.5 ms; last published **76.5 ms at t=293.8 s**
+- From t≈294 s the contact degraded (PI 5–8 %, SpO₂ `CALC/--`, SQI 0.70→0.54,
+  `FLAGS=0x40`); **RMSSD was withheld to 0.0 ms** — the 0.70 gate worked
+- `[HISTORY] H0` printed **9×** with coherent running averages (HR 74.9–76.8,
+  SpO₂ 96.4–98.1, RMSSD 35.9→67.0, NEWS2 0–1): first on-device confirmation that
+  the hourly feed accumulates and publishes
+
+Full numbers:
+[`reports/HRV_STILL_CAPTURE_2026-10-19.md`](reports/HRV_STILL_CAPTURE_2026-10-19.md).
+
+**Interpretation of Capture 4:** steady-state HR/SpO₂/SQI are internally
+consistent and the split-peak artefact stayed gone, but the settled RMSSD
+(≈76 ms) is **higher** than Capture 3's 46 ms clean tail and the value needs
+~3 minutes to stabilise. This is **not** evidence of HRV accuracy. It strengthens
+the case for a contact-settling gate (discard the first 1–2 minutes) and keeps
+T4.1 (independent ECG/chest-strap comparison) as the blocking requirement before
+quoting RMSSD. SpO₂ remains prototype-calibrated.
 
 ### Open decisions to record after the run
 

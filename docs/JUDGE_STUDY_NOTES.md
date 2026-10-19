@@ -462,7 +462,7 @@ RMSSD = sqrt( mean( (IBI[k+1] − IBI[k])² ) )
 
 - 300-beat rolling window (about 4 minutes at 75 bpm).
 - Minimum 10 accepted intervals before publishing; readiness also requires contiguous valid pairs.
-- **Current limitation:** split pairs from the dicrotic notch and startup/contact transients can still inflate RMSSD. The current peak-4 bitstream removed the old 888/645-style signature in the last capture, but the first 95 s still had a 2.38 s startup gap and clean-tail RMSSD ~46 ms. **Do not present RMSSD as clinically validated.** ECG/chest-strap comparison is still pending.
+- **Current limitation:** split pairs from the dicrotic notch and startup/contact transients can still inflate RMSSD. The peak-4 bitstream removed the old 888/645-style signature — it did not recur in a 302 s still-contact capture (0 split-pair candidates across 318 accepted intervals). However, in that same capture **RMSSD was unstable for the first ~3 minutes** it climbed from 31 ms to ~77 ms as the 300-beat window filled, then settled near 76 ms (higher than the earlier 95 s clean tail of ~46 ms). SDNN was ~59 ms. **Do not present RMSSD as clinically validated, and discard the first 1–2 minutes of any reading.** ECG/chest-strap comparison is still pending.
 - This is also why the number can look “unstable” for the first few minutes: the 300-beat window is still filling.
 
 ### Respiratory rate (RR)
@@ -676,7 +676,7 @@ Be precise. Judges reward this.
 | ForgeFPGA fit | **515 LUT5 / 303 FF / 105 CLB**, 35 CLBs free |
 | Bitstream flash | **46,408 bytes loaded** on COM4 |
 | Live HR / SpO₂ / SQI / PI | **Working** in live captures |
-| HRV / RMSSD | **Not clinically validated**; split/startup artifacts still being fixed |
+| HRV / RMSSD | **Not clinically validated**; split-pair signature gone in the 302 s still capture, but RMSSD needs ~3 min to settle and is still higher than expected — ECG comparison pending |
 | SpO₂ accuracy | **Rough two-point calibration**, not clinical |
 | Respiratory rate | **Often unresolved**; RSA from finger PPG is weak |
 | Skin temperature | **Not fitted**; flood/hypothermia uses ambient proxy, capped at HIGH |
@@ -882,7 +882,7 @@ That answer is stronger than guessing.
 > “That is deliberate. With no contact, the IR signal is ambient light, not a pulse. The firmware stops streaming raw PPG and the page shows AMBIENT / NO CONTACT rather than drawing a fake waveform.”
 
 ### Q27. Why does HRV keep changing?
-> “RMSSD is a 300-beat rolling window. It keeps incorporating new beats, so it moves; at 75 bpm it takes about four minutes to fill. Also, RMSSD is still under validation, so we do not present it as a stable clinical number.”
+> “RMSSD is a 300-beat rolling window. It keeps incorporating new beats, so it moves; at 75 bpm it takes about four minutes to fill. We measured that: in a 5-minute still capture the value climbed from 31 to 77 ms over the first three minutes before settling, so the first minute or two is window-fill, not a measurement. RMSSD is still under validation, so we do not present it as a stable clinical number.”
 
 ### Q28. Does it detect falls?
 > “Yes. A 5-state FSM: monitoring, free-fall, impact, post-impact inactivity, confirmed. It needs weightlessness, a high-g impact with rotation, and then sustained stillness — plus a soft-fall path using posture change for a slump or faint. It arms a 10-second SOS countdown.”

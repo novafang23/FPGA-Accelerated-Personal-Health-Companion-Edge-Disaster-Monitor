@@ -319,11 +319,13 @@ record**: the board has no wall-clock time source, so each slot is an hour of de
 the UI labels it `DEVICE HOURS`. The blob codec is host-tested (round-trip, checksum, bad
 magic, truncation, too-small buffer) along with the hourly rollover and the zero-skip averages.
 
-**Board check pending.** The full firmware builds for the ESP32-S3, but the on-device
-NVS write/restore has not been exercised yet because no board is connected. On the next
-COM-port session, confirm a rollover writes (`Persisted 612-byte hourly-history blob`), reboot,
-and confirm the restore log and a non-empty `/api/history` before treating persistence as
-hardware-verified.
+**Board check — partly done (2026-10-19, COM4).** A 302 s still-contact capture
+confirmed the **on-device RAM history feed**: `[HISTORY] H0` published nine coherent running
+averages (HR 74.9–76.8, SpO₂ 96.4–98.1, RMSSD 35.9→67.0, NEWS2 0–1). The **NVS write/restore is
+still not exercised** because the capture lasted under an hour, so no rollover wrote a blob and the
+boot log showed `No stored history; the chart starts empty`. Next long session: confirm the
+rollover writes (`Persisted 612-byte hourly-history blob`), reboot, and confirm the restore log and
+a non-empty `/api/history` before treating persistence as hardware-verified.
 
 ---
 
@@ -830,13 +832,17 @@ constraint is worse than none, because it produces a confident number.
 
 ### T4.6 — Flash and verify HRV readiness / OLED state — **FLASHED; FIRST CAPTURE DONE, HRV NOT SETTLED**
 
-**Status: flashed on COM4 and first 95 s capture assessed.** The current tree
-passes the host suite, the 34-test Zynq suite and the ESP-IDF build; the HRV
-readiness change itself is `a2000ba` (firmware build fix `666faea`), and the
-2026-10-19 peak/4 bitstream is in the firmware header. Boot is verified
-(`configuration COMPLETE! (46408 bytes loaded)`). The first capture removed the
-old 888/645-style pair signature but still contains a startup gap and settled
-RMSSD ~46 ms, so HRV is **not** validated.
+**Status: flashed on COM4; 95 s and 302 s still-contact captures assessed; HRV
+still not settled.** The current tree passes the host suite, the 34-test Zynq
+suite and the ESP-IDF build; the HRV readiness change itself is `a2000ba`
+(firmware build fix `666faea`), and the 2026-10-19 peak/4 bitstream is in the
+firmware header. Boot is verified (`configuration COMPLETE! (46408 bytes
+loaded)`). Both captures removed the old 888/645-style pair signature. The 302 s
+capture (2026-10-19) held SQI ≥ 0.70 for 94 % of frames and the SQI gate withheld
+HRV during a motion episode, but **RMSSD took ~3 minutes to settle**
+(31→77 ms) and settled at ~76 ms — higher than the 95 s capture's 46 ms clean
+tail. That instability means HRV is **not** validated; see
+[`reports/HRV_STILL_CAPTURE_2026-10-19.md`](reports/HRV_STILL_CAPTURE_2026-10-19.md).
 
 With the board on COM4, follow
 [`docs/HARDWARE_DEBUG_HANDOVER.md`](HARDWARE_DEBUG_HANDOVER.md) §6. The short
