@@ -830,7 +830,7 @@ constraint is worse than none, because it produces a confident number.
 
 ### T4.6 — Flash and verify HRV readiness / OLED state — **FLASHED; FIRST CAPTURE DONE, HRV NOT SETTLED**
 
-**Status: flashed on COM5 and first 95 s capture assessed.** The current tree
+**Status: flashed on COM4 and first 95 s capture assessed.** The current tree
 passes the host suite, the 34-test Zynq suite and the ESP-IDF build; the HRV
 readiness change itself is `a2000ba` (firmware build fix `666faea`), and the
 2026-10-19 peak/4 bitstream is in the firmware header. Boot is verified
@@ -838,7 +838,7 @@ readiness change itself is `a2000ba` (firmware build fix `666faea`), and the
 old 888/645-style pair signature but still contains a startup gap and settled
 RMSSD ~46 ms, so HRV is **not** validated.
 
-With the board on COM5, follow
+With the board on COM4, follow
 [`docs/HARDWARE_DEBUG_HANDOVER.md`](HARDWARE_DEBUG_HANDOVER.md) §6. The short
 version:
 
@@ -897,7 +897,7 @@ DONE: T1.1-T1.7 core software/status; T2.3 IMU fitted (physical fall test
       T3.1, T3.2, T3.3, T3.4, T3.5; T4.4 fit recorded (515 LUT5s / 303 FFs / 105 CLBs).
 
 BOARD RECONNECT GATE — do this before the next measurement:
-  The HRV readiness fix and the 2026-10-19 peak/4 bitstream are flashed on COM5.
+  The HRV readiness fix and the 2026-10-19 peak/4 bitstream are flashed on COM4.
   Run docs/HARDWARE_DEBUG_HANDOVER.md §6 and the 90 s finger capture; live HRV
   behaviour is not yet hardware-validated.
 

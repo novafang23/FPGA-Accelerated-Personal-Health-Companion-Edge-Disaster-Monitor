@@ -77,7 +77,7 @@ Connect the ShrikeFi board to your laptop using a USB-C data cable. In PowerShel
 ```powershell
 # Check which COM port is assigned
 Get-WmiObject Win32_SerialPort | Select-Object DeviceID, Description
-# Expected: "COM4" or "COM5" (Silicon Labs CP210x or USB JTAG/serial debug unit)
+# Expected: "COM4" today (port can change after replug; was COM5 earlier)
 ```
 
 ### Stage 2: Compile & Flash Firmware (ESP-IDF v5.5.5)
@@ -198,7 +198,7 @@ In competitive hackathons, physical hardware can suffer broken jumper wires, dea
 | **Zero-Cloud INT8 AI** | ESP32-S3 runs inference in 18 µs on live vitals | `shrikefi_host.exe` host test suite under GCC 15.2 | Proves mathematical quantization fidelity (max error 0.091) |
 | **mNEWS2 Triage Engine** | OLED displays live clinical levels and alerts | `test_disaster_risk_engine.exe` (34 unit tests) | Proves all clinical boundary sweeps and crisis overrides |
 | **Fall Detection FSM** | MPU6050 physical drop triggers countdown (**1/1 bench trial passed 2026-10-19**; countdown + buzzer + cancel verified) | `test_fall_detect.exe` (16 FSM unit tests) | Proves 5-state FSM state transitions and angle math |
-| **GUI & Triage Dashboard** | Live Web Serial stream on COM5 port | `valor_dashboard.html` with built-in Simulation Profiles | Proves UI rendering, gauge math, and multi-hazard response |
+| **GUI & Triage Dashboard** | Live Web Serial stream on COM4 port | `valor_dashboard.html` with built-in Simulation Profiles | Proves UI rendering, gauge math, and multi-hazard response |
 
 ### Executing the Verified Fallback Demonstration (If Hardware Fails)
 
@@ -241,7 +241,7 @@ Complete this checklist 15 minutes before your scheduled judging slot:
 
 - [ ] **USB Cables Tested:** Both USB-C cables confirmed working for data communication.
 - [ ] **Firmware Flashed:** Board has the latest firmware build with boot banner verified.
-- [ ] **COM Port Verified:** Note whether your device is on COM4, COM5, or COM3.
+- [ ] **COM Port Verified:** Note whether your device is on COM3, COM4 or COM5.
 - [ ] **Phone Wi-Fi Tested:** Phone successfully connects to `VALOR-0081` and loads `http://192.168.4.1`.
 - [ ] **Browser Tabs Prepared:**
   - Tab 1: `firmware/shrikefi/dashboard/valor_dashboard.html` (Web Serial Dashboard).

@@ -6,7 +6,7 @@
 >
 > **Hardware:** Vicharak ShrikeFi — ESP32-S3 + Renesas ForgeFPGA SLG47910C
 >
-> **Last updated:** 2026-10-19. Current ForgeFPGA bitstream is the 25 % crest/peak-4 build (`d9d58daa…`, 46,408 bytes), flashed on COM5.
+> **Last updated:** 2026-10-19. Current ForgeFPGA bitstream is the 25 % crest/peak-4 build (`d9d58daa…`, 46,408 bytes), flashed on COM4.
 
 **Quick jump:** [30-second pitch](#1-the-30-second-explanation) · [System diagram](#3-system-at-a-glance) · [Sensors](#4-hardware) · [I2C/SPI/UART](#5-the-three-buses---i2c-spi-uart) · [Code layers](#6-code-structure--the-layers) · [Data flow](#8-data-flow--from-light-to-advisory) · [FPGA](#9-the-fpga--what-it-does-and-why) · [Algorithms](#10-algorithms--in-plain-language) · [Quality gates](#11-quality-gates-and-honesty-rules) · [Fall/SOS FSM](#fall-detection-and-sos-fsm--yes-it-is-implemented) · [Outputs](#13-outputs-and-interfaces) · [Verified vs not](#14-what-is-verified-vs-what-is-not) · [Judge Q&A](#15-judge-qa--short-answers) · [Demo script](#16-demo-script--2-minutes) · [Cheat sheet](#17-numbers-to-memorize)
 
@@ -183,7 +183,7 @@ The IBI is in **50 MHz cycles**, so one tick is **20 ns**. The ESP32 reads the b
 |---|---:|---:|---|
 | **UART1** | RX **GPIO 14**, TX GPIO 18 (not wired) | **9600** | PMS5003 particulate sensor |
 | **UART2** | RX **GPIO 16**, TX **GPIO 17** | **9600** | NEO-M8N GNSS, NMEA-0183 |
-| **USB Serial/JTAG** | USB-C | **115200** | PC log / dashboard, COM5 |
+| **USB Serial/JTAG** | USB-C | **115200** | PC log / dashboard, COM4 |
 
 - PMS5003 VCC is **5 V**; its TX/RX logic is 3.3 V, so it connects directly to the ESP32.
 - The firmware only receives from the PMS; the TX line is not wired.
@@ -634,7 +634,7 @@ The PC sees structured lines:
 ### Web dashboard
 
 - Standalone HTML/JS in `firmware/shrikefi/dashboard/valor_dashboard.html`.
-- Connects over **Web Serial**; select **COM5** (port can change after replug).
+- Connects over **Web Serial**; select **COM4** (port can change after replug).
 - If it shows nothing after a reflash: refresh with `Ctrl+Shift+R`, click **Connect**, and choose the current COM port. Web Serial needs that user click; it cannot auto-select.
 - No CDN and no internet dependency.
 - Shows live PPG scope, HR/SpO₂/HRV/SQI/PI, environment strip, risk cards, CSV export, and simulated disaster profiles.
@@ -674,7 +674,7 @@ Be precise. Judges reward this.
 | ForgeFPGA RTL | **Verified in simulation**; 13/13 link checks |
 | Common peak-detector unit test | **4/4 passed** |
 | ForgeFPGA fit | **515 LUT5 / 303 FF / 105 CLB**, 35 CLBs free |
-| Bitstream flash | **46,408 bytes loaded** on COM5 |
+| Bitstream flash | **46,408 bytes loaded** on COM4 |
 | Live HR / SpO₂ / SQI / PI | **Working** in live captures |
 | HRV / RMSSD | **Not clinically validated**; split/startup artifacts still being fixed |
 | SpO₂ accuracy | **Rough two-point calibration**, not clinical |
@@ -704,7 +704,7 @@ Do not say “HRV is fixed” or “HRV is accurate” yet.
 
 ### 14.2 Live data vs simulated data — never mix them
 
-- **Live hardware mode:** the dashboard connects to **COM5** over Web Serial; values come from `[TELEMETRY]`/`[TRIAGE]` lines produced by the board.
+- **Live hardware mode:** the dashboard connects to **COM4** over Web Serial; values come from `[TELEMETRY]`/`[TRIAGE]` lines produced by the board.
 - **Simulation mode:** the dashboard has six synthetic disaster profiles. They are for UI demonstration and are labelled as simulated. Do not present a simulation profile as live sensor data.
 - **MIMIC evidence:** the 94.11% figure is agreement with our triage rule on 16,387 ICU rows. HR and SpO₂ are real chart values; **RMSSD is synthesised** because MIMIC-III v1.4 has no waveform data; the labels are rule-derived. It is **not** independent clinical validation of the wearable.
 - **24-hour chart:** the 24 hourly slots are device-hours persisted to NVS, not a calendar history; empty lanes show as gaps, not zero.
@@ -728,7 +728,7 @@ Do not say “HRV is fixed” or “HRV is accurate” yet.
 
 | Symptom | What to do / what it means |
 |---|---|
-| Dashboard blank after reflash | Refresh `Ctrl+Shift+R`, **Connect → COM5**, close other serial monitors |
+| Dashboard blank after reflash | Refresh `Ctrl+Shift+R`, **Connect → COM4**, close other serial monitors |
 | No HR after finger | Wait 6–8 s; check finger contact; check `[PPG]`/`[FPGA ACCEL]`; power-cycle if FPGA is wedged |
 | SpO₂ shows `CALC` | Wait 15–25 s; press firmer; check SQI/PI |
 | No finger but red trace | Old build or wrong page; current build should show **AMBIENT / NO CONTACT** |
@@ -780,7 +780,7 @@ python convert_bitstream.py --check
 
 # Rebuild and flash (ESP-IDF v5.5.x shell)
 cd ../../firmware/shrikefi
-idf.py build flash -p COM5
+idf.py build flash -p COM4
 ```
 
 If a judge asks for a number you cannot reproduce on the spot, say **“I can show the file and the command, but I haven’t re-run it in this session.”** Do not invent a result.
@@ -900,7 +900,7 @@ That answer is stronger than guessing.
 > “The SoftAP is intentionally open for emergency access and has no authentication; it is a local rescue page, not a hardened service. The page has same-origin checks and a CSP, and MQTT is off by default. We do not claim TLS or production-grade security.”
 
 ### Q33. Is the dashboard showing real data?
-> “In live mode, yes — it reads `[TELEMETRY]`/`[TRIAGE]` from COM5. It also has six deliberately synthetic disaster profiles for UI demonstration. We never present a synthetic profile as live hardware data.”
+> “In live mode, yes — it reads `[TELEMETRY]`/`[TRIAGE]` from COM4. It also has six deliberately synthetic disaster profiles for UI demonstration. We never present a synthetic profile as live hardware data.”
 
 ### Q34. What is still missing for a production device?
 > “A proper SpO₂ cradle and calibration, ECG/chest-strap HRV validation, multi-trial fall validation with false-positive characterisation, a real 50 MHz FPGA constraint, a wall-clock time source for a true calendar history, an enclosure, battery/charger and power measurement, and a physical SOS button.”
@@ -930,7 +930,7 @@ That answer is stronger than guessing.
    - HR appears in ~6–8 s;
    - SpO₂ takes ~15–25 s to settle;
    - show SQI, PI, waveform.
-4. **Open the dashboard** and select **COM5**:
+4. **Open the dashboard** and select **COM4**:
    - live scope, vitals, risk cards;
    - CSV export;
    - simulation profiles for heat / pollution / flood.
@@ -945,8 +945,8 @@ If the judge asks for HRV, show it but add the caveat immediately. Do not wait f
 
 ### Pre-demo checklist
 
-- [ ] Board on **COM5** (or the current port) and no other program holding it.
-- [ ] Dashboard refreshed; **Connect → COM5** selected.
+- [ ] Board on **COM4** (or the current port) and no other program holding it.
+- [ ] Dashboard refreshed; **Connect → COM4** selected.
 - [ ] No-finger state shows **AMBIENT / NO CONTACT**, with Ta/RH/PM2.5 visible.
 - [ ] Finger session: wait for HR (~6–8 s) and SpO₂ (~15–25 s) before judging.
 - [ ] Do not call HRV “validated” or “stable.”
@@ -1004,7 +1004,7 @@ If the judge asks for HRV, show it but add the caveat immediately. Do not wait f
 | **Free-fall** | Near-weightless acceleration (< 0.60 g) before an impact |
 | **SOS** | Local emergency escalation state machine (ARMED → ACTIVE) |
 | **SoftAP** | ESP32-created Wi-Fi access point |
-| **Web Serial** | Browser API used by the standalone dashboard to read COM5 |
+| **Web Serial** | Browser API used by the standalone dashboard to read COM4 |
 | **NVS** | ESP32 non-volatile storage (not used for history yet) |
 | **AXI4-Lite** | Memory-mapped bus used by the Zynq baseline |
 | **LUT** | FPGA lookup table; the logic fabric unit |

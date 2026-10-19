@@ -1,7 +1,7 @@
 # Hardware Debug & Stability Handover Guide
 **Project:** VALOR — FPGA-Accelerated Personal Health Companion & Edge Disaster Monitor (SIH26181)  
 **Target Platform:** Vicharak ShrikeFi (ESP32-S3 Dual-Core Xtensa LX7 + Renesas ForgeFPGA SLG47910)  
-**Port:** COM5 @ 115200 baud (460800 baud for flashing); the port can change
+**Port:** COM4 @ 115200 baud (460800 baud for flashing); the port can change
 between USB reconnects — confirm in Device Manager.
 **Date:** October 15, 2026 (updated October 19, 2026)
 
@@ -11,7 +11,7 @@ between USB reconnects — confirm in Device Manager.
 
 * **Firmware Flashing**: Flashed on **2026-10-19** with the peak/4 crest bitstream
   (`d9d58daa…`, 46,408 bytes) and the HRV readiness firmware. Boot verified on
-  COM5: `configuration COMPLETE! (46408 bytes loaded)`, then MAX30102, BME280,
+  COM4: `configuration COMPLETE! (46408 bytes loaded)`, then MAX30102, BME280,
   PMS5003, GNSS, MPU6050, OLED and SoftAP initialized. Live HRV validation is
   still pending (Section 6).
 * **FPGA Link**: The current Renesas ForgeFPGA SLG47910 bitstream (46,408 bytes,
@@ -70,7 +70,7 @@ between USB reconnects — confirm in Device Manager.
 ### Q1: Do I need to regenerate the ForgeFPGA bitstream?
 **Not for the current peak/4 build — it is already done.** The 2026-10-19
 bitstream (`d9d58daa…`, 46,408 bytes) is in `forgefpga_bitstream.h`, was flashed
-on COM5, and loads into the SLG47910 without error over SPI2. The earlier
+on COM4, and loads into the SLG47910 without error over SPI2. The earlier
 heartbeat-LED problem was the optical threshold rejecting the raw signal
 (`< 10000 counts`), which streamed zeroes to the FPGA (`FG ... 0 0 0`), not a
 bad bitstream. If you change the RTL again, **yes**: regenerate the flat source,
@@ -112,15 +112,15 @@ cd /d C:\Users\abhin\OneDrive\Desktop\verilog\firmware\shrikefi
 run_host_test.bat
 ```
 
-### Re-flash Firmware to ShrikeFi (COM5):
+### Re-flash Firmware to ShrikeFi (COM4):
 *Note: Due to Windows terminal sandboxing intercepts on Xtensa tool DLL relocations, run flash commands with `BypassSandbox: true`.*
 ```cmd
-cmd.exe /c "call C:\Espressif\frameworks\esp-idf-v5.5.5\export.bat && idf.py -p COM5 flash"
+cmd.exe /c "call C:\Espressif\frameworks\esp-idf-v5.5.5\export.bat && idf.py -p COM4 flash"
 ```
 
-### Live Serial Monitor (COM5 @ 115200 baud):
+### Live Serial Monitor (COM4 @ 115200 baud):
 ```python
-python -c "import serial, time; s = serial.Serial('COM5', 115200, timeout=1); [print(s.readline().decode('utf-8', 'replace').strip()) for _ in range(50)]; s.close()"
+python -c "import serial, time; s = serial.Serial('COM4', 115200, timeout=1); [print(s.readline().decode('utf-8', 'replace').strip()) for _ in range(50)]; s.close()"
 ```
 
 ---
@@ -129,7 +129,7 @@ python -c "import serial, time; s = serial.Serial('COM5', 115200, timeout=1); [p
 
 **Status: FLASHED; live HRV verification pending.** The current tree passes the
 host suite, the 34-test Zynq suite and the ESP-IDF build. The HRV readiness
-changes and the 2026-10-19 peak/4 bitstream are flashed on COM5, and boot
+changes and the 2026-10-19 peak/4 bitstream are flashed on COM4, and boot
 initialization is verified. A steady-contact 60–90 s capture has not yet been
 assessed.
 
@@ -151,12 +151,12 @@ complete.
 
 ### Flash and boot
 
-1. Connect the board and confirm its current port (COM5 on 2026-10-19; it can
+1. Connect the board and confirm its current port (COM4 on 2026-10-19; it can
    change after a USB reconnect).
 2. Flash and monitor:
 
    ```cmd
-   cmd.exe /c "call C:\Espressif\frameworks\esp-idf-v5.5.5\export.bat && idf.py -p COM5 flash monitor"
+   cmd.exe /c "call C:\Espressif\frameworks\esp-idf-v5.5.5\export.bat && idf.py -p COM4 flash monitor"
    ```
 
    If the Windows sandbox intercepts the Xtensa tool DLLs, use the same command
@@ -209,7 +209,7 @@ before RMSSD publishes.
   capture the timestamps — it is the 2.5 s fallback interacting with the
   measured 3.38 s FPGA silences, not the RMSSD arithmetic.
 
-### Live capture results — 2026-10-19 (COM5)
+### Live capture results — 2026-10-19 (COM4)
 
 Boot and sensor verification passed: ForgeFPGA bitstream 46,408 bytes; I²C
 0x3C/0x57/0x68/0x76; MAX30102, BME280, PMS5003, GNSS, MPU6050 and OLED all
