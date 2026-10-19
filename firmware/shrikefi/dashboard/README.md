@@ -99,9 +99,10 @@ plausible-looking number that nothing measures.
 ## The architecture change this forced
 
 The page is a **pure view of the final triage**. The total NEWS2, `RISK`, the hazard
-risks and the TinyML scores arrive from the board. The six NEWS2 sub-score tiles are
-reconstructed locally from the displayed vitals using the same RCP tables so the
-breakdown is visible; they cannot change the device's total score.
+risks, the TinyML scores and the three instrumented NEWS2 sub-scores arrive from the
+board. In live mode the tiles are the device's own points; if the firmware has not
+published them yet, they show `--` rather than re-deriving a breakdown on the PC. The
+simulation still uses the local RCP tables because there is no device to ask.
 
 That matters because of what the firmware used to send. `[TELEMETRY]` carried
 raw vitals only, so the old Win32 dashboard had to re-derive NEWS2, the three
@@ -113,7 +114,8 @@ The firmware now also prints:
 
 ```
 [TRIAGE] NEWS2=6,LEVEL=2,FLAGS=0x03,RISK=CRITICAL,NNHEAT=0.815,NNPOLL=0.034,
-         NNFLOOD=0.241,RHEAT=CRITICAL,RPOLL=NORMAL,RFLOOD=UNKNOWN,PSI=6.70,AHA=0.42
+         NNFLOOD=0.241,RHEAT=CRITICAL,RPOLL=NORMAL,RFLOOD=UNKNOWN,PSI=6.70,AHA=0.42,
+         HRPTS=2,SPO2PTS=3,RRPTS=1
 ```
 
 So the ESP32 stays the single source of truth and any display is just a
@@ -124,6 +126,9 @@ are now calculated for real on-device.
 
 `LEVEL` is the `clinical_risk_level_t` ordinal and `FLAGS` is the
 `clinical_alert_flags_t` bitmask — enum mirrors, not derived logic.
+`HRPTS`, `SPO2PTS` and `RRPTS` are the engine's own NEWS2 points for HR, SpO₂
+and RR. They stay zero while the SQI gate holds, and the dashboard shows `--`
+until a `[TRIAGE]` line carries them rather than inventing a breakdown.
 
 ## Serial contract
 
@@ -133,7 +138,8 @@ are now calculated for real on-device.
 [TELEMETRY] NO_FINGER,TEMP=..,HUM=..,PM25=..
 [TELEMETRY] ACQUIRING,HR=..,SPO2=..,RMSSD=..,TEMP=..,HUM=..,PM25=..
 [TRIAGE]    NEWS2=..,LEVEL=..,FLAGS=0x..,RISK=..,NNHEAT=..,NNPOLL=..,NNFLOOD=..
-            RHEAT=..,RPOLL=..,RFLOOD=..,PSI=..,AHA=..
+            RHEAT=..,RPOLL=..,RFLOOD=..,PSI=..,AHA=..,CYCLONE=..,PTREND=..
+            HRPTS=..,SPO2PTS=..,RRPTS=..
 [PPG]       <raw IR counts, 25 Hz decimated from the 100 Hz FIFO>
 ```
 

@@ -1951,8 +1951,11 @@ static void task_disaster_monitor(void *pvParameters) {
                    "RHEAT=%s,RPOLL=%s,RFLOOD=%s,PSI=%.2f,AHA=%.2f,"
                    /* CYCLONE is the storm level from the barometer TREND and
                     * PTREND is the fitted rate in hPa/hr (negative = falling).
-                    * Appended, not inserted, so existing parsers keep working. */
-                   "CYCLONE=%s,PTREND=%.2f\n",
+                    * Appended, not inserted, so existing parsers keep working.
+                    * HRPTS/SPO2PTS/RRPTS are the device's own NEWS2 sub-scores,
+                    * so a dashboard renders the breakdown instead of
+                    * reconstructing it from the raw vitals (2026-10-19). */
+                   "CYCLONE=%s,PTREND=%.2f,HRPTS=%u,SPO2PTS=%u,RRPTS=%u\n",
                    (unsigned)clin_assess.news2_score,
                    (unsigned)clin_assess.level,
                    (unsigned)clin_assess.alert_flags,
@@ -1963,7 +1966,10 @@ static void task_disaster_monitor(void *pvParameters) {
                    risk_level_to_string(rule_risk.flood_risk),
                    moran_psi, aha_strain,
                    risk_level_to_string(rule_risk.cyclone_risk),
-                   pressure_trend.slope_hpa_per_hr);
+                   pressure_trend.slope_hpa_per_hr,
+                   (unsigned)clin_assess.news2_hr_pts,
+                   (unsigned)clin_assess.news2_spo2_pts,
+                   (unsigned)clin_assess.news2_rr_pts);
             fflush(stdout);
 
             /* Thread-safe state update for telemetry & system monitoring */
@@ -2867,6 +2873,15 @@ int main(void) {
     printf("  [mNEWS2 Engine]  Score: %u (HR=120: +2, SpO2=88%%: +3, RR=%.0f: +3) | Risk: %s\n",
            pneumonia_triage.news2_score, rr_result.respiratory_rate_bpm,
            risk_level_to_string((risk_level_t)pneumonia_triage.level));
+    printf("  [mNEWS2 Sub-scores] HR=%u, SpO2=%u, RR=%u, Temp=%u\n",
+           pneumonia_triage.news2_hr_pts, pneumonia_triage.news2_spo2_pts,
+           pneumonia_triage.news2_rr_pts, pneumonia_triage.news2_temp_pts);
+    if (pneumonia_triage.news2_hr_pts + pneumonia_triage.news2_spo2_pts +
+        pneumonia_triage.news2_rr_pts + pneumonia_triage.news2_temp_pts !=
+        pneumonia_triage.news2_score) {
+        fprintf(stderr, "[FAIL] NEWS2 sub-scores do not sum to the total\n");
+        return 1;
+    }
     printf("  [Action Alert]   %s\n", pneumonia_triage.advisory);
 
     /* Profile 6: Peer-Reviewed Clinical Biomarkers (Moran 1998 PSI & AHA 2010 PM2.5-HRV) */
@@ -2962,12 +2977,23 @@ int main(void) {
            tachy_triage.alert_flags,
            (tachy_triage.alert_flags & ALERT_TACHYCARDIA) ? "TACHYCARDIA" : "NONE",
            tachy_triage.news2_score);
+    if (tachy_triage.news2_hr_pts + tachy_triage.news2_spo2_pts +
+        tachy_triage.news2_rr_pts + tachy_triage.news2_temp_pts !=
+        tachy_triage.news2_score) {
+        fprintf(stderr, "[FAIL] NEWS2 sub-scores do not sum to the total\n");
+        return 1;
+    }
 
     /* Also verify zero-SQI warmup holding in clinical triage */
     clinical_assessment_t warmup_triage;
     clinical_vitals_assess_full(165.0f, 82.0f, 8.0f, 32.0f, 0.0f, &warmup_triage);
     printf("  [Sensor Warmup Check]  SQI=0.0 Holds Crisis Triage: %s | Status: %s\n",
            (warmup_triage.alert_flags & ALERT_SIGNAL_NOISE) ? "YES" : "NO", warmup_triage.advisory);
+    if (warmup_triage.news2_score != 0 || warmup_triage.news2_hr_pts != 0 ||
+        warmup_triage.news2_spo2_pts != 0 || warmup_triage.news2_rr_pts != 0) {
+        fprintf(stderr, "[FAIL] NEWS2 sub-scores must stay zero while the SQI gate holds triage\n");
+        return 1;
+    }
 
     if (tachy_accepted == 0 || g_state.heart_rate <= 150.0f) {
         printf("  [FAIL] Tachycardia failed acceptance or HR did not exceed 150 BPM!\n");

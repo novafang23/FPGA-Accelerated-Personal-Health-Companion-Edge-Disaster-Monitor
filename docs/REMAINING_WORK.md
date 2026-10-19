@@ -691,13 +691,15 @@ were applied. `verify_dashboard.py` and `verify_softap_page.py` pass.
   a polite live region, history chart supports arrow keys, buttons have explicit
   types, and reduced-motion is respected.
 - Persistent prototype/calibration disclaimer added.
+- **Applied 2026-10-19:** the six NEWS2 sub-score tiles are no longer
+  reconstructed in live mode. `[TRIAGE]` now carries `HRPTS/SPO2PTS/RRPTS` from
+  `clinical_vitals_engine.c`, and the dashboard uses those device points. It
+  shows `--` if a build has not published them yet. Simulation still uses the
+  local RCP tables because there is no device to ask. The total was already
+  device-computed and remains so.
 
 **Remaining (deliberately not changed):**
 
-- The six NEWS2 sub-score tiles are still reconstructed locally from displayed
-  vitals using the same RCP tables; the card now says so and the total remains
-  device-computed. Sending `HRPTS/SPO2PTS/RRPTS` in `[TRIAGE]` would remove the
-  last display-side reconstruction.
 - Optional launcher shortcuts for the six profiles.
 - The SoftAP page still has the 3 s web SOS cancel; the physical hold remains
   5 s.
@@ -929,8 +931,8 @@ FPGA / claims:
      India-specific clinical validity.
 
 Optional polish:
-  - T3.6 is applied; optional next step is sending NEWS2 sub-scores from the
-    device so the six tiles stop being reconstructed locally.
+  - T3.6 is applied, and the device now sends the NEWS2 sub-scores so live
+    tiles are no longer reconstructed locally.
   - Raise the web SOS cancel hold from 3 s to 5 s to match the physical button.
   - Reconcile the remaining subjective latency claims (0.44/0.38/18 us) and
     "integer-only" wording.

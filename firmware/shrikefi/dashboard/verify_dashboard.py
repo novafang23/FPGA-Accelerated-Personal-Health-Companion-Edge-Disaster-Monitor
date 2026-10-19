@@ -58,9 +58,13 @@ window.onerror = function (m) { window.__err = String(m); };
       handleLine('[TELEMETRY] HR=0.0,SPO2=0.0,RMSSD=0.0,TEMP=29.7,HUM=63.3,PM25=86.6,RR=0.0,SQI=0.00,RRDEPTH=0.0,RRCONF=0.00,PI=0.00');
     } else if (new URLSearchParams(location.search).get('case') === 'pi') {
       handleLine('[TELEMETRY] HR=72.0,SPO2=98.0,RMSSD=42.0,TEMP=25.0,HUM=50.0,PM25=12.0,RR=15.0,SQI=0.90,RRDEPTH=42.5,RRCONF=0.80,PI=3.21');
+    } else if (new URLSearchParams(location.search).get('case') === 'device_pts') {
+      V.hr = 72; V.spo2 = 98; V.hrv = 42; V.rr = 15; V.sqi = 95; V.contact = true;
+      handleLine('[TRIAGE] NEWS2=6,LEVEL=2,FLAGS=0x00,RISK=HIGH,NNHEAT=0.0,NNPOLL=0.0,NNFLOOD=0.0,RHEAT=NORMAL,RPOLL=NORMAL,RFLOOD=NORMAL,PSI=0,AHA=0,CYCLONE=UNKNOWN,PTREND=0,HRPTS=1,SPO2PTS=2,RRPTS=3');
     } else {
       V.hr = 72; V.spo2 = 98; V.hrv = 42; V.rr = 15; V.sqi = 95; V.pi = 1.2;
       V.news2 = 0; V.risk = 'NORMAL'; V.level = 0; V.flags = 0; V.contact = true;
+      V.n2hrPts = 0; V.n2spo2Pts = 0; V.n2rrPts = 0;
       ppgSeen = true;
       handleLine('[HISTORY] H0,HR=72.0,SPO2=98.0,RMSSD=42.0,NEWS2=0,PM25=12.0');
     }
@@ -182,7 +186,7 @@ def check(case, r, expect):
 
 
 failures = []
-for case in ("zero", "healthy", "nofinger", "sensor_missing", "ambient", "pi", "stale"):
+for case in ("zero", "healthy", "device_pts", "nofinger", "sensor_missing", "ambient", "pi", "stale"):
     try:
         r = render(case)
     except (RuntimeError, json.JSONDecodeError) as e:
@@ -233,6 +237,10 @@ for case in ("zero", "healthy", "nofinger", "sensor_missing", "ambient", "pi", "
         expect = {
             "pi": "3.21 %",
             "rrNote": "43 ms RSA depth \u00b7 conf 80%",
+        }
+    elif case == "device_pts":
+        expect = {
+            "n2": ["RR=+3", "SpO2=+2", "HR=+1", "SBP=n/a", "Temp=n/a", "Consc=n/a"],
         }
     else:
         expect = {

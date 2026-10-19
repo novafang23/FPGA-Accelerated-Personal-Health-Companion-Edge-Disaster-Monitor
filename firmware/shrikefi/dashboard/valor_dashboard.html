@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'sha256-9itVPYOleCjcxmvMK223SPBXBwqgsZL2bVg9O9WkVdM='; style-src 'unsafe-inline'; connect-src 'self'; form-action 'self'; base-uri 'none'; object-src 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'sha256-bEvLHhbCXqkyOMwb6yiX3uHr34cakknMgpfzuMFWMcw='; style-src 'unsafe-inline'; connect-src 'self'; form-action 'self'; base-uri 'none'; object-src 'none'">
 <title>VALOR â€” Edge Health &amp; Disaster Triage</title>
 <!--
   VALOR dashboard â€” single self-contained file.
@@ -677,6 +677,10 @@ const V = {
   hr: 0, spo2: 0, hrv: 0, rr: 0, rrConf: 0, rrDepth: 0, sqi: 0, contact: false,
   temp: -100, hum: -1, pmRaw: 0, pmCal: 0, loc: '',
   psi: 0, aha: 0, heat: 0, poll: 0, flood: 0, storm: 0, news2: 0,
+  /* Device NEWS2 sub-scores from [TRIAGE] HRPTS/SPO2PTS/RRPTS. null means the
+     firmware did not send them (older build) or this is a simulation, in which
+     case the tiles fall back to the local RCP tables for display only. */
+  n2hrPts: null, n2spo2Pts: null, n2rrPts: null,
   pi: 0, level: 0, flags: 0, risk: 'UNKNOWN',
   rHeat: 'UNKNOWN', rPoll: 'UNKNOWN', rFlood: 'UNKNOWN',
   cyclone: 'UNKNOWN', ptrend: null,
@@ -1357,6 +1361,7 @@ function clearLiveReadings() {
     hr: 0, spo2: 0, hrv: 0, rr: 0, rrConf: 0, rrDepth: 0, sqi: 0, contact: false, pi: 0,
     temp: -100, hum: -1, pmRaw: 0, pmCal: 0, loc: '',
     psi: 0, aha: 0, heat: 0, poll: 0, flood: 0, storm: 0, news2: 0,
+    n2hrPts: null, n2spo2Pts: null, n2rrPts: null,
     level: 0, flags: 0, risk: 'UNKNOWN', rHeat: 'UNKNOWN',
     rPoll: 'UNKNOWN', rFlood: 'UNKNOWN', cyclone: 'UNKNOWN', ptrend: null,
     nnHeat: null, nnPoll: null, nnFlood: null,
@@ -1498,24 +1503,30 @@ function render() {
   /* Only RR, SpO2 and HR feed the on-device NEWS2 score. The other three
      parameters in the RCP table are simply not instrumented on this build, so
      they are shown as n/a rather than as a plausible-looking "+0". */
+  const haveDevPts = (V.n2hrPts !== null && V.n2spo2Pts !== null && V.n2rrPts !== null);
   const tiles = [
-    { k: 'RR',   v: V.rr,   pts: n2rr(V.rr) },
-    { k: 'SpO2', v: V.spo2, pts: n2spo2(V.spo2) },
-    { k: 'HR',   v: V.hr,   pts: n2hr(V.hr) },
-    { k: 'SBP',  pts: null },
-    { k: 'Temp', pts: null },
-    { k: 'Consc', pts: null },
+    { k: 'RR',   v: V.rr,   pts: haveDevPts ? V.n2rrPts   : n2rr(V.rr),   dev: haveDevPts },
+    { k: 'SpO2', v: V.spo2, pts: haveDevPts ? V.n2spo2Pts : n2spo2(V.spo2), dev: haveDevPts },
+    { k: 'HR',   v: V.hr,   pts: haveDevPts ? V.n2hrPts   : n2hr(V.hr),   dev: haveDevPts },
+    { k: 'SBP',  pts: null, na: true },
+    { k: 'Temp', pts: null, na: true },
+    { k: 'Consc',pts: null, na: true },
   ];
   /* A third state exists between "measured" and "not on this build": the
      parameter is instrumented but has not yielded a reading yet. The point
      tables treat 0 as the worst category (n2rr(0) = n2spo2(0) = n2hr(0) = 3),
      so passing an absent reading through would light all three tiles "+3 hot"
      during acquisition while the device's own NEWS2 total is still 0 - the
-     screen contradicting the board. Show it as awaiting instead. */
+     screen contradicting the board. Show it as awaiting instead.
+
+     In live mode a missing device breakdown is also "not published yet":
+     re-deriving the points on the PC would put a score on screen that the
+     device did not calculate. Simulation has no device, so it keeps the local
+     RCP tables for the demo only. */
   $('n2-grid').innerHTML = tiles.map((t) => {
-    if (t.pts === null) return '<div class="subscore na"><div class="k">' + t.k +
+    if (t.na) return '<div class="subscore na"><div class="k">' + t.k +
       '</div><div class="v">n/a</div></div>';
-    if (!(t.v > 0)) return '<div class="subscore na"><div class="k">' + t.k +
+    if (!(t.v > 0) || (mode === 'live' && !t.dev)) return '<div class="subscore na"><div class="k">' + t.k +
       '</div><div class="v">--</div></div>';
     const hot = t.pts > 0 ? ' hot' : '';
     return '<div class="subscore' + hot + '"><div class="k">' + t.k +
@@ -1524,7 +1535,9 @@ function render() {
   $('n2-note').textContent =
     'Score is HR + SpO₂ + RR only. SBP and consciousness need inputs this build ' +
     'does not have (no cuff, no GCS entry), so they are excluded rather than assumed normal. ' +
-    'Tiles are reconstructed for display from the same RCP tables; the total is computed on the device.';
+    (mode === 'live'
+      ? 'Tiles are the device\'s own NEWS2 sub-scores; -- means the device has not published them yet.'
+      : 'Tiles are reconstructed for the simulation from the same RCP tables; the total is computed on the device.');
 
   /* â”€â”€ Vitals â”€â”€ */
   const hrOn = V.hr > 0;
@@ -1728,6 +1741,7 @@ function applyProfile(name) {
     flood: base.flood, storm: base.storm || 0,
     cyclone: base.cyclone || 'NORMAL', ptrend: base.ptrend !== undefined ? base.ptrend : 0.0,
     news2: n2hr(base.hr) + n2spo2(base.spo2) + n2rr(base.rr),
+    n2hrPts: null, n2spo2Pts: null, n2rrPts: null,
     nnHeat: null, nnPoll: null, nnFlood: null,
     rHeat: 'NORMAL', rPoll: 'NORMAL', rFlood: 'UNKNOWN',
   });
@@ -1811,6 +1825,9 @@ function simPPG(dt) {
    and the TinyML scores are computed on the ESP32 and merely displayed here. */
 
 const num = (s) => { const v = parseFloat(s); return isFinite(v) ? v : 0; };
+/* Integer sub-score parser. Returns null for an absent/malformed field so a
+   missing value is not confused with a real 0-point score. */
+const pts = (s) => { const n = parseInt(s, 10); return Number.isFinite(n) ? n : null; };
 
 function parseKV(line) {
   const out = {};
@@ -1850,6 +1867,7 @@ function handleLine(line) {
       V.hr = 0; V.spo2 = 0; V.hrv = 0; V.rr = 0; V.rrConf = 0; V.rrDepth = 0;
       V.sqi = 0; V.pi = 0; V.contact = false;
       V.level = 0; V.flags = 0; V.risk = 'UNKNOWN';
+      V.n2hrPts = null; V.n2spo2Pts = null; V.n2rrPts = null;
       const k = parseKV(line.replace('[TELEMETRY]', ''));
       if (k.TEMP) V.temp = num(k.TEMP);
       if (k.HUM)  V.hum  = num(k.HUM);
@@ -1857,6 +1875,12 @@ function handleLine(line) {
       return;
     }
     const k = parseKV(line.replace('[TELEMETRY]', ''));
+    /* The device prints ACQUIRING while the HRV window fills and has not
+       scored this contact yet. Drop the previous contact's sub-scores so the
+       tiles show "--" rather than a stale breakdown beside a new heart rate. */
+    if (line.indexOf('ACQUIRING') >= 0) {
+      V.n2hrPts = null; V.n2spo2Pts = null; V.n2rrPts = null;
+    }
     if (k.HR)    V.hr   = num(k.HR);
     if (k.SPO2)  V.spo2 = num(k.SPO2);
     if (k.RMSSD) V.hrv  = num(k.RMSSD);
@@ -1880,6 +1904,11 @@ function handleLine(line) {
     if (k.NEWS2)  V.news2  = parseInt(k.NEWS2, 10) || 0;
     if (k.LEVEL)  V.level  = parseInt(k.LEVEL, 10) || 0;
     if (k.FLAGS)  V.flags  = parseInt(k.FLAGS, 16) || 0;
+    /* Device NEWS2 breakdown. Absent in older firmware; null keeps the tiles
+       in the "not published yet" state instead of showing invented points. */
+    if (k.HRPTS !== undefined)   V.n2hrPts   = pts(k.HRPTS);
+    if (k.SPO2PTS !== undefined) V.n2spo2Pts = pts(k.SPO2PTS);
+    if (k.RRPTS !== undefined)   V.n2rrPts   = pts(k.RRPTS);
     if (k.RISK)   V.risk   = k.RISK;
     if (k.NNHEAT)  V.nnHeat  = num(k.NNHEAT);
     if (k.NNPOLL)  V.nnPoll  = num(k.NNPOLL);

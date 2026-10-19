@@ -179,6 +179,10 @@ void clinical_vitals_assess_ext(float hr, float spo2, float rmssd, float rr, flo
     uint8_t temp_score = news2_temp_score(out->body_temp);
     uint8_t score      = hr_score + spo2_score + rr_score + temp_score;
     out->news2_score   = score;
+    out->news2_hr_pts   = hr_score;
+    out->news2_spo2_pts = spo2_score;
+    out->news2_rr_pts   = rr_score;
+    out->news2_temp_pts = temp_score;
 
     uint8_t flags = ALERT_NONE;
     bool shock_present = false;

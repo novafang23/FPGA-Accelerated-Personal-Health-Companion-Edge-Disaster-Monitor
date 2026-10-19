@@ -44,6 +44,15 @@ typedef struct {
     clinical_risk_level_t  level;            /* Overall clinical risk */
     uint8_t                alert_flags;      /* Bitmask of clinical_alert_flags_t */
     uint8_t                news2_score;      /* mNEWS2 score: HR + SpO2 + RR + Temp */
+    /* Per-parameter NEWS2 points. Published over serial (HRPTS/SPO2PTS/RRPTS)
+     * so a display renders the device's own breakdown instead of re-deriving it
+     * from the raw vitals. All four are zero until the SQI gate opens, because
+     * the engine returns before scoring while the signal is held. Temp points
+     * stay zero until a real body-temperature sensor is fitted. */
+    uint8_t                news2_hr_pts;     /* NEWS2 HR points (0-3)   */
+    uint8_t                news2_spo2_pts;   /* NEWS2 SpO2 points (0-3) */
+    uint8_t                news2_rr_pts;     /* NEWS2 RR points (0-3)   */
+    uint8_t                news2_temp_pts;   /* NEWS2 temp points (0-3) */
     float                  hr;               /* Heart rate (bpm) */
     float                  spo2;             /* Oxygen saturation (%) */
     float                  rmssd;            /* RMSSD (ms) - HRV autonomic tone */
