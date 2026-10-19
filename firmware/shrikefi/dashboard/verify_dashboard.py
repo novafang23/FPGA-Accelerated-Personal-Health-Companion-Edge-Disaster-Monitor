@@ -66,6 +66,17 @@ window.onerror = function (m) { window.__err = String(m); };
     } else if (new URLSearchParams(location.search).get('case') === 'device_pts') {
       V.hr = 72; V.spo2 = 98; V.hrv = 42; V.rr = 15; V.sqi = 95; V.contact = true;
       handleLine('[TRIAGE] NEWS2=6,LEVEL=2,FLAGS=0x00,RISK=HIGH,NNHEAT=0.0,NNPOLL=0.0,NNFLOOD=0.0,RHEAT=NORMAL,RPOLL=NORMAL,RFLOOD=NORMAL,PSI=0,AHA=0,CYCLONE=UNKNOWN,PTREND=0,HRPTS=1,SPO2PTS=2,RRPTS=3');
+    } else if (new URLSearchParams(location.search).get('case') === 'ai_declined') {
+      /* The device reports that the INT8 model declined (AIVALID=0) and
+         streams zeros. A bare 0.000 is indistinguishable from "the model ran
+         and found no risk", so the gauges must render the absence, not 0 %. */
+      V.contact = true; V.hr = 72; V.spo2 = 98; V.hrv = 45; V.sqi = 90;
+      handleLine('[TRIAGE] NEWS2=0,LEVEL=1,FLAGS=0x00,RISK=MODERATE,NNHEAT=0.000,NNPOLL=0.000,NNFLOOD=0.000,RHEAT=UNKNOWN,RPOLL=UNKNOWN,RFLOOD=UNKNOWN,PSI=0.00,AHA=0.00,CYCLONE=UNKNOWN,PTREND=0.00,HRPTS=0,SPO2PTS=0,RRPTS=0,AIVALID=0');
+    } else if (new URLSearchParams(location.search).get('case') === 'ai_scored') {
+      /* Contrast: AIVALID=1 means the model really ran, so the number must
+         render rather than being suppressed. */
+      V.contact = true; V.hr = 72; V.spo2 = 98; V.hrv = 45; V.sqi = 90;
+      handleLine('[TRIAGE] NEWS2=4,LEVEL=2,FLAGS=0x00,RISK=HIGH,NNHEAT=0.250,NNPOLL=0.100,NNFLOOD=0.050,RHEAT=MODERATE,RPOLL=NORMAL,RFLOOD=NORMAL,PSI=0.00,AHA=0.00,CYCLONE=UNKNOWN,PTREND=0.00,HRPTS=0,SPO2PTS=0,RRPTS=0,AIVALID=1');
     } else {
       V.hr = 72; V.spo2 = 98; V.hrv = 42; V.rr = 15; V.sqi = 95; V.pi = 1.2;
       V.news2 = 0; V.risk = 'NORMAL'; V.level = 0; V.flags = 0; V.contact = true;
@@ -90,6 +101,7 @@ window.onerror = function (m) { window.__err = String(m); };
       spo2: txt('v-spo2'), spo2Note: txt('spo2-note'), spo2NumCol: col('v-spo2'),
       hrv: txt('v-hrv'), hrvNote: txt('hrv-note'), hrvNumCol: col('v-hrv'),
       mHrv: txt('m-hrv'),
+      gHeat: txt('g-heat-val'), gPoll: txt('g-poll-val'), gFlood: txt('g-flood-val'),
       rr: txt('v-rr'), rrNumCol: col('v-rr'), rrNote: txt('rr-note'),
       pi: txt('m-pi'), idleRrNote: idleRrNote, hrSource: txt('hr-source'),
       deviceVerdict: txt('device-verdict'),
@@ -192,7 +204,7 @@ def check(case, r, expect):
 
 
 failures = []
-for case in ("zero", "healthy", "hrv_settle", "device_pts", "nofinger", "sensor_missing", "ambient", "pi", "stale"):
+for case in ("zero", "healthy", "hrv_settle", "device_pts", "ai_declined", "ai_scored", "nofinger", "sensor_missing", "ambient", "pi", "stale"):
     try:
         r = render(case)
     except (RuntimeError, json.JSONDecodeError) as e:
@@ -253,6 +265,10 @@ for case in ("zero", "healthy", "hrv_settle", "device_pts", "nofinger", "sensor_
             "hrv": "120", "mHrv": "120/240",
             "hrvNote": "settling \u00b7 120 of 240 beats",
         }
+    elif case == "ai_declined":
+        expect = {"gHeat": "--", "gPoll": "--", "gFlood": "--"}
+    elif case == "ai_scored":
+        expect = {"gHeat": "25.0%", "gPoll": "10.0%", "gFlood": "5.0%"}
     else:
         expect = {
             "hr": chr(0x2014),

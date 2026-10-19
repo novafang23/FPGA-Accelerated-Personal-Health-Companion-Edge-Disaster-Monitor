@@ -882,7 +882,7 @@ tail. That instability means HRV is **not** validated; see
 [`reports/HRV_STILL_CAPTURE_2026-10-19.md`](reports/HRV_STILL_CAPTURE_2026-10-19.md).
 
 **Contact-settling gate — implemented 2026-10-20 (host-tested; board capture
-pending).** `hrv_is_ready()` no longer publishes RMSSD out of a partially filled
+pending).** `hrv_is_settled()` no longer publishes RMSSD out of a partially filled
 window. It now requires **240 of 300 beats (80 % fill) AND a window spanning
 ≥ 120 s of contact**, with the span summed from the accepted IBIs rather than
 read from a wall clock — the requirement is stated on the window that actually
@@ -905,6 +905,22 @@ intervals were accepted and RMSSD stayed withheld at SQI 0.85-0.86, so `HRVN`
 tracks accepted beats rather than an estimate; what that does not yet show is the
 withheld period across a full 6 minutes, or the OLED wording on the panel itself. The gate makes the number honest; it does
 not make it accurate — T4.1 remains the validation step.
+
+**Risk-engine input integrity — fixed 2026-10-20.** The INT8 hazard model takes
+RMSSD as an input feature, and `hrv_compute()` leaves it at `0.0f` when the
+window has no variability while the SQI/settling gates zero the *published*
+value. A zero normalizes to the most-suppressed end of the feature range
+(`NN_RMSSD_MIN` is 1.0), so an unpublished measurement could have been scored as
+a collapsed HRV. `disaster_assess_nn()` and `disaster_assess_nn_int8()` now
+require a published RMSSD (`> 0`) in addition to a ready window and decline with
+`RISK_UNKNOWN` otherwise; `[TRIAGE]` carries `AIVALID=0/1` so a consumer can tell
+a genuine 0 % from an absent verdict, and both dashboards render `--` when the
+model declined. The same pass split the HRV predicates: `hrv_is_ready()` is
+structural again (enough contiguous pairs to compute — what the engines and the
+sibling dashboard mean by "valid"), and `hrv_is_settled()` owns the 240-beat /
+120 s publication policy. Host suite covers both halves of the guard (metronomic
+300-interval window with RMSSD 0.0 declines, RMSSD 40.0 scores) and the settle
+cases; `verify_dashboard.py` has `ai_declined` and `ai_scored` cases (11 total).
 
 With the board on COM4, follow
 [`docs/HARDWARE_DEBUG_HANDOVER.md`](HARDWARE_DEBUG_HANDOVER.md) §6. The short

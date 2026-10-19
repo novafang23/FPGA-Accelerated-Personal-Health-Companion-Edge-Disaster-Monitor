@@ -472,7 +472,10 @@ static void ppg_update_respiration_and_sqi(hrv_state_t *hrv,
             ? sqi.perfusion_index : 0.0f;
         s_hrv_sqi_valid = hrv_quality_ok;
         if (hrv_quality_ok) {
-            if (hrv != NULL && hrv_is_ready(hrv) && hrv->rmssd > 0.0f && g_state.hrv_rmssd <= 0.0f) {
+            /* First publication takes the same settle gate as the periodic
+             * paths below: a structurally ready but still-converging window
+             * must not seed the published RMSSD. */
+            if (hrv != NULL && hrv_is_settled(hrv) && hrv->rmssd > 0.0f && g_state.hrv_rmssd <= 0.0f) {
                 g_state.hrv_rmssd = hrv->rmssd;
                 g_state.hrv_sdnn  = hrv->sdnn;
             }
@@ -1053,8 +1056,11 @@ static void task_ppg_accelerator(void *pvParameters) {
                         g_state.r_peak_interval_ms = ibi_ms;
                         g_state.heart_rate = (g_state.heart_rate > 30.0f) ?
                                              (0.70f * g_state.heart_rate + 0.30f * inst_hr) : inst_hr;
-                        bool hrv_ready = hrv_is_ready(&hrv_state);
-                        if (s_hrv_sqi_valid && hrv_ready) {
+                        /* Publication gate: only a settled window may be
+                         * written to g_state.hrv_rmssd. A structurally ready
+                         * but still-converging window is withheld. */
+                        bool hrv_settled = hrv_is_settled(&hrv_state);
+                        if (s_hrv_sqi_valid && hrv_settled) {
                             g_state.hrv_rmssd = (g_state.hrv_rmssd > 0.0f) ?
                                                 (0.85f * g_state.hrv_rmssd + 0.15f * hrv_state.rmssd) : hrv_state.rmssd;
                             g_state.hrv_sdnn  = (g_state.hrv_sdnn > 0.0f) ?
@@ -1171,8 +1177,9 @@ static void task_ppg_accelerator(void *pvParameters) {
                                                     g_state.heart_rate = (g_state.heart_rate > 30.0f) ?
                                                                          (0.70f * g_state.heart_rate + 0.30f * inst_hr) : inst_hr;
                                                 }
-                                                bool hrv_ready = hrv_is_ready(&hrv_state);
-                                                if (s_hrv_sqi_valid && hrv_ready) {
+                                                /* Publication gate (see the FPGA path above). */
+                                                bool hrv_settled = hrv_is_settled(&hrv_state);
+                                                if (s_hrv_sqi_valid && hrv_settled) {
                                                     g_state.hrv_rmssd = (g_state.hrv_rmssd > 0.0f) ?
                                                                         (0.85f * g_state.hrv_rmssd + 0.15f * hrv_state.rmssd) : hrv_state.rmssd;
                                                     g_state.hrv_sdnn  = (g_state.hrv_sdnn > 0.0f) ?
@@ -1958,7 +1965,15 @@ static void task_disaster_monitor(void *pvParameters) {
                     * HRPTS/SPO2PTS/RRPTS are the device's own NEWS2 sub-scores,
                     * so a dashboard renders the breakdown instead of
                     * reconstructing it from the raw vitals (2026-10-19). */
-                   "CYCLONE=%s,PTREND=%.2f,HRPTS=%u,SPO2PTS=%u,RRPTS=%u\n",
+                   "CYCLONE=%s,PTREND=%.2f,HRPTS=%u,SPO2PTS=%u,RRPTS=%u,"
+                   /* AIVALID is 1 when the INT8 model actually scored this
+                    * cycle and 0 when it declined (no published RMSSD, no
+                    * temperature/environment). Appended, not inserted, so
+                    * existing parsers keep working. Without it a consumer
+                    * cannot tell a genuine 0 % (model ran, found nothing)
+                    * from a missing verdict, because NNHEAT/NNPOLL/NNFLOOD
+                    * read 0.000 in both cases. */
+                   "AIVALID=%u\n",
                    (unsigned)clin_assess.news2_score,
                    (unsigned)clin_assess.level,
                    (unsigned)clin_assess.alert_flags,
@@ -1972,7 +1987,8 @@ static void task_disaster_monitor(void *pvParameters) {
                    pressure_trend.slope_hpa_per_hr,
                    (unsigned)clin_assess.news2_hr_pts,
                    (unsigned)clin_assess.news2_spo2_pts,
-                   (unsigned)clin_assess.news2_rr_pts);
+                   (unsigned)clin_assess.news2_rr_pts,
+                   (unsigned)(nn_risk.overall_risk != RISK_UNKNOWN));
             fflush(stdout);
 
             /* Thread-safe state update for telemetry & system monitoring */
@@ -2766,6 +2782,53 @@ int main(void) {
     risk_assessment_t nn_risk;
     disaster_assess_nn_int8(&hrv, spo2, hr, &env, &nn_risk, &out);
 
+    /* The engine must decline when the RMSSD has not been published. That is
+     * the real device case: the SQI and settling gates zero g_state.hrv_rmssd
+     * while the accepted-beat count keeps climbing, so a structurally ready
+     * window can arrive with rmssd == 0.0f. Zero normalizes to the
+     * most-suppressed end of the RMSSD feature, so scoring it would report a
+     * collapsed HRV for a measurement that was never published.
+     *
+     * A metronomic train is the only way to build rmssd == 0.0f together with
+     * a full, structurally ready window (identical intervals have no
+     * successive differences), so this fixture isolates the published-value
+     * guard from the readiness guard: hrv_is_ready() is true in both halves. */
+    {
+        hrv_state_t pub;
+        hrv_init(&pub);
+        for (int i = 0; i < HRV_BUFFER_SIZE; i++) hrv_add_ibi(&pub, 800.0f);
+        hrv_compute(&pub);
+        if (!hrv_is_ready(&pub) || pub.rmssd != 0.0f) {
+            fprintf(stderr, "[FAIL] Guard fixture must be ready with RMSSD 0.0 (rmssd=%.2f)\n",
+                    pub.rmssd);
+            return 1;
+        }
+
+        risk_assessment_t pub_risk;
+        nn_output_t pub_out;
+        memset(&pub_risk, 0, sizeof(pub_risk));
+        memset(&pub_out, 0, sizeof(pub_out));
+        disaster_assess_nn_int8(&pub, spo2, hr, &env, &pub_risk, &pub_out);
+        if (pub_risk.overall_risk != RISK_UNKNOWN) {
+            fprintf(stderr, "[FAIL] Unpublished RMSSD (0.0) must decline AI scoring, got %s\n",
+                    risk_level_to_string(pub_risk.overall_risk));
+            return 1;
+        }
+        printf("  [TinyML Guard] Unpublished RMSSD (0.0 ms) declines: %s\n",
+               risk_level_to_string(pub_risk.overall_risk));
+
+        pub.rmssd = 40.0f; /* now published */
+        memset(&pub_risk, 0, sizeof(pub_risk));
+        memset(&pub_out, 0, sizeof(pub_out));
+        disaster_assess_nn_int8(&pub, spo2, hr, &env, &pub_risk, &pub_out);
+        if (pub_risk.overall_risk == RISK_UNKNOWN) {
+            fprintf(stderr, "[FAIL] A published RMSSD (40.0 ms) must score\n");
+            return 1;
+        }
+        printf("  [TinyML Guard] Published RMSSD (40.0 ms) scores: %s\n",
+               risk_level_to_string(pub_risk.overall_risk));
+    }
+
     risk_assessment_t final_risk = rule_risk;
     if (nn_risk.overall_risk > final_risk.overall_risk) {
         final_risk.overall_risk = nn_risk.overall_risk;
@@ -3030,8 +3093,14 @@ int main(void) {
     /* HRV contact-settling gate. The 2026-10-19 302 s still-contact capture
      * measured RMSSD climbing 31.3 -> 77.5 ms over the first ~3 minutes of
      * contact and then flattening: that is the window still filling, not the
-     * patient changing. hrv_is_ready() must refuse to publish until the window
-     * holds 80 % of its beats AND spans at least 120 s of contact. */
+     * patient changing. hrv_is_settled() must refuse to publish until the
+     * window holds 80 % of its beats AND spans at least 120 s of contact.
+     *
+     * hrv_is_ready() stays STRUCTURAL (enough contiguous pairs to compute a
+     * value) because the risk engines and the sibling dashboard use it as a
+     * summary-validity check. The two must not be conflated: every withheld
+     * case below is structurally ready, so asserting on hrv_is_ready() would
+     * pass for the wrong reason. */
     printf("\nHost Test - HRV Contact-Settling Gate:\n");
     {
         hrv_state_t settle;
@@ -3041,18 +3110,22 @@ int main(void) {
             hrv_add_ibi(&settle, 800.0f + ((i % 2) ? 25.0f : -25.0f));
         }
         hrv_compute(&settle);
-        if (hrv_is_ready(&settle)) {
+        if (!hrv_is_ready(&settle)) {
+            fprintf(stderr, "[FAIL] 50 contiguous beats must be structurally ready\n");
+            return 1;
+        }
+        if (hrv_is_settled(&settle)) {
             fprintf(stderr, "[FAIL] A 50-beat / ~40 s window must not publish RMSSD\n");
             return 1;
         }
-        printf("  [HRV Settle] 50 beats / ~40 s withheld (count=%d)\n", settle.count);
+        printf("  [HRV Settle] 50 beats / ~40 s: ready but not settled (withheld)\n");
 
         /* Grow to 240 beats x ~800 ms = ~192 s: both legs satisfied. */
         for (int i = 50; i < 240; i++) {
             hrv_add_ibi(&settle, 800.0f + ((i % 2) ? 25.0f : -25.0f));
         }
         hrv_compute(&settle);
-        if (!hrv_is_ready(&settle)) {
+        if (!hrv_is_settled(&settle)) {
             fprintf(stderr, "[FAIL] A 240-beat / ~192 s window must publish RMSSD\n");
             return 1;
         }
@@ -3066,7 +3139,7 @@ int main(void) {
         hrv_init(&fast);
         for (int i = 0; i < 240; i++) hrv_add_ibi(&fast, 400.0f);
         hrv_compute(&fast);
-        if (hrv_is_ready(&fast)) {
+        if (hrv_is_settled(&fast)) {
             fprintf(stderr, "[FAIL] A 240-beat window spanning only 96 s must not publish\n");
             return 1;
         }
@@ -3079,12 +3152,12 @@ int main(void) {
         summary.count = 50;
         summary.rmssd = 45.0f;
         summary.sdnn  = 40.0f;
-        if (hrv_is_ready(&summary)) {
+        if (hrv_is_settled(&summary)) {
             fprintf(stderr, "[FAIL] A 50-beat summary struct must not publish RMSSD\n");
             return 1;
         }
         summary.count = HRV_SETTLE_MIN_SAMPLES;
-        if (!hrv_is_ready(&summary)) {
+        if (!hrv_is_settled(&summary)) {
             fprintf(stderr, "[FAIL] A %d-beat summary struct must publish RMSSD\n",
                     HRV_SETTLE_MIN_SAMPLES);
             return 1;

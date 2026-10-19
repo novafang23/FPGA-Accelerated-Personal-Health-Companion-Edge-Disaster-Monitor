@@ -103,18 +103,36 @@ int hrv_is_ready(const hrv_state_t *state) {
     if (state == NULL || state->count < HRV_MIN_SAMPLES) return 0;
 
     /* Support summary/snapshot structs (e.g., Core 1 hrv_snapshot or host test
-     * profiles) that populate rmssd/sdnn/count directly without a ring buffer.
-     * These must clear the same fill threshold: a summary claiming a 300-beat
-     * RMSSD while carrying a 50-beat count is exactly the under-filled case the
-     * settle gate exists to suppress. */
+     * profiles) that populate rmssd/sdnn/count directly without a ring buffer. */
+    if (state->head == 0 && state->count < HRV_BUFFER_SIZE && state->rmssd > 0.0f) return 1;
+
+    int n = state->count;
+    int start = (state->head - n + HRV_BUFFER_SIZE) % HRV_BUFFER_SIZE;
+    int valid_pairs = 0;
+    for (int i = 1; i < n; i++) {
+        int idx = (start + i) % HRV_BUFFER_SIZE;
+        if (state->pair_valid[idx]) valid_pairs++;
+    }
+    return valid_pairs >= (HRV_MIN_SAMPLES - 1);
+}
+
+/* Publication gate. Structural readiness (hrv_is_ready) is not enough: a
+ * partially filled window yields a RMSSD averaged over fewer beats than the
+ * published window claims, and it is still converging. The 2026-10-19 capture
+ * measured 31.3 -> 77.5 ms across the first ~3 minutes of contact before it
+ * flattened. Wait for 80 % fill (HRV_SETTLE_MIN_SAMPLES) and a window that
+ * covers HRV_SETTLE_MIN_SPAN_MS. */
+int hrv_is_settled(const hrv_state_t *state) {
+    if (state == NULL || !hrv_is_ready(state)) return 0;
+
+    /* Summary/snapshot structs carry no interval history to measure a span
+     * against. They may publish only if they also claim the settled fill
+     * count; a summary claiming a 300-beat RMSSD while carrying a 50-beat
+     * count is exactly the under-filled case this gate exists to suppress. */
     if (state->head == 0 && state->count < HRV_BUFFER_SIZE && state->rmssd > 0.0f) {
         return state->count >= HRV_SETTLE_MIN_SAMPLES;
     }
 
-    /* A partially filled window yields a RMSSD over fewer beats than the
-     * published window claims, and it is still converging: the 2026-10-19
-     * capture measured 31.3 -> 77.5 ms across the first ~3 minutes of contact
-     * before it flattened. Wait for 80 % fill. */
     if (state->count < HRV_SETTLE_MIN_SAMPLES) return 0;
 
     /* Walk the window exactly as hrv_compute() does, so the fill, span and

@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'sha256-wK74qz138vWB9gTZxpcFXQPaij3ISSwaLAB9hN+wu6k='; style-src 'unsafe-inline'; connect-src 'self'; form-action 'self'; base-uri 'none'; object-src 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'sha256-am+Zs0lYTPTg7XXDVhDJwXSPKJQVyt4UQtL6WXsoRW8='; style-src 'unsafe-inline'; connect-src 'self'; form-action 'self'; base-uri 'none'; object-src 'none'">
 <title>VALOR â€” Edge Health &amp; Disaster Triage</title>
 <!--
   VALOR dashboard â€” single self-contained file.
@@ -689,7 +689,7 @@ const V = {
   pi: 0, level: 0, flags: 0, risk: 'UNKNOWN',
   rHeat: 'UNKNOWN', rPoll: 'UNKNOWN', rFlood: 'UNKNOWN',
   cyclone: 'UNKNOWN', ptrend: null,
-  nnHeat: null, nnPoll: null, nnFlood: null,
+  nnHeat: null, nnPoll: null, nnFlood: null, aiValid: null,
 };
 
 let mode = 'idle';         // 'idle' | 'sim' | 'live'
@@ -1370,7 +1370,7 @@ function clearLiveReadings() {
     hrvN: null,
     level: 0, flags: 0, risk: 'UNKNOWN', rHeat: 'UNKNOWN',
     rPoll: 'UNKNOWN', rFlood: 'UNKNOWN', cyclone: 'UNKNOWN', ptrend: null,
-    nnHeat: null, nnPoll: null, nnFlood: null,
+    nnHeat: null, nnPoll: null, nnFlood: null, aiValid: null,
   });
   ppgSeen = false;
   PPG.clear();
@@ -1724,9 +1724,15 @@ function render() {
   /* ── TinyML / Multi-hazard gauges ──
      Live mode uses the NN outputs the device streams. Simulation uses the
      profile values. Either way the number shown is a risk in 0-100%. */
-  const heat = V.nnHeat != null ? V.nnHeat * 100 : V.heat;
-  const poll = V.nnPoll != null ? V.nnPoll * 100 : V.poll;
-  const flood = V.nnFlood != null ? V.nnFlood * 100 : V.flood;
+  /* When the device reports AIVALID=0 the model declined to score (no
+     published RMSSD, no environment) and its three outputs are zeros. Showing
+     0.0 % would claim an all-clear for a hazard nobody assessed, so the gauges
+     render the absence instead. Simulation has no AIVALID and keeps using the
+     profile values. */
+  const aiAbsent = V.aiValid === 0;
+  const heat  = aiAbsent ? null : (V.nnHeat  != null ? V.nnHeat  * 100 : V.heat);
+  const poll  = aiAbsent ? null : (V.nnPoll  != null ? V.nnPoll  * 100 : V.poll);
+  const flood = aiAbsent ? null : (V.nnFlood != null ? V.nnFlood * 100 : V.flood);
   const storm = V.cyclone === 'CRITICAL' ? 95 :
                 V.cyclone === 'HIGH' ? 70 :
                 V.cyclone === 'ELEVATED' ? 40 :
@@ -1744,6 +1750,15 @@ function render() {
 }
 
 function setGauge(id, value, color, ruleRisk) {
+  /* null means "the AI declined to score", which is not the same as 0 %. */
+  if (value === null) {
+    $('g-' + id + '-val').textContent = '--';
+    $('g-' + id + '-val').style.color = 'var(--text-faint)';
+    $('g-' + id).style.width = '0%';
+    $('g-' + id + '-sub').textContent = 'AI declined \u00b7 no verdict this cycle \u00b7 rule engine: ' +
+      (ruleRisk && ruleRisk !== 'UNKNOWN' ? ruleRisk.toLowerCase() : 'unknown');
+    return;
+  }
   const pctVal = clamp(value, 0, 100);
   $('g-' + id + '-val').textContent = pctVal.toFixed(1) + '%';
   $('g-' + id + '-val').style.color = color;
@@ -1772,7 +1787,7 @@ function applyProfile(name) {
     news2: n2hr(base.hr) + n2spo2(base.spo2) + n2rr(base.rr),
     n2hrPts: null, n2spo2Pts: null, n2rrPts: null,
     hrvN: null,
-    nnHeat: null, nnPoll: null, nnFlood: null,
+    nnHeat: null, nnPoll: null, nnFlood: null, aiValid: null,
     rHeat: 'NORMAL', rPoll: 'NORMAL', rFlood: 'UNKNOWN',
   });
   if (typeof HIST !== 'undefined') HIST.generateSim(name);
@@ -1946,6 +1961,10 @@ function handleLine(line) {
     if (k.RRPTS !== undefined)   V.n2rrPts   = pts(k.RRPTS);
     if (k.RISK)   V.risk   = k.RISK;
     if (k.NNHEAT)  V.nnHeat  = num(k.NNHEAT);
+    /* AIVALID = 1 only when the device's INT8 model actually scored. NNHEAT
+       reads 0.000 both when the model ran and found nothing and when it
+       declined, so this flag is what separates "0 % risk" from "no verdict". */
+    if (k.AIVALID !== undefined) V.aiValid = pts(k.AIVALID);
     if (k.NNPOLL)  V.nnPoll  = num(k.NNPOLL);
     if (k.NNFLOOD) V.nnFlood = num(k.NNFLOOD);
     if (k.RHEAT)  V.rHeat  = k.RHEAT;
@@ -2109,7 +2128,7 @@ function enterIdle() {
     psi: 0, aha: 0, heat: 0, poll: 0, flood: 0, news2: 0,
     pi: 0, level: 0, flags: 0, risk: 'UNKNOWN',
     rHeat: 'UNKNOWN', rPoll: 'UNKNOWN', rFlood: 'UNKNOWN',
-    nnHeat: null, nnPoll: null, nnFlood: null,
+    nnHeat: null, nnPoll: null, nnFlood: null, aiValid: null,
   });
   lastTelemetryAt = 0;
   liveNoData = false;

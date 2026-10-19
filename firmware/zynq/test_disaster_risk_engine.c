@@ -44,6 +44,11 @@ _Static_assert(sizeof(nn_model_int8_t) == 619,
 static void init_hrv_ready(hrv_state_t *hrv, float bpm) {
     hrv_init(hrv);
     float ibi_ms = 60000.0f / bpm;
+    /* These fixtures exercise the risk engines, which gate on hrv_is_ready():
+     * the STRUCTURAL check that the window holds enough contiguous pairs to
+     * compute a value. The publication gate (240 beats / 120 s) is
+     * hrv_is_settled() and is tested separately; conflating the two would
+     * make every engine test depend on the publish policy. */
     for (int i = 0; i < HRV_MIN_SAMPLES; i++) {
         /* Add jitter to achieve realistic RMSSD ~20-50ms */
         float jitter = (float)((i % 11) - 5) * 10.0f;  /* +/- 50ms pseudo-jitter */

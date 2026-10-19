@@ -491,8 +491,13 @@ static void UpdateTelemetryStep(void) {
     hrv_snap.rmssd = g_state.rmssd;
     hrv_snap.mean_hr = curr_hr;
     /* Readiness sentinel, not a sample count: disaster_assess_nn_int8() gates on
-     * hrv_is_ready(), which requires count >= HRV_MIN_SAMPLES. This process has
-     * no beat-to-beat interval history, so the flag means "assessment permitted". */
+     * hrv_is_ready(), the STRUCTURAL check that a window holds enough
+     * contiguous pairs to compute a value. This process has no beat-to-beat
+     * interval history, so the flag means "assessment permitted". The
+     * publication gate (240 beats / 120 s) is hrv_is_settled() inside the
+     * firmware, and the value it guards is still verified by the engine: a
+     * board that withholds RMSSD (0.0) makes the AI decline rather than
+     * scoring 0.0 as a collapsed HRV. */
     hrv_snap.count = HRV_MIN_SAMPLES;
     /* hrv_snap.sdnn is deliberately left at zero (from the memset above).
      *
@@ -1154,25 +1159,42 @@ static void RenderDashboard(HDC hdcMem, int width, int height) {
     SelectObject(hdcMem, g_font_small);
     SetTextColor(hdcMem, COL_TEXT_MAIN);
     char szRisk1[64];
-    COLORREF cR1 = (g_state.heat_risk_pct > 70.0f) ? COL_RED : (g_state.heat_risk_pct > 35.0f) ? COL_AMBER : COL_GREEN_BRT;
-    snprintf(szRisk1, sizeof(szRisk1), "HEAT STROKE RISK: %.1f%% (%s)", g_state.heat_risk_pct,
-             (g_state.heat_risk_pct > 70.0f) ? "CRITICAL" : (g_state.heat_risk_pct > 35.0f) ? "ELEVATED" : "NORMAL");
+    /* A zero is only meaningful when the INT8 model actually ran. If it
+     * declined (no published RMSSD, no environment) it reports RISK_UNKNOWN and
+     * leaves the scores at 0, so "0.0% (NORMAL)" would be an all-clear for a
+     * hazard nobody assessed. Show the absence instead. */
+    int ai_declined = (g_state.overall_ai_risk == RISK_UNKNOWN);
+    COLORREF cR1 = ai_declined ? COL_TEXT_MUTED : (g_state.heat_risk_pct > 70.0f) ? COL_RED : (g_state.heat_risk_pct > 35.0f) ? COL_AMBER : COL_GREEN_BRT;
+    if (ai_declined) {
+        snprintf(szRisk1, sizeof(szRisk1), "HEAT STROKE RISK: -- (AI declined: no HRV)");
+    } else {
+        snprintf(szRisk1, sizeof(szRisk1), "HEAT STROKE RISK: %.1f%% (%s)", g_state.heat_risk_pct,
+                 (g_state.heat_risk_pct > 70.0f) ? "CRITICAL" : (g_state.heat_risk_pct > 35.0f) ? "ELEVATED" : "NORMAL");
+    }
     TextOutA(hdcMem, ax1_x, ax1_y, szRisk1, strlen(szRisk1));
-    DrawProgressBar(hdcMem, ax1_x, ax1_y + 20, meter_w, meter_h, g_state.heat_risk_pct, cR1);
+    DrawProgressBar(hdcMem, ax1_x, ax1_y + 20, meter_w, meter_h, ai_declined ? 0.0f : g_state.heat_risk_pct, cR1);
     
     int ax2_x = 452, ax2_y = r4_y + 36;
-    COLORREF cR2 = (g_state.pollution_risk_pct > 70.0f) ? COL_RED : (g_state.pollution_risk_pct > 35.0f) ? COL_AMBER : COL_GREEN_BRT;
+    COLORREF cR2 = ai_declined ? COL_TEXT_MUTED : (g_state.pollution_risk_pct > 70.0f) ? COL_RED : (g_state.pollution_risk_pct > 35.0f) ? COL_AMBER : COL_GREEN_BRT;
     char szRisk2[64];
-    snprintf(szRisk2, sizeof(szRisk2), "POLLUTION / SMOG RISK: %.1f%% (%s)", g_state.pollution_risk_pct,
-             (g_state.pollution_risk_pct > 70.0f) ? "CRITICAL" : (g_state.pollution_risk_pct > 35.0f) ? "ELEVATED" : "NORMAL");
+    if (ai_declined) {
+        snprintf(szRisk2, sizeof(szRisk2), "POLLUTION / SMOG RISK: -- (AI declined)");
+    } else {
+        snprintf(szRisk2, sizeof(szRisk2), "POLLUTION / SMOG RISK: %.1f%% (%s)", g_state.pollution_risk_pct,
+                 (g_state.pollution_risk_pct > 70.0f) ? "CRITICAL" : (g_state.pollution_risk_pct > 35.0f) ? "ELEVATED" : "NORMAL");
+    }
     TextOutA(hdcMem, ax2_x, ax2_y, szRisk2, strlen(szRisk2));
-    DrawProgressBar(hdcMem, ax2_x, ax2_y + 20, meter_w, meter_h, g_state.pollution_risk_pct, cR2);
+    DrawProgressBar(hdcMem, ax2_x, ax2_y + 20, meter_w, meter_h, ai_declined ? 0.0f : g_state.pollution_risk_pct, cR2);
     
     int ax3_x = 868, ax3_y = r4_y + 36;
-    COLORREF cR3 = (g_state.flood_risk_pct > 70.0f) ? COL_RED : (g_state.flood_risk_pct > 35.0f) ? COL_AMBER : COL_GREEN_BRT;
+    COLORREF cR3 = ai_declined ? COL_TEXT_MUTED : (g_state.flood_risk_pct > 70.0f) ? COL_RED : (g_state.flood_risk_pct > 35.0f) ? COL_AMBER : COL_GREEN_BRT;
     char szRisk3[64];
-    snprintf(szRisk3, sizeof(szRisk3), "FLOOD / COLD SHOCK: %.1f%% (%s)", g_state.flood_risk_pct,
-             (g_state.flood_risk_pct > 70.0f) ? "CRITICAL" : (g_state.flood_risk_pct > 35.0f) ? "ELEVATED" : "NORMAL");
+    if (ai_declined) {
+        snprintf(szRisk3, sizeof(szRisk3), "FLOOD / COLD SHOCK: -- (AI declined)");
+    } else {
+        snprintf(szRisk3, sizeof(szRisk3), "FLOOD / COLD SHOCK: %.1f%% (%s)", g_state.flood_risk_pct,
+                 (g_state.flood_risk_pct > 70.0f) ? "CRITICAL" : (g_state.flood_risk_pct > 35.0f) ? "ELEVATED" : "NORMAL");
+    }
     TextOutA(hdcMem, ax3_x, ax3_y, szRisk3, strlen(szRisk3));
     DrawProgressBar(hdcMem, ax3_x, ax3_y + 20, meter_w, meter_h, g_state.flood_risk_pct, cR3);
     

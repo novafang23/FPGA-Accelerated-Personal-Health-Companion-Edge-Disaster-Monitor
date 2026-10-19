@@ -23,8 +23,16 @@ extern "C" {
  * climbed 31.3 -> 77.5 ms over the first ~3 minutes and then flattened near
  * 76 ms. Publishing before then means publishing a number that is still
  * converging, so 80 % of the window (240 beats) is required before
- * hrv_is_ready() reports true. HRV_MIN_SAMPLES remains the absolute floor used
- * by guards and by directly-populated summary structs. */
+ * hrv_is_settled() reports true. HRV_MIN_SAMPLES remains the absolute floor
+ * used by hrv_is_ready() and by directly-populated summary structs.
+ *
+ * The two predicates are deliberately separate:
+ *   hrv_is_ready()   - structural: enough contiguous pairs to compute a value.
+ *                      Used by the risk engines and by callers that treat the
+ *                      struct as a summary (they check the value itself).
+ *   hrv_is_settled() - publication: the window is full enough and long enough
+ *                      that the value has stopped converging. Used by the
+ *                      publish paths that write g_state.hrv_rmssd. */
 #define HRV_SETTLE_MIN_SAMPLES 240
 /* Minimum time span the window must cover before RMSSD may be published.
  * Expressed in milliseconds of summed IBI, not wall-clock time: the window is
@@ -130,6 +138,11 @@ float hrv_get_rmssd(const hrv_state_t *state);
 float hrv_get_sdnn(const hrv_state_t *state);
 float hrv_get_mean_hr(const hrv_state_t *state);
 int   hrv_is_ready(const hrv_state_t *state);
+/* Publication gate: non-zero only when the window holds HRV_SETTLE_MIN_SAMPLES
+ * contiguous beats spanning HRV_SETTLE_MIN_SPAN_MS, i.e. the RMSSD has stopped
+ * converging. See the HRV_SETTLE_* block above for why this is separate from
+ * hrv_is_ready(). */
+int   hrv_is_settled(const hrv_state_t *state);
 
 #ifdef __cplusplus
 }

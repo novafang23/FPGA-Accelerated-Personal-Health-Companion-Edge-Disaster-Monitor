@@ -228,7 +228,7 @@ in the PPG task so it is scoped to one contact session.
 ### Consequence to be aware of
 
 The beat count is preserved, but RMSSD is withheld until the post-handover primes
-are accepted and `hrv_is_ready()` is true. That costs a few beats, not the whole
+are accepted and `hrv_is_settled()` is true. That costs a few beats, not the whole
 window.
 
 ---

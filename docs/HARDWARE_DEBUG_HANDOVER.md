@@ -138,7 +138,7 @@ motion (full numbers in
 [`reports/HRV_STILL_CAPTURE_2026-10-19.md`](reports/HRV_STILL_CAPTURE_2026-10-19.md)).
 It also showed RMSSD takes ~3 minutes to settle, so the first 1–2 minutes of an
 RMSSD reading are window-fill, not measurement. **That artefact is now gated in
-firmware (2026-10-20):** `hrv_is_ready()` withholds RMSSD until the window holds
+firmware (2026-10-20):** `hrv_is_settled()` withholds RMSSD until the window holds
 240 of 300 beats *and* spans ≥ 120 s of contact, so the panel should read
 `HRV: Stabilizing` for ~2–3 minutes and then hold a stable value. That withheld
 period has **not** yet been confirmed by a capture, so the physical **OLED**
@@ -148,11 +148,15 @@ OLED HRV states as hardware-verified.
 
 ### What changed in the flashed firmware
 
-- `hrv_is_ready()` no longer takes the snapshot shortcut when a real 300-interval
+- `hrv_is_settled()` no longer takes the snapshot shortcut when a real 300-interval
   ring has wrapped to `head == 0`.
-- All three publication paths now require `hrv_is_ready()`. The old
+- All three publication paths now require `hrv_is_settled()`. The old
   `count >= 10 && rmssd > 0` fallback no longer bypasses the requirement for
   nine contiguous valid pairs.
+- `hrv_is_ready()` is back to its structural meaning (enough contiguous pairs to
+  compute a value) because the risk engines and the sibling dashboard use it as
+  a summary-validity check. The publication policy lives only in
+  `hrv_is_settled()`, so a caller cannot accidentally inherit it.
 - The OLED shows `HRV: Low Signal` for SQI 0.50–0.69. `HRV: Stabilizing` is now
   reserved for SQI >= 0.70 with RMSSD still withheld.
 - `firmware/zynq/Makefile` links `ppg_baseline_rr.c` and

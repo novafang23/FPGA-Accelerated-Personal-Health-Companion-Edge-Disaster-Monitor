@@ -614,8 +614,21 @@ void disaster_assess_nn(const hrv_state_t *hrv, float spo2, float bpm, const env
     result->cyclone_risk = RISK_UNKNOWN;
     result->cyclone_advisory = "Storm risk not evaluated: no pressure trend";
 
-    /* Require valid HRV data and a valid env pointer */
-    if (hrv == NULL || env == NULL || !hrv_is_ready(hrv)) {
+    /* Require valid HRV data, a valid env pointer, AND a published RMSSD.
+     *
+     * hrv_is_ready() only says the window holds enough contiguous pairs to
+     * compute a value; it does NOT say a value was published. The SQI and
+     * settling gates in main_shrikefi.c zero g_state.hrv_rmssd while the
+     * accepted-beat count keeps climbing, so an unpublished RMSSD arrives
+     * here as 0.0f. Zero is not a physiological RMSSD, and
+     * normalize() maps it to the most-suppressed end of the feature
+     * (NN_RMSSD_MIN is 1.0f), so the network would read "no HRV measured" as
+     * "HRV collapsed" and could raise a heat/pollution/cold alarm on a
+     * measurement that does not exist. SpO2 gets a neutral baseline below for
+     * the same class of reason; for RMSSD the honest answer is to decline to
+     * score and let the caller show UNKNOWN rather than to substitute a
+     * value. */
+    if (hrv == NULL || env == NULL || !hrv_is_ready(hrv) || !(hrv->rmssd > 0.0f)) {
         result->heat_risk = RISK_UNKNOWN;
         result->pollution_risk = RISK_UNKNOWN;
         result->flood_risk = RISK_UNKNOWN;
@@ -684,8 +697,12 @@ void disaster_assess_nn_int8(const hrv_state_t *hrv, float spo2, float bpm,
     result->cyclone_risk = RISK_UNKNOWN;
     result->cyclone_advisory = "Storm risk not evaluated: no pressure trend";
 
-    /* Require valid HRV data and a valid env pointer */
-    if (hrv == NULL || env == NULL || !hrv_is_ready(hrv)) {
+    /* Require valid HRV data, a valid env pointer, AND a published RMSSD.
+     * Same reasoning as disaster_assess_nn(): 0.0f means "no HRV published",
+     * not "HRV collapsed", and the INT8 path clamps the resulting negative
+     * normalized input to 0.0f - the most-suppressed end of the feature. A
+     * missing measurement must not become a risk score. */
+    if (hrv == NULL || env == NULL || !hrv_is_ready(hrv) || !(hrv->rmssd > 0.0f)) {
         result->heat_risk = RISK_UNKNOWN;
         result->pollution_risk = RISK_UNKNOWN;
         result->flood_risk = RISK_UNKNOWN;
