@@ -238,6 +238,11 @@
 - **Technical Explanation:** The MAX30102 die temperature sensor is located within the optical package. While finger contact conducts heat to the die, internal LED illumination generates ~1.2°C of thermal offset. We filter and compensate for this in firmware, but a dedicated I2C skin probe (MAX30205) is required for hospital-grade thermometry.
 - **Evidence:** `firmware/shrikefi/main_shrikefi.c:1400-1435`.
 
+### Q14.2 (Intermediate): Has the physical fall/SOS path actually been tested?
+- **Direct Answer:** "Yes — one physical drop trial on 2026-10-19 was detected, and the full SOS path was exercised: the 10-second countdown ran, the buzzer sounded, and the 5-second hold-to-cancel worked. It is a single bench trial; false positives and multi-trial/orientation testing are still open, so we call it physically demonstrated, not field-validated."
+- **Technical Explanation:** The MPU6050 is sampled at 40 Hz. The 5-state FSM requires a free-fall phase, a high-g impact with rotation, and 1.5 s of post-impact stillness (with a separate soft-fall/posture path). Confirmation calls `sos_arm_fall()`, which starts the 10 s grace window; the OLED shows the countdown and the buzzer chirps. A 5 s hold cancels; otherwise the SOS latches ACTIVE and shows the rescue card.
+- **Evidence:** `firmware/shrikefi/fall_detect.c`, `firmware/shrikefi/sos.c`, `firmware/shrikefi/test_fall_detect.c` (16/16 host tests), `docs/HARDWARE_DEBUG_HANDOVER.md`.
+
 ---
 
 # Category 15: Adversarial Questions & Innovation Verification

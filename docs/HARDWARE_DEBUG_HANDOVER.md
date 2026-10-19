@@ -25,6 +25,11 @@ between USB reconnects — confirm in Device Manager.
   * **MAX30102 (0x57) & BME280 (0x76)**: Active on the 2026-10-19 boot; both
     initialized OK. The earlier `ESP_FAIL` was a breadboard jumper seating
     problem, now resolved (see Section 4).
+* **Fall/SOS Physical Test (2026-10-19)**: **1/1 drop trial passed.** The FSM
+  confirmed the fall and the full SOS path was exercised: 10 s countdown,
+  buzzer, and 5 s hold-to-cancel. This is a single bench trial; false positives
+  and multi-trial/orientation testing have not been characterised, so it is not
+  field-validated.
 
 ---
 

@@ -152,7 +152,7 @@ I (922) SHRIKEFI_MAIN: Core 1: Disaster Risk Engine & TinyML Task Started.
    - The OLED immediately transitions to: `*** FALL DETECTED ***`.
    - The system enters `ARMED` state with a 10-second countdown timer.
 3. **Spoken Dialogue:**
-   > *"Our 3-stage biomechanical fall detection state machine just registered free-fall weightlessness, impact shock, and postural immobility. It is now in a 10-second cancellation window to prevent false alarms if the user simply dropped their bag."*
+   > *"Our 5-state biomechanical fall detection state machine just registered free-fall weightlessness, impact shock, and postural immobility. It is now in a 10-second cancellation window to prevent false alarms if the user simply dropped their bag."*
 4. **Physical Action:** Allow the 10 seconds to expire without pressing cancel.
 5. **Observe Emergency Escalation:**
    - The OLED switches to the full-screen **Emergency Assistance Card**:
@@ -197,8 +197,8 @@ In competitive hackathons, physical hardware can suffer broken jumper wires, dea
 | **FPGA Peak Detector** | Physical Blue LED (D12) flashes to real pulse | `tb_forgefpga_system.v` simulation in Icarus Verilog | Proves 100% cycle-accurate Verilog logic and 20 ns timing closure |
 | **Zero-Cloud INT8 AI** | ESP32-S3 runs inference in 18 µs on live vitals | `shrikefi_host.exe` host test suite under GCC 15.2 | Proves mathematical quantization fidelity (max error 0.091) |
 | **mNEWS2 Triage Engine** | OLED displays live clinical levels and alerts | `test_disaster_risk_engine.exe` (34 unit tests) | Proves all clinical boundary sweeps and crisis overrides |
-| **Fall Detection FSM** | MPU6050 physical drop triggers countdown | `test_fall_detect.exe` (16 FSM unit tests) | Proves 3-stage FSM state transitions and angle math |
-| **GUI & Triage Dashboard** | Live Web Serial stream on COM4 port | `valor_dashboard.html` with built-in Simulation Profiles | Proves UI rendering, gauge math, and multi-hazard response |
+| **Fall Detection FSM** | MPU6050 physical drop triggers countdown (**1/1 bench trial passed 2026-10-19**; countdown + buzzer + cancel verified) | `test_fall_detect.exe` (16 FSM unit tests) | Proves 5-state FSM state transitions and angle math |
+| **GUI & Triage Dashboard** | Live Web Serial stream on COM5 port | `valor_dashboard.html` with built-in Simulation Profiles | Proves UI rendering, gauge math, and multi-hazard response |
 
 ### Executing the Verified Fallback Demonstration (If Hardware Fails)
 

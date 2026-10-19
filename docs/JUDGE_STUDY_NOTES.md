@@ -603,13 +603,13 @@ Integration:
 - If not cancelled, the SOS latches `ACTIVE`; the buzzer sounds and the rescue card is shown.
 - A confirmed fall can be cleared by the SOS cancel path or the 60 s auto-standby.
 
-**Validation status:** the fall FSM has **16/16 host unit tests passing** (free-fall timeout, impact without free-fall rejected, gyro gate, rebound settling, recovery motion, stillness reset, soft-fall, bed-rest baseline, auto-standby, null-pointer safety). The **physical drop/fall test on the real board is still pending**, so do not call the fall detector “field validated.” It is implemented and unit-tested, not physically calibrated.
+**Validation status:** the fall FSM has **16/16 host unit tests passing** (free-fall timeout, impact without free-fall rejected, gyro gate, rebound settling, recovery motion, stillness reset, soft-fall, bed-rest baseline, auto-standby, null-pointer safety). The **physical fall/drop test passed 1/1 on 2026-10-19**: the device confirmed the fall, ran the 10 s SOS countdown, sounded the buzzer, and the 5 s hold-to-cancel path worked. That is a **single bench trial**, not a field validation: false positives during normal handling were **not characterised**, and multi-trial/orientation testing is still open. Do not call it “field validated”; call it “physically demonstrated once, with the alarm/cancel path verified.”
 
-**Important form-factor caveat:** the fall FSM assumes the IMU is attached to the body. The current bench prototype is a fingertip/breadboard setup, not a worn device, so the fall path is implemented but not yet demonstrated as a wearable. The physical enclosure/strap is the missing link.
+**Important form-factor caveat:** the fall FSM assumes the IMU is attached to the body. The current bench prototype is a fingertip/breadboard setup, not a worn device, so the fall path is physically demonstrated but not yet demonstrated as a wearable. The physical enclosure/strap is the missing link.
 
 Safe judge answer:
 
-> “Yes — a 5-state fall FSM: free-fall, impact, post-impact inactivity and confirmation, with a gyro gate and a soft-fall/posture path. It arms a 10-second SOS countdown with a 5-second cancel hold. The FSM has 16/16 host tests; the physical drop test is the remaining validation step.”
+> “Yes — a 5-state fall FSM: free-fall, impact, post-impact inactivity and confirmation, with a gyro gate and a soft-fall/posture path. It arms a 10-second SOS countdown with a 5-second cancel hold. The FSM has 16/16 host tests, and we have one successful physical drop trial with the countdown, buzzer and cancel verified. We have not characterised false positives yet, so I would not call it field-validated.”
 
 ---
 
@@ -676,8 +676,8 @@ Be precise. Judges reward this.
 | SpO₂ accuracy | **Rough two-point calibration**, not clinical |
 | Respiratory rate | **Often unresolved**; RSA from finger PPG is weak |
 | Skin temperature | **Not fitted**; flood/hypothermia uses ambient proxy, capped at HIGH |
-| Fall detection | **5-state FSM implemented; 16/16 host tests pass**; physical drop test still pending |
-| SOS escalation | **4-state FSM implemented**; 10 s fall grace + 5 s cancel hold |
+| Fall detection | **5-state FSM; 16/16 host tests; 1/1 physical drop trial passed**; false-positive rate not characterised |
+| SOS escalation | **4-state FSM implemented**; 10 s fall grace + 5 s cancel hold; countdown + buzzer + cancel verified in the physical trial |
 | 24-hour history | **RAM only since boot**, not persistent |
 | ForgeFPGA timing | **No real 50 MHz constraint**; 88.059 MHz is an unconstrained-fit indication |
 | MQTT/cloud | **Dev only / off by default** |
@@ -689,23 +689,23 @@ Be precise. Judges reward this.
 
 Do not say “HRV is fixed” or “HRV is accurate” yet.
 
-### 12.1 Six assumptions that are not true
+### 14.1 Six assumptions that are not true
 
 1. **It is not a medical device.** It is a triage/engineering prototype.
 2. **It is not a finished wearable.** It is a breadboard/USB bench prototype; no enclosure, battery or charger. The PPG is currently **fingertip contact**, not a wrist strap.
 3. **It cannot call an ambulance.** There is no cellular modem or SMS path; SOS is local OLED + buzzer + local web. A bystander must be nearby to act on it.
 4. **It does not keep a persistent 24-hour record.** The 24 slots are RAM-only since boot.
 5. **It does not use a cloud AI.** TinyML runs on the ESP32; the cloud/MQTT path is optional and off by default.
-6. **The fall FSM assumes the IMU is worn on the body.** The code and host tests exist, but the current bench prototype is not a worn device and the physical drop test is pending.
+6. **The fall FSM assumes the IMU is worn on the body.** The code and host tests exist, and one physical drop trial passed, but the current bench prototype is not a worn device and false positives have not been characterised.
 
-### 12.2 Live data vs simulated data — never mix them
+### 14.2 Live data vs simulated data — never mix them
 
 - **Live hardware mode:** the dashboard connects to **COM5** over Web Serial; values come from `[TELEMETRY]`/`[TRIAGE]` lines produced by the board.
 - **Simulation mode:** the dashboard has six synthetic disaster profiles. They are for UI demonstration and are labelled as simulated. Do not present a simulation profile as live sensor data.
 - **MIMIC evidence:** the 94.11% figure is agreement with our triage rule on 16,387 ICU rows. HR and SpO₂ are real chart values; **RMSSD is synthesised** because MIMIC-III v1.4 has no waveform data; the labels are rule-derived. It is **not** independent clinical validation of the wearable.
 - **24-hour chart:** the 24 hourly slots are accumulated since boot, not a calendar history; empty lanes show as gaps, not zero.
 
-### 12.3 Physical build status — what is not fitted yet
+### 14.3 Physical build status — what is not fitted yet
 
 | Item | Status |
 |---|---|
@@ -715,12 +715,12 @@ Do not say “HRV is fixed” or “HRV is accurate” yet.
 | MAX30102 reflective cradle | **Not printed**; SpO₂ uses a rough two-point calibration |
 | TMP117 / skin-temperature sensor | **Not fitted**; flood/hypothermia uses ambient proxy, capped at HIGH |
 | ECG / chest-strap reference | **Pending**; needed for HRV validation |
-| Physical drop/fall test | **Pending** |
+| Physical drop/fall test | **1/1 passed (2026-10-19)**; countdown + buzzer + cancel verified; multi-trial and false-positive testing still open |
 | NVS history | **Not implemented**; needs a time-source decision |
 | Real 50 MHz FPGA constraint | **Still open**; current timing is unconstrained-fit indication |
 | Cellular / emergency call | **Not present** |
 
-### 12.4 Failure modes and demo recovery
+### 14.4 Failure modes and demo recovery
 
 | Symptom | What to do / what it means |
 |---|---|
@@ -735,7 +735,7 @@ Do not say “HRV is fixed” or “HRV is accurate” yet.
 | FPGA silent | Software peak-detector fallback after ~2.5 s; HRV may re-prime; do not hide this |
 | Web page refuses a request | SoftAP page has same-origin checks; open it from the device AP, not an arbitrary host |
 
-### 12.5 Security and privacy — honest version
+### 14.5 Security and privacy — honest version
 
 - The **SoftAP is open** (`WIFI_AUTH_OPEN`) so a rescuer can join without a password. It has **no authentication**; it is a local emergency-access page, not a hardened service.
 - The page uses **same-origin checks and a CSP**, but that is not a full security audit.
@@ -743,7 +743,7 @@ Do not say “HRV is fixed” or “HRV is accurate” yet.
 - Data stays on the device by default; the stored location is local NVS text. Do not claim TLS or end-to-end encryption.
 - Do not expose the SoftAP to an untrusted network or the public internet.
 
-### 12.6 GNSS and location
+### 14.6 GNSS and location
 
 - Receiver: **u-blox NEO-M8N / Quectel L89HS class**, UART2 at **9600 8N1**, NMEA-0183.
 - Pins: **GPIO16 RX**, **GPIO17 TX**.
@@ -751,7 +751,7 @@ Do not say “HRV is fixed” or “HRV is accurate” yet.
 - There is **no map and no cellular uplink**; the OLED/page shows coordinates/text, not a rescue dispatch.
 - Indoors, a GNSS fix is often unavailable. That is a physical limitation, not a firmware failure.
 
-### 12.7 Reproduce the evidence in two minutes
+### 14.7 Reproduce the evidence in two minutes
 
 ```powershell
 # Firmware host suite (link, drivers, risk, web)
@@ -781,7 +781,7 @@ idf.py build flash -p COM5
 
 If a judge asks for a number you cannot reproduce on the spot, say **“I can show the file and the command, but I haven’t re-run it in this session.”** Do not invent a result.
 
-### 13.8 If you do not know
+### 14.8 If you do not know
 
 Use this three-part answer:
 
@@ -791,7 +791,7 @@ Use this three-part answer:
 
 Example:
 
-> “The fall FSM is implemented in `fall_detect.c` and has 16 host tests. We have not done the physical drop test yet, so I would not call it field-validated.”
+> “The fall FSM is implemented in `fall_detect.c`, has 16 host tests, and passed one physical drop trial with the countdown, buzzer and cancel verified. We have not characterised false positives, so I would not call it field-validated.”
 
 That answer is stronger than guessing.
 
@@ -857,7 +857,7 @@ That answer is stronger than guessing.
 > “The combination: health and environment fused on-device, FPGA-level beat timing, and a fully offline local dashboard. Most wearables are cloud-first and measure only the person.”
 
 ### Q20. What would you do next?
-> “Independent ECG/chest-strap HRV validation, proper SpO₂ calibration with the printed cradle, true-peak IBI timestamping / settling gate, NVS history with a real time source, a physical fall test, and a real 50 MHz FPGA constraint.”
+> “Independent ECG/chest-strap HRV validation, proper SpO₂ calibration with the printed cradle, true-peak IBI timestamping / settling gate, NVS history with a real time source, multi-trial fall validation with false-positive characterisation, and a real 50 MHz FPGA constraint.”
 
 ### Q21. Why both Zynq and ForgeFPGA?
 > “Zynq is the verified baseline with AXI4-Lite and timing closure. ForgeFPGA is the low-cost wearable port using the same shared RTL over SPI. It shows the algorithm is portable, not tied to one vendor.”
@@ -884,10 +884,10 @@ That answer is stronger than guessing.
 > “Yes. A 5-state FSM: monitoring, free-fall, impact, post-impact inactivity, confirmed. It needs weightlessness, a high-g impact with rotation, and then sustained stillness — plus a soft-fall path using posture change for a slump or faint. It arms a 10-second SOS countdown.”
 
 ### Q29. What happens after a fall?
-> “The fall detector confirms, the SOS state machine moves to ARMED, the OLED shows a countdown, and the buzzer chirps. If nobody cancels with a 5-second hold within 10 seconds, it latches ACTIVE and shows the rescue card.”
+> “The fall detector confirms, the SOS state machine moves to ARMED, the OLED shows a countdown, and the buzzer chirps. If nobody cancels with a 5-second hold within 10 seconds, it latches ACTIVE and shows the rescue card. We verified that whole countdown/buzzer/cancel path in the physical drop trial.”
 
 ### Q30. Is the fall detector validated?
-> “The FSM has 16/16 host unit tests. The physical drop test on the board is still pending, so I would call it implemented and unit-tested, not field-validated.”
+> “The FSM has 16/16 host unit tests, and one physical drop trial passed with the 10 s countdown, buzzer and 5 s cancel verified. We have not characterised false positives or run multi-trial/field testing, so I would call it physically demonstrated, not field-validated.”
 
 ### Q31. How does it know the location?
 > “A u-blox NEO-M8N on UART2 gives NMEA coordinates. A live fix takes precedence; if there is no fix for five seconds, the device falls back to the stored deployment location. It does not have a map or a cellular uplink.”
@@ -899,13 +899,13 @@ That answer is stronger than guessing.
 > “In live mode, yes — it reads `[TELEMETRY]`/`[TRIAGE]` from COM5. It also has six deliberately synthetic disaster profiles for UI demonstration. We never present a synthetic profile as live hardware data.”
 
 ### Q34. What is still missing for a production device?
-> “A proper SpO₂ cradle and calibration, ECG/chest-strap HRV validation, a physical fall test, a real 50 MHz FPGA constraint, NVS history with a time source, an enclosure, battery/charger and power measurement, and a physical SOS button.”
+> “A proper SpO₂ cradle and calibration, ECG/chest-strap HRV validation, multi-trial fall validation with false-positive characterisation, a real 50 MHz FPGA constraint, NVS history with a time source, an enclosure, battery/charger and power measurement, and a physical SOS button.”
 
 ### Q35. Is the 24-hour history persistent?
 > “No. It is 24 hourly slots in RAM, filled since boot. It resets on reboot and is labelled ‘since boot.’ NVS persistence needs a real time source, which we have not added yet.”
 
 ### Q36. Is it wearable? How is it worn?
-> “Not yet as a finished device. The current build is a breadboard bench prototype with a fingertip PPG. The wearable version needs a reflective cradle/strap and an enclosure; the fall FSM assumes the IMU is body-worn, so the physical fall test comes after that.”
+> “Not yet as a finished device. The current build is a breadboard bench prototype with a fingertip PPG. The wearable version needs a reflective cradle/strap and an enclosure. We have one successful bench drop trial, but the fall FSM assumes a body-worn IMU, so wearable validation and false-positive testing are still open.”
 
 ### Q37. What happens if the wearer is alone and unconscious?
 > “The device can latch a local SOS and sound the buzzer, but it has no cellular modem or SMS path. It is a local alarm/triage aid, not an emergency dispatch system; a bystander or rescuer must be nearby.”

@@ -236,7 +236,9 @@ Closes three gaps with one part: **activity levels, sleep quality, and fall dete
 - Sleep: activity + stillness over hours, with a resting-HR/HRV component. Overnight wear needed.
 
 Cost ~₹200. Effort ~4 hours. **Closes requirement 1 (activity, sleep) and requirement 6
-(falls).**
+(falls).** Physical fall/SOS trial on 2026-10-19: **1/1 passed** (10 s countdown,
+buzzer, 5 s hold-to-cancel all verified). Still open: multi-trial/orientation
+drops and false-positive characterisation.
 
 ---
 
@@ -878,7 +880,8 @@ still open.
 ## Suggested order
 
 ```
-DONE: T1.1-T1.7 core software/status; T2.3 IMU fitted (physical fall test pending);
+DONE: T1.1-T1.7 core software/status; T2.3 IMU fitted (physical fall test
+      1/1 passed 2026-10-19; false positives not yet characterised);
       T3.1, T3.3, T3.4, T3.5; T4.4 fit recorded (515 LUT5s / 303 FFs / 105 CLBs).
 
 BOARD RECONNECT GATE — do this before the next measurement:
@@ -890,14 +893,17 @@ Physical gates / user actions, in this order:
   1. Print the MAX30102 reflective cradle; assemble; recalibrate SpO2 at the fixed
      contact (rest + breath-hold against the oximeter). Do not claim calibrated
      SpO2 before this.
-  2. Solder the GPIO5 SOS cancel button (5 s hold firmware ready) and optional
-     buzzer. Web SOS trigger/cancel is already verified (3 s web hold).
+  2. Solder the GPIO5 SOS cancel button (5 s hold firmware ready). The buzzer
+     path and web SOS trigger/cancel are already verified (buzzer in the
+     2026-10-19 fall trial; web 3 s hold).
   3. Fit TMP117/MAX30205 on the existing I2C bus, feed env.skin_temp_c, and
      re-enable the hypothermia path. Until then flood/hypothermia is ambient proxy only.
   4. Set the 2.4 GHz router password to the rotated credential and verify station
      mode/MQTT. SoftAP demo is unaffected; the ESP32-S3 has no 5 GHz radio.
-  5. Run the physical end-to-end pass: GNSS fix, PMS5003, BME280, MPU6050 and a
-     real fall test; capture the logs.
+  5. Run the remaining physical end-to-end pass: GNSS fix, PMS5003, BME280,
+     MPU6050. The fall/SOS path has one passing physical trial (countdown +
+     buzzer + cancel verified); still run multi-trial/orientation drops and
+     false-positive characterisation, and capture the logs.
 
 Validation / evidence:
   6. T4.1 independent HRV/IBI reference (AD8232 or borrowed chest strap), compared
