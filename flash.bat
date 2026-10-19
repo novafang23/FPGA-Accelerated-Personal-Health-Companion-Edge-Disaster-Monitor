@@ -2,7 +2,8 @@
 title Flash ShrikeFi ESP32-S3
 setlocal
 
-set PORT=COM5
+rem Default port; pass another one as the first argument if the board moved.
+set PORT=COM4
 if not "%~1"=="" set PORT=%~1
 
 echo ================================================================

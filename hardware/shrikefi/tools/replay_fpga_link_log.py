@@ -23,7 +23,7 @@ one line per SPI transaction when it is switched to full rate:
     printf("FG %d %u %u %u\\n", n, tx, rx & 0x7F, (rx >> 7) & 1);
 
 i.e. FG <index> <byte sent to FPGA> <7-bit value returned> <beat flag>.
-Run `idf.py -p COM5 build flash monitor`, hold a finger on the MAX30102 for
+Run `idf.py -p COM4 build flash monitor`, hold a finger on the MAX30102 for
 15-30 s, press Ctrl+], then run this script against the newest
 build/log/idf_py_stdout_output_* file.
 

@@ -73,13 +73,14 @@ are needed for it.
    byte-for-byte: 46,408 bytes, zero differing bytes. See the firmware/FPGA note
    at the end of this file for a caveat about how it is delivered.
 2. **Find your COM port.** Device Manager → Ports (COM & LPT). The scripts default
-   to `COM5`; override with an argument, e.g. `build_and_flash.bat COM7`. If no
+   to `COM4`, which is what the board enumerated as when this was last verified;
+   override with an argument, e.g. `build_and_flash.bat COM7` if it moved. If no
    port appears, the USB-serial driver is missing.
 3. **Build and flash through the supplied script.** ESP-IDF v5.5.5 is expected at
    `C:\Espressif\frameworks\esp-idf-v5.5.5`; the `.bat` files `call export.bat`
    themselves, so `idf.py` does not need to be on PATH:
    ```bat
-   build_and_flash.bat COM5      :: runs: idf.py -p COM5 flash monitor
+   build_and_flash.bat COM4      :: runs: idf.py -p COM4 flash monitor
    ```
    A build is required — do **not** copy a prebuilt binary out of `build/`, which
    is gitignored and may predate the current sources.

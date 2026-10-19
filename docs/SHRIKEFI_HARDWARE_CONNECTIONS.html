@@ -197,7 +197,7 @@ All ESP32-S3 and Renesas ForgeFPGA I/O pins are strictly <strong>3.3V LVCMOS</st
 </ul>
 <hr />
 <h3>C. u-blox NEO-M8N GNSS Module (GY-GPSV3-NEO / GY-GPSU3-NEO Breakout)</h3>
-<p>The primary hardware GNSS receiver is the high-precision <strong>u-blox NEO-M8N</strong> multi-constellation engine (GPS, GLONASS, Galileo, BeiDou, QZSS, SBAS) integrated on the <strong>GY-GPSV3-NEO / GY-GPSU3-NEO</strong> breakout board. The firmware driver (<code>gnss_nmea.c</code> / <code>gnss_nmea.h</code>) also maintains 100% backward compatibility with the Quectel L89-HS (<code>gps_l89hs.c</code> / <code>gps_l89hs.h</code>).</p>
+<p>The primary hardware GNSS receiver is the high-precision <strong>u-blox NEO-M8N</strong> multi-constellation engine (GPS, GLONASS, Galileo, BeiDou, QZSS, SBAS) integrated on the <strong>GY-GPSV3-NEO / GY-GPSU3-NEO</strong> breakout board. The shipped telemetry path calls <code>gnss_nmea.c</code> / <code>gnss_nmea.h</code> directly and parses generic NMEA-0183, so any NMEA-0183 receiver &mdash; including the Quectel L89-HS &mdash; works without code changes. A separate L89-HS compatibility wrapper (<code>gps_l89hs.c</code> / <code>gps_l89hs.h</code>) forwards every call to the same functions and is unit-tested, but the current firmware does not call it.</p>
 <p><code>text
     GY-GPSV3-NEO / GY-GPSU3-NEO 4-Pin Connector Pinout:
     ┌───┬───┬───┬───┐
@@ -406,8 +406,8 @@ working, not a fault.</p>
 <p>. C:\Espressif\frameworks\esp-idf-v5.5.5\export.ps1</p>
 <h1>2. Navigate to ShrikeFi project</h1>
 <p>cd C:\Users\abhin\OneDrive\Desktop\verilog\firmware\shrikefi</p>
-<h1>3. Flash and open serial monitor on COM5 (or your active COM port)</h1>
-<p>idf.py -p COM5 flash monitor
+<h1>3. Flash and open serial monitor on COM4 (or your active COM port)</h1>
+<p>idf.py -p COM4 flash monitor
 ```</p>
 <p>To exit the serial monitor: press <code>Ctrl + ]</code>.</p>
 </body>

@@ -720,7 +720,7 @@ cd ../..
 ```
 
 ### 4. Flashing Firmware to Physical ShrikeFi Silicon
-Connect the ShrikeFi board via USB (standard port COM4 or COM5):
+Connect the ShrikeFi board via USB (it enumerated as COM4 when this was last verified; confirm with Device Manager, the port changes when the board is re-plugged):
 
 ```powershell
 # Initialize ESP-IDF v5.5.x environment

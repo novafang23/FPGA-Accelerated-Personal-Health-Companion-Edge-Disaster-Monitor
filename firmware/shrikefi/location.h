@@ -6,12 +6,21 @@
  * responds knows WHERE as well as what. Set once by the caregiver, then it
  * survives power cycles.
  *
- * WHY TEXT AND NOT GPS
- * The board has no GNSS receiver, and indoors or under debris a fix would not
- * arrive anyway. More to the point, "Village / Block / District" is how people
- * in rural India actually describe where they are, and how a responder is
- * dispatched. A latitude that cannot be resolved to a place name is not more
- * useful than the place name - it is less.
+ * WHY TEXT AND ALSO GPS
+ * The board does carry a GNSS receiver (u-blox NEO-M8N on UART2, see
+ * gnss_nmea.c), so this stored text is not a replacement for a fix - it is the
+ * fallback. main_shrikefi.c applies the precedence when it publishes a status
+ * snapshot: a live fix with a fresh position wins, and the stored text is used
+ * when there is no fix (indoors, under debris, antenna shielded) or once the
+ * fix expires five seconds after the last valid sentence. The OLED card and the
+ * SoftAP page both read that same published value, so they cannot disagree.
+ *
+ * The fallback exists for two reasons. Indoors or under debris a fix often does
+ * not arrive at all, and "Village / Block / District" is how people in rural
+ * India actually describe where they are and how a responder is dispatched. A
+ * latitude that cannot be resolved to a place name is not more useful than the
+ * place name - it is less. There is no reverse geocoding on the board, so the
+ * fix is shown as raw coordinates and never as a guessed address.
  *
  * WHY THE PARSING IS PURE
  * location_sanitize() and location_parse_form() take bytes and return bytes:

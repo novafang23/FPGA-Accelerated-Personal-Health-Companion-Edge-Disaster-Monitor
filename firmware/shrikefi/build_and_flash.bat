@@ -1,6 +1,8 @@
 @echo off
 title Build and Flash ShrikeFi Firmware
-set PORT=COM5
+rem Default port. The board's CH9102 UART enumerated as COM5 on the old hub and
+rem COM4 after it was re-plugged; pass a port as the first argument to override.
+set PORT=COM4
 if not "%~1"=="" set PORT=%~1
 
 cd /d C:\Espressif\frameworks\esp-idf-v5.5.5

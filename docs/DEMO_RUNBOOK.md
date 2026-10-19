@@ -95,19 +95,23 @@ idf.py -p COM4 flash monitor
 ### Stage 3: What Legitimate Silicon Boot Output Looks Like
 When the board boots successfully, the serial console displays:
 ```text
-I (812) WEB_STATUS: Status page up: join WiFi 'VALOR-0081' (open), then open http://192.168.4.1
-I (832) LOCATION: Stored location: 'Village Hulimavu, Kolar'
-I (832) SHRIKEFI_MAIN: Emergency assist ready (state: IDLE), location 'Village Hulimavu, Kolar'
-I (850) SHRIKEFI_LINK: Programming ForgeFPGA bitstream over SPI2 (46408 bytes)...
-I (860) SHRIKEFI_LINK: ForgeFPGA configuration COMPLETE (DONE pin asserted HIGH)
-I (862) SHRIKEFI_MAIN: MAX30102 initialized OK (100 Hz sampling, FIFO rollover enabled)
-I (872) SHRIKEFI_MAIN: BME280 initialized OK at 0x76
-I (882) SHRIKEFI_MAIN: PMS5003 initialized OK on UART1 (RX=GPIO14)
-I (892) SHRIKEFI_MAIN: MPU6050 6-Axis IMU initialized OK (fall detection active)
-I (902) SHRIKEFI_MAIN: L89HS GNSS initialized OK on UART2 (RX=GPIO16)
-I (912) SHRIKEFI_MAIN: Core 0: PPG Accelerator Task Started (FPGA hardware link active).
-I (922) SHRIKEFI_MAIN: Core 1: Disaster Risk Engine & TinyML Task Started.
-[TELEMETRY] NO_FINGER,TEMP=25.4,HUM=52.0,PM25=14.0,SKINTEMP=0.0
+I (635) SHRIKEFI_LINK: ForgeFPGA SLG47910 configuration COMPLETE! (46408 bytes loaded)
+I (835) WEB_STATUS: Status page up: join WiFi 'VALOR-0081' (open), then open http://192.168.4.1
+I (955) SHRIKEFI_MAIN: SSD1306 OLED initialized OK at 0x3C
+I (1045) LOCATION: Stored location: 'KIET COLLEGE GHAZIABAD'
+I (1045) SHRIKEFI_MAIN: Emergency assist ready (state: IDLE), location 'KIET COLLEGE GHAZIABAD'
+I (1055) SHRIKEFI_MAIN: MAX30102 initialized OK
+I (1085) SHRIKEFI_MAIN: BME280 initialized OK
+I (1085) SHRIKEFI_MAIN: PMS5003 initialized OK
+I (1085) SHRIKEFI_MAIN: u-blox NEO-M8N GNSS (NMEA-0183) initialized OK
+I (1155) MPU6050: MPU6050 initialized OK at 0x68 (Accel: +/-8g, Gyro: +/-2000 dps, DLPF: 44Hz)
+I (1155) SHRIKEFI_MAIN: MPU6050 6-Axis IMU initialized OK (fall detection active)
+I (1285) SHRIKEFI_MAIN: Core 0: PPG Accelerator Task Started (FPGA hardware + Software DSP fallback).
+I (1285) SHRIKEFI_MAIN: Core 1: Disaster Risk Engine & TinyML Task Started.
+I (1285) SHRIKEFI_MAIN: Core 1: IMU & Fall Detection Task Started (MPU6050 at 40 Hz).
+[TELEMETRY] HR=0.0,SPO2=0.0,RMSSD=0.0,TEMP=28.8,HUM=61.1,PM25=11.9,RR=0.0,SQI=0.00,RRDEPTH=0.0,RRCONF=0.00,PI=0.00
+[TRIAGE] NEWS2=0,LEVEL=1,FLAGS=0x00,RISK=MODERATE,NNHEAT=0.000,NNPOLL=0.000,NNFLOOD=0.000,RHEAT=NORMAL,RPOLL=NORMAL,RFLOOD=NORMAL,PSI=0.00,AHA=0.00,CYCLONE=UNKNOWN,PTREND=0.00,HRPTS=0,SPO2PTS=0,RRPTS=0
+I (2455) PPG_OPTICAL: Raw: IR=1048, Red=1094 | AC=0 | Status: NO FINGER | HR: 0.0 BPM | IBI: 0 (need 10 to arm risk engines) | SpO2: CALC/-- | (Samples/tick: 1)
 ```
 *(Press `Ctrl + ]` to exit the serial monitor before launching PC dashboards).*
 
@@ -127,14 +131,14 @@ I (922) SHRIKEFI_MAIN: Core 1: Disaster Risk Engine & TinyML Task Started.
 1. **Physical Action:** Place a finger firmly on the MAX30102 pulse oximeter sensor.
 2. **Observe Hardware:**
    - The blue LED (D12) flashes in synchrony with every systolic arterial pulse.
-   - The OLED display begins showing live Heart Rate (e.g., `HR: 74 BPM`), Blood Oxygenation (`SpO2: 98%`), and Respiratory Rate (`RR: 15`).
+   - The OLED display begins showing live Heart Rate (e.g., `HR: 74 BPM`) after roughly 6-8 s, then Blood Oxygenation (`SpO2: 98%`) once it settles (~15-25 s). Respiratory Rate appears only when the RSA estimate resolves; on fingertip PPG it often stays `--`, which is the honest state rather than a guess.
 3. **Launch Desktop Oscilloscope:**
    Double-click `launch_dashboard.bat` (or open `firmware/shrikefi/dashboard/valor_dashboard.html` in Chrome and click **Connect Serial** $\to$ select **COM4**).
 4. **Observe GUI:**
    - The green 60 FPS oscilloscope displays arterial blood volume pulses.
-   - Show the judges the Signal Quality Index gauge reading **SQI: 92%** (Hospital Grade).
+   - Show the judges the Signal Quality Index gauge. Good contact on this sensor lands around **SQI 0.87-0.91**; it is a signal-quality heuristic computed by `ppg_sqi.c`, not a clinical grade, and the firmware withholds HRV below 0.70 rather than publishing a weak estimate.
 5. **Spoken Dialogue:**
-   > *"Notice the blue LED flashing on the board. That LED is not driven by software interrupts or CPU code—it is driven directly by the output pin of our FPGA peak detector. In software, RTOS scheduling jitter introduces up to 10 milliseconds of error, which corrupts Heart Rate Variability. Our FPGA detects peaks with 20-nanosecond cycle precision, giving us the mathematical fidelity needed for medical-grade RMSSD calculation."*
+   > *"Notice the blue LED flashing on the board. That LED is not driven by software interrupts or CPU code—it is driven directly by the output pin of our FPGA peak detector. In software, RTOS scheduling jitter introduces up to 10 milliseconds of error, which corrupts Heart Rate Variability. Our FPGA timestamps each detected peak in hardware against the 50 MHz clock, so intervals are measured in clock cycles rather than in millisecond scheduler ticks. To be precise about what that buys us: it removes jitter from the measurement, it does not by itself make the HRV clinically accurate - that still needs validation against an ECG."*
 
 ---
 
@@ -142,7 +146,7 @@ I (922) SHRIKEFI_MAIN: Core 1: Disaster Risk Engine & TinyML Task Started.
 1. **Physical Action:** Point to the BME280 sensor and the barometric pressure trend gauge on the web dashboard.
 2. **Spoken Dialogue:**
    > *"A fitness watch only tells you your heart rate. But what happens if a tropical cyclone is deepening overhead? Valor tracks atmospheric pressure changes across a 180-minute rolling regression window. If the barometer drops faster than 1 hPa per hour, the system automatically elevates the cyclone risk level and warns the user to move inland, independent of any weather broadcast."*
-3. **Physical Action:** Lightly blow across the MAX30102 sensor to demonstrate skin temperature tracking. The display transitions from ambient room proxy to human finger contact temperature (`SKINTEMP: 35.8°C`).
+3. **Physical Action:** Cup your hand around the BME280 and watch the ambient temperature and humidity in the dashboard header move. **Do not demonstrate skin temperature:** no body-temperature sensor is fitted. The BME280 measures air, the telemetry field is `TEMP=`, and the NEWS2 temperature sub-score stays 0. If a judge asks, say so plainly - the TMP117/MAX30205 is a listed gap, not something to mime.
 
 ---
 
@@ -158,13 +162,14 @@ I (922) SHRIKEFI_MAIN: Core 1: Disaster Risk Engine & TinyML Task Started.
    - The OLED switches to the full-screen **Emergency Assistance Card**:
      ```text
      * MEDICAL EMERGENCY *
-     SOS ACTIVE  T+00:15
-     HR: 76  SpO2: 98%
-     RR: 15  SQI:  92%
-     COND: CRITICAL FALL
-     LOC: Village Hulimavu
+     FALL DETECT T+00:15
+     HR  76 bpm SpO2 98%
+     RR --/min   SQI 0.88
+     CONDITION: CRITICAL
+     LOC: KIET COLLEGE...
      CALL 108 DO NOT MOVE
      ```
+   (For a manual SOS the second line reads `SOS ACTIVE  T+..`. The condition line is the overall risk level, and `LOC:` is the stored text or, once a GNSS fix exists, the live coordinates - shortened to 16 characters with `...` when it does not fit.)
    - The active sounder triggers an audible siren.
 
 ---
@@ -179,10 +184,10 @@ I (922) SHRIKEFI_MAIN: Core 1: Disaster Risk Engine & TinyML Task Started.
 4. **Show Phone Screen to Judges:**
    - The phone renders the responsive, dark-mode VALOR dashboard served directly from the ESP32-S3 flash memory.
    - The top banner flashes crimson: **`MEDICAL EMERGENCY: SOS ACTIVE (fall)`**.
-   - Show the live vitals, environmental metrics, and the stored geolocation (`Village Hulimavu, Kolar`).
+   - Show the live vitals, environmental metrics and the location line. With no GNSS fix it shows the stored text (`KIET COLLEGE GHAZIABAD`); when the receiver has a fix it switches to live coordinates (`28.74650N, 77.53100E`) and falls back to the stored text about 5 s after the fix is lost.
 5. **Remote Cancellation:** Tap the **CANCEL SOS** button on the phone screen. The device immediately clears the emergency state, and the OLED returns to normal vital monitoring.
 6. **Spoken Dialogue:**
-   > *"Judges, notice that my phone did not download an app from the App Store, and there is no router in this room. The device itself is an autonomous web server. Any first responder who arrives on the scene can connect their phone in seconds and access full patient vitals, 24-hour trends, and location data."*
+   > *"Judges, notice that my phone did not download an app from the App Store, and there is no router in this room. The device itself is an autonomous web server. Any first responder who arrives on the scene can connect their phone in seconds and see the patient's vitals, the triage verdict and the location. The full 24-hour trend chart is on the laptop dashboard over USB, and the board serves the same hourly records as JSON from /api/history."*
 
 ---
 
@@ -194,7 +199,7 @@ In competitive hackathons, physical hardware can suffer broken jumper wires, dea
 
 | Feature | Primary Proof (Hardware Silicon) | Verified Fallback Proof (Host PC Simulation) | What the Fallback Truly Proves |
 | :--- | :--- | :--- | :--- |
-| **FPGA Peak Detector** | Physical Blue LED (D12) flashes to real pulse | `tb_forgefpga_system.v` simulation in Icarus Verilog | Proves 100% cycle-accurate Verilog logic and 20 ns timing closure |
+| **FPGA Peak Detector** | Physical Blue LED (D12) flashes to real pulse | `tb_forgefpga_system.v` simulation in Icarus Verilog | Proves cycle-accurate Verilog logic in simulation; the shipped fit has **no clock constraint**, so this is not a timing-closure claim |
 | **Zero-Cloud INT8 AI** | ESP32-S3 runs inference in 18 µs on live vitals | `shrikefi_host.exe` host test suite under GCC 15.2 | Proves mathematical quantization fidelity (max error 0.091) |
 | **mNEWS2 Triage Engine** | OLED displays live clinical levels and alerts | `test_disaster_risk_engine.exe` (34 unit tests) | Proves all clinical boundary sweeps and crisis overrides |
 | **Fall Detection FSM** | MPU6050 physical drop triggers countdown (**1/1 bench trial passed 2026-10-19**; countdown + buzzer + cancel verified) | `test_fall_detect.exe` (16 FSM unit tests) | Proves 5-state FSM state transitions and angle math |

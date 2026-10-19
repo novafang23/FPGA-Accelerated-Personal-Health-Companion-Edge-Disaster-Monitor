@@ -148,7 +148,7 @@ The PMS5003 uses an 8-pin 1.25mm connector. Its fan and laser diode require **5V
 ---
 
 ### C. u-blox NEO-M8N GNSS Module (GY-GPSV3-NEO / GY-GPSU3-NEO Breakout)
-The primary hardware GNSS receiver is the high-precision **u-blox NEO-M8N** multi-constellation engine (GPS, GLONASS, Galileo, BeiDou, QZSS, SBAS) integrated on the **GY-GPSV3-NEO / GY-GPSU3-NEO** breakout board. The firmware driver (`gnss_nmea.c` / `gnss_nmea.h`) also maintains 100% backward compatibility with the Quectel L89-HS (`gps_l89hs.c` / `gps_l89hs.h`).
+The primary hardware GNSS receiver is the high-precision **u-blox NEO-M8N** multi-constellation engine (GPS, GLONASS, Galileo, BeiDou, QZSS, SBAS) integrated on the **GY-GPSV3-NEO / GY-GPSU3-NEO** breakout board. The shipped telemetry path calls `gnss_nmea.c` / `gnss_nmea.h` directly and parses generic NMEA-0183, so any NMEA-0183 receiver - including the Quectel L89-HS - works without code changes. A separate L89-HS compatibility wrapper (`gps_l89hs.c` / `gps_l89hs.h`) forwards every call to the same functions and is unit-tested, but the current firmware does not call it.
 
 ```text
     GY-GPSV3-NEO / GY-GPSU3-NEO 4-Pin Connector Pinout:
@@ -322,8 +322,8 @@ working, not a fault.
 # 2. Navigate to ShrikeFi project
 cd C:\Users\abhin\OneDrive\Desktop\verilog\firmware\shrikefi
 
-# 3. Flash and open serial monitor on COM5 (or your active COM port)
-idf.py -p COM5 flash monitor
+# 3. Flash and open serial monitor on COM4 (or your active COM port)
+idf.py -p COM4 flash monitor
 ```
 
 To exit the serial monitor: press `Ctrl + ]`.

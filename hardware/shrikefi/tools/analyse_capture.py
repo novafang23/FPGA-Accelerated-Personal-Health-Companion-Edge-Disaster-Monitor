@@ -8,7 +8,7 @@ eventual HRV statistics, and whether the two detectors hand over cleanly.
 HOW TO CAPTURE
 --------------
     # in firmware/shrikefi
-    idf.py -p COM5 build flash monitor
+    idf.py -p COM4 build flash monitor
 
 Hold a finger for 60-120 s, press Ctrl+], then point this script at
 firmware/shrikefi/build/log/idf_py_stdout_output_<pid>.

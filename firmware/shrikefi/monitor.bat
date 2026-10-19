@@ -1,6 +1,7 @@
 @echo off
 title ShrikeFi Live Serial Monitor
-set PORT=COM5
+rem Default port; pass another one as the first argument if the board moved.
+set PORT=COM4
 if not "%~1"=="" set PORT=%~1
 
 cd /d C:\Espressif\frameworks\esp-idf-v5.5.5
