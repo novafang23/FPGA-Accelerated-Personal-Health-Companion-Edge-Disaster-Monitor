@@ -8,7 +8,7 @@
 >
 > **Last updated:** 2026-10-19. Current ForgeFPGA bitstream is the 25 % crest/peak-4 build (`d9d58daa…`, 46,408 bytes), flashed on COM5.
 
-**Quick jump:** [30-second pitch](#1-the-30-second-explanation) · [System diagram](#3-system-at-a-glance) · [Sensors](#4-hardware) · [I2C/SPI/UART](#5-the-three-buses---i2c-spi-uart) · [Code layers](#6-code-structure--the-layers) · [Data flow](#8-data-flow--from-light-to-advisory) · [FPGA](#9-the-fpga--what-it-does-and-why) · [Algorithms](#10-algorithms--in-plain-language) · [Fall/SOS FSM](#fall-detection-and-sos-fsm--yes-it-is-implemented) · [Verified vs not](#12-what-is-verified-vs-what-is-not) · [Judge Q&A](#13-judge-qa--short-answers) · [Demo script](#14-demo-script--2-minutes) · [Cheat sheet](#15-numbers-to-memorize)
+**Quick jump:** [30-second pitch](#1-the-30-second-explanation) · [System diagram](#3-system-at-a-glance) · [Sensors](#4-hardware) · [I2C/SPI/UART](#5-the-three-buses---i2c-spi-uart) · [Code layers](#6-code-structure--the-layers) · [Data flow](#8-data-flow--from-light-to-advisory) · [FPGA](#9-the-fpga--what-it-does-and-why) · [Algorithms](#10-algorithms--in-plain-language) · [Quality gates](#11-quality-gates-and-honesty-rules) · [Fall/SOS FSM](#fall-detection-and-sos-fsm--yes-it-is-implemented) · [Outputs](#13-outputs-and-interfaces) · [Verified vs not](#14-what-is-verified-vs-what-is-not) · [Judge Q&A](#15-judge-qa--short-answers) · [Demo script](#16-demo-script--2-minutes) · [Cheat sheet](#17-numbers-to-memorize)
 
 ---
 
@@ -507,7 +507,29 @@ We use it as a **triage/advisory** score, not a diagnosis. Body temperature is c
 - A measured critical vital can override a low-SQI hold.
 - The device reports “UNKNOWN / not assessed” rather than inventing normal values.
 
-### Fall detection and SOS FSM — yes, it is implemented
+## 11. Quality gates and honesty rules
+
+These rules matter because judges will ask whether the device can “fake” readings:
+
+| Gate | Rule | Why |
+|---|---|---|
+| **PI (perfusion index)** | Published only when SQI ≥ 0.70 **and** AC/DC value is 0.02–20 %. | Prevents publishing PI from noise or no-contact readings. Transient PI spikes are suppressed. |
+| **Contact inference** | Contact is inferred from accepted HR + SQI, **not** from packet presence. Packet presence alone does not mean a finger is on the sensor. | Stops the dashboard from showing “live” just because serial bytes are arriving. |
+| **SpO₂** | Published only after ~15–25 s of stable estimation. Published only when SQI is good. | Prevents publishing an unstable early calibration value. |
+| **RMSSD / HRV** | Requires 10 accepted IBIs, contiguous valid pairs, SQI ≥ 0.70. | Prevents publishing HRV from artifact-filled or disconnected data. |
+| **RR** | Reports “RSA not resolved” when unresolved. Never fakes a breathing rate. | Finger PPG RSA is weak; inventing a rate would be dangerous. |
+| **Environment** | Shows `--` when missing or zero. Never shows `0.0 °C`, `0 %`, or `Good` for an absent sensor. | Prevents false “normal” readings when a sensor is unplugged. |
+| **Critical override** | A measured critical vital (e.g. SpO₂ ≤ 85 %) can override a low-SQI hold. | A real emergency is never silenced by a quality gate. |
+
+Honest language to use:
+
+- “We hold rather than fabricate a value.”
+- “If the sensor is absent or the signal is poor, we show `--` or `UNKNOWN`, not a reassuring number.”
+- “Critical vitals can still override the SQI gate — an actual emergency is not hidden.”
+
+---
+
+## 12. Fall detection and SOS FSM — yes, it is implemented
 
 There are **two separate state machines**:
 
@@ -591,7 +613,7 @@ Safe judge answer:
 
 ---
 
-## 11. Outputs and interfaces
+## 13. Outputs and interfaces
 
 ### OLED
 
@@ -638,7 +660,7 @@ The PC sees structured lines:
 
 ---
 
-## 12. What is verified vs what is not
+## 14. What is verified vs what is not
 
 Be precise. Judges reward this.
 
@@ -759,7 +781,7 @@ idf.py build flash -p COM5
 
 If a judge asks for a number you cannot reproduce on the spot, say **“I can show the file and the command, but I haven’t re-run it in this session.”** Do not invent a result.
 
-### 12.8 If you do not know
+### 13.8 If you do not know
 
 Use this three-part answer:
 
@@ -775,7 +797,7 @@ That answer is stronger than guessing.
 
 ---
 
-## 13. Judge Q&A — short answers
+## 15. Judge Q&A — short answers
 
 ### Q1. What is VALOR?
 > “An offline wearable triage companion that fuses PPG vitals with environmental hazards. The FPGA handles beat timing; the ESP32-S3 runs the clinical and disaster-risk logic; the OLED and local web page give an action without a network.”
@@ -890,7 +912,7 @@ That answer is stronger than guessing.
 
 ---
 
-## 14. Demo script — 2 minutes
+## 16. Demo script — 2 minutes
 
 1. **Power on.** Show the boot log:
    - FPGA `configuration COMPLETE! (46408 bytes loaded)`
@@ -931,7 +953,7 @@ If the judge asks for HRV, show it but add the caveat immediately. Do not wait f
 
 ---
 
-## 15. Numbers to memorize
+## 17. Numbers to memorize
 
 | Number | Meaning |
 |---:|---|
@@ -957,7 +979,7 @@ If the judge asks for HRV, show it but add the caveat immediately. Do not wait f
 
 ---
 
-## 16. Glossary
+## 18. Glossary
 
 | Term | Meaning |
 |---|---|
@@ -986,7 +1008,7 @@ If the judge asks for HRV, show it but add the caveat immediately. Do not wait f
 
 ---
 
-## 17. Phrases to use / avoid
+## 19. Phrases to use / avoid
 
 ### Use
 - “engineering prototype”
@@ -1010,7 +1032,7 @@ If the judge asks for HRV, show it but add the caveat immediately. Do not wait f
 
 ---
 
-## 18. Where to read more
+## 20. Where to read more
 
 | Topic | File |
 |---|---|
