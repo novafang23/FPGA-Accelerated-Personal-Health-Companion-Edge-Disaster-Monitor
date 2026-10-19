@@ -319,6 +319,12 @@ record**: the board has no wall-clock time source, so each slot is an hour of de
 the UI labels it `DEVICE HOURS`. The blob codec is host-tested (round-trip, checksum, bad
 magic, truncation, too-small buffer) along with the hourly rollover and the zero-skip averages.
 
+**Board check pending.** The full firmware builds for the ESP32-S3, but the on-device
+NVS write/restore has not been exercised yet because no board is connected. On the next
+COM-port session, confirm a rollover writes (`Persisted 612-byte hourly-history blob`), reboot,
+and confirm the restore log and a non-empty `/api/history` before treating persistence as
+hardware-verified.
+
 ---
 
 ### T3.3 — Cosmetic: log spam on repeated handover  ✅ **DONE (2026-10-06)**

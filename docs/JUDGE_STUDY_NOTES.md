@@ -658,6 +658,9 @@ The PC sees structured lines:
 - Each slot is one hour of **device uptime**, not a clock hour.
 - Labeled **“DEVICE HOURS”**, not a persistent calendar history.
 - A wall-clock time source for a true calendar record is still not fitted.
+- The blob codec and rollover are host-tested; the on-device write/reboot-restore
+  round-trip is not yet exercised (board offline), so do not claim it as
+  hardware-verified.
 
 ---
 
