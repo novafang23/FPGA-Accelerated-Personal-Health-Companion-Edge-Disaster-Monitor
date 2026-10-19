@@ -4,6 +4,8 @@
 **Role:** Master Defense Playbook for Technical Evaluators, Jury Panels, and Competition Judges  
 **Rule of Truth:** Every answer is grounded directly in repository source code, physical synthesis evidence, and automated test outputs.
 
+> **New here?** Read the compact, plain-language [Judge Study Notes](JUDGE_STUDY_NOTES.md) first. It covers the hardware, buses, code layers, data flow, algorithms, demo script and the safe answers to the most likely questions.
+
 ---
 
 ## Table of Contents

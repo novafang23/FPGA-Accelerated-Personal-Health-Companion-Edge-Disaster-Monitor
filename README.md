@@ -493,6 +493,7 @@ To maintain transparent, professional engineering rigor, our validation boundari
 ## 📖 Master Theory Guide & Judge Defense Notes
 
 For an in-depth mathematical defense, signal processing equations, and clinical derivation documentation, review our master theory package:
+* 🧭 **Plain-language judge study notes:** [`docs/JUDGE_STUDY_NOTES.md`](docs/JUDGE_STUDY_NOTES.md)
 * 📄 **PDF Guide:** [`docs/theory/SIH26181_Master_Theory_Notes.pdf`](docs/theory/SIH26181_Master_Theory_Notes.pdf)
 * 🌐 **Print HTML Version:** [`docs/theory/theory_notes_print.html`](docs/theory/theory_notes_print.html)
 * 📝 **Source Markdown:** [`docs/theory/THEORY_NOTES.md`](docs/theory/THEORY_NOTES.md)
