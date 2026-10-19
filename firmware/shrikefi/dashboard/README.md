@@ -134,7 +134,7 @@ until a `[TRIAGE]` line carries them rather than inventing a breakdown.
 
 ```
 [TELEMETRY] HR=..,SPO2=..,RMSSD=..,TEMP=..,HUM=..,PM25=..,RR=..,SQI=..,
-            RRDEPTH=..,RRCONF=..,PI=..
+            RRDEPTH=..,RRCONF=..,PI=..,HRVN=..
 [TELEMETRY] NO_FINGER,TEMP=..,HUM=..,PM25=..
 [TELEMETRY] ACQUIRING,HR=..,SPO2=..,RMSSD=..,TEMP=..,HUM=..,PM25=..,RR=..,SQI=..,
             RRDEPTH=..,RRCONF=..,PI=..,HRVN=..
@@ -152,7 +152,8 @@ shown live. Everything else is already in display units.
 withholds it until the 300-beat window holds 240 beats **and** spans 120 s
 (`HRV_SETTLE_MIN_SAMPLES` / `HRV_SETTLE_MIN_SPAN_MS` in
 `firmware/core/hrv_analysis.h`), because a partially filled window reports a value
-that is still climbing. `HRVN` is the number of beats currently in that window, so
+that is still climbing. `HRVN` is the number of beats currently in that window,
+carried by both telemetry lines (the `ACQUIRING` line and the `HR=` line), so
 the RMSSD card and the RMSSD tile read `settling n/240` / `n/240` while it fills,
 and fall back to `--` once the window is full but the value is still withheld.
 Firmware that does not send `HRVN` leaves the tile at `--` rather than inventing

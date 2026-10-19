@@ -219,6 +219,9 @@ extra accepted beat before RMSSD publishes.
 - `HRV: Stabilizing` must not appear while SQI is below 0.70.
 - The HRV line passes through `HRV settle n/240` with `n` climbing before any
   RMSSD appears; `n` must advance steadily to 240 rather than freeze.
+  **Checked 2026-10-20 on a 30 s contact:** `n` climbed `0 -> 27` while 28 `ok`
+  IBI intervals were accepted (one 1 Hz sample of lag), RMSSD stayed withheld at
+  SQI 0.85-0.86, and `HRVN` in `[TELEMETRY]` carried the same count.
 - The OLED RMSSD matches the `[TELEMETRY]` RMSSD at the same time.
 - No detector handover every few seconds during steady contact. If it happens,
   capture the timestamps — it is the 2.5 s fallback interacting with the

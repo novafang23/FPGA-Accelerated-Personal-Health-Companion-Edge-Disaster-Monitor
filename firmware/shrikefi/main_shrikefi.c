@@ -1907,11 +1907,14 @@ static void task_disaster_monitor(void *pvParameters) {
                     * whether or not RR is, because the question they answer is
                     * why the gate did or did not open. PI is the AC/DC perfusion
                     * index from the same SQI window, shown live by the web
-                    * dashboard; it is appended for the same compatibility reason. */
-                   "RRDEPTH=%.1f,RRCONF=%.2f,PI=%.2f\n",
+                    * dashboard; it is appended for the same compatibility reason.
+                    * HRVN - beats currently in the HRV window - is appended last
+                    * for the same reason: it lets a dashboard show how far the
+                    * RMSSD window has filled while the value is still withheld. */
+                   "RRDEPTH=%.1f,RRCONF=%.2f,PI=%.2f,HRVN=%d\n",
                    hr, engine_spo2, hrv_snapshot.rmssd, env.ambient_temp_c,
                    env.humidity_pct, env.pm25, rr_for_news2, sqi_for_news2,
-                   rr_depth_dbg, rr_conf_dbg, pi_pub);
+                   rr_depth_dbg, rr_conf_dbg, pi_pub, hrv_snapshot.count);
             fflush(stdout);
             /* The temporary [STATUS] diagnostic lived here; the structured
              * [TRIAGE] line below carries the same risk fields. */

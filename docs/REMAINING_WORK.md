@@ -896,10 +896,14 @@ publishing an under-settled window. On the device the effect is that the OLED
 shows `HRV settle n/240` while the window fills and `HRV: Stabilizing` once it is
 full, for ~2-3 minutes before any RMSSD appears, instead of showing a number that
 is still climbing. The same progress reaches the PC: the firmware appends
-`HRVN=n` (beats currently in the HRV window) to `[TELEMETRY] ACQUIRING`, so the
+`HRVN=n` (beats currently in the HRV window) to both `[TELEMETRY]` lines, so the
 RMSSD card and tile read `settling n/240` / `n/240` rather than a bare dash. **Pending:** one ≥ 6-minute still
 capture to confirm the withheld period and a flat value afterwards, plus a visual
-check of the OLED `Stabilizing` state. The gate makes the number honest; it does
+check of the OLED `Stabilizing` state. **On-wire checked (2026-10-20):** with a
+finger on the sensor the published count climbed `0 -> 27` while 28 `ok` IBI
+intervals were accepted and RMSSD stayed withheld at SQI 0.85-0.86, so `HRVN`
+tracks accepted beats rather than an estimate; what that does not yet show is the
+withheld period across a full 6 minutes, or the OLED wording on the panel itself. The gate makes the number honest; it does
 not make it accurate — T4.1 remains the validation step.
 
 With the board on COM4, follow
