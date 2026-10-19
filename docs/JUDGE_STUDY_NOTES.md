@@ -658,9 +658,15 @@ The PC sees structured lines:
 - Each slot is one hour of **device uptime**, not a clock hour.
 - Labeled **“DEVICE HOURS”**, not a persistent calendar history.
 - A wall-clock time source for a true calendar record is still not fitted.
-- The blob codec and rollover are host-tested; the on-device write/reboot-restore
-  round-trip is not yet exercised (board offline), so do not claim it as
-  hardware-verified.
+- The blob codec and rollover are host-tested, and the on-device write/reboot-restore
+  round-trip is now **verified on hardware** (2026-10-19, COM4): a rollover wrote the
+  blob and the next boot logged
+  `Restored NVS history: 2 of 24 slots populated, 1 with a heart-rate average`.
+  The blob also survived a full re-flash (bootloader + partition table + app
+  rewritten, NVS untouched).
+- The restore log counts **populated slots**, not the 24 slots the blob always
+  encodes. A full 24-hour window has not been exercised — that needs a multi-hour
+  session.
 
 ---
 
@@ -720,7 +726,7 @@ Do not say “HRV is fixed” or “HRV is accurate” yet.
 | TMP117 / skin-temperature sensor | **Not fitted**; flood/hypothermia uses ambient proxy, capped at HIGH |
 | ECG / chest-strap reference | **Pending**; needed for HRV validation |
 | Physical drop/fall test | **1/1 passed (2026-10-19)**; countdown + buzzer + cancel verified; multi-trial and false-positive testing still open |
-| NVS history | **Not implemented**; needs a time-source decision |
+| NVS history | **Implemented** — 24 device-hour slots written to NVS as a checksummed blob and restored after reboot; a calendar time source is still missing |
 | Real 50 MHz FPGA constraint | **Still open**; current timing is unconstrained-fit indication |
 | Cellular / emergency call | **Not present** |
 
@@ -861,7 +867,7 @@ That answer is stronger than guessing.
 > “The combination: health and environment fused on-device, FPGA-level beat timing, and a fully offline local dashboard. Most wearables are cloud-first and measure only the person.”
 
 ### Q20. What would you do next?
-> “Independent ECG/chest-strap HRV validation, proper SpO₂ calibration with the printed cradle, true-peak IBI timestamping / settling gate, NVS history with a real time source, multi-trial fall validation with false-positive characterisation, and a real 50 MHz FPGA constraint.”
+> “Independent ECG/chest-strap HRV validation, proper SpO₂ calibration with the printed cradle, true-peak IBI timestamping / settling gate, NVS history with a calendar time source, multi-trial fall validation with false-positive characterisation, and a real 50 MHz FPGA constraint.”
 
 ### Q21. Why both Zynq and ForgeFPGA?
 > “Zynq is the verified baseline with AXI4-Lite and timing closure. ForgeFPGA is the low-cost wearable port using the same shared RTL over SPI. It shows the algorithm is portable, not tied to one vendor.”
@@ -1005,7 +1011,7 @@ If the judge asks for HRV, show it but add the caveat immediately. Do not wait f
 | **SOS** | Local emergency escalation state machine (ARMED → ACTIVE) |
 | **SoftAP** | ESP32-created Wi-Fi access point |
 | **Web Serial** | Browser API used by the standalone dashboard to read COM4 |
-| **NVS** | ESP32 non-volatile storage (not used for history yet) |
+| **NVS** | ESP32 non-volatile storage (holds the stored location and the device-hour history blob) |
 | **AXI4-Lite** | Memory-mapped bus used by the Zynq baseline |
 | **LUT** | FPGA lookup table; the logic fabric unit |
 | **CLB** | Configurable logic block; the placement resource |

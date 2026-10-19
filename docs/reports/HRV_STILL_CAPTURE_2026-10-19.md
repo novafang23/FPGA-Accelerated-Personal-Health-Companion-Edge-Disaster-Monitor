@@ -70,8 +70,11 @@ poor instead of reporting a motion-contaminated RMSSD.
 `H0,HR=76.8,SPO2=98.1,RMSSD=35.9,NEWS2=0,PM25=63.5` at t=34 s rising to
 `H0,HR=76.5,SPO2=96.5,RMSSD=67.0,NEWS2=1,PM25=63.5` at t=292 s. This is the
 first on-device confirmation that the hourly-history feed accumulates and
-publishes. The **NVS write/restore is still not exercised** — no hour elapsed,
-so no blob was written or restored.
+publishes. The **NVS write/restore was verified separately** later the same day:
+after over an hour of uptime a rollover wrote the blob, and the next boot logged
+`Restored NVS history: 2 of 24 slots populated, 1 with a heart-rate average`
+(see `docs/REMAINING_WORK.md` T3.2). No hour elapsed during *this* capture, so what
+this report covers is the RAM feed only.
 
 ## What this does and does not show
 

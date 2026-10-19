@@ -319,13 +319,16 @@ record**: the board has no wall-clock time source, so each slot is an hour of de
 the UI labels it `DEVICE HOURS`. The blob codec is host-tested (round-trip, checksum, bad
 magic, truncation, too-small buffer) along with the hourly rollover and the zero-skip averages.
 
-**Board check — partly done (2026-10-19, COM4).** A 302 s still-contact capture
-confirmed the **on-device RAM history feed**: `[HISTORY] H0` published nine coherent running
-averages (HR 74.9–76.8, SpO₂ 96.4–98.1, RMSSD 35.9→67.0, NEWS2 0–1). The **NVS write/restore is
-still not exercised** because the capture lasted under an hour, so no rollover wrote a blob and the
-boot log showed `No stored history; the chart starts empty`. Next long session: confirm the
-rollover writes (`Persisted 612-byte hourly-history blob`), reboot, and confirm the restore log and
-a non-empty `/api/history` before treating persistence as hardware-verified.
+**Board check — DONE (2026-10-19, COM4).** A 302 s still-contact capture confirmed the
+**on-device RAM history feed**: `[HISTORY] H0` published nine coherent running averages
+(HR 74.9–76.8, SpO₂ 96.4–98.1, RMSSD 35.9→67.0, NEWS2 0–1). The **NVS write/restore round-trip
+was then verified** on a session with over an hour of uptime: a rollover wrote the blob, and a
+reboot logged `Restored NVS history: 2 of 24 slots populated, 1 with a heart-rate average`. The
+blob also survived a re-flash (bootloader + partition table + app rewritten; the NVS partition at
+`0x9000` was untouched). The restore message now reports populated slots rather than the 24 the
+blob always encodes — the first version logged "24 completed hourly summaries" after minutes of
+uptime, which over-claimed. Still open: only a multi-hour session can populate enough slots to
+exercise a full 24-hour window and the oldest-slot drop.
 
 ---
 

@@ -772,8 +772,20 @@ static void history_nvs_load(void) {
         s_history[i] = stored[i - 1];
         s_history[i].hour_offset = (uint32_t)i;
     }
-    /* Slot 0 is this power-on's in-progress hour; it is already cleared. */
-    ESP_LOGI(TAG, "Restored %zu completed hourly summaries from NVS", n);
+    /* Slot 0 is this power-on's in-progress hour; it is already cleared.
+     * Report the slots that actually carry the valid flag, not the slot count
+     * the blob always encodes (24), so the log cannot claim a full day's record
+     * after a few minutes of uptime. An hour with only environmental samples is
+     * still a recorded hour, hence the separate heart-rate figure. */
+    size_t populated = 0, with_hr = 0;
+    size_t limit = (n < VALOR_HISTORY_HOURS) ? n : VALOR_HISTORY_HOURS;
+    for (size_t i = 0; i < limit; i++) {
+        if (!stored[i].valid) continue;
+        populated++;
+        if (stored[i].avg_hr > 0.0f) with_hr++;
+    }
+    ESP_LOGI(TAG, "Restored NVS history: %zu of %d slots populated, %zu with a heart-rate average",
+             populated, VALOR_HISTORY_HOURS, with_hr);
 }
 
 /* One write per completed hour. The blob is encoded under the lock by
