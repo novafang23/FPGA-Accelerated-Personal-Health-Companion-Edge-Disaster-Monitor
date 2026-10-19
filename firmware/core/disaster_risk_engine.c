@@ -575,6 +575,31 @@ void disaster_assess(const hrv_state_t *hrv, float spo2, float bpm, const env_se
 }
 
 /* Neural Network Risk Assessment */
+
+/* Every feature the network sees must be a real number.
+ *
+ * The network's arithmetic has no way to represent "missing": a non-finite
+ * input makes every layer-1 pre-activation non-finite, the ReLU passes it
+ * through, the uint8 requantizer clamps it to 0, and the network then returns
+ * a finite, plausible-looking score derived only from the biases. Measured on
+ * the real kernel, a NaN humidity produced heat=0.008 / pollution=0.191 /
+ * flood=0.034 - a number that looks like a measurement but is an artefact of
+ * the bias vector.
+ *
+ * The device path already filters non-finite environment values before it
+ * gets here (ambient_valid() range-checks temperature and humidity, and the
+ * PM2.5 path is an integer conversion), so this guard is defence in depth:
+ * a sensor or a future caller that passes NaN gets an honest UNKNOWN instead
+ * of a fabricated score. */
+static bool nn_features_finite(float bpm, float spo2, const env_sensors_t *env) {
+    if (!isfinite(bpm) || !isfinite(spo2)) return false;
+    if (!isfinite(env->ambient_temp_c) || !isfinite(env->humidity_pct) ||
+        !isfinite(env->pm25)) {
+        return false;
+    }
+    return true;
+}
+
 static risk_level_t nn_score_to_risk(float score, const char **advisory, const char *crit_msg,
                                      const char *high_msg, const char *mod_msg,
                                      const char *norm_msg) {
@@ -593,6 +618,19 @@ static risk_level_t nn_score_to_risk(float score, const char **advisory, const c
     }
 }
 
+/* The float32 model is the REFERENCE implementation. The device runs the INT8
+ * model (disaster_assess_nn_int8 below); disaster_assess_nn() has no caller in
+ * the ESP32-S3 firmware, so compiling it there would put the 2.5 kB of float32
+ * weights (nn_risk_model_trained.c.inc) and the duplicate inference path into
+ * the shipped image for nothing. The Zynq, host-test and Win32 builds keep it:
+ * they use it as the reference the INT8 output is compared against.
+ *
+ * Default is ON so every existing build is unaffected unless it opts out. */
+#ifndef NN_ENABLE_FLOAT32_MODEL
+#define NN_ENABLE_FLOAT32_MODEL 1
+#endif
+
+#if NN_ENABLE_FLOAT32_MODEL
 void disaster_assess_nn(const hrv_state_t *hrv, float spo2, float bpm, const env_sensors_t *env,
                         risk_assessment_t *result) {
     float rmssd;
@@ -637,6 +675,16 @@ void disaster_assess_nn(const hrv_state_t *hrv, float spo2, float bpm, const env
         return;
     }
 
+    if (!nn_features_finite(bpm, spo2, env)) {
+        result->heat_risk = RISK_UNKNOWN;
+        result->pollution_risk = RISK_UNKNOWN;
+        result->flood_risk = RISK_UNKNOWN;
+        result->overall_risk = RISK_UNKNOWN;
+        snprintf(result->overall_advisory, sizeof(result->overall_advisory),
+                 "Non-finite sensor value: AI risk assessment declined");
+        return;
+    }
+
     rmssd = hrv->rmssd;
 
     /* If SpO2 is not yet locked/calibrated (<= 0.0f), use neutral 96.0% baseline
@@ -674,6 +722,7 @@ void disaster_assess_nn(const hrv_state_t *hrv, float spo2, float bpm, const env
     /* Overall risk triage via robust multi-modality aggregation */
     finalize_overall_risk(result, "All vitals normal -- AI risk engine clear");
 }
+#endif /* NN_ENABLE_FLOAT32_MODEL */
 
 /* Run AI-powered neural network disaster risk assessment (INT8 quantized). */
 void disaster_assess_nn_int8(const hrv_state_t *hrv, float spo2, float bpm,
@@ -708,6 +757,19 @@ void disaster_assess_nn_int8(const hrv_state_t *hrv, float spo2, float bpm,
         result->flood_risk = RISK_UNKNOWN;
         result->overall_risk = RISK_UNKNOWN;
         snprintf(result->overall_advisory, sizeof(result->overall_advisory), "Insufficient HRV data for AI risk assessment (INT8)");
+        if (raw_out != NULL) {
+            memset(raw_out, 0, sizeof(nn_output_t));
+        }
+        return;
+    }
+
+    if (!nn_features_finite(bpm, spo2, env)) {
+        result->heat_risk = RISK_UNKNOWN;
+        result->pollution_risk = RISK_UNKNOWN;
+        result->flood_risk = RISK_UNKNOWN;
+        result->overall_risk = RISK_UNKNOWN;
+        snprintf(result->overall_advisory, sizeof(result->overall_advisory),
+                 "Non-finite sensor value: AI risk assessment declined (INT8)");
         if (raw_out != NULL) {
             memset(raw_out, 0, sizeof(nn_output_t));
         }

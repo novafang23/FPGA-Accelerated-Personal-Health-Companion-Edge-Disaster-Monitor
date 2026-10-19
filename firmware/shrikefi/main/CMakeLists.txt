@@ -43,7 +43,14 @@ idf_component_register(
         "${CORE_DIR}/hrv_analysis.c"
         "${CORE_DIR}/spo2_engine.c"
         "${CORE_DIR}/disaster_risk_engine.c"
-        "${CORE_DIR}/nn_risk_model.c"
+        # The device runs the INT8 model only. nn_risk_model.c (the float32
+        # reference and its 2.5 kB of weights) has no caller on the device:
+        # disaster_assess_nn() is only used by the Zynq simulation, the host
+        # test and the Win32 dashboard as the reference the INT8 output is
+        # compared against. Leaving it out keeps the shipped image honest about
+        # what it contains (619 bytes of INT8 weights, not 3 kB) and drops the
+        # dead payload. NN_ENABLE_FLOAT32_MODEL=0 compiles out the matching
+        # float32 entry point in disaster_risk_engine.c.
         "${CORE_DIR}/nn_risk_model_int8.c"
         "${CORE_DIR}/pm25_calibration_int8.c"
         "${CORE_DIR}/clinical_vitals_engine.c"
@@ -90,6 +97,9 @@ idf_component_register(
 target_sources(${COMPONENT_LIB} PRIVATE "${SHRIKEFI_DIR}/wifi_mqtt_manager.c")
 
 target_compile_definitions(${COMPONENT_LIB} PRIVATE ${SHRIKEFI_WIFI_MODE_DEF})
+
+# INT8-only model on the device (see the SRCS comment above).
+target_compile_definitions(${COMPONENT_LIB} PRIVATE NN_ENABLE_FLOAT32_MODEL=0)
 
 execute_process(
     COMMAND git rev-parse --short HEAD
