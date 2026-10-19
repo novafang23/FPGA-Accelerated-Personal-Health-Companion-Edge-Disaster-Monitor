@@ -273,7 +273,7 @@ stages_s3 = [
     ("Stage 03: Clinical AI", "On-Device TinyML", C_GREEN, [
         ("mNEWS2 Engine", "Royal College of Physicians clinical early warning triage protocol."),
         ("Karlen/Elgendi SQI", "Signal Quality Index rejecting motion noise and false beats."),
-        ("6→24→16→3 Model", "619-parameter INT8 micro-network (88.47% synthetic validation accuracy).")
+        ("6→24→16→3 Model", "619-parameter INT8 micro-network (88.39% agreement with the rule engine on synthetic validation data).")
     ]),
     ("Stage 04: Edge Action", "Alerts & Telemetry", C_ORANGE, [
         ("Local OLED Display", "128x64 display of live HR, SpO2, RR, and multi-hazard risk tiers."),

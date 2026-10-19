@@ -1003,7 +1003,7 @@ A standalone Win32 GDI application — no Python, no browser, no dependencies. I
 | 515 / 1120 LUT5s | `hardware/shrikefi/synthesis_evidence/resource_utilization_spi_link.log` |
 | 185 LUT / +5.603 ns baseline | Tag `v1.0-zynq-SIH` |
 | 198 LUT / 267 FF re-run | `hardware/zynq/synthesis_evidence/ooc_utilization_synth.rpt` |
-| 88.47% validation accuracy | `python3 firmware/core/train_nn_risk_model.py` |
+| 88.39% validation agreement (INT8 model the firmware runs; 88.47% for the float32 reference) | `python3 firmware/core/train_nn_risk_model.py` |
 | 94.11% MIMIC accuracy | `accuracy_evaluator.c` on `data/mimic/mimic_eval_feed.csv` |
 | 619 bytes / 0.0079 MAE | `nn_risk_model_int8.c.inc` + the training script |
 | 945,520 B image | `idf.py build` |

@@ -139,13 +139,17 @@
 # Category 7: AI/ML Methodology & Zero-Cloud Execution
 
 ### Q7.1 (Advanced): Explain the mathematical execution of your INT8 neural network on the microcontroller.
-- **Direct Answer:** "The model is a 6→24→16→3 MLP. Inputs are normalized to `[-128, 127]`. Matrix multiplications are executed using 32-bit signed integer accumulation to prevent overflow. Outputs are scaled using fixed-point shifts, and activations use ReLU and a 32-step piecewise linear Sigmoid lookup table, completing in 0.38 microseconds on the host and ~18 microseconds on the ESP32-S3."
+- **Direct Answer:** "The model is a 6→24→16→3 MLP with 619 parameters stored in 619 bytes. Inputs are min-max normalized to `[0,1]`; the weights are stored as signed 8-bit integers (per-tensor symmetric, zero-point 0) and the activations are requantized to uint8 between layers. The multiply-accumulate runs in **single-precision float** — the kernel dequantizes the INT8 weights per layer — and the sigmoid is a real `expf()` call, not a lookup table. It executes in ~0.44 µs on a host x86-64 compiler; the ESP32-S3 figure has not been measured."
 - **Technical Explanation:**
-  $$\text{Accumulator}_i = \sum_{j=0}^{M-1} W_{int8}[i][j] \cdot X_{int8}[j]$$
-  Biases are pre-scaled to align with the accumulator's fixed-point format. Hidden layers apply `if (acc < 0) acc = 0`. The output layer evaluates Sigmoid without using floating-point `expf()`, executing in integer logic. Total model size: 619 bytes.
-- **Evidence:** `firmware/core/nn_risk_model_int8.c:45-112`.
+  $$\text{Accumulator}_i = \sum_{j=0}^{M-1} W_{float}[i][j] \cdot X_{uint8}[j]$$
+  where \(W_{float} = s_W \cdot W_{int8}\) with \(s_W = 0.03131007\) (layer 1). Hidden layers apply ReLU (`if (acc < 0) acc = 0`); the output layer applies a true sigmoid \(1/(1+e^{-x})\). The **quantization** is what saves flash and RAM and makes the shipped weights reproducible; it is **not** an integer MAC unit, and the shipped hazard model has no 32-bit fixed-point accumulator and no sigmoid LUT.
+
+  Two different models live in this repository and must not be confused. The **PM2.5 calibration** net (`firmware/core/pm25_calibration_int8.c`, 1,900→64→1) *does* use `[-128,127]` int8 input quantization, int32 accumulation and a 32-step piecewise-linear sigmoid LUT. The **hazard** model described here uses none of those.
+
+  **Honest verification hook:** the linker map of the shipped firmware lists `expf` and `roundf` as the only math functions pulled in by `nn_risk_model_int8.c.obj` — that is the evidence that the deployed sigmoid is a real exponential, not a table. The float32 model is not in the device image at all: the ESP32 build compiles only `nn_risk_model_int8.c` (`NN_ENABLE_FLOAT32_MODEL=0`).
+- **Evidence:** `firmware/core/nn_risk_model_int8.c:45-112`, `firmware/shrikefi/main/CMakeLists.txt` (INT8-only build), `firmware/shrikefi/build/shrikefi_health_companion.map` (link map of the shipped image).
 - **Follow-up Challenge:** "What is the quantization loss compared to the floating-point model?"
-- **Safe Response:** "Across our validation suite, the maximum absolute error between FP32 and INT8 outputs is 0.091, with zero categorical classification divergence across all tested disaster profiles."
+- **Safe Response:** "Measured on the 7,000-sample held-out split: mean absolute error **0.0079**, max **0.0914**, and **97.32%** tier agreement between the FP32 reference and the INT8 model. The INT8 model is not identical to FP32 on every sample — 2.68% of samples land in a different risk tier — but the three documented archetype scenarios agree exactly. The **shipped INT8 model's own agreement with the rule-based teacher is 88.39%** (float32 reference: 88.47%); that is the number in the header of `nn_risk_model_int8.c.inc`."
 
 ---
 
@@ -159,6 +163,14 @@
 - **Technical Explanation:** `clinical_vitals_engine.c` computes NEWS2 from HR, SpO2, RR and temperature; RMSSD appears only in the condition text and only when a value has been published. `disaster_risk_engine.c` guards every HRV term with `if (rmssd > 0)` and documents why: zero means "no valid HRV", not "maximal suppression", so an absent measurement contributes zero points instead of the maximum. The INT8 network takes RMSSD as an input feature, so when no value has been published the engine declines to score, the device streams `AIVALID=0`, and both dashboards render `--` instead of a fabricated `0.0 %`. A zero normalized into that feature would sit at the most-suppressed end of its range and could raise an alarm from a missing measurement. The same discipline applies before contact: a "hold" (invalid vitals, SQI 0, or SQI < 0.70 without corroboration) is flagged as signal noise and contributes no clinical level, so an untouched device reports `RISK=UNKNOWN` ("Patient not assessed") rather than `MODERATE`.
 - **Evidence:** `firmware/core/clinical_vitals_engine.c`, `firmware/core/disaster_risk_engine.c` (`disaster_assess_nn_int8`), `firmware/shrikefi/main_shrikefi.c` (`[TRIAGE]` `AIVALID`), `firmware/shrikefi/dashboard/valor_dashboard.html` (`aiAbsent`).
 - **Honest Limitation:** HRV has not been validated against ECG (T4.1), so its contribution is a bounded nudge, not a diagnosis. The vitals-and-environment verdict is defensible without it; the HRV term alone is not.
+
+---
+
+### Q7.4 (Adversarial): Your neural network is trained on synthetic labels. Is it actually better than the rule engine it was distilled from?
+- **Direct Answer:** "No — and we do not claim it is. The network is a *second, independent opinion* that can add caution, not a better risk engine. Measured on the 7,000-sample held-out split, the rule engine agrees with the teacher 85.57% of the time, the network alone 81.56%, and the fused verdict 83.67%. Where the network is better: heat (92.69% vs 82.39%) and flood (86.40% vs 78.16%). Where it is worse: pollution (87.11% vs 99.09%), because the teacher's hard 'clean air ≤ 35 µg/m³ ⇒ risk 0' step is not something a smooth network can represent. The fusion is deliberately 'worst wins': the network may raise the verdict, never lower it."
+- **Technical Explanation:** The network's training labels come from the same teacher functions the rule engine implements (`train_nn_risk_model.py` distils `ctsi_score`, `prsi_score`, `flood_score` — with an explicit note that the heat teacher is a *proxy*, not a port of the Rothfusz heat index the rule engine uses). So the comparison above is "network versus its own teacher", and the network cannot be better than the teacher in any systematic sense; what it adds is a different *smoothness* of generalisation. On the seven documented demo archetypes the two agree on the overall level in six of seven, differing only on hypothermia (rules HIGH, network CRITICAL). The network changes the fused verdict in 3.61% of cases, always upward.
+- **Evidence:** `docs/reports/AI_MODEL_AUDIT_2026-10-20.md` §6–§7, `firmware/core/train_nn_risk_model.py` (teacher functions and the fidelity note), `firmware/core/clinical_vitals_engine.c` (`clinical_fuse_triage`).
+- **Honest Limitation:** Three things a judge should hold against us. (1) The "accuracy" figures are **agreement with a rule-based teacher**, never with clinical outcomes. (2) The network **ignores humidity** (layer-1 weight mass 0.21 versus 5.78 for PM2.5; a full-range humidity sweep moves the outputs by ≤0.004) because the teacher barely uses it. (3) The network is only 619 bytes and 17 of its 41 weight rows are dead after distillation — it is a small, smooth model, and it is deployed as advisory.
 
 ---
 
@@ -193,7 +205,7 @@
   - SPI transfer: 8 µs.
   - FPGA 8-tap filter + peak detector: 8 clock cycles (160 ns @ 50 MHz).
   - Core 0 IBI latching: < 1 µs.
-  - Core 1 Clinical Triage + TinyML inference: ~18 µs on the ESP32-S3.
+  - Core 1 Clinical Triage + TinyML inference: **not yet measured on the ESP32-S3.** The host figure is ~0.44 µs for the INT8 hazard model; an ESP32-S3 number has not been instrumented, and none is claimed.
   - Total latency from physical pulse to local display update is dominated by the 1 Hz clinical evaluation quantum.
 - **Evidence:** `firmware/shrikefi/main_shrikefi.c`, `hardware/shrikefi/synthesis_evidence/resource_utilization_spi_link.log`.
 - **Follow-up Challenge:** "What is your battery runtime?"

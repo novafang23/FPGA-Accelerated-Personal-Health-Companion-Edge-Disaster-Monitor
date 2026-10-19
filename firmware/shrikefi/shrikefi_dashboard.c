@@ -1200,7 +1200,7 @@ static void RenderDashboard(HDC hdcMem, int width, int height) {
     
     SelectObject(hdcMem, g_font_small);
     SetTextColor(hdcMem, COL_TEXT_MUTED);
-    TEXTOUT(hdcMem, 36, r4_y + 78, "MIMIC-III triage 94.11% (16,387 recs) | Val 88.47% | INT8 weights 619 B | Dequantized-float core");
+    TEXTOUT(hdcMem, 36, r4_y + 78, "MIMIC-III triage 94.11% (16,387 recs) | Teacher agreement 88.39% INT8 | INT8 weights 619 B | Dequantized-float core");
     
     /* ROW 5: bottom status band.
      *

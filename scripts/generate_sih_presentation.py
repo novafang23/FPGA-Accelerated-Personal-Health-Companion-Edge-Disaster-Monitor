@@ -248,7 +248,7 @@ stages = [
     ("Stage 03", "Clinical TinyML", "ARM Cortex / ESP32-S3", C_NAVY, [
         ("mNEWS2 Engine", "Royal College of Physicians early warning triage protocol score."),
         ("Karlen/Elgendi SQI", "Signal Quality Index rejecting motion noise and false beats."),
-        ("6->24->16->3 Model", "619-parameter INT8 micro-network (88.47% synthetic validation accuracy).")
+        ("6->24->16->3 Model", "619-parameter INT8 micro-network (88.39% agreement with the rule engine on synthetic validation data).")
     ]),
     ("Stage 04", "Output & Action", "Edge Alerts & Telemetry", C_ORANGE, [
         ("OLED Display", "128x64 offline display of live HR, SpO2, RR, and hazard threat tiers."),
@@ -335,7 +335,7 @@ add_bullet(tf_wb, "Interrupt & IBI Latch", "A single-cycle irq_beat fires, latch
 s5 = prs.slides.add_slide(blank_layout)
 add_header(s5, "Clinical Intelligence — 91% TinyML & MIMIC-III ICU Validation")
 
-add_stat_box(s5, Inches(0.8), Inches(1.35), Inches(3.65), Inches(1.35), "88.47%", "Synthetic Multi-Hazard Agreement\n(6,200-sample held-out validation split)", C_BLUE_ACC)
+add_stat_box(s5, Inches(0.8), Inches(1.35), Inches(3.65), Inches(1.35), "88.39%", "Synthetic Multi-Hazard Agreement\n(7,000-sample held-out validation split)", C_BLUE_ACC)
 add_stat_box(s5, Inches(4.8), Inches(1.35), Inches(3.7), Inches(1.35), "94.11%", "MIMIC-III Triage Accuracy\n(16,387 ICU vital records, real HR/SpO2)", C_TEAL)
 add_stat_box(s5, Inches(8.85), Inches(1.35), Inches(3.65), Inches(1.35), "619 Bytes", "INT8 Weight Storage\n(Zero cloud dependency)", C_GREEN)
 

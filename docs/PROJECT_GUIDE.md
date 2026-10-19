@@ -187,10 +187,10 @@ During severe natural and industrial disasters—such as tropical cyclones, flas
 ### 6. Zero-Cloud TinyML (Integer Neural Networks)
 - **What it is:** Deep learning inference optimized for microcontrollers using 8-bit quantized weights and biases (INT8), running entirely in local SRAM without external coprocessors or runtime dependencies.
 - **Why it exists:** Standard floating-point machine learning frameworks (TensorFlow, PyTorch) require megabytes of RAM and powerful operating systems. Edge microcontrollers require minimal memory footprints and integer-only arithmetic.
-- **How it works:** Continuous floating-point weights and inputs are mapped onto signed 8-bit integers (`[-128, 127]`). Fixed-point scaling factors replace floating-point multiplications, and activations use piecewise linear approximations or lookup tables.
-- **Why we use it in Valor:** Evaluates non-linear multi-hazard cross-correlations (e.g., combining high ambient temperature, high PM2.5, elevated HR, and suppressed RMSSD into distinct heat, smog, and flood risk probabilities) in a 619-byte footprint executing in 0.38 microseconds.
+- **How it works:** The trained float32 weights are mapped onto signed 8-bit integers (per-tensor symmetric, zero-point 0) and the activations are requantized to uint8 between layers. The kernel dequantizes the INT8 weights per layer and performs the multiply-accumulate in single-precision float on the ESP32-S3's FPU; the output sigmoid is a real `expf()` call. (The separate PM2.5 calibration net, `pm25_calibration_int8.c`, is the one in this project that uses `[-128,127]` int8 inputs, int32 accumulation and a 32-step piecewise-linear sigmoid LUT.)
+- **Why we use it in Valor:** Evaluates non-linear multi-hazard cross-correlations (e.g., combining high ambient temperature, high PM2.5, elevated HR, and suppressed RMSSD into distinct heat, smog, and flood risk probabilities) in a 619-byte footprint, ~0.44 µs per inference on an x86-64 host at `-O2` (the ESP32-S3 figure has not been measured).
 - **Implementation in Valor:** `firmware/core/nn_risk_model_int8.c`, trained via `firmware/core/train_nn_risk_model.py`.
-- **Judge-Ready Explanation:** *"Our TinyML model is a 6-to-24-to-16-to-3 multi-layer perceptron compressed into 619 bytes of INT8 weights. It runs in under a microsecond on the microcontroller, predicting heat stroke, toxic inhalation, and hypothermia risks without touching the cloud."*
+- **Judge-Ready Explanation:** *"Our TinyML model is a 6-to-24-to-16-to-3 multi-layer perceptron compressed into 619 bytes of INT8 weights. It runs in under a microsecond on a host x86-64 compiler, predicting heat stroke, toxic inhalation, and hypothermia risks without touching the cloud."*
 
 ---
 
@@ -585,15 +585,16 @@ The network outputs three independent probabilities $\in [0.0, 1.0]$:
 Weights and biases are quantized offline using symmetric uniform quantization:
 $$W_{int8} = \text{round}\left(\frac{W_{float}}{S_W}\right), \quad B_{int8} = \text{round}\left(\frac{B_{float}}{S_W \cdot S_X}\right)$$
 During microcontroller execution (`firmware/core/nn_risk_model_int8.c`):
-1. **Integer Multiply-Accumulate (MAC):**
-   $$acc = \sum_{j} W_{int8}[i][j] \cdot X_{int8}[j]$$
-   Accumulation occurs in 32-bit signed integers (`int32_t`) to completely eliminate overflow hazards.
-2. **Fixed-Point Scaling & Bias Addition:**
-   Intermediate integer sums are scaled down using fixed-point bit shifts, and biases are added.
+1. **Weight Storage and Activation Requantization:**
+   The INT8 weights are dequantized per layer with the stored per-tensor scale, and the layer outputs are requantized to uint8 with the stored activation scale and zero-point.
+   $$W_{float}[i][j] = S_W \cdot W_{int8}[i][j], \qquad X_{uint8} = \mathrm{clamp}\left(\mathrm{round}\!\left(\frac{X}{S_{act}}\right), 0, 255 \right)$$
+   The multiply-accumulate itself runs in single-precision float on the ESP32-S3's FPU.
+2. **Bias Addition:**
+   Biases are dequantized with the same per-tensor scale and added in float.
 3. **Activation Functions:**
    - **ReLU:** `if (val < 0) val = 0;`
-   - **Output Sigmoid:** Implemented using a 32-step piecewise linear lookup table (LUT) over the domain $[-8, 8]$, avoiding expensive floating-point `expf()` calls.
-- **Measured Host Execution Latency:** **0.38 microseconds** per inference (GCC 15.2 x86_64). On the ESP32-S3 @ 160 MHz, execution completes in **~18 microseconds**.
+   - **Output Sigmoid:** a real exponential, $\sigma(x) = 1/(1+e^{-x})$, using `expf()`. The shipped image's linker map lists `expf` and `roundf` as the only math functions pulled in by `nn_risk_model_int8.c.obj`.
+- **Measured Host Execution Latency:** **0.44 microseconds** per inference (GCC 15.2 x86_64, `-O2`). The ESP32-S3 figure has **not** been measured and is not claimed.
 
 ### 5. MIMIC-III Benchmark & Training Provenance
 - **Dataset:** Benchmarked against 16,387 records from 98 subjects in the MIMIC-III ICU benchmark subset (`data/mimic/mimic_eval_feed.csv`).

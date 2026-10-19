@@ -502,6 +502,9 @@ We use it as a **triage/advisory** score, not a diagnosis. Body temperature is c
 - **INT8**, **619 parameters / 619 bytes**
 - It is **knowledge distillation**: trained to reproduce the rule engine’s labels, not discovered from patient outcomes.
 - The rule engine remains the explainable source of truth; the NN is a compact approximation. The final verdict takes the **more severe** of rule and NN, then fuses clinical + environmental risk.
+- **Measured (audit of 2026-10-20):** the shipped INT8 model agrees with the rule-based teacher **88.39%** of the time on a 7,000-sample held-out split (float32 reference 88.47%); per axis heat 92.0% / pollution 87.2% / flood 86.0%. It is **not** better than the rules it came from — it is better on heat and flood, worse on pollution — so it is deployed as an advisory second opinion that may raise the verdict, never lower it. Full report: `docs/reports/AI_MODEL_AUDIT_2026-10-20.md`.
+- **What "INT8" means here, precisely:** the *weights* are stored as signed 8-bit integers and the *activations* are requantized to uint8, but the multiply-accumulate runs in **single-precision float** on the ESP32-S3’s FPU and the sigmoid is a real `expf()` call. The INT8 format buys flash, RAM and reproducibility; it is not an integer MAC unit. (The separate PM2.5 calibration net is the one in this project that uses `[-128,127]` int8 inputs, int32 accumulation and a sigmoid lookup table.)
+- **Limits we will not hide:** the model effectively **ignores humidity** (a full-range sweep moves the outputs by ≤0.004) because the teacher barely uses it, and 17 of its 41 weight rows are dead after distillation. It is a small, smooth, explainable model — not a clinical classifier.
 
 ### Fusion rule
 

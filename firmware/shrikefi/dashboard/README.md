@@ -85,7 +85,7 @@ so each was replaced. This table is the record of that.
 | **PTT 248 ms** | No pulse-transit-time measurement exists. | **RMSSD** and **signal quality** — both real |
 | **AHA Autonomic …/10** | `disaster_calculate_aha_autonomic_strain()` returns **[0.0, 1.0]**. Showing it over 10 overstated it tenfold. | Same value on its real **/1.0** scale |
 | NEWS2 tiles for **SBP** and **Consc** | The device measures neither, and the on-device score is HR + SpO₂ + RR only. The mock-up showed them as `+0`, which reads as "measured and normal". | Shown as **n/a — not instrumented**, greyed |
-| **AUC 0.974** | Not measured anywhere in this project. | **Rule-vs-NN agreement 99.95%** (`accuracy_evaluator`); FP32↔INT8 tier agreement 97.32% |
+| **AUC 0.974** | Not measured anywhere in this project. | **MIMIC-III FP32↔INT8 joint-decision agreement 99.95%** (`accuracy_evaluator`); synthetic teacher agreement **88.39%** (INT8 model the firmware runs) / 88.47% (float32 reference); FP32↔INT8 tier agreement 97.32% |
 | **6 ms latency** | Never benchmarked. | Removed |
 | **940 nm IR reflectance** | MAX30102/MAX30100 use 660 nm red and **880 nm** IR. | "AC-coupled reflectance" |
 | **BME688 · SHT40** | Neither part is on this board. | **BME280** (and labelled *ambient, not skin*) |

@@ -202,7 +202,7 @@ In competitive hackathons, physical hardware can suffer broken jumper wires, dea
 | Feature | Primary Proof (Hardware Silicon) | Verified Fallback Proof (Host PC Simulation) | What the Fallback Truly Proves |
 | :--- | :--- | :--- | :--- |
 | **FPGA Peak Detector** | Physical Blue LED (D12) flashes to real pulse | `tb_forgefpga_system.v` simulation in Icarus Verilog | Proves cycle-accurate Verilog logic in simulation; the shipped fit has **no clock constraint**, so this is not a timing-closure claim |
-| **Zero-Cloud INT8 AI** | ESP32-S3 runs inference in 18 µs on live vitals | `shrikefi_host.exe` host test suite under GCC 15.2 | Proves mathematical quantization fidelity (max error 0.091) |
+| **Zero-Cloud INT8 AI** | ESP32-S3 runs the 619-byte INT8 model locally on live vitals (latency not yet instrumented on the target; host figure ~0.44 µs) | `shrikefi_host.exe` host test suite under GCC 15.2 | Proves mathematical quantization fidelity (max error 0.091, 97.32% tier agreement) |
 | **mNEWS2 Triage Engine** | OLED displays live clinical levels and alerts | `test_disaster_risk_engine.exe` (34 unit tests) | Proves all clinical boundary sweeps and crisis overrides |
 | **Fall Detection FSM** | MPU6050 physical drop triggers countdown (**1/1 bench trial passed 2026-10-19**; countdown + buzzer + cancel verified) | `test_fall_detect.exe` (16 FSM unit tests) | Proves 5-state FSM state transitions and angle math |
 | **GUI & Triage Dashboard** | Live Web Serial stream on COM4 port | `valor_dashboard.html` with built-in Simulation Profiles | Proves UI rendering, gauge math, and multi-hazard response |

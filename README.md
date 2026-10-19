@@ -7,7 +7,7 @@
 [![Bus Protocol](https://img.shields.io/badge/Interconnect-SPI2%20Full--Duplex-orange.svg)](docs/SHRIKEFI_LINK_PROTOCOL.md)
 [![Verification](https://img.shields.io/badge/Verification-100%25%20Passing-brightgreen.svg)](hardware/zynq/tb_ppg_system.v)
 [![TinyML Engine](https://img.shields.io/badge/AI%20Engine-TinyML%20(6%E2%86%9224%E2%86%9216%E2%86%923)-purple.svg)](firmware/core/nn_risk_model_int8.c)
-[![Validation Accuracy](https://img.shields.io/badge/AI%20Accuracy-88.47%25%20(INT8)%20on%20synthetic%20val-brightgreen.svg)](firmware/core/nn_risk_model_int8.c)
+[![Validation Accuracy](https://img.shields.io/badge/AI%20Accuracy-88.39%25%20(INT8)%20teacher%20agreement-brightgreen.svg)](firmware/core/nn_risk_model_int8.c)
 [![MIMIC-III Benchmark](https://img.shields.io/badge/MIMIC--III%20Benchmark-94.11%25%20(demo%20subset)-blueviolet.svg)](#reproducible-claims)
 [![GUI Dashboard](https://img.shields.io/badge/GUI%20Dashboard-Web%20Serial%20%2B%20Win32-cyan.svg)](launch_dashboard.bat)
 
@@ -35,7 +35,7 @@ Every headline number below is reproducible from a committed command. Where a cl
 | Zynq RTL — self-checking testbench | `hardware/zynq/build_and_run.bat` (or the `iverilog`/`vvp` pair it wraps) | `6 passed, 0 failed` |
 | ShrikeFi RTL — SPI link testbench (`hardware/shrikefi/tb_forgefpga_system.v`) | `hardware/shrikefi/build_shrikefi_sim.bat` | `RESULTS: 13 passed, 0 failed (out of 13 checks)` |
 | Firmware unit tests (incl. FP32↔INT8 parity) | `make -C firmware/zynq test` | `ALL TESTS PASSED.` |
-| INT8 model regeneration | `python3 firmware/core/train_nn_risk_model.py` | `88.47%` val accuracy, `619` params, INT8 max error `0.091` |
+| INT8 model regeneration | `python3 firmware/core/train_nn_risk_model.py` | `88.47%` FP32 / `88.39%` INT8 teacher agreement, `619` params, INT8 max error `0.091` |
 | Clinical triage metrics | build & run `firmware/core/accuracy_evaluator.c` on `data/mimic/mimic_eval_feed.csv` | accuracy `94.11%`, TP `971` / FP `267` / TN `14451` / FN `698` |
 | MIMIC cohort scan | build & run `firmware/core/mimic_harness.c` on `data/mimic/mimic_vital_feed.csv` | 16,387 records over 98 subjects |
 | Zynq resource/timing reports | `hardware/zynq/synthesis_evidence/*.rpt` | see that directory's README |
@@ -48,7 +48,7 @@ CI (`.github/workflows/ci.yml`) runs the Zynq testbench, the ShrikeFi testbench,
 1. **The RMSSD column in the MIMIC feeds is synthetic.** The HR and SpO₂ columns are genuine MIMIC-III `CHARTEVENTS` values (verified against the raw tables — e.g. subject 10013: SpO₂ min 60, HR max 113, 82 rows, matching the feed exactly). But **MIMIC-III v1.4 contains no waveform, ECG or numerics tables**, so beat-to-beat intervals — and therefore RMSSD — cannot be derived from it. The feed's RMSSD is generated: it has 16,384 distinct values across 16,387 rows over only 1,433 distinct (HR, SpO₂) pairs, i.e. essentially a unique float per row. Treat any metric that depends on RMSSD as *conditional on that synthetic input*.
 2. **The dataset is the MIMIC-III demo subset** (98 subjects), not the full MIMIC-III cohort. It is a benchmark fixture, not an epidemiological result.
 3. **`ground_truth_crisis` is derived in-tree.** No upstream generator script for those labels is committed, and the labels vary within a patient over time, consistent with a vitals-derived rule. The triage metrics are therefore best read as *agreement with that labeling rule*, not as independent clinical validation.
-4. **The "88.47% accuracy" figure is agreement with a rule-based teacher**, not with clinical outcomes. `train_nn_risk_model.py` distils `disaster_risk_engine.c` into a 619-parameter network; both the training labels and the validation labels come from that same teacher.
+4. **The "88.39% accuracy" figure is agreement with a rule-based teacher**, not with clinical outcomes. `train_nn_risk_model.py` distils `disaster_risk_engine.c` into a 619-parameter network; both the training labels and the validation labels come from that same teacher.
 5. **The 185 LUT / +5.603 ns Zynq figures are the tagged `v1.0-zynq-SIH` baseline.** Their only surviving in-repo evidence is the PNG screenshots; the raw report was overwritten when `.runs/` was regenerated under Vivado 2026.1. See [`hardware/zynq/synthesis_evidence/README.md`](hardware/zynq/synthesis_evidence/README.md) for which numbers belong to which run.
 6. **ESP32-S3 inference latency is not measured.** The `0.44 µs` figure is an x86-64 host measurement. Do not quote it as a target-device number.
 
@@ -59,7 +59,7 @@ CI (`.github/workflows/ci.yml`) runs the Zynq testbench, the ShrikeFi testbench,
 * **Cycle-Accurate Hardware Timing:** Dedicated 50 MHz FPGA timer measures heartbeat Inter-Beat Intervals (IBI) with **20 nanoseconds resolution**, eliminating the 5–20 ms operating system scheduling jitter that corrupts Heart Rate Variability (HRV).
 * **Area-Optimized DSP Architecture:** Single 8-tap moving average filter implemented using an **$O(1)$ running-sum algorithm with wire-shift division (`>> 3`)**, requiring **0 DSP48 multiplier slices and 0 Block RAMs**.
 * **Robust Bus Interfacing:** Standard ARM AMBA AXI4-Lite slave engine with **decoupled `AW` and `W` channel handshakes**, eliminating bus deadlocks on out-of-order interconnects. Includes **Write-1-to-Clear (W1C)** status registers to prevent interrupt race conditions.
-* **High-Accuracy On-Device TinyML (INT8):** 2-hidden-layer micro-architecture ($6 \to 24 \to 16 \to 3$) requiring only **619 bytes** of parameter storage, reaching **88.47% validation accuracy** on a held-out synthetic validation set (see [Reproducibility](#-reproducibility--evidence-provenance)) with **97.32% FP32↔INT8 tier agreement**, and executing in **0.44 µs per inference** (measured, `-O2`, x86-64 host; ESP32-S3 target timing not yet measured) with zero cloud dependencies.
+* **High-Accuracy On-Device TinyML (INT8):** 2-hidden-layer micro-architecture ($6 \to 24 \to 16 \to 3$) requiring only **619 bytes** of parameter storage, reaching **88.39% agreement with the rule engine** on a 7,000-sample held-out synthetic validation set (88.47% for the float32 reference) (see [Reproducibility](#-reproducibility--evidence-provenance)) with **97.32% FP32↔INT8 tier agreement**, and executing in **0.44 µs per inference** (measured, `-O2`, x86-64 host; ESP32-S3 target timing not yet measured) with zero cloud dependencies.
 * **Multi-Disaster Resilience (Tailored for India):**
   * *Heat Waves:* Fuses **NOAA Steadman Heat Index** and **Moran's Physiological Strain Index (PSI)** with cardiac tachycardia to warn of heat exhaustion before collapse.
   * *Smog Events:* Combines **neural-calibrated PM2.5** with an **AHA-motivated PM2.5-HRV autonomic-strain heuristic** to flag acute vagal suppression ($RMSSD$ drop).
@@ -187,9 +187,9 @@ The intelligence layer features an ultra-compact 2-hidden-layer feedforward arti
   * **Neuron 1 — Heat Stroke Risk:** Detects cardiovascular drift under severe heat index conditions.
   * **Neuron 2 — Air Pollution Risk:** Assesses respiratory distress caused by hazardous particulate matter.
   * **Neuron 3 — Flood / Hypothermia Risk:** Evaluates cold exposure and immersion-induced bradycardia.
-* **INT8 Quantization & Memory Footprint:** Fixed-point representation reduces total parameter storage to **619 bytes** (**576 INT8 MAC operations**), executing in **0.44 µs** per inference on an x86-64 host at `-O2` with zero cloud dependencies. Target-side (ESP32-S3) latency has **not** been measured.
+* **INT8 Quantization & Memory Footprint:** Per-tensor symmetric INT8 weight storage reduces total parameter storage to **619 bytes** (**576 MAC operations**), executing in **0.44 µs** per inference on an x86-64 host at `-O2` with zero cloud dependencies. Target-side (ESP32-S3) latency has **not** been measured. Note what "INT8" does and does not mean here: the *weights* are stored as signed 8-bit integers and the *activations* are requantized to uint8, but the multiply-accumulate runs in single-precision float on the ESP32-S3's FPU, because the kernel dequantizes the weights per layer. The INT8 format buys flash and RAM and reproducibility; it does not turn this kernel into an integer MAC unit.
 * **Accuracy & Validation:**
-  * **Synthetic Multi-Disaster Validation:** **88.47%** exact tier agreement on a 6,200-sample held-out split of the synthetic scenario set (validation MSE `0.002979`, FP32↔INT8 tier agreement 97.32%). Reproduce with `python3 firmware/core/train_nn_risk_model.py`; CI enforces a floor via `--min-accuracy`.
+  * **Synthetic Multi-Disaster Validation:** **88.47%** exact tier agreement for the float32 reference and **88.39%** for the deployed INT8 model (the artifact the firmware actually runs) on a **7,000-sample** held-out split of the synthetic scenario set (validation MSE `0.002979`, FP32↔INT8 tier agreement 97.32%). "Agreement" is agreement with the rule-based teacher the network was distilled from, not clinical accuracy. Reproduce with `python3 firmware/core/train_nn_risk_model.py`; CI enforces floors via `--min-accuracy` and `--min-int8-accuracy`.
   * **Clinical MIMIC-III ICU Database Benchmark:** **94.11%** triage accuracy over 16,387 MIMIC-III ICU time steps, with 58.18% sensitivity / 98.19% specificity. **The HR and SpO₂ inputs are real MIMIC-III chart events; the RMSSD column is synthetic**, because MIMIC-III v1.4 ships no waveform data from which beat-to-beat intervals could be derived. See [Reproducibility](#-reproducibility--evidence-provenance).
 
 ---
@@ -436,7 +436,7 @@ Severe Smog (AQI500+)     | NORMAL    CRITICAL  MODERATE  | 0.012     0.922     
 Flash Flood/Hypothermia   | NORMAL    NORMAL    CRITICAL  | 0.008     0.112     0.500    
 ```
 
-The NN correctly identifies the **dominant risk axis** in every scenario. Training metrics on held-out data: **r = 0.97 (heat), r = 0.97 (pollution), r = 0.94 (flood)** with 78–89% exact risk-band agreement. See [`train_nn_risk_model.py`](firmware/core/train_nn_risk_model.py) for the full training script.
+The NN correctly identifies the **dominant risk axis** in every scenario. Measured on the 7,000-sample held-out split against the rule-based teacher: **r = 0.99 (heat), r = 0.98 (pollution), r = 0.97 (flood)** for the deployed INT8 model, with **86.0–92.0%** exact risk-band agreement per axis (88.39% overall). See [`train_nn_risk_model.py`](firmware/core/train_nn_risk_model.py) for the full training script.
 
 ---
 
@@ -539,7 +539,7 @@ For an in-depth mathematical defense, signal processing equations, and clinical 
 │   │   ├── spo2_engine.c / .h      # Ratio-of-ratios pulse oximetry calculation
 │   │   ├── disaster_risk_engine.c  # Moran PSI, Steadman/Rothfusz HI, PM2.5-HRV heuristic, project-trained PM2.5 NN
 │   │   ├── nn_risk_model.c / .h    # Float32 feedforward TinyML model (6→24→16→3)
-│   │   ├── nn_risk_model_int8.c    # INT8 Quantized TinyML engine (619 bytes SRAM, 88.47% acc)
+│   │   ├── nn_risk_model_int8.c    # INT8 Quantized TinyML engine (619 bytes SRAM, 88.39% teacher agreement)
 │   │   ├── accuracy_evaluator.c    # MIMIC-III triage metrics (94.11% acc, confusion matrix)
 │   │   └── mimic_harness.c         # MIMIC-III cohort scan (triage level counts + latency only)
 │   ├── zynq/                       # Zynq PS application, sensor drivers & harnesses

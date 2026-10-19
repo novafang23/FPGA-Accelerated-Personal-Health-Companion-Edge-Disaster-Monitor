@@ -935,6 +935,45 @@ verdict is `RISK_UNKNOWN` with "Patient not assessed". Host case `[Hold]` covers
 both halves (calm + no patient → UNKNOWN; hazard + no patient → hazard
 survives).
 
+**AI model audit — 2026-10-20.** Full report:
+[`docs/reports/AI_MODEL_AUDIT_2026-10-20.md`](reports/AI_MODEL_AUDIT_2026-10-20.md).
+The shipped INT8 hazard model was re-implemented independently in Python from the
+committed weight files and re-trained from scratch. Result: the artefacts reproduce
+byte for byte, INT8-vs-FP32 max error is 0.0914 with 97.32% tier agreement, and the
+**deployed INT8 model agrees with the rule-based teacher 88.39%** (float32 reference
+88.47%) on the 7,000-sample held-out split. Fixed in this pass:
+
+- A non-finite sensor value used to produce a finite, plausible score (the uint8
+  requantiser clamped the NaN to 0, so the network returned its bias vector as a
+  measurement). `nn_features_finite()` now declines with `RISK_UNKNOWN`.
+- The float32 model and its 2.5 kB of weights were dead payload in the device image
+  (`nn_predict()` has no device caller). The ESP32 build is now INT8-only
+  (`NN_ENABLE_FLOAT32_MODEL=0`); the link map confirms `nn_risk_model.c.obj` is gone.
+- `docs/JUDGE_QA.md` and `docs/PROJECT_GUIDE.md` described an int32/LUT sigmoid kernel
+  that the hazard model does not use (that description belongs to the PM2.5
+  calibration net). Both documents now describe the real float-MAC + `expf()`
+  pipeline and cite the link map as proof.
+- The published numbers were corrected: "88.47% (INT8)" → 88.39% for the shipped
+  model, "6,200-sample split" → 7,000, "r = 0.97/0.97/0.94" → 0.99/0.98/0.97,
+  "~18 µs on the ESP32-S3" → removed (never measured), "0.38 µs" → 0.44 µs host,
+  "rule/NN 99.95%" → it is the MIMIC-III FP32↔INT8 agreement.
+- The trainer now emits both the float32 and the INT8 teacher-agreement figures in
+  the weight-file headers and CI gates on the INT8 one
+  (`--min-int8-accuracy`, default 86 %).
+
+**Open judgement call (not changed): the PM2.5 calibration net.** Measured on the
+real 0–500 µg/m³ range it can return a value up to ~70 % *lower* than the raw PMS5003
+reading (raw 500 → 153), and at high humidity it can return 0.0 for a raw reading of
+20. That calibrated value feeds both the pollution rule and the pollution network, so
+a hazy day can read as clean. Three options, none taken yet:
+
+1. Compute the pollution risk from the **raw** optical reading and publish the
+   calibrated value as advisory only (the sensor's own correction then cannot move
+   the verdict).
+2. Keep the calibrated value in the verdict but publish **both** numbers everywhere
+   (dashboard, `[TRIAGE]`, MIMIC evaluator) so a judge can see the correction.
+3. Leave as is and document the correction in the judge notes.
+
 With the board on COM4, follow
 [`docs/HARDWARE_DEBUG_HANDOVER.md`](HARDWARE_DEBUG_HANDOVER.md) §6. The short
 version:
