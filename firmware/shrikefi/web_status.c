@@ -25,13 +25,19 @@ static valor_status_t s_snap;
 /* ------------------------------------------------------------------------- */
 /* 24-Hour Rolling History (Requirement 7 / T3.2)                            */
 /* ------------------------------------------------------------------------- */
-/* RAM-only by design: the 24 slots reset on reboot and fill only as uptime
- * accumulates. The UI labels this "since boot" rather than implying a
- * calendar 24-hour record persisted in flash. */
-
+/* 24 completed-hour slots, persisted to NVS as a canonical 612-byte blob and
+ * restored on boot (see web_status.h). There is no calendar time source, so a
+ * slot is "an hour of device uptime", not a clock hour; the UI must label it
+ * that way and must not call it a calendar day. A partial hour in progress at
+ * power loss is discarded rather than promoted to a completed one. */
 static valor_history_point_t s_history[VALOR_HISTORY_HOURS];
 static uint32_t s_last_hour_s = 0;
 static bool     s_last_hour_init = false;
+/* Scratch for encode/decode. Static because the monitor task stack is not sized
+ * for a 612-byte blob on top of its existing frame, and both uses are
+ * serialised by WS_LOCK() or by single-task startup. */
+static uint8_t  s_history_blob[VALOR_HISTORY_BLOB_BYTES];
+static bool     s_history_dirty = false;
 static uint32_t s_accum_count = 0;      /* HR samples                                  */
 static uint32_t s_accum_spo2_n = 0;     /* samples with a valid SpO2                    */
 static uint32_t s_accum_rmssd_n = 0;    /* samples with a valid RMSSD                   */
@@ -44,6 +50,13 @@ static bool     s_history_initialized = false;
 
 static void history_feed_locked(const valor_status_t *s);
 
+/* NVS-backed persistence (T3.2). These are no-ops on the host build; the
+ * persistence decision (which slots to save, and how a restored set is shifted)
+ * lives in the pure code so it is observable and unit-tested. */
+static void history_nvs_load(void);
+static void history_nvs_store(const uint8_t *blob, size_t len);
+static void history_persist_if_dirty(void);
+
 #ifdef ESP_PLATFORM
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
@@ -55,6 +68,11 @@ static SemaphoreHandle_t s_lock = NULL;
 #else
 #define WS_LOCK()   do { } while (0)
 #define WS_UNLOCK() do { } while (0)
+static void history_nvs_load(void) { }
+static void history_nvs_store(const uint8_t *blob, size_t len) {
+    (void)blob;
+    (void)len;
+}
 #endif
 
 void web_status_publish(const valor_status_t *s) {
@@ -63,6 +81,10 @@ void web_status_publish(const valor_status_t *s) {
     s_snap = *s;
     history_feed_locked(s);
     WS_UNLOCK();
+    /* Do the flash write outside the lock so a slow NVS commit never stalls the
+     * HTTP task reading the snapshot. This only does work once an hour, when a
+     * rollover has just finalised a slot. */
+    history_persist_if_dirty();
 }
 
 void web_status_snapshot(valor_status_t *out) {
@@ -214,8 +236,129 @@ size_t web_status_json(const valor_status_t *s, char *buf, size_t cap) {
 /* 24-Hour History Implementation                                             */
 /* ------------------------------------------------------------------------- */
 
-void web_status_history_init(void) {
+/* --- canonical on-flash encoding (see web_status.h) ---------------------- */
+
+#define VALOR_HISTORY_BLOB_MAGIC   0x31564C48u /* "HLV1" little-endian */
+#define VALOR_HISTORY_BLOB_VERSION 1u
+#define VALOR_HISTORY_POINT_BYTES  25u
+#define VALOR_HISTORY_HEADER_BYTES 12u
+
+static void hist_put_u32le(uint8_t *p, uint32_t v) {
+    p[0] = (uint8_t)(v & 0xFFu);
+    p[1] = (uint8_t)((v >> 8) & 0xFFu);
+    p[2] = (uint8_t)((v >> 16) & 0xFFu);
+    p[3] = (uint8_t)((v >> 24) & 0xFFu);
+}
+
+static uint32_t hist_get_u32le(const uint8_t *p) {
+    return (uint32_t)p[0] | ((uint32_t)p[1] << 8) |
+           ((uint32_t)p[2] << 16) | ((uint32_t)p[3] << 24);
+}
+
+static void hist_put_f32le(uint8_t *p, float v) {
+    uint32_t bits;
+    memcpy(&bits, &v, sizeof(bits));
+    hist_put_u32le(p, bits);
+}
+
+static float hist_get_f32le(const uint8_t *p) {
+    uint32_t bits = hist_get_u32le(p);
+    float v;
+    memcpy(&v, &bits, sizeof(v));
+    return v;
+}
+
+/* FNV-1a, 32-bit. Chosen because it is tiny and dependency-free, not because it
+ * is a cryptographic digest: it catches the half-written or bit-rotted page this
+ * guard exists for. */
+static uint32_t hist_checksum(const uint8_t *p, size_t n) {
+    uint32_t h = 2166136261u;
+    for (size_t i = 0; i < n; i++) {
+        h ^= (uint32_t)p[i];
+        h *= 16777619u;
+    }
+    return h;
+}
+
+size_t web_status_history_encode(const valor_history_point_t *pts, size_t n,
+                                 uint8_t *buf, size_t cap) {
+    if (!pts || !buf || n == 0 || n > VALOR_HISTORY_HOURS) return 0;
+    size_t need = VALOR_HISTORY_HEADER_BYTES + n * VALOR_HISTORY_POINT_BYTES;
+    if (cap < need) return 0;
+
+    hist_put_u32le(buf + 0, VALOR_HISTORY_BLOB_MAGIC);
+    buf[4] = (uint8_t)VALOR_HISTORY_BLOB_VERSION;
+    buf[5] = 0;
+    buf[6] = (uint8_t)(n & 0xFFu);
+    buf[7] = (uint8_t)((n >> 8) & 0xFFu);
+
+    size_t off = VALOR_HISTORY_HEADER_BYTES;
+    for (size_t i = 0; i < n; i++) {
+        hist_put_u32le(buf + off, pts[i].hour_offset); off += 4;
+        hist_put_f32le(buf + off, pts[i].avg_hr);      off += 4;
+        hist_put_f32le(buf + off, pts[i].avg_spo2);    off += 4;
+        hist_put_f32le(buf + off, pts[i].avg_rmssd);   off += 4;
+        hist_put_f32le(buf + off, pts[i].peak_pm25);   off += 4;
+        hist_put_u32le(buf + off, (uint32_t)pts[i].max_news2); off += 4;
+        buf[off++] = pts[i].valid ? 1u : 0u;
+    }
+
+    hist_put_u32le(buf + 8, hist_checksum(buf + VALOR_HISTORY_HEADER_BYTES,
+                                          n * VALOR_HISTORY_POINT_BYTES));
+    return off;
+}
+
+size_t web_status_history_decode(const uint8_t *buf, size_t len,
+                                 valor_history_point_t *pts, size_t n) {
+    if (!buf || !pts || n == 0) return 0;
+    if (len < VALOR_HISTORY_HEADER_BYTES) return 0;
+    if (hist_get_u32le(buf) != VALOR_HISTORY_BLOB_MAGIC) return 0;
+    if (buf[4] != (uint8_t)VALOR_HISTORY_BLOB_VERSION) return 0;
+
+    size_t count = (size_t)buf[6] | ((size_t)buf[7] << 8);
+    if (count == 0 || count > VALOR_HISTORY_HOURS) return 0;
+    size_t need = VALOR_HISTORY_HEADER_BYTES + count * VALOR_HISTORY_POINT_BYTES;
+    if (len < need) return 0;
+    if (hist_get_u32le(buf + 8) !=
+        hist_checksum(buf + VALOR_HISTORY_HEADER_BYTES,
+                      count * VALOR_HISTORY_POINT_BYTES)) {
+        return 0;
+    }
+
+    size_t out_n = (count < n) ? count : n;
+    for (size_t i = 0; i < out_n; i++) {
+        size_t off = VALOR_HISTORY_HEADER_BYTES + i * VALOR_HISTORY_POINT_BYTES;
+        uint32_t hour = hist_get_u32le(buf + off);
+        if (hour >= VALOR_HISTORY_HOURS) return 0;
+        uint8_t valid = buf[off + 24];
+        if (valid > 1u) return 0;
+
+        pts[i].hour_offset = hour;
+        pts[i].avg_hr      = hist_get_f32le(buf + off + 4);
+        pts[i].avg_spo2    = hist_get_f32le(buf + off + 8);
+        pts[i].avg_rmssd   = hist_get_f32le(buf + off + 12);
+        pts[i].peak_pm25   = hist_get_f32le(buf + off + 16);
+        pts[i].max_news2   = (unsigned)hist_get_u32le(buf + off + 20);
+        pts[i].valid       = (valid != 0u);
+    }
+    return out_n;
+}
+
+/* Encode a finished hour under the lock, then write it to flash with the lock
+ * released. If the encode fails the dirty flag stays set and the next publish
+ * retries, so a transient failure does not silently drop the data. */
+static void history_persist_if_dirty(void) {
+    if (!s_history_dirty) return;
+    size_t n;
     WS_LOCK();
+    n = web_status_history_encode(s_history, VALOR_HISTORY_HOURS,
+                                  s_history_blob, sizeof(s_history_blob));
+    if (n > 0) s_history_dirty = false;
+    WS_UNLOCK();
+    if (n > 0) history_nvs_store(s_history_blob, n);
+}
+
+static void history_reset_locked(void) {
     for (size_t i = 0; i < VALOR_HISTORY_HOURS; i++) {
         s_history[i].hour_offset = (uint32_t)i;
         s_history[i].avg_hr = 0.0f;
@@ -225,6 +368,14 @@ void web_status_history_init(void) {
         s_history[i].max_news2 = 0;
         s_history[i].valid = false;
     }
+    s_history_initialized = true;
+    s_history_dirty = false;
+}
+
+void web_status_history_init(void) {
+    WS_LOCK();
+    history_reset_locked();
+    history_nvs_load();
     s_last_hour_s = 0;
     s_last_hour_init = false;
     s_accum_count = 0;
@@ -235,22 +386,16 @@ void web_status_history_init(void) {
     s_accum_rmssd = 0.0f;
     s_accum_pm25 = 0.0f;
     s_accum_news2 = 0;
-    s_history_initialized = true;
     WS_UNLOCK();
 }
 
 static void history_feed_locked(const valor_status_t *s) {
     if (!s_history_initialized) {
-        for (size_t i = 0; i < VALOR_HISTORY_HOURS; i++) {
-            s_history[i].hour_offset = (uint32_t)i;
-            s_history[i].avg_hr = 0.0f;
-            s_history[i].avg_spo2 = 0.0f;
-            s_history[i].avg_rmssd = 0.0f;
-            s_history[i].peak_pm25 = 0.0f;
-            s_history[i].max_news2 = 0;
-            s_history[i].valid = false;
-        }
-        s_history_initialized = true;
+        /* The device calls web_status_history_init() explicitly; this lazy path
+         * is the safety net for a publish that arrives first, and it restores
+         * the saved history exactly the same way. */
+        history_reset_locked();
+        history_nvs_load();
     }
 
     if (!s_last_hour_init) {
@@ -258,31 +403,9 @@ static void history_feed_locked(const valor_status_t *s) {
         s_last_hour_init = true;
     }
 
-    /* Accumulate vitals when tissue contact is present */
-    if (s->contact && s->hr >= 30.0f && s->hr <= 240.0f) {
-        s_accum_hr += s->hr;
-        s_accum_count++;
-        /* Average each clinical field over its own valid samples. SpO2 is 0
-         * while the engine is calibrating, and RMSSD is 0 until the SQI/9-pair
-         * gate opens; including those zeros would drag the hourly averages down
-         * and make a normal hour look hypoxic or low-HRV. */
-        if (s->spo2 > 0.0f) {
-            s_accum_spo2 += s->spo2;
-            s_accum_spo2_n++;
-        }
-        if (s->rmssd > 0.0f) {
-            s_accum_rmssd += s->rmssd;
-            s_accum_rmssd_n++;
-        }
-        if (s->news2 > s_accum_news2) {
-            s_accum_news2 = s->news2;
-        }
-    }
-    if (s->pm25 > s_accum_pm25) {
-        s_accum_pm25 = s->pm25;
-    }
-
-    /* Check if 1 hour (3600 seconds) has elapsed to shift the rolling window */
+    /* Finalise every hour that has fully elapsed BEFORE this sample is added, so
+     * the sample that crosses the boundary counts toward the hour that is
+     * starting, not the hour that just ended. */
     while (s->uptime_s >= s_last_hour_s + 3600) {
         for (int i = VALOR_HISTORY_HOURS - 1; i > 0; i--) {
             s_history[i] = s_history[i - 1];
@@ -307,6 +430,10 @@ static void history_feed_locked(const valor_status_t *s) {
             s_history[0].max_news2 = 0;
             s_history[0].valid = false;
         }
+        /* A slot just became a completed hour: persist the whole array once the
+         * lock is released (history_persist_if_dirty). Even when the hour is
+         * invalid this is written, so a genuine gap is preserved as a gap. */
+        s_history_dirty = true;
         s_last_hour_s += 3600;
         s_accum_count = 0;
         s_accum_spo2_n = 0;
@@ -316,12 +443,36 @@ static void history_feed_locked(const valor_status_t *s) {
         s_accum_rmssd = 0.0f;
         s_accum_pm25 = 0.0f;
         s_accum_news2 = 0;
-        
+
         /* Prevent infinite loop on massive jumps (e.g. sleep/wake) */
         if (s->uptime_s >= s_last_hour_s + (3600 * VALOR_HISTORY_HOURS)) {
             s_last_hour_s = s->uptime_s;
             break;
         }
+    }
+
+    /* Accumulate this sample into the hour that is now current. */
+    if (s->contact && s->hr >= 30.0f && s->hr <= 240.0f) {
+        s_accum_hr += s->hr;
+        s_accum_count++;
+        /* Average each clinical field over its own valid samples. SpO2 is 0
+         * while the engine is calibrating, and RMSSD is 0 until the SQI/9-pair
+         * gate opens; including those zeros would drag the hourly averages down
+         * and make a normal hour look hypoxic or low-HRV. */
+        if (s->spo2 > 0.0f) {
+            s_accum_spo2 += s->spo2;
+            s_accum_spo2_n++;
+        }
+        if (s->rmssd > 0.0f) {
+            s_accum_rmssd += s->rmssd;
+            s_accum_rmssd_n++;
+        }
+        if (s->news2 > s_accum_news2) {
+            s_accum_news2 = s->news2;
+        }
+    }
+    if (s->pm25 > s_accum_pm25) {
+        s_accum_pm25 = s->pm25;
     }
 
     /* Update slot 0 live with running averages for the current hour */
@@ -577,10 +728,72 @@ static const char PAGE_HTML[] =
 #include "esp_netif.h"
 #include "esp_event.h"
 #include "esp_mac.h"
+#include "nvs.h"
 #include "nvs_flash.h"
 #include "esp_http_server.h"
 
 static const char *TAG = "WEB_STATUS";
+
+/* ------------------------------------------------------------------------- */
+/* History persistence (T3.2)                                                 */
+/* ------------------------------------------------------------------------- */
+
+#define VALOR_HISTORY_NVS_NAMESPACE "valor_hist"
+#define VALOR_HISTORY_NVS_KEY       "hist"
+
+/* Restore the last saved set of completed hours and shift it one slot older so
+ * slot 0 is free for the hour that starts now. A partial hour that was in
+ * progress when power was lost is therefore dropped rather than promoted to a
+ * completed one. Called with WS_LOCK() held, from web_status_history_init(). */
+static void history_nvs_load(void) {
+    nvs_handle_t h;
+    if (nvs_open(VALOR_HISTORY_NVS_NAMESPACE, NVS_READONLY, &h) != ESP_OK) {
+        ESP_LOGI(TAG, "No stored history; the chart starts empty");
+        return;
+    }
+    size_t len = sizeof(s_history_blob);
+    esp_err_t err = nvs_get_blob(h, VALOR_HISTORY_NVS_KEY, s_history_blob, &len);
+    nvs_close(h);
+    if (err != ESP_OK) {
+        ESP_LOGI(TAG, "No stored history (%s); the chart starts empty", esp_err_to_name(err));
+        return;
+    }
+
+    static valor_history_point_t stored[VALOR_HISTORY_HOURS];
+    size_t n = web_status_history_decode(s_history_blob, len, stored, VALOR_HISTORY_HOURS);
+    if (n == 0) {
+        /* Bad magic/version/checksum or a short blob. Keeping the empty buffer is
+         * better than graphing half-decoded values as if they were measured. */
+        ESP_LOGW(TAG, "Stored history is unreadable; ignoring it");
+        return;
+    }
+
+    for (int i = VALOR_HISTORY_HOURS - 1; i > 0; i--) {
+        s_history[i] = stored[i - 1];
+        s_history[i].hour_offset = (uint32_t)i;
+    }
+    /* Slot 0 is this power-on's in-progress hour; it is already cleared. */
+    ESP_LOGI(TAG, "Restored %zu completed hourly summaries from NVS", n);
+}
+
+/* One write per completed hour. The blob is encoded under the lock by
+ * history_persist_if_dirty() and written here with the lock released. */
+static void history_nvs_store(const uint8_t *blob, size_t len) {
+    nvs_handle_t h;
+    esp_err_t err = nvs_open(VALOR_HISTORY_NVS_NAMESPACE, NVS_READWRITE, &h);
+    if (err != ESP_OK) {
+        ESP_LOGW(TAG, "nvs_open failed (%s); history kept in RAM only", esp_err_to_name(err));
+        return;
+    }
+    err = nvs_set_blob(h, VALOR_HISTORY_NVS_KEY, blob, len);
+    if (err == ESP_OK) err = nvs_commit(h);
+    nvs_close(h);
+    if (err != ESP_OK) {
+        ESP_LOGW(TAG, "history write failed (%s); history kept in RAM only", esp_err_to_name(err));
+    } else {
+        ESP_LOGI(TAG, "Persisted %zu-byte hourly-history blob", len);
+    }
+}
 
 static char s_ssid[33];
 static bool s_ap_active = false;

@@ -110,7 +110,42 @@ typedef struct {
     bool     valid;
 } valor_history_point_t;
 
-/* Initialize or clear the 24-hour history tracker */
+/* Canonical on-flash encoding for the 24-hour history (T3.2).
+ *
+ * This is NOT a memcpy of the struct. Each field is written explicitly in
+ * little-endian order so the blob cannot be silently invalidated by compiler
+ * padding, a bool whose size differs, or a future field added to the struct. A
+ * 12-byte header carries a magic, a version, the point count and an FNV-1a
+ * checksum over the payload; the decoder rejects a short buffer, a bad
+ * magic/version/checksum, an out-of-range hour index, or a non-boolean valid
+ * byte. Any of those means "unreadable", and the caller keeps the empty RAM
+ * buffer rather than showing half-decoded history as real.
+ *
+ * These are pure so the round-trip and every corruption path are unit-tested on
+ * the host. Only web_status_history_init() (load) and an hourly rollover (save)
+ * touch NVS, and only on the device.
+ *
+ * Layout: 12-byte header + 24 * 25-byte points = 612 bytes. */
+#define VALOR_HISTORY_BLOB_BYTES 612
+
+/* Encode n points into buf. Returns the bytes written, or 0 if the arguments are
+ * invalid or cap is too small. */
+size_t web_status_history_encode(const valor_history_point_t *pts, size_t n,
+                                 uint8_t *buf, size_t cap);
+
+/* Decode a blob into pts. Returns the number of points decoded (<= n), or 0 if
+ * the blob is unreadable for any reason. */
+size_t web_status_history_decode(const uint8_t *buf, size_t len,
+                                 valor_history_point_t *pts, size_t n);
+
+/* Initialize the 24-hour history tracker.
+ *
+ * On the device this resets the RAM buffer, then restores the last saved set of
+ * *completed* hours from NVS and shifts it so slot 0 is free for the hour that
+ * is starting now. A power loss mid-hour therefore loses that partial hour
+ * rather than promoting it to a completed one, and there is no calendar time
+ * source: the slots are "hours of device uptime", not clock hours. On the host
+ * the NVS step is a no-op. */
 void web_status_history_init(void);
 
 /* Copy 24-hour history points out thread-safely */

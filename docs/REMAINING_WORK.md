@@ -304,16 +304,20 @@ correctly reads UNKNOWN until the window is long enough to mean anything.
 
 ---
 
-### T3.2 — Dashboard history and daily summaries  **PARTIAL (2026-10-18)**
+### T3.2 — Dashboard history and daily summaries  ✅ **DONE (2026-10-19)**
 
 Requirement 7 asks for *"daily health summaries and trend analysis"*. The dashboard is no
 longer live-only: `web_status.c` keeps 24 hourly slots and the standalone page renders a
 24-hour trajectory chart with mean/nadir/peak summaries.
 
-**Still open:** the 24 slots live in RAM only and are not persisted to NVS or SD, so a reboot
-clears them. The chart is therefore *since boot*, not a calendar 24-hour record, and it takes
-24 hours of continuous uptime to fill. Persisting the 24-point history is the remaining
-~2–4 hour task; the chart and hourly averaging (including the zero-skip fix) are done.
+**Persistence (2026-10-19).** The 24 completed hours are now written to NVS as a single
+canonical 612-byte blob (12-byte header + 24 × 25-byte records: little-endian fields, FNV-1a
+checksum, magic, version). One write happens when an hour rolls over, outside the status lock;
+`web_status_history_init()` restores the saved array at boot and shifts it one slot older, so a
+partial hour lost to power loss is dropped rather than promoted. It is still **not a calendar
+record**: the board has no wall-clock time source, so each slot is an hour of device uptime and
+the UI labels it `DEVICE HOURS`. The blob codec is host-tested (round-trip, checksum, bad
+magic, truncation, too-small buffer) along with the hourly rollover and the zero-skip averages.
 
 ---
 
@@ -677,10 +681,10 @@ were applied. `verify_dashboard.py` and `verify_softap_page.py` pass.
 - 24-hour history accuracy: SpO2/RMSSD are averaged over their own valid samples
   instead of being divided by every HR sample, an empty current hour no longer
   keeps stale clinical values, and the page no longer overwrites slot 0 with an
-  instantaneous reading. The chart now says "since boot"; a 34th unit test covers
-  the hourly rollover and zero-skip behavior.
+  instantaneous reading. The chart labels the record `DEVICE HOURS`; host tests cover
+  the hourly rollover, the zero-skip averages, and the persisted-blob codec.
 - The history chart now prints its fixed display ranges, labels the
-  simulation history **SYNTHETIC**, shows `n/24 hours populated` in live mode,
+  simulation history **SYNTHETIC**, shows `n/24 populated` in live mode,
   uses an "hourly average" tooltip, and offers **EXPORT CSV** for the 24 rows.
 - No-finger live PPG is labelled **AMBIENT** with a grey trace and a
   **“NO CONTACT — ambient IR (not a pulse)”** overlay; it is not painted as a
@@ -874,7 +878,7 @@ still open.
 | 4 | Environmental awareness | **Strong** | — |
 | 5 | Privacy-preserving edge AI | **Satisfied** — cloud publishing off by default | — |
 | 6 | Emergency assistance | **Partial — SOS latch + OLED emergency card + local status page + stored location shipped (T1.2-T1.4)** | a POST SOS trigger endpoint, and a button (T2.2) |
-| 7 | Wellness dashboard | **24-slot hourly history + chart, RAM-only since boot** | T3.2 persistence (NVS/SD) |
+| 7 | Wellness dashboard | **24-slot hourly history + chart, NVS-persisted (device-hours, no wall clock)** | — |
 | 8 | Scalable deployment | Roadmap only | — |
 
 ---
@@ -884,7 +888,7 @@ still open.
 ```
 DONE: T1.1-T1.7 core software/status; T2.3 IMU fitted (physical fall test
       1/1 passed 2026-10-19; false positives not yet characterised);
-      T3.1, T3.3, T3.4, T3.5; T4.4 fit recorded (515 LUT5s / 303 FFs / 105 CLBs).
+      T3.1, T3.2, T3.3, T3.4, T3.5; T4.4 fit recorded (515 LUT5s / 303 FFs / 105 CLBs).
 
 BOARD RECONNECT GATE — do this before the next measurement:
   The HRV readiness fix and the 2026-10-19 peak/4 bitstream are flashed on COM5.

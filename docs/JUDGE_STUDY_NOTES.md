@@ -653,10 +653,11 @@ The PC sees structured lines:
 
 ### 24-hour history
 
-- 24 hourly slots in **RAM**.
-- Fills only as the device runs; resets on reboot.
-- Labeled **“since boot”**, not a persistent calendar history.
-- NVS persistence is not implemented; no time source / design decision yet.
+- 24 hourly slots, written to **NVS** as one checksummed 612-byte blob.
+- Survives reboot; the last saved set is restored and shifted one slot older.
+- Each slot is one hour of **device uptime**, not a clock hour.
+- Labeled **“DEVICE HOURS”**, not a persistent calendar history.
+- A wall-clock time source for a true calendar record is still not fitted.
 
 ---
 
@@ -678,7 +679,7 @@ Be precise. Judges reward this.
 | Skin temperature | **Not fitted**; flood/hypothermia uses ambient proxy, capped at HIGH |
 | Fall detection | **5-state FSM; 16/16 host tests; 1/1 physical drop trial passed**; false-positive rate not characterised |
 | SOS escalation | **4-state FSM implemented**; 10 s fall grace + 5 s cancel hold; countdown + buzzer + cancel verified in the physical trial |
-| 24-hour history | **RAM only since boot**, not persistent |
+| 24-hour history | **NVS-persisted device-hours** (24 slots, reboot-safe); **not a calendar record** |
 | ForgeFPGA timing | **No real 50 MHz constraint**; 88.059 MHz is an unconstrained-fit indication |
 | MQTT/cloud | **Dev only / off by default** |
 | Medical device status | **Prototype; not a medical device** |
@@ -694,7 +695,7 @@ Do not say “HRV is fixed” or “HRV is accurate” yet.
 1. **It is not a medical device.** It is a triage/engineering prototype.
 2. **It is not a finished wearable.** It is a breadboard/USB bench prototype; no enclosure, battery or charger. The PPG is currently **fingertip contact**, not a wrist strap.
 3. **It cannot call an ambulance.** There is no cellular modem or SMS path; SOS is local OLED + buzzer + local web. A bystander must be nearby to act on it.
-4. **It does not keep a persistent 24-hour record.** The 24 slots are RAM-only since boot.
+4. **It does not keep a calendar 24-hour record.** The 24 slots are persisted to NVS, but they are hours of device uptime, not clock hours.
 5. **It does not use a cloud AI.** TinyML runs on the ESP32; the cloud/MQTT path is optional and off by default.
 6. **The fall FSM assumes the IMU is worn on the body.** The code and host tests exist, and one physical drop trial passed, but the current bench prototype is not a worn device and false positives have not been characterised.
 
@@ -703,7 +704,7 @@ Do not say “HRV is fixed” or “HRV is accurate” yet.
 - **Live hardware mode:** the dashboard connects to **COM5** over Web Serial; values come from `[TELEMETRY]`/`[TRIAGE]` lines produced by the board.
 - **Simulation mode:** the dashboard has six synthetic disaster profiles. They are for UI demonstration and are labelled as simulated. Do not present a simulation profile as live sensor data.
 - **MIMIC evidence:** the 94.11% figure is agreement with our triage rule on 16,387 ICU rows. HR and SpO₂ are real chart values; **RMSSD is synthesised** because MIMIC-III v1.4 has no waveform data; the labels are rule-derived. It is **not** independent clinical validation of the wearable.
-- **24-hour chart:** the 24 hourly slots are accumulated since boot, not a calendar history; empty lanes show as gaps, not zero.
+- **24-hour chart:** the 24 hourly slots are device-hours persisted to NVS, not a calendar history; empty lanes show as gaps, not zero.
 
 ### 14.3 Physical build status — what is not fitted yet
 
@@ -899,10 +900,10 @@ That answer is stronger than guessing.
 > “In live mode, yes — it reads `[TELEMETRY]`/`[TRIAGE]` from COM5. It also has six deliberately synthetic disaster profiles for UI demonstration. We never present a synthetic profile as live hardware data.”
 
 ### Q34. What is still missing for a production device?
-> “A proper SpO₂ cradle and calibration, ECG/chest-strap HRV validation, multi-trial fall validation with false-positive characterisation, a real 50 MHz FPGA constraint, NVS history with a time source, an enclosure, battery/charger and power measurement, and a physical SOS button.”
+> “A proper SpO₂ cradle and calibration, ECG/chest-strap HRV validation, multi-trial fall validation with false-positive characterisation, a real 50 MHz FPGA constraint, a wall-clock time source for a true calendar history, an enclosure, battery/charger and power measurement, and a physical SOS button.”
 
 ### Q35. Is the 24-hour history persistent?
-> “No. It is 24 hourly slots in RAM, filled since boot. It resets on reboot and is labelled ‘since boot.’ NVS persistence needs a real time source, which we have not added yet.”
+> “The 24 completed hours are written to NVS on each rollover and restored after a reboot, so the trend survives a power cycle. It is still not a calendar history: there is no wall-clock time source, so each slot is one hour of device uptime. We label it ‘DEVICE HOURS’ for that reason.”
 
 ### Q36. Is it wearable? How is it worn?
 > “Not yet as a finished device. The current build is a breadboard bench prototype with a fingertip PPG. The wearable version needs a reflective cradle/strap and an enclosure. We have one successful bench drop trial, but the fall FSM assumes a body-worn IMU, so wearable validation and false-positive testing are still open.”
@@ -934,7 +935,7 @@ That answer is stronger than guessing.
 6. **State the limits before the judge asks:**
    - HRV is under validation;
    - SpO₂ is prototype-calibrated;
-   - 24 h history is since boot;
+   - 24 h history is device-hours, reboot-safe but not calendar-dated;
    - no battery measurement yet.
 
 If the judge asks for HRV, show it but add the caveat immediately. Do not wait for the 300-beat window to settle during a short demo.
@@ -1024,7 +1025,7 @@ If the judge asks for HRV, show it but add the caveat immediately. Do not wait f
 - “medical-grade”
 - “clinically validated” / “100 % accurate”
 - “the AI diagnoses”
-- “24-hour persistent history”
+- “calendar 24-hour history”
 - “5 V logic”
 - “the FPGA does everything”
 - “HRV is fixed”

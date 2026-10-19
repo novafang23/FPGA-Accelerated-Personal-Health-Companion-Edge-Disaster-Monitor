@@ -2531,6 +2531,11 @@ void app_main(void) {
     wifi_mqtt_init();
 #endif
 
+    /* Restore the persisted completed-hour history before the monitor task
+     * starts publishing (T3.2). On a unit with NVS unavailable this logs and
+     * keeps the empty RAM buffer; it never blocks startup. */
+    web_status_history_init();
+
     /* Initialize SSD1306 OLED (check default 0x3C, fallback to 0x3D) */
     if (ssd1306_init(&s_ssd1306, esp32_i2c_hal_get_handle(), SSD1306_I2C_ADDR) == 0) {
         ESP_LOGI(TAG, "SSD1306 OLED initialized OK at 0x3C");
@@ -2943,6 +2948,72 @@ int main(void) {
     size_t hist_len = web_status_history_json(hist_json, sizeof(hist_json));
     printf("  [History JSON] Serialized %zu bytes across 24 hourly slots\n", hist_len);
     printf("  [Sample Trend] %.*s ...]\n", 130, hist_json);
+
+    /* T3.2 persistence: the completed-hour averages, the canonical blob and
+     * every corruption path. The two publishes above are 3605 s apart, so the
+     * second one must roll the first hour into slot 1 and start a fresh slot 0. */
+    if (hist_len == 0 || strstr(hist_json, "\"valid\":true") == NULL) {
+        fprintf(stderr, "[FAIL] 24-hour history JSON must contain a populated slot\n");
+        return 1;
+    }
+    valor_history_point_t roll_pts[VALOR_HISTORY_HOURS];
+    web_status_history_snapshot(roll_pts, VALOR_HISTORY_HOURS);
+    if (!roll_pts[1].valid ||
+        roll_pts[1].avg_hr < 73.9f || roll_pts[1].avg_hr > 74.1f ||
+        roll_pts[1].avg_spo2 < 97.9f || roll_pts[1].avg_spo2 > 98.1f ||
+        roll_pts[1].avg_rmssd < 44.9f || roll_pts[1].avg_rmssd > 45.1f) {
+        fprintf(stderr, "[FAIL] Rollover must keep the completed hour's averages in slot 1 "
+                        "(HR %.1f / SpO2 %.1f / RMSSD %.1f, valid=%d)\n",
+                roll_pts[1].avg_hr, roll_pts[1].avg_spo2, roll_pts[1].avg_rmssd,
+                (int)roll_pts[1].valid);
+        return 1;
+    }
+    printf("  [Hourly Rollover] Slot 1 = HR %.1f / SpO2 %.1f / RMSSD %.1f / NEWS2 %u (valid=%s)\n",
+           roll_pts[1].avg_hr, roll_pts[1].avg_spo2, roll_pts[1].avg_rmssd,
+           roll_pts[1].max_news2, roll_pts[1].valid ? "yes" : "no");
+
+    uint8_t hist_blob[VALOR_HISTORY_BLOB_BYTES];
+    size_t blob_len = web_status_history_encode(roll_pts, VALOR_HISTORY_HOURS,
+                                                hist_blob, sizeof(hist_blob));
+    if (blob_len != VALOR_HISTORY_BLOB_BYTES) {
+        fprintf(stderr, "[FAIL] History encode returned %zu bytes, expected %d\n",
+                blob_len, VALOR_HISTORY_BLOB_BYTES);
+        return 1;
+    }
+    valor_history_point_t decoded[VALOR_HISTORY_HOURS];
+    memset(decoded, 0, sizeof(decoded));
+    size_t decoded_n = web_status_history_decode(hist_blob, blob_len,
+                                                 decoded, VALOR_HISTORY_HOURS);
+    if (decoded_n != VALOR_HISTORY_HOURS || memcmp(decoded, roll_pts, sizeof(roll_pts)) != 0) {
+        fprintf(stderr, "[FAIL] History blob must round-trip bit-exactly\n");
+        return 1;
+    }
+    printf("  [History Blob] %zu bytes round-tripped across %zu points\n", blob_len, decoded_n);
+
+    uint8_t corrupt[VALOR_HISTORY_BLOB_BYTES];
+    memcpy(corrupt, hist_blob, sizeof(corrupt));
+    corrupt[VALOR_HISTORY_BLOB_BYTES - 1] ^= 0x01u; /* flip one payload bit */
+    if (web_status_history_decode(corrupt, sizeof(corrupt), decoded, VALOR_HISTORY_HOURS) != 0) {
+        fprintf(stderr, "[FAIL] A flipped payload byte must fail the checksum\n");
+        return 1;
+    }
+    memcpy(corrupt, hist_blob, sizeof(corrupt));
+    corrupt[0] ^= 0xFFu; /* bad magic */
+    if (web_status_history_decode(corrupt, sizeof(corrupt), decoded, VALOR_HISTORY_HOURS) != 0) {
+        fprintf(stderr, "[FAIL] A bad blob magic must be rejected\n");
+        return 1;
+    }
+    if (web_status_history_decode(hist_blob, VALOR_HISTORY_BLOB_BYTES - 1,
+                                  decoded, VALOR_HISTORY_HOURS) != 0) {
+        fprintf(stderr, "[FAIL] A truncated blob must be rejected\n");
+        return 1;
+    }
+    if (web_status_history_encode(roll_pts, VALOR_HISTORY_HOURS,
+                                  hist_blob, VALOR_HISTORY_BLOB_BYTES - 1) != 0) {
+        fprintf(stderr, "[FAIL] Encode must refuse a buffer that is too small\n");
+        return 1;
+    }
+    printf("  [History Guard] Truncated, bad-magic and checksum-failed blobs rejected\n");
 
     /* Profile 9: Sustained Tachycardia Acceptance & IBI Pipeline Verification */
     printf("\nHost Test - Profile 9: Sustained Tachycardia Acceptance & IBI Pipeline:\n");

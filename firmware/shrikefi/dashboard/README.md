@@ -165,14 +165,17 @@ real contact telemetry arrives. A compact **Ta / RH / PM2.5** strip under the
 header keeps the environmental readings visible even when the full cards are
 below the fold on a short screen.
 
-The **24-hour trajectory is a 24-slot RAM buffer since boot**, not a calendar
-history persisted in NVS. It fills only as uptime accumulates, and slot 0 is the
-device's current-hour average (not an instantaneous reading). The page now takes
-that point from `[HISTORY]` rather than overwriting it with live vitals, and the
-summary averages only hours that contain valid clinical values.
+The **24-hour trajectory is a 24-slot device-hour buffer persisted to NVS**. It
+is not a calendar history: there is no wall-clock time source, so each slot is
+one hour of device uptime. Completed hours are written to flash on the hour and
+restored, shifted one slot older, on the next boot; a partial hour lost to power
+loss is dropped rather than promoted. Slot 0 is the device's current-hour
+average (not an instantaneous reading). The page now takes that point from
+`[HISTORY]` rather than overwriting it with live vitals, and the summary
+averages only hours that contain valid clinical values.
 
 In simulation the chart is explicitly labelled **SYNTHETIC** and says it is not
-device data; in live mode it shows `SINCE BOOT` and `n/24 hours populated`. The
+device data; in live mode it shows `DEVICE HOURS` and `n/24 populated`. The
 chart's fixed display ranges are printed below it, and **EXPORT CSV** downloads
 the 24 rows with `source, hour_offset, hr_bpm, spo2_pct, rmssd_ms, pm25_ugm3,
 news2, valid` so a demo capture can be analysed off-device.

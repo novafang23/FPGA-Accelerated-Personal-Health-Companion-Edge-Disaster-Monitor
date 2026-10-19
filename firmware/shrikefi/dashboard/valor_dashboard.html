@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'sha256-bEvLHhbCXqkyOMwb6yiX3uHr34cakknMgpfzuMFWMcw='; style-src 'unsafe-inline'; connect-src 'self'; form-action 'self'; base-uri 'none'; object-src 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'sha256-bs56nKNi/U3GT2kIMwUS34PgyQtZrLsBSvzL+eii6qw='; style-src 'unsafe-inline'; connect-src 'self'; form-action 'self'; base-uri 'none'; object-src 'none'">
 <title>VALOR â€” Edge Health &amp; Disaster Triage</title>
 <!--
   VALOR dashboard â€” single self-contained file.
@@ -571,7 +571,7 @@
   <div class="card-head" style="margin-bottom:14px;flex-wrap:wrap;gap:10px">
     <div>
       <div class="card-title">24-Hour Clinical &amp; Environmental Trajectory</div>
-      <div class="dim" id="hist-sub">On-device rolling hourly summaries &middot; 24-point circular buffer &middot; since boot &middot; zero cloud</div>
+      <div class="dim" id="hist-sub">On-device hourly summaries &middot; 24-point circular buffer &middot; restored after reboot &middot; zero cloud</div>
     </div>
     <div style="display:flex;gap:14px;align-items:center;flex-wrap:wrap">
       <div style="display:flex;gap:12px;align-items:center;font-size:11px;font-family:var(--mono)">
@@ -591,7 +591,7 @@
           <i style="display:inline-block;width:8px;height:8px;border-radius:2px;background:var(--crimson)"></i>NEWS2
         </span>
       </div>
-      <span class="chip" id="hist-span">SINCE BOOT</span>
+      <span class="chip" id="hist-span">DEVICE HOURS</span>
       <button type="button" class="chip" id="hist-export" style="cursor:pointer" aria-label="Export 24-hour history as CSV">EXPORT CSV</button>
     </div>
   </div>
@@ -1140,10 +1140,10 @@ function makeHistory() {
     if (sub) {
       sub.textContent = (mode === 'sim')
         ? 'Synthetic 24-point demo history \u2014 not device data'
-        : 'Device hourly summaries \u00b7 since boot \u00b7 ' + n + '/24 hours populated';
+        : 'Device hourly summaries \u00b7 device hours, restored after reboot \u00b7 ' + n + '/24 populated';
     }
     const chip = $('hist-span');
-    if (chip) chip.textContent = (mode === 'sim') ? 'SYNTHETIC' : 'SINCE BOOT';
+    if (chip) chip.textContent = (mode === 'sim') ? 'SYNTHETIC' : 'DEVICE HOURS';
   }
 
   function draw() {
