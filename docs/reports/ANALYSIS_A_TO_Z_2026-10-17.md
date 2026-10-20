@@ -1,5 +1,11 @@
 # VALOR / SIH26181 — A-to-Z Project Analysis (2026-10-17)
 
+> **Update 2026-10-20:** the M5 finding below about the PM2.5 calibration network has
+> been acted on — that network was deleted and replaced by the published EPA/AirGradient
+> correction (`firmware/core/pm25_correction.c`, see
+> `docs/reports/PM25_CALIBRATION_2026-10-20.md`). This document is otherwise the
+> record of the 2026-10-17 analysis as it was written.
+
 **Scope:** the entire repository at `C:\Users\abhin\OneDrive\Desktop\verilog` — hardware RTL, both
 firmware targets, clinical/TinyML core, dashboards, docs, CI and scripts.
 **Method:** full source read + re-execution of the project's own gates + a from-scratch export and

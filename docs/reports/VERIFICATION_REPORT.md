@@ -1,5 +1,11 @@
 # Verification Report — 2026-10-15
 
+> **Update 2026-10-20:** `firmware/core/pm25_calibration_int8.c` was deleted (it could
+> not be reproduced and could report a hazy atmosphere as clean air) and replaced by
+> `firmware/core/pm25_correction.c`. Substitute that file for the deleted one in the
+> gcc command lines below. The rest of this report is the record of the 2026-10-15
+> session as it was run.
+
 ## Scope and worktree
 
 The worktree was already dirty, with unrelated firmware, RTL, dashboard, documentation, and generated Vivado changes. Those changes were preserved. This report records checks run against that worktree and the targeted repairs made during this session; it does not claim a clean checkout or a GitHub CI run.
