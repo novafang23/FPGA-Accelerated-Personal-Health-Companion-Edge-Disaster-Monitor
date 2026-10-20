@@ -12,6 +12,32 @@
 #include <math.h>
 
 
+/* Plausibility bounds for the AI wrappers (disaster_assess_nn/_int8).
+ *
+ * These are NOT the model's normalization ranges (NN_*_MIN/MAX in
+ * nn_risk_model.h): normalize() clamps a value into the input cube, which
+ * silently turns a nonsense reading into a valid-looking feature. These bounds
+ * instead describe what can still be a real measurement; anything outside them
+ * is refused with RISK_UNKNOWN before inference.
+ *
+ * Deliberately wider than the device's own validity filters so a legitimate
+ * reading is never refused here:
+ *   - heart rate 30-220 bpm. MAX30102 reports 0 when no finger is present.
+ *   - ambient -20..65 C. The BME280 path rejects outside 5..65 C, but 0 C and
+ *     -5 C are real winter readings and must NOT be treated as dropout.
+ *   - humidity 0-100 %RH.
+ *   - a POSITIVE SpO2 outside 50-100 % is corrupt. SpO2 <= 0 keeps its
+ *     existing meaning of "not locked yet" and is substituted with 96 %. */
+#define NN_BPM_MIN            30.0f
+#define NN_BPM_MAX           220.0f
+#define NN_AMBIENT_MIN_C     (-20.0f)
+#define NN_AMBIENT_MAX_C      65.0f
+#define NN_HUMIDITY_MIN_PCT    0.0f
+#define NN_HUMIDITY_MAX_PCT  100.0f
+#define NN_SPO2_CORRUPT_MIN   50.0f
+#define NN_SPO2_CORRUPT_MAX  100.0f
+
+
 /* Forward Declarations */
 static risk_level_t assess_heat_risk(float bpm, float rmssd, float ambient_temp_c,
                                      float humidity_pct, const char **advisory);
@@ -625,6 +651,47 @@ static bool nn_features_finite(float bpm, float spo2, const env_sensors_t *env) 
     return true;
 }
 
+/* Single decision point for "may these inputs be scored?".
+ *
+ * Both disaster_assess_nn() and disaster_assess_nn_int8() call this, so the
+ * float and INT8 paths cannot drift apart. On success returns true; otherwise
+ * returns false and sets *reason to the first failed check, for the advisory.
+ *
+ * This runs AFTER the existing RMSSD guard: an absent HRV value is reported as
+ * "insufficient HRV data", not as an invalid input.
+ *
+ * pm25 is intentionally not range-checked. A negative value is the sentinel
+ * for "no reading" and is handled by the pollution-channel logic below (the
+ * channel goes UNKNOWN, the other two are still scored); refusing the whole
+ * assessment would hide heat and flood risk from a working sensor. */
+static bool nn_inputs_valid(float bpm, float spo2, const env_sensors_t *env,
+                            const char **reason) {
+    if (!nn_features_finite(bpm, spo2, env)) {
+        *reason = "non-finite sensor value";
+        return false;
+    }
+    if (!(bpm >= NN_BPM_MIN && bpm <= NN_BPM_MAX)) {
+        *reason = "heart rate outside 30-220 bpm";
+        return false;
+    }
+    if (!(env->ambient_temp_c >= NN_AMBIENT_MIN_C &&
+          env->ambient_temp_c <= NN_AMBIENT_MAX_C)) {
+        *reason = "ambient temperature outside -20 to 65 C";
+        return false;
+    }
+    if (!(env->humidity_pct >= NN_HUMIDITY_MIN_PCT &&
+          env->humidity_pct <= NN_HUMIDITY_MAX_PCT)) {
+        *reason = "humidity outside 0-100 %";
+        return false;
+    }
+    if (spo2 > 0.0f &&
+        !(spo2 >= NN_SPO2_CORRUPT_MIN && spo2 <= NN_SPO2_CORRUPT_MAX)) {
+        *reason = "SpO2 outside 50-100 %";
+        return false;
+    }
+    return true;
+}
+
 static risk_level_t nn_score_to_risk(float score, const char **advisory, const char *crit_msg,
                                      const char *high_msg, const char *mod_msg,
                                      const char *norm_msg) {
@@ -700,13 +767,17 @@ void disaster_assess_nn(const hrv_state_t *hrv, float spo2, float bpm, const env
         return;
     }
 
-    if (!nn_features_finite(bpm, spo2, env)) {
+    /* Refuse anything that is not a plausible measurement, so the network is
+     * never asked to score a dropout or a corrupt reading as if it were data.
+     * The kernel keeps its exact arithmetic; the policy lives here. */
+    const char *invalid_reason = NULL;
+    if (!nn_inputs_valid(bpm, spo2, env, &invalid_reason)) {
         result->heat_risk = RISK_UNKNOWN;
         result->pollution_risk = RISK_UNKNOWN;
         result->flood_risk = RISK_UNKNOWN;
         result->overall_risk = RISK_UNKNOWN;
         snprintf(result->overall_advisory, sizeof(result->overall_advisory),
-                 "Non-finite sensor value: AI risk assessment declined");
+                 "AI assessment declined: %s", invalid_reason);
         return;
     }
 
@@ -802,13 +873,16 @@ void disaster_assess_nn_int8(const hrv_state_t *hrv, float spo2, float bpm,
         return;
     }
 
-    if (!nn_features_finite(bpm, spo2, env)) {
+    /* Same gate as disaster_assess_nn(): one helper, so the two paths cannot
+     * disagree about which readings are scoreable. */
+    const char *invalid_reason = NULL;
+    if (!nn_inputs_valid(bpm, spo2, env, &invalid_reason)) {
         result->heat_risk = RISK_UNKNOWN;
         result->pollution_risk = RISK_UNKNOWN;
         result->flood_risk = RISK_UNKNOWN;
         result->overall_risk = RISK_UNKNOWN;
         snprintf(result->overall_advisory, sizeof(result->overall_advisory),
-                 "Non-finite sensor value: AI risk assessment declined (INT8)");
+                 "AI assessment declined: %s (INT8)", invalid_reason);
         if (raw_out != NULL) {
             memset(raw_out, 0, sizeof(nn_output_t));
         }

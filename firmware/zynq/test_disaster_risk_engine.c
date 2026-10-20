@@ -567,6 +567,184 @@ static void test_int8_matches_float_nn() {
     printf("test_int8_matches_float_nn: PASS\n");
 }
 
+/* Deterministic PRNG for the identity sweep below. rand() would make the test
+ * depend on the C runtime's sequence; this LCG is reproducible across host
+ * compilers and keeps all state inside the test. */
+static float test_rand_unit(unsigned *state) {
+    *state = (*state) * 1664525u + 1013904223u;
+    return (float)((*state >> 8) & 0xFFFFFFu) / 16777216.0f;
+}
+
+static float test_rand_range(unsigned *state, float lo, float hi) {
+    return lo + (hi - lo) * test_rand_unit(state);
+}
+
+/* Regression test: the AI wrappers must refuse implausible inputs instead of
+ * scoring them.
+ *
+ * The kernels have no concept of "missing". Measured on the shipped weights:
+ *   - a NaN in ANY feature yields a constant, plausible all-NORMAL score
+ *     (float 0.006/0.196/0.035, INT8 0.008/0.191/0.034);
+ *   - bpm = 0 yields flood 0.31 (MODERATE);
+ *   - ambient = 0 C yields flood 0.31 (MODERATE).
+ * Those numbers look like measurements, so the refusal has to happen at the
+ * wrapper boundary, before normalization or inference. Both wrappers are
+ * exercised so the float and INT8 paths cannot drift apart.
+ *
+ * A zero ambient reading is deliberately NOT refused: env_sensors_t has no
+ * dropout flag, and 0 C is a real winter measurement. Only values outside
+ * -20..65 C are rejected. The same logic keeps a genuine pm25 == 0 as data,
+ * while a negative pm25 keeps its "no reading" sentinel meaning. */
+static void test_nn_input_guards(void) {
+    hrv_state_t hrv;
+    init_hrv_ready(&hrv, 75.0f);
+
+    env_sensors_t env = { .ambient_temp_c = 25.0f, .humidity_pct = 50.0f,
+                          .pm25 = 20.0f, .skin_temp_c = 36.0f };
+    risk_assessment_t r;
+    nn_output_t raw;
+
+    /* ---- refused: all four channels UNKNOWN, advisory names the reason ---- */
+    struct {
+        const char *name;
+        float bpm, spo2, temp, hum, pm25;
+        const char *reason;
+    } bad[] = {
+        {"bpm NaN",        NAN,   98.0f,  25.0f,  50.0f,  20.0f, "non-finite"},
+        {"spo2 NaN",       75.0f,  NAN,   25.0f,  50.0f,  20.0f, "non-finite"},
+        {"temp NaN",       75.0f,  98.0f,  NAN,    50.0f,  20.0f, "non-finite"},
+        {"hum NaN",        75.0f,  98.0f,  25.0f,  NAN,    20.0f, "non-finite"},
+        {"pm25 NaN",       75.0f,  98.0f,  25.0f,  50.0f,  NAN,   "non-finite"},
+        {"bpm 0",           0.0f,  98.0f,  25.0f,  50.0f,  20.0f, "heart rate outside"},
+        {"bpm 29.9",       29.9f,  98.0f,  25.0f,  50.0f,  20.0f, "heart rate outside"},
+        {"bpm 220.1",     220.1f,  98.0f,  25.0f,  50.0f,  20.0f, "heart rate outside"},
+        {"temp -20.1 C",   75.0f,  98.0f, -20.1f,  50.0f,  20.0f, "ambient temperature outside"},
+        {"temp 65.1 C",    75.0f,  98.0f,  65.1f,  50.0f,  20.0f, "ambient temperature outside"},
+        {"hum -0.1 %",     75.0f,  98.0f,  25.0f,  -0.1f,  20.0f, "humidity outside"},
+        {"hum 100.1 %",    75.0f,  98.0f,  25.0f, 100.1f,  20.0f, "humidity outside"},
+        {"spo2 40 %",      75.0f,  40.0f,  25.0f,  50.0f,  20.0f, "SpO2 outside"},
+        {"spo2 150 %",     75.0f, 150.0f,  25.0f,  50.0f,  20.0f, "SpO2 outside"},
+    };
+
+    for (size_t i = 0; i < sizeof(bad) / sizeof(bad[0]); i++) {
+        env.ambient_temp_c = bad[i].temp;
+        env.humidity_pct   = bad[i].hum;
+        env.pm25           = bad[i].pm25;
+
+        /* Float reference path. */
+        memset(&r, 0xA5, sizeof(r));
+        disaster_assess_nn(&hrv, bad[i].spo2, bad[i].bpm, &env, &r);
+        assert(r.heat_risk == RISK_UNKNOWN);
+        assert(r.pollution_risk == RISK_UNKNOWN);
+        assert(r.flood_risk == RISK_UNKNOWN);
+        assert(r.overall_risk == RISK_UNKNOWN);
+        assert(strstr(r.overall_advisory, "AI assessment declined") != NULL);
+        assert(strstr(r.overall_advisory, bad[i].reason) != NULL);
+
+        /* Shipped INT8 path. */
+        memset(&r, 0xA5, sizeof(r));
+        memset(&raw, 0xA5, sizeof(raw));
+        disaster_assess_nn_int8(&hrv, bad[i].spo2, bad[i].bpm, &env, &r, &raw);
+        assert(r.heat_risk == RISK_UNKNOWN);
+        assert(r.pollution_risk == RISK_UNKNOWN);
+        assert(r.flood_risk == RISK_UNKNOWN);
+        assert(r.overall_risk == RISK_UNKNOWN);
+        assert(strstr(r.overall_advisory, "AI assessment declined") != NULL);
+        assert(strstr(r.overall_advisory, bad[i].reason) != NULL);
+        /* A stale score must not survive a refusal in the raw-telemetry slot. */
+        assert(raw.heat_score == 0.0f);
+        assert(raw.pollution_score == 0.0f);
+        assert(raw.flood_score == 0.0f);
+    }
+
+    /* ---- accepted: a real reading at or inside the bounds is never refused ---- */
+    struct {
+        const char *name;
+        float bpm, spo2, temp, hum, pm25;
+        int pollution_expected_unknown;
+    } good[] = {
+        {"bpm 30 (lower bound)",  30.0f,  98.0f,  25.0f,  50.0f,  20.0f, 0},
+        {"bpm 220 (upper bound)", 220.0f, 98.0f,  25.0f,  50.0f,  20.0f, 0},
+        {"temp 0 C",               75.0f,  98.0f,   0.0f,  50.0f,  20.0f, 0},
+        {"temp -5 C",              75.0f,  98.0f,  -5.0f,  50.0f,  20.0f, 0},
+        {"temp 65 C",              75.0f,  98.0f,  65.0f,  50.0f,  20.0f, 0},
+        {"hum 0 %",                75.0f,  98.0f,  25.0f,   0.0f,  20.0f, 0},
+        {"hum 100 %",              75.0f,  98.0f,  25.0f, 100.0f,  20.0f, 0},
+        {"spo2 0 (unlocked)",      75.0f,   0.0f,  25.0f,  50.0f,  20.0f, 0},
+        {"spo2 50 %",              75.0f,  50.0f,  25.0f,  50.0f,  20.0f, 0},
+        {"spo2 100 %",             75.0f, 100.0f,  25.0f,  50.0f,  20.0f, 0},
+        {"pm25 0 (real clean air)", 75.0f, 98.0f,  25.0f,  50.0f,   0.0f, 0},
+        {"pm25 -1 (no reading)",   75.0f,  98.0f,  25.0f,  50.0f,  -1.0f, 1},
+    };
+
+    for (size_t i = 0; i < sizeof(good) / sizeof(good[0]); i++) {
+        env.ambient_temp_c = good[i].temp;
+        env.humidity_pct   = good[i].hum;
+        env.pm25           = good[i].pm25;
+
+        memset(&r, 0xA5, sizeof(r));
+        disaster_assess_nn(&hrv, good[i].spo2, good[i].bpm, &env, &r);
+        assert(strstr(r.overall_advisory, "AI assessment declined") == NULL);
+        assert(r.heat_risk != RISK_UNKNOWN);
+        assert(r.flood_risk != RISK_UNKNOWN);
+        assert((r.pollution_risk == RISK_UNKNOWN) == good[i].pollution_expected_unknown);
+
+        memset(&r, 0xA5, sizeof(r));
+        memset(&raw, 0xA5, sizeof(raw));
+        disaster_assess_nn_int8(&hrv, good[i].spo2, good[i].bpm, &env, &r, &raw);
+        assert(strstr(r.overall_advisory, "AI assessment declined") == NULL);
+        assert(r.heat_risk != RISK_UNKNOWN);
+        assert(r.flood_risk != RISK_UNKNOWN);
+        assert((r.pollution_risk == RISK_UNKNOWN) == good[i].pollution_expected_unknown);
+    }
+
+    /* ---- identity: the guard must not change any valid input's result ----
+     * For 1,000 deterministic in-range points, the INT8 wrapper's raw
+     * activations must be bit-identical to a direct nn_predict_int8() call,
+     * and every wrapper risk level must equal the tier of the direct kernel
+     * output. Because the wrapper did nothing but call the kernel before this
+     * change, this also pins the change as behaviour-preserving. */
+    const nn_model_t *fmodel = nn_get_default_model();
+    const int N_IDENTITY = 1000;
+    unsigned lcg = 12345u;
+    int checked = 0;
+
+    for (int i = 0; i < N_IDENTITY; i++) {
+        float bpm  = test_rand_range(&lcg, NN_HR_MIN, NN_HR_MAX);
+        float spo2 = test_rand_range(&lcg, NN_SPO2_MIN, NN_SPO2_MAX);
+        env.ambient_temp_c = test_rand_range(&lcg, NN_TEMP_MIN, NN_TEMP_MAX);
+        env.humidity_pct   = test_rand_range(&lcg, NN_HUM_MIN, NN_HUM_MAX);
+        env.pm25           = test_rand_range(&lcg, NN_PM25_MIN, NN_PM25_MAX);
+
+        nn_output_t direct_i, direct_f;
+        nn_predict_int8(&nn_default_model_int8, &nn_quant_params, bpm, hrv.rmssd, spo2,
+                        env.ambient_temp_c, env.humidity_pct, env.pm25, &direct_i);
+        nn_predict(fmodel, bpm, hrv.rmssd, spo2,
+                   env.ambient_temp_c, env.humidity_pct, env.pm25, &direct_f);
+
+        disaster_assess_nn_int8(&hrv, spo2, bpm, &env, &r, &raw);
+        assert(strstr(r.overall_advisory, "AI assessment declined") == NULL);
+        assert(memcmp(&raw.heat_score, &direct_i.heat_score, sizeof(float)) == 0);
+        assert(memcmp(&raw.pollution_score, &direct_i.pollution_score, sizeof(float)) == 0);
+        assert(memcmp(&raw.flood_score, &direct_i.flood_score, sizeof(float)) == 0);
+        assert((int)r.heat_risk == score_to_tier(direct_i.heat_score));
+        assert((int)r.pollution_risk == score_to_tier(direct_i.pollution_score));
+        assert((int)r.flood_risk == score_to_tier(direct_i.flood_score));
+
+        disaster_assess_nn(&hrv, spo2, bpm, &env, &r);
+        assert(strstr(r.overall_advisory, "AI assessment declined") == NULL);
+        assert((int)r.heat_risk == score_to_tier(direct_f.heat_score));
+        assert((int)r.pollution_risk == score_to_tier(direct_f.pollution_score));
+        assert((int)r.flood_risk == score_to_tier(direct_f.flood_score));
+
+        checked++;
+    }
+
+    printf("test_nn_input_guards: PASS (%d refused, %d accepted, %d identity points)\n",
+           (int)(sizeof(bad) / sizeof(bad[0])), (int)(sizeof(good) / sizeof(good[0])),
+           checked);
+}
+
 static void test_spo2_clinical_rejection() {
     spo2_state_t spo2;
     spo2_init(&spo2);
@@ -1988,6 +2166,7 @@ int main() {
     test_spo2_dc_step_rejected();
     test_flood_ambient_proxy();
     test_int8_matches_float_nn();
+    test_nn_input_guards();
     test_spo2_clinical_rejection();
     test_rr_estimate_rejects_clamped_value();
     test_sqi_requires_beat_intervals();
