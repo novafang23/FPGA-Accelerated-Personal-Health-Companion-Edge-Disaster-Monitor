@@ -700,13 +700,13 @@ real_value ≈ scale × (integer − zero_point)
 >
 > **So why have a neural network at all?** Say this: *"Right now the network is a distillation of our rule engine, which validates the whole deployment path — quantization, the INT8 inference kernel, the on-device budget — with a model we can fully verify. The pipeline accepts real labelled data the moment we have it. We are not claiming the network has learned clinical insight it hasn't."*
 
-### Neural humidity calibration (Si et al. 2019)
+### Published PM2.5 humidity correction (EPA/Barkjohn 2021 method, AirGradient PMS5003 form)
 
-**The physics:** particles are **hygroscopic** — they absorb water and swell. A swollen particle scatters more light, so the sensor reports a *higher* mass than is really there. Humid smoke reads as twice the pollution it is.
+**The physics:** particles are **hygroscopic** — they absorb water and swell. A swollen particle scatters more light, so the sensor reports a *higher* mass than is really there. Humid smoke reads as more than the pollution it is.
 
 **The analogy:** measuring flour by volume after it's absorbed moisture from the air. Same scoop, more weight, wrong cake.
 
-A tiny INT8 network learns the correction from the sensor's own humidity and temperature. Our implementation reports up to **~60 % bias suppression** — and be precise: *that figure comes from the model's own reported correction, not from an independent lab comparison.*
+The published correction is not a private model but the algorithm that is in the literature for exactly this sensor channel: the EPA/PurpleAir regression with a relative-humidity term (Barkjohn, Gantt & Clements 2021, *Atmos. Meas. Tech.* 14, 4617-4637), in the PMS5003 "atm" form that AirGradient publishes openly from 12,513 daily collocation points across 17 outdoor sites. It is applied to a 60 s rolling mean of the raw readings, and the device publishes the raw value, the corrected value and a confidence code together. Published performance: nRMSE ~79 % to ~38 %, MAE 7 to 3 ug/m3. We have **no local reference instrument**, so we inherit that figure — we do not claim it as our own validation. See docs/reports/PM25_CALIBRATION_2026-10-20.md.
 
 ### Before/after table
 
@@ -749,7 +749,7 @@ flowchart TD
     C --> D[hrv_analysis.c<br/>RMSSD / SDNN<br/>intervals from FPGA burst]
     A --> E[spo2_engine.c<br/>ratio-of-ratios]
     F[BME280] --> G[clinical_vitals_engine.c<br/>mNEWS2]
-    H[PMSA003] --> I[pm25_calibration_int8.c]
+    H[PMSA003] --> I[pm25_correction.c<br/>published EPA/AirGradient<br/>correction on a 60 s mean]
     I --> G
     D --> G
     E --> G

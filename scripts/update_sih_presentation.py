@@ -207,7 +207,8 @@ table_data = [
     ("Moran DS et al. (Am J Physiol 1998) Physiological Strain (PSI)", "disaster_risk_engine.c"),
     ("Brook RD et al. / AHA (Circulation 2010) PM2.5 Cardiac Stress", "disaster_risk_engine.c"),
     ("Johnson AEW et al. (MIMIC-III 2016) 16,387 ICU Records", "data/mimic/ (Host Evaluator)"),
-    ("Si M et al. (Atmos Meas Tech 2019) ML Particulate Calibrator", "pm25_calibration_int8.c"),
+    ("Barkjohn KK et al. (Atmos Meas Tech 2021) US PM2.5 Correction (Humidity Term)", "pm25_correction.c"),
+    ("AirGradient (2025) Published PMS5003 atm-channel Correction Algorithm", "pm25_correction.c"),
     ("Steadman RG (J Appl Meteorol 1979) Sultriness & Heat Index", "disaster_risk_engine.c"),
     ("ARM AMBA AXI / SPI Mode 0 Protocol Specification", "forgefpga_ppg_top.v")
 ]

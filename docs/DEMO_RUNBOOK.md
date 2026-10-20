@@ -149,6 +149,9 @@ I (2455) PPG_OPTICAL: Raw: IR=1048, Red=1094 | AC=0 | Status: NO FINGER | HR: 0.
 2. **Spoken Dialogue:**
    > *"A fitness watch only tells you your heart rate. But what happens if a tropical cyclone is deepening overhead? Valor tracks atmospheric pressure changes across a 180-minute rolling regression window. If the barometer drops faster than 1 hPa per hour, the system automatically elevates the cyclone risk level and warns the user to move inland, independent of any weather broadcast."*
 3. **Physical Action:** Cup your hand around the BME280 and watch the ambient temperature and humidity in the dashboard header move. **Do not demonstrate skin temperature:** no body-temperature sensor is fitted. The BME280 measures air, the telemetry field is `TEMP=`, and the NEWS2 temperature sub-score stays 0. If a judge asks, say so plainly - the TMP117/MAX30205 is a listed gap, not something to mime.
+4. **Point at the PM2.5 card and say what the two numbers mean:**
+   > *"The PMS5003 counts scattered light and converts that to a mass concentration using an assumed particle size and density, so its raw number over-reads - the published collocation work measures about 50 % over-read for this sensor. So the device does not publish the raw number: it applies the published EPA/AirGradient correction for this exact channel to a 60-second rolling mean, and it shows you both - the corrected value, the raw value, and a confidence code. If the sensor goes silent, the tile says 'not assessed' rather than showing zero, because zero would be a claim about clean air that was never measured."*
+5. **If the tile shows a caveat flag** (`HUMID`, `DUST`, `SETTLING`, `RANGE`), say it out loud - a corrected number without its caveat is exactly what the old calibration got wrong. The honest limit: we have no reference instrument here, so we inherit the published performance, we do not claim our own validation.
 
 ---
 

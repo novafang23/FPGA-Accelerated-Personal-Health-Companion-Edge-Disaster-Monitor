@@ -494,6 +494,14 @@ We use it as a **triage/advisory** score, not a diagnosis. Body temperature is c
 | **Flood / cold** | pressure trend, ambient cold-stress proxy, HR, RMSSD | exposure risk; no skin-temperature sensor, so capped at HIGH |
 | **Cyclone / storm** | barometric pressure **rate of fall** | falling pressure precedes a storm; a rise is not scored |
 
+### Air quality - why the PM2.5 number is not the sensor's raw number
+
+- The PMS5003 counts laser-scattered particles and converts the count to a mass concentration using an assumed particle density and size. That assumption over-reads: the published collocation work measures about **40 % over-read** for the PurpleAir across most of the US (Barkjohn, Gantt & Clements 2021, *Atmos. Meas. Tech.* 14, 4617-4637) and about **50 %** for the PMS5003 above 10-20 µg/m³ (AirGradient: 12,513 daily collocation points, 17 outdoor sites in 11 countries).
+- We therefore publish the **published correction** for exactly this sensor channel - the EPA/PurpleAir regression with a humidity term, in the PMS5003 "atm" form that AirGradient publishes openly - applied to a **60 s rolling mean** of the raw readings. The physics is hygroscopic growth: at high humidity particles swell and scatter more light, so the sensor reads high.
+- **What the device shows:** the corrected value, the raw value next to it, and a confidence code - `OK`, `SETTLING`, `HUMID` (RH ≥ 80 %), `DUST`, `RANGE` (above the sensor's 500 µg/m³ range), `NODATA`.
+- **Three rules we will not bend:** a **missing reading is never published as 0** (the tile says "not assessed", the pollution risk becomes UNKNOWN); a **stale reading is withdrawn** after 10 s without a fresh sample; and **dust suppresses the correction**, because under heavy dust the PMS5003 *under*-reads (Kaur, Mangin & Kelly 2026, AMT 19, 1077) and a correction that only ever lowers the number would make that case worse.
+- **Honest limit:** we have **no local reference instrument**, so we inherit the published performance (nRMSE ≈ 79 % → ≈ 38 %) rather than claiming our own validation. It is an environmental estimate, not a clinical measurement. We also deleted our own private calibration network on 2026-10-20 because it was unreproducible and could report a hazardous atmosphere as clean air (`docs/reports/PM25_CALIBRATION_2026-10-20.md`).
+
 ### TinyML
 
 - Architecture: **6 → 24 → 16 → 3**
@@ -503,7 +511,7 @@ We use it as a **triage/advisory** score, not a diagnosis. Body temperature is c
 - It is **knowledge distillation**: trained to reproduce the rule engine’s labels, not discovered from patient outcomes.
 - The rule engine remains the explainable source of truth; the NN is a compact approximation. The final verdict takes the **more severe** of rule and NN, then fuses clinical + environmental risk.
 - **Measured (audit of 2026-10-20):** the shipped INT8 model agrees with the rule-based teacher **88.39%** of the time on a 7,000-sample held-out split (float32 reference 88.47%); per axis heat 92.0% / pollution 87.2% / flood 86.0%. It is **not** better than the rules it came from — it is better on heat and flood, worse on pollution — so it is deployed as an advisory second opinion that may raise the verdict, never lower it. Full report: `docs/reports/AI_MODEL_AUDIT_2026-10-20.md`.
-- **What "INT8" means here, precisely:** the *weights* are stored as signed 8-bit integers and the *activations* are requantized to uint8, but the multiply-accumulate runs in **single-precision float** on the ESP32-S3’s FPU and the sigmoid is a real `expf()` call. The INT8 format buys flash, RAM and reproducibility; it is not an integer MAC unit. (The separate PM2.5 calibration net is the one in this project that uses `[-128,127]` int8 inputs, int32 accumulation and a sigmoid lookup table.)
+- **What "INT8" means here, precisely:** the *weights* are stored as signed 8-bit integers and the *activations* are requantized to uint8, but the multiply-accumulate runs in **single-precision float** on the ESP32-S3’s FPU and the sigmoid is a real `expf()` call. The INT8 format buys flash, RAM and reproducibility; it is not an integer MAC unit. (There is no other network in the project: an earlier private PM2.5 calibration net was deleted on 2026-10-20 — see *Air quality* below.)
 - **Limits we will not hide:** the model effectively **ignores humidity** (a full-range sweep moves the outputs by ≤0.004) because the teacher barely uses it, and 17 of its 41 weight rows are dead after distillation. It is a small, smooth, explainable model — not a clinical classifier.
 
 ### Fusion rule

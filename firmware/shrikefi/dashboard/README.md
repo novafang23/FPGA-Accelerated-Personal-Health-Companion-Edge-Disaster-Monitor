@@ -89,7 +89,7 @@ so each was replaced. This table is the record of that.
 | **6 ms latency** | Never benchmarked. | Removed |
 | **940 nm IR reflectance** | MAX30102/MAX30100 use 660 nm red and **880 nm** IR. | "AC-coupled reflectance" |
 | **BME688 · SHT40** | Neither part is on this board. | **BME280** (and labelled *ambient, not skin*) |
-| **SDS011 · LSTM calibration** | Wrong sensor and wrong algorithm. | **PMS5003 · INT8 humidity calibration** |
+| **SDS011 · LSTM calibration** | Wrong sensor and wrong algorithm. | **PMS5003 · published EPA/AirGradient correction** (raw + corrected + confidence code shown) |
 | **Morlet CWT** | Not the method used. | **RSA modulation** (what `ppg_respiratory_rate.c` does) |
 | NEWS2 point tables | Approximate, and wrong at several boundaries (e.g. HR 91–110 scored 0 instead of 1). | Transcribed from `news2_hr_score` / `news2_spo2_score` / `news2_rr_score` so the screen cannot disagree with the device |
 

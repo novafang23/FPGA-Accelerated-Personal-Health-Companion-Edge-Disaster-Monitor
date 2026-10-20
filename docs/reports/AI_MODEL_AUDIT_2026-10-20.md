@@ -175,7 +175,15 @@ difference is visible rather than hidden.
 
 ---
 
-## 8. Open judgement call (not changed by this audit)
+## 8. Open judgement call (RESOLVED later the same day)
+
+> **Update, 2026-10-20 (later the same day):** this judgement call was taken and the
+> private PM2.5 calibration network was **deleted**. It was replaced by the published
+> EPA/Barkjohn (2021) correction in the PMS5003 "atm" form published by AirGradient,
+> applied to a 60 s rolling mean (`firmware/core/pm25_correction.c`). The reasoning,
+> the measured behaviour of the old model and the literature are in
+> `docs/reports/PM25_CALIBRATION_2026-10-20.md`. The text below is kept as the audit
+> record of the state at the time of the AI audit.
 
 The **PM2.5 calibration network** (`firmware/core/pm25_calibration_int8.c`) is a different model with
 a different role: it turns a raw optical PMS5003 reading into a calibrated concentration. Measured
@@ -184,8 +192,8 @@ on the real 0–500 µg/m³ range it can return a value **up to ~70% lower** tha
 for a day that is not clean. That value then feeds the pollution rule and the pollution network.
 
 The calibration is a legitimate correction (a real optical PM sensor does over-read), but applying
-it *and* then treating the result as a measurement is the part that can mislead. Options are listed
-in `docs/REMAINING_WORK.md`; no behaviour was changed here, because the right answer depends on how
+it *and* then treating the result as a measurement is the part that can mislead. Options were listed
+in `docs/REMAINING_WORK.md`; no behaviour was changed by the AI audit itself, because the right answer depends on how
 much of the sensor's own correction the team wants to keep.
 
 ---

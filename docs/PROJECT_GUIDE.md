@@ -66,7 +66,7 @@ During severe natural and industrial disasters—such as tropical cyclones, flas
   │     ├── Respiration from Autocorrelation (Charlton 2018 EDR)
   │     ├── Least-Squares Cyclone Barometric Trend (180-minute regression slope)
   │     ├── 3-Stage Biomechanical Fall Detection FSM (Free-fall -> Impact -> Stillness)
-  │     ├── Si et al. Neural PM2.5 Humidity Debiasing (INT8 MLP)
+  │     ├── Published PMS5003 PM2.5 Correction (EPA/AirGradient, 60 s rolling mean)
   │     ├── Moran's Physiological Strain Index (PSI) & AHA Autonomic Strain
   │     ├── Zero-Cloud INT8 Multi-Hazard Classifier (6->24->16->3 MLP)
   │     ├── Royal College of Physicians mNEWS2 Clinical Triage & Crisis Overrides
@@ -187,7 +187,7 @@ During severe natural and industrial disasters—such as tropical cyclones, flas
 ### 6. Zero-Cloud TinyML (Integer Neural Networks)
 - **What it is:** Deep learning inference optimized for microcontrollers using 8-bit quantized weights and biases (INT8), running entirely in local SRAM without external coprocessors or runtime dependencies.
 - **Why it exists:** Standard floating-point machine learning frameworks (TensorFlow, PyTorch) require megabytes of RAM and powerful operating systems. Edge microcontrollers require minimal memory footprints and integer-only arithmetic.
-- **How it works:** The trained float32 weights are mapped onto signed 8-bit integers (per-tensor symmetric, zero-point 0) and the activations are requantized to uint8 between layers. The kernel dequantizes the INT8 weights per layer and performs the multiply-accumulate in single-precision float on the ESP32-S3's FPU; the output sigmoid is a real `expf()` call. (The separate PM2.5 calibration net, `pm25_calibration_int8.c`, is the one in this project that uses `[-128,127]` int8 inputs, int32 accumulation and a 32-step piecewise-linear sigmoid LUT.)
+- **How it works:** The trained float32 weights are mapped onto signed 8-bit integers (per-tensor symmetric, zero-point 0) and the activations are requantized to uint8 between layers. The kernel dequantizes the INT8 weights per layer and performs the multiply-accumulate in single-precision float on the ESP32-S3's FPU; the output sigmoid is a real `expf()` call. (The PMS5003 reading is corrected separately, and not by a neural network: the published EPA/AirGradient banded equations for the PMS5003 atm channel are applied to a 60 s rolling mean — see `firmware/core/pm25_correction.c` and `docs/reports/PM25_CALIBRATION_2026-10-20.md`.)
 - **Why we use it in Valor:** Evaluates non-linear multi-hazard cross-correlations (e.g., combining high ambient temperature, high PM2.5, elevated HR, and suppressed RMSSD into distinct heat, smog, and flood risk probabilities) in a 619-byte footprint, ~0.44 µs per inference on an x86-64 host at `-O2` (the ESP32-S3 figure has not been measured).
 - **Implementation in Valor:** `firmware/core/nn_risk_model_int8.c`, trained via `firmware/core/train_nn_risk_model.py`.
 - **Judge-Ready Explanation:** *"Our TinyML model is a 6-to-24-to-16-to-3 multi-layer perceptron compressed into 619 bytes of INT8 weights. It runs in under a microsecond on a host x86-64 compiler, predicting heat stroke, toxic inhalation, and hypothermia risks without touching the cloud."*
@@ -323,7 +323,7 @@ FPGA-Accelerated-Personal-Health-Companion/
 │   │   ├── disaster_risk_engine.c/.h     # Multi-hazard physiological/environmental rule engine
 │   │   ├── hrv_analysis.c/.h             # Statistical RMSSD and SDNN HRV calculation
 │   │   ├── nn_risk_model_int8.c/.h       # Zero-cloud INT8 TinyML neural network inference
-│   │   ├── pm25_calibration_int8.c/.h    # Si et al. INT8 neural humidity PM2.5 debiasing
+│   │   ├── pm25_correction.c/.h            # Published PMS5003 PM2.5 correction (EPA/AirGradient)
 │   │   ├── ppg_respiratory_rate.c/.h     # Charlton 2018 EDR respiratory rate estimator
 │   │   ├── ppg_sqi.c/.h                  # Karlen 2012 Signal Quality Index (entropy/skewness)
 │   │   ├── pressure_trend.c/.h           # Least-squares barometric slope cyclone regression
@@ -573,7 +573,7 @@ Every second, Core 1 constructs a 6-element normalized feature vector:
 | $x_2$ | **Oxygen Saturation (SpO2)**| Welford Variance Engine | $(SpO2 - 70.0) / 30.0$ | $70 - 100\%$ |
 | $x_3$ | **Ambient Temperature** | BME280 Environment | $(T_{amb} - 0.0) / 55.0$ | $0 - 55^\circ\text{C}$ |
 | $x_4$ | **Relative Humidity** | BME280 Environment | $RH / 100.0$ | $0 - 100\%$ |
-| $x_5$ | **Calibrated PM2.5** | PMS5003 + Si et al. NN | $\text{clamp}(PM2.5 / 500.0, 0.0, 1.0)$ | $0 - 500\text{ }\mu\text{g/m}^3$ |
+| $x_5$ | **Calibrated PM2.5** | PMS5003 + published correction | $\text{clamp}(PM2.5 / 500.0, 0.0, 1.0)$ | $0 - 500\text{ }\mu\text{g/m}^3$ |
 
 ### 3. Output Modalities & Interpretation
 The network outputs three independent probabilities $\in [0.0, 1.0]$:
@@ -659,7 +659,7 @@ gcc -Wall -Wextra -Werror -pedantic -std=c11 `
   -Ifirmware/core -Ifirmware/zynq -Ifirmware/shrikefi `
   firmware/zynq/test_disaster_risk_engine.c `
   firmware/core/nn_risk_model.c firmware/core/nn_risk_model_int8.c `
-  firmware/core/hrv_analysis.c firmware/core/pm25_calibration_int8.c `
+  firmware/core/hrv_analysis.c firmware/core/pm25_correction.c `
   firmware/core/clinical_vitals_engine.c firmware/core/spo2_engine.c `
   firmware/core/ppg_sqi.c firmware/core/disaster_risk_engine.c `
   firmware/core/pressure_trend.c firmware/core/ppg_respiratory_rate.c `
@@ -690,7 +690,7 @@ gcc -Wall -Wextra -Werror -pedantic -std=c11 `
   firmware/shrikefi/ssd1306.c firmware/core/hrv_analysis.c `
   firmware/core/spo2_engine.c firmware/core/disaster_risk_engine.c `
   firmware/core/nn_risk_model.c firmware/core/nn_risk_model_int8.c `
-  firmware/core/pm25_calibration_int8.c firmware/core/clinical_vitals_engine.c `
+  firmware/core/pm25_correction.c firmware/core/clinical_vitals_engine.c `
   firmware/core/ppg_sqi.c firmware/core/ppg_respiratory_rate.c `
   firmware/core/pressure_trend.c firmware/shrikefi/location.c `
   firmware/shrikefi/sos.c firmware/shrikefi/web_status.c `

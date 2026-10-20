@@ -160,7 +160,7 @@ OLED HRV states as hardware-verified.
 - The OLED shows `HRV: Low Signal` for SQI 0.50–0.69. `HRV: Stabilizing` is now
   reserved for SQI >= 0.70 with RMSSD still withheld.
 - `firmware/zynq/Makefile` links `ppg_baseline_rr.c` and
-  `pm25_calibration_int8.c`; its three host targets compile and the test target
+  `pm25_correction.c`; its three host targets compile and the test target
   passes.
 
 ### Flash and boot

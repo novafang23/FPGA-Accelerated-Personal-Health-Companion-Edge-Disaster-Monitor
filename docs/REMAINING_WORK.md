@@ -950,9 +950,9 @@ byte for byte, INT8-vs-FP32 max error is 0.0914 with 97.32% tier agreement, and 
   (`nn_predict()` has no device caller). The ESP32 build is now INT8-only
   (`NN_ENABLE_FLOAT32_MODEL=0`); the link map confirms `nn_risk_model.c.obj` is gone.
 - `docs/JUDGE_QA.md` and `docs/PROJECT_GUIDE.md` described an int32/LUT sigmoid kernel
-  that the hazard model does not use (that description belongs to the PM2.5
-  calibration net). Both documents now describe the real float-MAC + `expf()`
-  pipeline and cite the link map as proof.
+  that the hazard model does not use (that description belonged to the PM2.5
+  calibration net, which has since been deleted - see below). Both documents now
+  describe the real float-MAC + `expf()` pipeline and cite the link map as proof.
 - The published numbers were corrected: "88.47% (INT8)" → 88.39% for the shipped
   model, "6,200-sample split" → 7,000, "r = 0.97/0.97/0.94" → 0.99/0.98/0.97,
   "~18 µs on the ESP32-S3" → removed (never measured), "0.38 µs" → 0.44 µs host,
@@ -961,18 +961,40 @@ byte for byte, INT8-vs-FP32 max error is 0.0914 with 97.32% tier agreement, and 
   the weight-file headers and CI gates on the INT8 one
   (`--min-int8-accuracy`, default 86 %).
 
-**Open judgement call (not changed): the PM2.5 calibration net.** Measured on the
-real 0–500 µg/m³ range it can return a value up to ~70 % *lower* than the raw PMS5003
-reading (raw 500 → 153), and at high humidity it can return 0.0 for a raw reading of
-20. That calibrated value feeds both the pollution rule and the pollution network, so
-a hazy day can read as clean. Three options, none taken yet:
+**RESOLVED 2026-10-20 — the PM2.5 calibration net was replaced.** The private
+INT8 network (`firmware/core/pm25_calibration_int8.c`) is deleted. Measured on the
+real 0–500 µg/m³ range it returned a value up to ~70 % *lower* than the raw
+PMS5003 reading (raw 500 → 153), cut readings by 31–53 % even in dry air, and
+collapsed a raw 20 µg/m³ to 0.0 at RH ≥ 90 % — i.e. it could report a hazardous
+atmosphere as clean air. It was also unreproducible (no training script, no
+data, no citation).
 
-1. Compute the pollution risk from the **raw** optical reading and publish the
-   calibrated value as advisory only (the sensor's own correction then cannot move
-   the verdict).
-2. Keep the calibrated value in the verdict but publish **both** numbers everywhere
-   (dashboard, `[TRIAGE]`, MIMIC evaluator) so a judge can see the correction.
-3. Leave as is and document the correction in the judge notes.
+It is replaced by `firmware/core/pm25_correction.c`: the **published** EPA /
+Barkjohn (2021, *Atmos. Meas. Tech.* 14, 4617-4637) correction, in the PMS5003
+"atm" channel form that AirGradient publishes openly, applied to a 60 s rolling
+mean of the raw readings. Rules the new path follows:
+
+- A **missing reading is never published as 0**. `env.pm25` goes negative, the
+  pollution modality becomes `RISK_UNKNOWN`, the AQI reads "Not assessed", and
+  the AI model's pollution channel is refused. A real 0 µg/m³ from the sensor
+  stays 0, because that is what it means.
+- A **stale reading is withdrawn** after 10 s without a fresh sample (the sensor
+  can fail silently and keep its last value on the bus).
+- **Dust suppresses the correction** — under elevated dust loading the PMS5003
+  *under*-reads (Kaur, Mangin & Kelly 2026, AMT 19, 1077), so the coarse-dominated
+  case keeps the sensor's own number and is flagged `DUST`.
+- The **confidence code** (`OK`, `SETTLING`, `HUMID`, `DUST`, `RANGE`, `NODATA`)
+  travels with the number on the wire, on the SoftAP page, on the OLED and in
+  every dashboard, and the raw value is published next to the corrected one.
+- The 24-hour history keeps the same distinction: an hour with no PM2.5 reading
+  reports `-1` (rendered as "no reading"), never a peak of 0.
+
+Evidence: `firmware/core/test_pm25_correction.c` (29/29 checks),
+`docs/reports/PM25_CALIBRATION_2026-10-20.md`, and the literature behind it.
+**Still open:** the on-device capture — every USB serial port disappeared from
+the bench machine while this work was in progress, so the board could not be
+flashed or read. The device chain is verified by the host suite, the engine
+suite and both dashboard verifications, but *not* yet on hardware.
 
 With the board on COM4, follow
 [`docs/HARDWARE_DEBUG_HANDOVER.md`](HARDWARE_DEBUG_HANDOVER.md) §6. The short
