@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'sha256-iuXLPQVU0x9NisblEvApEgrpqnYRfjm/v0EWbWdoBxE='; style-src 'unsafe-inline'; connect-src 'self'; form-action 'self'; base-uri 'none'; object-src 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'sha256-T1UCKsGDNbr0n9osh70L0txgsaYPF305Eh9edW8Rpz0='; style-src 'unsafe-inline'; connect-src 'self'; form-action 'self'; base-uri 'none'; object-src 'none'">
 <title>VALOR — Edge Health &amp; Disaster Triage</title>
 <!--
   VALOR dashboard — single self-contained file.
@@ -252,6 +252,18 @@
   .unit { font-size: 14px; color: var(--text-dim); margin-left: 4px; }
   .vital-xl { font-size: clamp(38px, 4.2vw, 48px); }
   .vital-lg { font-size: clamp(32px, 3.6vw, 40px); }
+  /* An absent reading should whisper, not look like a redaction bar. */
+  .big.is-absent { font-size: 28px; font-weight: 500; letter-spacing: 0.04em; }
+  /* A source is a status, not part of the measurement name. Keeping it in a
+     small pill stops "Heart Rate awaiting IBI" from reading as one label. */
+  .vital-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 10px; }
+  .vital-head .label { font-size: 13px; color: var(--text-dim); }
+  .vital-source {
+    flex: none; padding: 4px 7px; border: 1px solid var(--border-soft);
+    border-radius: 999px; background: var(--inset);
+    font: 500 10px/1 var(--mono); letter-spacing: 0.04em;
+    color: var(--text-faint); white-space: nowrap;
+  }
 
   /* â”€â”€ NEWS2 â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
   .news2-card { padding: 20px; display: flex; flex-direction: column; gap: 16px; }
@@ -324,13 +336,13 @@
       --card:        #ffffff;
       --card-solid:  #ffffff;
       --inset:       #f1f5f9;
-      --border:      #cbd5e1;
-      --border-soft: #e2e8f0;
+      --border:      #b8c5d6;
+      --border-soft: #d8e2ee;
       --text:        #0b1220;
       --text-title:  #0f172a;
       --text-mid:    #334155;
-      --text-dim:    #475569;
-      --text-faint:  #52627a;
+      --text-dim:    #3d4c60;
+      --text-faint:  #4b5b70;
       --emerald:     #047857;
       --cyan:        #0e7490;
       --amber:       #b45309;
@@ -513,7 +525,10 @@
 <!-- â”€â”€ Row 2: Vitals â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ -->
 <div class="row row-2">
   <div class="card card-pad">
-    <div class="dim" style="margin-bottom:10px">Heart Rate <span class="faint" id="hr-source">--</span></div>
+    <div class="vital-head">
+      <span class="label">Heart Rate</span>
+      <span class="vital-source" id="hr-source">--</span>
+    </div>
     <div style="display:flex;align-items:flex-end;justify-content:space-between">
       <div>
         <span class="big vital-xl" id="v-hr">--</span>
@@ -898,6 +913,10 @@ let liveNoData = false;
    ========================================================================== */
 
 const $ = (id) => document.getElementById(id);
+const markAbsent = (id, on) => {
+  const el = $(id);
+  if (el) el.classList.toggle('is-absent', !!on);
+};
 const clamp = (x, a, b) => Math.min(b, Math.max(a, x));
 const pct = (x, max) => clamp((x / max) * 100, 0, 100);
 const esc = (s) => String(s).replace(/[&<>"]/g, (c) =>
@@ -1619,6 +1638,8 @@ function renderIdle() {
 
   $('v-hr').textContent = D;   $('v-hr').style.color = 'var(--text-faint)'; $('v-hr').style.textShadow = 'none';
   $('hr-source').textContent = '--'; $('hr-source').style.color = '';
+  ['v-hr', 'v-spo2', 'v-hrv', 'v-rr', 'v-sqi', 'v-temp', 'v-hum', 'v-pm']
+    .forEach((id) => markAbsent(id, true));
   $('hr-note').textContent = '';
   $('v-spo2').textContent = D; $('v-spo2').style.color = 'var(--text-faint)';
   $('spo2-note').textContent = '';
@@ -1782,10 +1803,11 @@ function render() {
      crimson with a clinical-sounding note, so the first seconds of every
      contact - and every genuine dropout - showed a false alarm. Guard on
      presence first and let the note say the reading is still coming. */
-  const hrColor = !hrOn ? C.text : (V.hr > 100 || V.hr < 50) ? C.crimson : C.emerald;
-  $('v-hr').textContent = V.hr > 0 ? V.hr.toFixed(0) : '--';
+  const hrColor = !hrOn ? C.faint : (V.hr > 100 || V.hr < 50) ? C.crimson : C.emerald;
+  $('v-hr').textContent = V.hr > 0 ? V.hr.toFixed(0) : '\u2014';
   $('v-hr').style.color = hrColor;
-  $('v-hr').style.textShadow = '0 0 24px ' + hrColor + '44';
+  $('v-hr').style.textShadow = hrOn ? '0 0 24px ' + hrColor + '44' : 'none';
+  markAbsent('v-hr', !hrOn);
   /* In live mode the IBI source label is only true once an interval has
      actually produced a rate. Before that the card says so instead of
      claiming a device IBI that does not exist yet. */
@@ -1798,24 +1820,26 @@ function render() {
   $('hr-note').style.color = (hrOn && V.hr > 100) ? C.crimson : 'var(--text-dim)';
 
   const spo2On = V.spo2 > 0;
-  const spo2Color = !spo2On ? C.text
+  const spo2Color = !spo2On ? C.faint
     : V.spo2 < 90 ? C.crimson : V.spo2 < 95 ? C.amber : C.cyan;
-  $('v-spo2').textContent = V.spo2 > 0 ? V.spo2.toFixed(1) : '--';
+  $('v-spo2').textContent = V.spo2 > 0 ? V.spo2.toFixed(1) : '\u2014';
   $('v-spo2').style.color = spo2Color;
+  markAbsent('v-spo2', !spo2On);
   $('spo2-note').textContent = !spo2On ? 'calibrating'
     : V.spo2 < 90 ? '⚠  hypoxia' : V.spo2 < 95 ? 'borderline' : 'normal';
   $('spo2-note').style.color = (spo2On && V.spo2 < 90) ? C.crimson : 'var(--text-dim)';
 
   const hrvOn = V.hrv > 0;
-  const hrvColor = !hrvOn ? C.text : V.hrv < 20 ? C.crimson : V.hrv < 30 ? C.amber : C.violet;
+  const hrvColor = !hrvOn ? C.faint : V.hrv < 20 ? C.crimson : V.hrv < 30 ? C.amber : C.violet;
   /* While the device's beat window is still filling it withholds RMSSD
      entirely, so the card shows the fill progress instead of "--" beside a
      note that would suggest nothing is happening. 240 beats and 120 s of
      contact is the publish gate (HRV_SETTLE_MIN_SAMPLES / HRV_SETTLE_MIN_SPAN_MS
      in firmware/core/hrv_analysis.h). */
   const hrvSettling = (!hrvOn && V.contact && V.hrvN !== null && V.hrvN < 240);
-  $('v-hrv').textContent = hrvOn ? V.hrv.toFixed(1) : hrvSettling ? V.hrvN : '--';
-  $('v-hrv').style.color = hrvOn ? hrvColor : C.text;
+  $('v-hrv').textContent = hrvOn ? V.hrv.toFixed(1) : hrvSettling ? V.hrvN : '\u2014';
+  $('v-hrv').style.color = hrvSettling ? C.text : hrvColor;
+  markAbsent('v-hrv', !hrvOn && !hrvSettling);
   const bHrv = $('bar-hrv');
   bHrv.style.width = (hrvOn ? pct(V.hrv, 60) : hrvSettling ? pct(V.hrvN, 240) : 0) + '%';
   bHrv.style.background = hrvOn ? hrvColor : 'var(--text-faint)';
@@ -1825,9 +1849,10 @@ function render() {
     : 'needs 240 beats \u00b7 120 s';
 
   const rrOn = V.rr > 0;
-  $('v-rr').textContent = rrOn ? V.rr.toFixed(0) : '--';
-  $('v-rr').style.color = !rrOn ? C.text
+  $('v-rr').textContent = rrOn ? V.rr.toFixed(0) : '\u2014';
+  $('v-rr').style.color = !rrOn ? C.faint
     : (V.rr > 24 || V.rr < 10) ? C.crimson : C.text;
+  markAbsent('v-rr', !rrOn);
 
   if ($('rr-note')) {
     if (!hrOn) {
@@ -1847,9 +1872,10 @@ function render() {
     }
   }
 
-  const sqiColor = !sqiOn ? C.text : V.sqi < 50 ? C.crimson : V.sqi < 75 ? C.amber : C.mid;
-  $('v-sqi').textContent = sqiOn ? sqiPct : '--';
+  const sqiColor = !sqiOn ? C.faint : V.sqi < 50 ? C.crimson : V.sqi < 75 ? C.amber : C.mid;
+  $('v-sqi').textContent = sqiOn ? sqiPct : '\u2014';
   $('v-sqi').style.color = sqiColor;
+  markAbsent('v-sqi', !sqiOn);
   const pill = $('sqi-pill');
   pill.textContent = !hrOn ? 'waiting for contact'
     : !sqiOn ? 'calibrating baseline'
@@ -1863,23 +1889,26 @@ function render() {
      null (no reading at all) makes the tile say "not assessed". */
   const pmValid = V.pmCal !== null && V.pmCal !== undefined && isFinite(V.pmCal);
   const tempColor = !ambientValid ? 'var(--text-faint)' : V.temp > 38 ? C.crimson : V.temp > 35 ? C.amber : 'var(--text)';
-  $('v-temp').textContent = ambientValid ? V.temp.toFixed(1) : '--';
+  $('v-temp').textContent = ambientValid ? V.temp.toFixed(1) : '\u2014';
   $('v-temp').style.color = tempColor;
+  markAbsent('v-temp', !ambientValid);
   const bands = $('temp-band').children;
   bands[0].className = ambientValid && V.temp < 10 ? 'on' : '';
   bands[1].className = ambientValid && V.temp >= 10 && V.temp <= 35 ? 'on' : '';
   bands[2].className = ambientValid && V.temp > 35 && V.temp <= 40 ? 'on' : '';
   bands[3].className = ambientValid && V.temp > 40 ? 'on' : '';
 
-  $('v-hum').textContent = humidityValid ? V.hum.toFixed(0) : '--';
+  $('v-hum').textContent = humidityValid ? V.hum.toFixed(0) : '\u2014';
   $('v-hum').style.color = !humidityValid ? 'var(--text-faint)' : V.hum > 90 ? C.crimson : 'var(--text)';
+  markAbsent('v-hum', !humidityValid);
   const bHum = $('bar-hum');
   bHum.style.width = humidityValid ? pct(V.hum, 100) + '%' : '0%';
   bHum.style.background = V.hum > 90 ? C.crimson : V.hum > 70 ? C.amber : C.cyan;
 
   const aqi = pmValid ? aqiBand(V.pmCal) : { label: '--', color: C.faint };
-  $('v-pm').textContent = pmValid ? V.pmCal.toFixed(1) : '--';
+  $('v-pm').textContent = pmValid ? V.pmCal.toFixed(1) : '\u2014';
   $('v-pm').style.color = pmValid ? aqi.color : 'var(--text-faint)';
+  markAbsent('v-pm', !pmValid);
   /* The raw sensor value and the confidence code of the published estimate.
      A caveat is shown next to the number, not hidden in a tooltip: a reader
      has to be able to tell "the air is clean" from "we are not sure". */

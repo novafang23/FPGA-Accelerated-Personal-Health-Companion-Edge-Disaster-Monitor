@@ -117,7 +117,7 @@ window.onerror = function (m) { window.__err = String(m); };
     const grid = document.getElementById('n2-grid');
     const out = {
       error: window.__err,
-      text: C.text, crimson: C.crimson, amber: C.amber,
+      text: C.text, faint: C.faint, crimson: C.crimson, amber: C.amber,
       hr: txt('v-hr'), hrNote: txt('hr-note'), hrNumCol: col('v-hr'),
       spo2: txt('v-spo2'), spo2Note: txt('spo2-note'), spo2NumCol: col('v-spo2'),
       hrv: txt('v-hrv'), hrvNote: txt('hrv-note'), hrvNumCol: col('v-hrv'),
@@ -353,12 +353,12 @@ for case in ("zero", "healthy", "hrv_settle", "device_pts", "ai_declined", "ai_s
         print("CASE: %s -> could not render: %s" % (case, e))
         continue
 
-    neutral = rgb(r["text"]) if "text" in r else None
+    neutral = rgb(r["faint"]) if "faint" in r else None
     alarm = {rgb(r["crimson"]), rgb(r["amber"])} if "crimson" in r else set()
 
     if case == "zero":
         expect = {
-            "hr": "--", "spo2": "--", "hrv": "--", "rr": "--", "sqi": "--",
+            "hr": "\u2014", "spo2": "\u2014", "hrv": "\u2014", "rr": "\u2014", "sqi": "\u2014",
             "hrNote": "acquiring", "spo2Note": "calibrating",
             "hrvNote": "needs 240 beats \u00b7 120 s", "sqiPill": "waiting for contact",
             "psi": "--", "aha": "--", "hrSource": "awaiting IBI",
@@ -384,14 +384,14 @@ for case in ("zero", "healthy", "hrv_settle", "device_pts", "ai_declined", "ai_s
             "n2": ["RR=+0", "SpO2=+0", "HR=+0", "SBP=n/a", "Temp=n/a", "Consc=n/a"],
         }
     elif case == "nofinger":
-        expect = {"hr": "--", "temp": "25.0", "psi": "--", "aha": "--",
+        expect = {"hr": "\u2014", "temp": "25.0", "psi": "--", "aha": "--",
                   "hrSource": "awaiting IBI"}
     elif case == "sensor_missing":
-        expect = {"hr": "--", "temp": "--", "psi": "--", "aha": "--",
+        expect = {"hr": "\u2014", "temp": "\u2014", "psi": "--", "aha": "--",
                   "hrSource": "awaiting IBI"}
     elif case == "ambient":
         expect = {
-            "hr": "--", "temp": "29.7", "hum": "63", "pm": "86.6",
+            "hr": "\u2014", "temp": "29.7", "hum": "63", "pm": "86.6",
             "psi": "--", "aha": "--", "hrSource": "awaiting IBI",
             "scopeSrc": "AMBIENT",
             "envStrip": "Ta 29.7 \u00b0C \u00b7 RH 63 % \u00b7 PM2.5 86.6 \u00b5g/m\u00b3",
@@ -439,7 +439,7 @@ for case in ("zero", "healthy", "hrv_settle", "device_pts", "ai_declined", "ai_s
     elif case == "pm_nodata":
         # No reading is not a reading of zero.
         expect = {
-            "pm": "--",
+            "pm": "\u2014",
             "pmRaw": "no reading",
             "pmLabel": "Not assessed",
         }
