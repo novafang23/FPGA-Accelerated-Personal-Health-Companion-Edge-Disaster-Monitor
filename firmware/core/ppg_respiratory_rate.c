@@ -13,6 +13,11 @@
  * because the lag-correlation buffer has to be sized off it. */
 #define MAX_ACF_LAGS 24
 
+/* The estimator only uses the newest 64 beats. Keeping the buffer size here
+ * makes the windowing explicit: the mean, detrend, ACF and AM paths must all
+ * read the same slice, not the first 64 entries of a longer history. */
+#define MAX_BEATS_BUF 64
+
 static float clamp_rr(float x) {
     if (x < PPG_RR_MIN_BPM) return PPG_RR_MIN_BPM;
     if (x > PPG_RR_MAX_BPM) return PPG_RR_MAX_BPM;
@@ -92,28 +97,40 @@ void ppg_estimate_respiratory_rate(
     result->diag_peak_lag    = -1;
     result->diag_peak_lag_f  = 0.0f;
     result->diag_beats       = 0;
+    result->diag_am_bpm      = 0.0f;
+    result->diag_am_conf     = 0.0f;
 
     if (!ibi_ms || beat_count < 8) {
         return;
     }
 
-    /* 1. Calculate mean IBI and detrend */
+    /* 1. Select the NEWEST window and calculate its mean.
+     *
+     * The old code averaged every entry in the caller's buffer but then
+     * detrended only the first 64. With a 96-beat history the mean therefore
+     * described beats 0..95 while the series described beats 0..63: a window
+     * mismatch that biased the mean, the slope and every derived rate. The
+     * buffer holds the oldest-to-newest history, so the valid window starts at
+     * beat_count - N. Use that same offset for the amplitude series below. */
+    size_t N = (beat_count > MAX_BEATS_BUF) ? MAX_BEATS_BUF : beat_count;
+    size_t start_idx = beat_count - N;
+    float y[MAX_BEATS_BUF];
+
     float ibi_sum = 0.0f;
-    for (size_t i = 0; i < beat_count; i++) {
+    for (size_t i = start_idx; i < beat_count; i++) {
+        if (!isfinite(ibi_ms[i])) {
+            return; /* A non-finite interval invalidates the whole window. */
+        }
         ibi_sum += ibi_ms[i];
     }
-    float mean_ibi = ibi_sum / (float)beat_count;
-    if (mean_ibi <= 100.0f || mean_ibi >= 2500.0f) {
+    float mean_ibi = ibi_sum / (float)N;
+    if (!isfinite(mean_ibi) || mean_ibi <= 100.0f || mean_ibi >= 2500.0f) {
         return; /* Unrealistic physiological IBI */
     }
 
-    /* Detrended IBI array */
-    #define MAX_BEATS_BUF 64
-    size_t N = (beat_count > MAX_BEATS_BUF) ? MAX_BEATS_BUF : beat_count;
-    float y[MAX_BEATS_BUF];
-
+    /* Detrended IBI array, aligned to the newest window. */
     for (size_t i = 0; i < N; i++) {
-        y[i] = ibi_ms[i] - mean_ibi;
+        y[i] = ibi_ms[start_idx + i] - mean_ibi;
     }
 
     /* Remove the best-fit straight line, not just the mean.
@@ -158,6 +175,9 @@ void ppg_estimate_respiratory_rate(
      *
      * For a true sinusoid this recovers the peak-to-peak exactly, since
      * sigma = pp / (2*sqrt(2)); the constant is algebra, not a fudge factor. */
+    if (!isfinite(var_sum)) {
+        return;
+    }
     float sigma = sqrtf(var_sum / (float)N);
     result->rsa_depth_ms = 2.0f * 1.41421356f * sigma;
 
@@ -336,99 +356,118 @@ void ppg_estimate_respiratory_rate(
     }
 
     /* 3. Amplitude Modulation (AM) analysis if amplitudes are provided */
-    float rr_from_am = rr_from_fm;
+    float rr_from_am = 0.0f;
     float conf_am = 0.0f;
 
     if (pulse_amplitudes) {
+        /* The amplitude array is indexed exactly like the IBI array. Reading
+         * it from zero while the IBI window starts at start_idx would compare
+         * the newest intervals against the amplitude of old beats. */
+        bool amp_finite = true;
         float amp_sum = 0.0f;
-        for (size_t i = 0; i < N; i++) amp_sum += pulse_amplitudes[i];
-        float mean_amp = amp_sum / (float)N;
-
-        float amp_y[MAX_BEATS_BUF];
-        for (size_t i = 0; i < N; i++) {
-            amp_y[i] = pulse_amplitudes[i] - mean_amp;
-        }
-
-        /* Detrend the amplitude series for the same reason as the IBI series:
-         * LED heating and contact drift are slow trends, not respiration, and
-         * would otherwise dominate the autocorrelation at short lags. */
-        float amp_stt = 0.0f, amp_sty = 0.0f;
-        for (size_t i = 0; i < N; i++) {
-            float dt = (float)i - idx_mean;
-            amp_stt += dt * dt;
-            amp_sty += dt * amp_y[i];
-        }
-        float amp_slope = (amp_stt > 1e-6f) ? (amp_sty / amp_stt) : 0.0f;
-
-        float amp_var = 0.0f;
-        for (size_t i = 0; i < N; i++) {
-            amp_y[i] -= amp_slope * ((float)i - idx_mean);
-            amp_var += amp_y[i] * amp_y[i];
-        }
-
-        if (amp_var > 1e-3f) {
-            int best_am_lag = -1;
-            float best_am_r = -1.0f;
-            float ar_lag[MAX_ACF_LAGS + 2];
-            memset(ar_lag, 0, sizeof(ar_lag));
-            if (max_lag >= 1) {
-                float cross = 0.0f;
-                for (size_t i = 0; i + 1 < N; i++) cross += amp_y[i] * amp_y[i + 1];
-                ar_lag[1] = cross / amp_var;
+        for (size_t i = start_idx; i < beat_count; i++) {
+            if (!isfinite(pulse_amplitudes[i])) {
+                amp_finite = false;
+                break;
             }
-            for (size_t k = 2; k <= max_lag; k++) {
-                float cross = 0.0f;
-                for (size_t i = 0; i < N - k; i++) {
-                    cross += amp_y[i] * amp_y[i + k];
+            amp_sum += pulse_amplitudes[i];
+        }
+        float mean_amp = amp_finite ? (amp_sum / (float)N) : 0.0f;
+        if (!amp_finite || !isfinite(mean_amp)) {
+            /* An invalid amplitude sample only disables this optional path;
+             * the IBI/FM estimate above is still a valid measurement. */
+            mean_amp = 0.0f;
+        } else {
+            float amp_y[MAX_BEATS_BUF];
+            for (size_t i = 0; i < N; i++) {
+                amp_y[i] = pulse_amplitudes[start_idx + i] - mean_amp;
+            }
+
+            /* Detrend the amplitude series for the same reason as the IBI series:
+             * LED heating and contact drift are slow trends, not respiration, and
+             * would otherwise dominate the autocorrelation at short lags. */
+            float amp_stt = 0.0f, amp_sty = 0.0f;
+            for (size_t i = 0; i < N; i++) {
+                float dt = (float)i - idx_mean;
+                amp_stt += dt * dt;
+                amp_sty += dt * amp_y[i];
+            }
+            float amp_slope = (amp_stt > 1e-6f) ? (amp_sty / amp_stt) : 0.0f;
+
+            float amp_var = 0.0f;
+            for (size_t i = 0; i < N; i++) {
+                amp_y[i] -= amp_slope * ((float)i - idx_mean);
+                amp_var += amp_y[i] * amp_y[i];
+            }
+
+            if (!isfinite(amp_var)) {
+                amp_var = 0.0f;
+            }
+
+            if (amp_var > 1e-3f) {
+                int best_am_lag = -1;
+                float best_am_r = -1.0f;
+                float ar_lag[MAX_ACF_LAGS + 2];
+                memset(ar_lag, 0, sizeof(ar_lag));
+                if (max_lag >= 1) {
+                    float cross = 0.0f;
+                    for (size_t i = 0; i + 1 < N; i++) cross += amp_y[i] * amp_y[i + 1];
+                    ar_lag[1] = cross / amp_var;
                 }
-                float r = cross / amp_var;
-                ar_lag[k] = r;
-
-                if (r > best_am_r) {
-                    best_am_r = r;
-                    best_am_lag = (int)k;
-                }
-            }
-            /* Same 0.20 floor the search applied before it was restructured to
-             * store every lag. */
-            if (best_am_r < 0.20f) {
-                best_am_lag = -1;
-            }
-            /* Same fundamental-over-harmonic preference as the FM path: this
-             * estimate is fused with that one, so an octave error here would go
-             * straight back into the published rate. */
-            if (best_am_lag > 0) {
-                float frac_am = PPG_RR_HARMONIC_FRAC * best_am_r;
                 for (size_t k = 2; k <= max_lag; k++) {
-                    if (k < (size_t)PPG_RR_MIN_LAG) continue;   /* see the FM path */
-                    if (!rr_is_sub_multiple(k, best_am_lag)) continue;
-                    if (ar_lag[k] < frac_am) continue;
-                    bool am_local_max = (ar_lag[k] >= ar_lag[k - 1]) &&
-                                        (k + 1 > max_lag || ar_lag[k] >= ar_lag[k + 1]);
-                    if (am_local_max) {
+                    float cross = 0.0f;
+                    for (size_t i = 0; i < N - k; i++) {
+                        cross += amp_y[i] * amp_y[i + k];
+                    }
+                    float r = cross / amp_var;
+                    ar_lag[k] = r;
+
+                    if (r > best_am_r) {
+                        best_am_r = r;
                         best_am_lag = (int)k;
-                        best_am_r   = ar_lag[k];
-                        break;
                     }
                 }
-            }
-            /* Same rule as the FM path: the integer lag must already be in band,
-             * so interpolation cannot walk an out-of-band peak back inside. */
-            if (best_am_lag > 0) {
-                float raw_am = 60000.0f / ((float)best_am_lag * mean_ibi);
-                if (raw_am < PPG_RR_MIN_BPM || raw_am > PPG_RR_MAX_BPM) {
+                /* Same 0.20 floor the search applied before it was restructured to
+                 * store every lag. */
+                if (best_am_r < 0.20f) {
                     best_am_lag = -1;
                 }
-            }
-            if (best_am_lag > 0) {
-                /* Interpolated on the same reasoning as the FM path - this is the
-                 * estimate that is fused with it, so leaving it quantised would
-                 * put the grid straight back into the fused value. */
-                float lag_am = interp_peak_lag(ar_lag, best_am_lag, max_lag);
-                float period_am = (lag_am * mean_ibi) / 1000.0f;
-                if (period_am > 1.2f && period_am < 12.0f) {
-                    rr_from_am = 60.0f / period_am;
-                    conf_am = best_am_r;
+                /* Same fundamental-over-harmonic preference as the FM path: this
+                 * estimate is fused with that one, so an octave error here would go
+                 * straight back into the published rate. */
+                if (best_am_lag > 0) {
+                    float frac_am = PPG_RR_HARMONIC_FRAC * best_am_r;
+                    for (size_t k = 2; k <= max_lag; k++) {
+                        if (k < (size_t)PPG_RR_MIN_LAG) continue;   /* see the FM path */
+                        if (!rr_is_sub_multiple(k, best_am_lag)) continue;
+                        if (ar_lag[k] < frac_am) continue;
+                        bool am_local_max = (ar_lag[k] >= ar_lag[k - 1]) &&
+                                            (k + 1 > max_lag || ar_lag[k] >= ar_lag[k + 1]);
+                        if (am_local_max) {
+                            best_am_lag = (int)k;
+                            best_am_r   = ar_lag[k];
+                            break;
+                        }
+                    }
+                }
+                /* Same rule as the FM path: the integer lag must already be in band,
+                 * so interpolation cannot walk an out-of-band peak back inside. */
+                if (best_am_lag > 0) {
+                    float raw_am = 60000.0f / ((float)best_am_lag * mean_ibi);
+                    if (raw_am < PPG_RR_MIN_BPM || raw_am > PPG_RR_MAX_BPM) {
+                        best_am_lag = -1;
+                    }
+                }
+                if (best_am_lag > 0) {
+                    /* Interpolated on the same reasoning as the FM path - this is the
+                     * estimate that is fused with it, so leaving it quantised would
+                     * put the grid straight back into the fused value. */
+                    float lag_am = interp_peak_lag(ar_lag, best_am_lag, max_lag);
+                    float period_am = (lag_am * mean_ibi) / 1000.0f;
+                    if (period_am > 1.2f && period_am < 12.0f) {
+                        rr_from_am = 60.0f / period_am;
+                        conf_am = best_am_r;
+                    }
                 }
             }
         }

@@ -37,7 +37,7 @@
 #define I2C_ADDR_SSD1306     0x3C  /* OLED display (alt: 0x3D if ADDR pin = HIGH) */
 #define I2C_ADDR_SSD1306_ALT 0x3D
 #define I2C_ADDR_MAX30102    0x57  /* PPG + SpO2 sensor (fixed, non-configurable)  */
-#define I2C_ADDR_MAX30205    0x48  /* Optional clinical temperature sensor          */
+/* TMP117 removed - skin temp estimated from MAX30102 die temp + BME280 */
 #define I2C_ADDR_BME280      0x76  /* Environmental sensor (SDO=GND → 0x76)       */
 #define I2C_ADDR_BME280_ALT  0x77  /* (SDO=3.3V → 0x77)                           */
 
@@ -69,6 +69,15 @@
  * High = Sound ON, Low = Sound OFF.
  * ====================================================================== */
 #define PIN_BUZZER           4    /* GPIO4 — Active Buzzer signal */
+
+/* =========================================================================
+ * SOS Hardware Button — Dual-Function Manual Trigger & Cancel
+ * =========================================================================
+ * Pushbutton between GPIO 5 and GND (active-low with internal pull-up).
+ * - Short press (>= 150 ms) in normal monitoring triggers manual SOS emergency.
+ * - 5-second sustained hold during active emergency or fall countdown cancels it.
+ * ====================================================================== */
+#define PIN_SOS_BUTTON       5    /* GPIO5 — Hardware SOS Button (active-low) */
 
 /* =========================================================================
  * Renesas ForgeFPGA (SLG47910) Interconnect — Official Vicharak Shrike-Fi Traces

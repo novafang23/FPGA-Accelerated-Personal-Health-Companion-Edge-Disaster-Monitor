@@ -55,6 +55,7 @@ if(location.search.indexOf('sos=1')>=0){document.getElementById('sos-trigger').c
 if(location.search.indexOf('lose=1')>=0){await new Promise(function(r){setTimeout(r,1100)})}
 var o={hr:document.getElementById('hr').textContent,spo2:document.getElementById('spo2').textContent,
 temp:document.getElementById('temp').textContent,
+skin:document.getElementById('skin').textContent,
 hum:document.getElementById('hum').textContent,pm:document.getElementById('pm').textContent,
 link:document.getElementById('link').textContent,risk:document.getElementById('risk').textContent,
 sos:document.getElementById('sos-note').textContent,calls:window.__calls};
@@ -108,7 +109,7 @@ if "Access-Control-Allow-Origin" in source:
 
 healthy = {
     "hr": 72.0, "spo2": 98.4, "rr": 15.0, "sqi": 0.87, "rmssd": 42.0,
-    "temp": -3.5, "hum": 0.0, "pm25": 0.0,
+    "temp": -3.5, "hum": 0.0, "pm25": 0.0, "skintemp": 33.4,
     "pressure": 1013.2, "ptrend": -1.25, "news2": 0, "level": 0, "flags": 0,
     "risk": "NORMAL", "storm": "HIGH", "sos": "IDLE", "trigger": "none",
     "loc": "UNSET", "motion": 0.1, "fall": "MONITORING", "contact": True, "up": 12,
@@ -118,12 +119,18 @@ assert (live["hr"], live["spo2"], live["temp"]) == ("72", "98.4", "-3.5"), live
 assert (live["hum"], live["pm"], live["link"]) == ("0", "0", "finger detected"), live
 assert live["sos"] == "SOS trigger request sent", live
 assert ["/api/emergency/trigger", "POST"] in live["calls"], live
-print("SoftAP live values and SOS button: PASS")
+# The settled TMP117 skin temperature must reach the page: the JSON has carried
+# it since the driver landed, but the tile was never bound to it.
+assert live["skin"] == "33.4", live
+print("SoftAP live values, skin temperature and SOS button: PASS")
 
 no_finger = dict(healthy, hr=0.0, spo2=0.0, rr=0.0, sqi=0.0, rmssd=0.0,
-                 risk="UNKNOWN", storm="NORMAL", contact=False)
+                 risk="UNKNOWN", storm="NORMAL", contact=False, skintemp=None)
 absent = render(build_fixture_page(page, no_finger), "?case=nofinger")
 assert (absent["hr"], absent["link"]) == ("--", "no finger"), absent
+# No settled skin temperature is published as null, and null must render as --
+# rather than as a made-up reading.
+assert absent["skin"] == "--", absent
 print("SoftAP absent finger values: PASS")
 
 offline = render(build_fixture_page(page, healthy, lose_link=True), "?case=offline&lose=1")

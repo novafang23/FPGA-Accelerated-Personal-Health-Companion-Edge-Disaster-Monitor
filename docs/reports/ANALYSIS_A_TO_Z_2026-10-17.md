@@ -140,7 +140,7 @@ emergency. (The open-AP *vitals disclosure* is a documented tradeoff; the *contr
 | ID | Location | Issue |
 |---|---|---|
 | M1 | `firmware/shrikefi/wifi_credentials.h` | Real SSID + password in plaintext on disk (gitignored, so not in history). Rotate. |
-| M2 | `firmware/shrikefi/max30102.c` `delay_ms` | `ms=29` → `vTaskDelay(pdMS_TO_TICKS(29))` = **2 ticks = 20 ms** at `FREERTOS_HZ=100`; the 29 ms MAX30102 temp conversion is under-waited. |
+| M2 | `firmware/shrikefi/max30102.c` `delay_ms` | `ms=29` → `vTaskDelay(pdMS_TO_TICKS(29))` = **2 ticks = 20 ms** at the audit snapshot's `FREERTOS_HZ=100` (now 200, i.e. 5 ticks = 25 ms); the 29 ms MAX30102 temp conversion was under-waited. |
 | M3 | `firmware/shrikefi/pms5003.c:120` (and `firmware/zynq/pms5003.c:120`) | `if (!dev->has_valid_data || !data)` dereferences `dev` before the NULL check. |
 | M4 | `hardware/shrikefi/forgefpga_ppg_top.v:35` | `spi_miso_oe` tied `1'b1`; the gated OE from `spi_target` is discarded → MISO never tri-stated; OE logic is dead. |
 | M5 | `firmware/core/pm25_calibration_int8.c`; `disaster_risk_engine.h:219` | "3→8→4→1 ReLU network" is really a fixed affine map (8 zero weight rows, no training script). Moran-PSI/AHA helpers labelled "peer-reviewed clinical models" are hand-tuned heuristics and are **untested**. |

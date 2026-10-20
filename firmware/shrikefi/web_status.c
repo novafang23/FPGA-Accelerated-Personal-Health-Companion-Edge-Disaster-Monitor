@@ -64,7 +64,18 @@ static void history_persist_if_dirty(void);
 #include "freertos/semphr.h"
 #include "esp_timer.h"
 static SemaphoreHandle_t s_lock = NULL;
-#define WS_LOCK()   do { if (s_lock) xSemaphoreTake(s_lock, portMAX_DELAY); } while (0)
+
+/* The history module is usable before web_status_start() (app_main calls
+ * web_status_history_init() independently, and a publish can arrive from the
+ * monitor task first). Create the mutex lazily here so those callers never run
+ * unlocked merely because the HTTP server has not started yet. */
+static bool ensure_lock(void) {
+    if (s_lock == NULL) {
+        s_lock = xSemaphoreCreateMutex();
+    }
+    return s_lock != NULL;
+}
+#define WS_LOCK()   do { (void)ensure_lock(); if (s_lock) xSemaphoreTake(s_lock, portMAX_DELAY); } while (0)
 #define WS_UNLOCK() do { if (s_lock) xSemaphoreGive(s_lock); } while (0)
 #else
 #define WS_LOCK()   do { } while (0)
@@ -188,6 +199,13 @@ size_t web_status_json(const valor_status_t *s, char *buf, size_t cap) {
     if (s->temp < -40.0f || s->temp > 85.0f) {
         if (!json_append(buf, cap, &used, "null,", 5)) return 0;
     } else if (!json_append_format(buf, cap, &used, "%.1f,", (double)s->temp)) {
+        return 0;
+    }
+
+    /* Clinical skin temperature from TMP117 (null if no sensor / not settled) */
+    if (!s->skin_valid || s->skin_temp < 20.0f || s->skin_temp > 50.0f) {
+        if (!json_append(buf, cap, &used, "\"skintemp\":null,", 16)) return 0;
+    } else if (!json_append_format(buf, cap, &used, "\"skintemp\":%.1f,", (double)s->skin_temp)) {
         return 0;
     }
 
@@ -364,12 +382,13 @@ size_t web_status_history_decode(const uint8_t *buf, size_t len,
  * released. If the encode fails the dirty flag stays set and the next publish
  * retries, so a transient failure does not silently drop the data. */
 static void history_persist_if_dirty(void) {
-    if (!s_history_dirty) return;
-    size_t n;
+    size_t n = 0;
     WS_LOCK();
-    n = web_status_history_encode(s_history, VALOR_HISTORY_HOURS,
-                                  s_history_blob, sizeof(s_history_blob));
-    if (n > 0) s_history_dirty = false;
+    if (s_history_dirty) {
+        n = web_status_history_encode(s_history, VALOR_HISTORY_HOURS,
+                                      s_history_blob, sizeof(s_history_blob));
+        if (n > 0) s_history_dirty = false;
+    }
     WS_UNLOCK();
     if (n > 0) history_nvs_store(s_history_blob, n);
 }
@@ -562,7 +581,7 @@ size_t web_status_history_json(char *buf, size_t cap) {
                                     "{\"hour\":%u,\"hr\":%.1f,\"spo2\":%.1f,\"rmssd\":%.1f,"
                                     "\"pm25\":null,\"news2\":%u,\"valid\":%s}",
                                     (unsigned)p->hour_offset,
-                                    p->avg_hr, p->avg_spo2, p->avg_rmssd,
+                                    (double)p->avg_hr, (double)p->avg_spo2, (double)p->avg_rmssd,
                                     p->max_news2,
                                     p->valid ? "true" : "false")) {
                 WS_UNLOCK();
@@ -572,8 +591,8 @@ size_t web_status_history_json(char *buf, size_t cap) {
                                 "{\"hour\":%u,\"hr\":%.1f,\"spo2\":%.1f,\"rmssd\":%.1f,"
                                 "\"pm25\":%.1f,\"news2\":%u,\"valid\":%s}",
                                 (unsigned)p->hour_offset,
-                                p->avg_hr, p->avg_spo2, p->avg_rmssd,
-                                p->peak_pm25, p->max_news2,
+                                (double)p->avg_hr, (double)p->avg_spo2, (double)p->avg_rmssd,
+                                (double)p->peak_pm25, p->max_news2,
                                 p->valid ? "true" : "false")) {
             WS_UNLOCK();
             return 0;
@@ -601,7 +620,7 @@ size_t web_status_history_json(char *buf, size_t cap) {
 static const char PAGE_HTML[] =
 "<!DOCTYPE html><html lang='en'><head><meta charset='utf-8'>"
 "<meta name='viewport' content='width=device-width,initial-scale=1'>"
-"<meta http-equiv='Content-Security-Policy' content=\"default-src 'none'; script-src 'sha256-mg+g9dXuU8/LyK64h964FuCUsOl2O35cxeFLmNjHbkI='; style-src 'unsafe-inline'; connect-src 'self'; form-action 'self'; base-uri 'none'; object-src 'none'\">"
+"<meta http-equiv='Content-Security-Policy' content=\"default-src 'none'; script-src 'sha256-OOVRxXW48FELgHXwkTY1TOE8BlmJoM0S2XLDi4kBqnU='; style-src 'unsafe-inline'; connect-src 'self'; form-action 'self'; base-uri 'none'; object-src 'none'\">"
 "<title>VALOR - local status</title><style>"
 ":root{--bg:#070B14;--card:#0E1626;--line:#1C2740;--text:#E6EDF7;--dim:#8A9AB5;"
 "--cyan:#00E5FF;--emerald:#00FFAA;--amber:#FFB020;--crimson:#FF3B5C}"
@@ -660,6 +679,12 @@ static const char PAGE_HTML[] =
 "<div class='v'><span id='rmssd'>--</span><span class='u'>ms</span></div></div>"
 "<div class='card'><div class='k'>Respiratory</div>"
 "<div class='v'><span id='rr'>--</span><span class='u'>/min</span></div></div>"
+/* Skin temperature is a clinical vital, so it sits with the other vitals and
+   not with the environmental cards. It is published only once the TMP117 has
+   thermally settled on skin; until then the device sends null and this tile
+   reads -- rather than showing a number the device does not stand behind. */
+"<div class='card'><div class='k'>Skin temp</div>"
+"<div class='v'><span id='skin'>--</span><span class='u'>&deg;C</span></div></div>"
 "<div class='card wide'><div class='k'>Signal quality</div>"
 "<div class='v'><span id='sqi'>--</span><span class='u'>%</span></div></div>"
 "<div class='card wide'><label class='k' for='locin'>Deployment location</label>"
@@ -705,7 +730,7 @@ static const char PAGE_HTML[] =
 "function setBadge(i,v,c){var e=document.getElementById(i);if(!e)return;e.textContent=v;e.style.color=c||'';e.style.borderColor=c||''}"
 "function clearReadings(){document.body.className='';t('risk','NO CONNECTION');"
 "t('msg','Live status unavailable; current readings cleared.');"
-"['hr','spo2','rmssd','rr','sqi','temp','hum','pm','storm','pmv','heatv'].forEach(function(i){t(i,D)});"
+"['hr','spo2','rmssd','rr','sqi','skin','temp','hum','pm','storm','pmv','heatv'].forEach(function(i){t(i,D)});"
 "t('aqinote',D);t('whonote',D);t('heatnote',D);"
 "setBadge('aqibadge',D,'');setBadge('heatbadge',D,'');"
 "document.getElementById('storm').style.color='';"
@@ -722,6 +747,10 @@ static const char PAGE_HTML[] =
 "t('hr',positive(s.hr,0));t('spo2',positive(s.spo2,1));t('rmssd',positive(s.rmssd,1));"
 "t('rr',positive(s.rr,0));t('sqi',s.contact&&typeof s.sqi==='number'?(s.sqi*100).toFixed(0):D);"
 "t('temp',num(s.temp,1));t('hum',num(s.hum,0));t('pm',num(s.pm25,0));"
+/* skintemp is null until the TMP117 has settled on skin. A null value means
+   there is no settled skin temperature to show, so the tile stays -- instead of
+   implying that the sensor is missing when it is merely still warming up. */
+"t('skin',num(s.skintemp,1));"
 "var storm=s.storm||'UNKNOWN';"
 "if(!s.pvalid){t('storm','WARMING UP')}else{t('storm',storm)}"
 "var sc={NORMAL:'#4ADE80',MODERATE:'#FBBF24',HIGH:'#FB923C',CRITICAL:'#F87171',UNKNOWN:'#94A3B8'};"
@@ -877,7 +906,7 @@ static esp_err_t h_root(httpd_req_t *req) {
      * re-fetch every second on a network with one client. */
     httpd_resp_set_hdr(req, "Cache-Control", "no-store");
     httpd_resp_set_hdr(req, "Content-Security-Policy",
-        "default-src 'none'; script-src 'sha256-mg+g9dXuU8/LyK64h964FuCUsOl2O35cxeFLmNjHbkI='; style-src 'unsafe-inline'; connect-src 'self'; form-action 'self'; base-uri 'none'; object-src 'none'; frame-ancestors 'none'");
+        "default-src 'none'; script-src 'sha256-OOVRxXW48FELgHXwkTY1TOE8BlmJoM0S2XLDi4kBqnU='; style-src 'unsafe-inline'; connect-src 'self'; form-action 'self'; base-uri 'none'; object-src 'none'; frame-ancestors 'none'");
     httpd_resp_set_hdr(req, "X-Content-Type-Options", "nosniff");
     httpd_resp_set_hdr(req, "X-Frame-Options", "DENY");
     httpd_resp_set_hdr(req, "Referrer-Policy", "same-origin");
@@ -1040,6 +1069,11 @@ esp_err_t web_status_start(void) {
     /* Every failure below is returned, never ESP_ERROR_CHECK'd. The health
      * monitor is the product; the status page is a convenience. A radio that
      * will not come up must leave the device measuring. */
+    if (!ensure_lock()) {
+        ESP_LOGE(TAG, "status mutex allocation failed; status page disabled");
+        return ESP_ERR_NO_MEM;
+    }
+
     err = nvs_flash_init();
     if (err == ESP_ERR_NVS_NO_FREE_PAGES || err == ESP_ERR_NVS_NEW_VERSION_FOUND) {
         nvs_flash_erase();
@@ -1071,10 +1105,6 @@ esp_err_t web_status_start(void) {
         ESP_LOGE(TAG, "esp_wifi_init failed (%s); status page disabled", esp_err_to_name(err));
         return err;
     }
-
-#ifdef ESP_PLATFORM
-    if (s_lock == NULL) s_lock = xSemaphoreCreateMutex();
-#endif
 
     /* SSID carries the last two MAC bytes so two units in one room are
      * distinguishable on a phone's network list. */

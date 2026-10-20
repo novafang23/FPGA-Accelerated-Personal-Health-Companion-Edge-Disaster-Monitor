@@ -51,6 +51,17 @@ static bool     s_sim_irq = false;
 
 static bool s_initialized = false;
 
+#ifdef ESP_PLATFORM
+/* Leave the FPGA unpowered after a failed configuration attempt. Without this
+ * the PWR/EN lines stay asserted and a retry or a later bus probe talks to a
+ * half-programmed device. */
+static void shrikefi_fpga_power_down(void) {
+    gpio_set_level((gpio_num_t)PIN_FPGA_PWR, 0);
+    gpio_set_level((gpio_num_t)PIN_FPGA_EN, 0);
+    gpio_set_level((gpio_num_t)PIN_FPGA_SS, 1);
+}
+#endif
+
 /* Heuristic only: true when MISO reads the same level with weak pull-down and
  * pull-up enabled. This suggests the line is driven or otherwise held, but
  * cannot prove that the FPGA is the source or that its logic is executing. */
@@ -73,6 +84,10 @@ bool shrikefi_link_miso_stable_under_pulls(void) {
 
 shrikefi_err_t shrikefi_link_init(void) {
 #ifdef ESP_PLATFORM
+    if (s_initialized && s_spi_runtime != NULL) {
+        return SHRIKEFI_OK;   /* idempotent: both app_main and tests may call it */
+    }
+
     /* Keep SS de-asserted (HIGH) for runtime SPI communication */
     gpio_set_level((gpio_num_t)PIN_FPGA_SS, 1);
 
@@ -86,40 +101,52 @@ shrikefi_err_t shrikefi_link_init(void) {
 
     esp_err_t ret = spi_bus_add_device(SPI2_HOST, &devcfg, &s_spi_runtime);
     if (ret != ESP_OK) {
-        ESP_LOGW(LINK_TAG, "Runtime SPI device add returned %d (bus already active)", ret);
-    } else {
-        ESP_LOGI(LINK_TAG, "ForgeFPGA runtime SPI link active on SPI2 (1 MHz, CS=GPIO%d, MISO=GPIO%d, MOSI=GPIO%d, SCK=GPIO%d)",
-                 PIN_FPGA_SS, PIN_FPGA_MISO, PIN_FPGA_MOSI, PIN_FPGA_SCK);
-
-        /* Read the runtime byte format over MISO with active-low SS asserted.
-         * The returned data is a sensor result, not a link handshake. */
-        spi_transaction_t probe_t;
-        memset(&probe_t, 0, sizeof(probe_t));
-        probe_t.length = 8;
-        probe_t.flags = SPI_TRANS_USE_TXDATA | SPI_TRANS_USE_RXDATA;
-        probe_t.tx_data[0] = 0x55;
-
-        gpio_set_level((gpio_num_t)PIN_FPGA_SS, 0);
-        esp_err_t probe_ret = spi_device_transmit(s_spi_runtime, &probe_t);
-        gpio_set_level((gpio_num_t)PIN_FPGA_SS, 1);
-
-        if (probe_ret == ESP_OK) {
-            uint8_t probe_rx = probe_t.rx_data[0];
-            ESP_LOGI(LINK_TAG, "ForgeFPGA runtime link handshake: probe sent 0x55, received 0x%02X", probe_rx);
-        }
-
-        /* A stable level across pull settings is only a line-level heuristic;
-         * a short, changing beat response is needed to prove the design runs. */
-        bool miso_stable = shrikefi_link_miso_stable_under_pulls();
-        ESP_LOGI(LINK_TAG, "MISO Pin %d weak-pull test: %s (does not prove FPGA liveness)",
-                 PIN_FPGA_MISO,
-                 miso_stable ? "level stable; driven or externally held"
-                             : "level changed; likely floating or weakly held");
+        s_spi_runtime = NULL;
+        s_initialized = false;
+        ESP_LOGE(LINK_TAG, "Runtime SPI device add failed (err %d); FPGA link unavailable", ret);
+        return SHRIKEFI_ERR_TIMEOUT;
     }
-#endif
+
+    ESP_LOGI(LINK_TAG, "ForgeFPGA runtime SPI link active on SPI2 (1 MHz, CS=GPIO%d, MISO=GPIO%d, MOSI=GPIO%d, SCK=GPIO%d)",
+             PIN_FPGA_SS, PIN_FPGA_MISO, PIN_FPGA_MOSI, PIN_FPGA_SCK);
+
+    /* Read the runtime byte format over MISO with active-low SS asserted.
+     * The returned data is a sensor result, not a link handshake. */
+    spi_transaction_t probe_t;
+    memset(&probe_t, 0, sizeof(probe_t));
+    probe_t.length = 8;
+    probe_t.flags = SPI_TRANS_USE_TXDATA | SPI_TRANS_USE_RXDATA;
+    probe_t.tx_data[0] = 0x55;
+
+    gpio_set_level((gpio_num_t)PIN_FPGA_SS, 0);
+    esp_err_t probe_ret = spi_device_transmit(s_spi_runtime, &probe_t);
+    gpio_set_level((gpio_num_t)PIN_FPGA_SS, 1);
+
+    if (probe_ret != ESP_OK) {
+        ESP_LOGE(LINK_TAG, "Runtime SPI probe failed (err %d); FPGA link unavailable", probe_ret);
+        spi_bus_remove_device(s_spi_runtime);
+        s_spi_runtime = NULL;
+        s_initialized = false;
+        return SHRIKEFI_ERR_SPI_WRITE;
+    }
+
+    ESP_LOGI(LINK_TAG, "ForgeFPGA runtime link handshake: probe sent 0x55, received 0x%02X",
+             probe_t.rx_data[0]);
+
+    /* A stable level across pull settings is only a line-level heuristic;
+     * a short, changing beat response is needed to prove the design runs. */
+    bool miso_stable = shrikefi_link_miso_stable_under_pulls();
+    ESP_LOGI(LINK_TAG, "MISO Pin %d weak-pull test: %s (does not prove FPGA liveness)",
+             PIN_FPGA_MISO,
+             miso_stable ? "level stable; driven or externally held"
+                         : "level changed; likely floating or weakly held");
 
     s_initialized = true;
     return SHRIKEFI_OK;
+#else
+    s_initialized = true;
+    return SHRIKEFI_OK;
+#endif
 }
 
 /* Note: The systolic peak detection threshold is currently hardwired/strapped
@@ -160,8 +187,8 @@ static uint8_t shrikefi_spi_xfer_raw(uint8_t tx) {
 
 shrikefi_err_t shrikefi_write_ir_sample(uint8_t sample) {
 #ifdef ESP_PLATFORM
-    if (s_spi_runtime == NULL) {
-        return SHRIKEFI_OK;
+    if (!s_initialized || s_spi_runtime == NULL) {
+        return SHRIKEFI_ERR_TIMEOUT;
     }
 
     spi_transaction_t t;
@@ -261,6 +288,8 @@ shrikefi_err_t shrikefi_write_ir_sample(uint8_t sample) {
                      (unsigned long)s_sim_ibi);
         }
         s_last_beat = beat;
+    } else {
+        return SHRIKEFI_ERR_SPI_WRITE;
     }
 #else
     s_sim_reg_ir = sample;
@@ -338,7 +367,11 @@ shrikefi_err_t shrikefi_fpga_flash_init(void) {
         .pull_down_en = 0,
         .pull_up_en = 0
     };
-    gpio_config(&out_conf);
+    esp_err_t gpio_ret = gpio_config(&out_conf);
+    if (gpio_ret != ESP_OK) {
+        ESP_LOGE(LINK_TAG, "FPGA control GPIO configuration failed (err %d)", gpio_ret);
+        return SHRIKEFI_ERR_TIMEOUT;
+    }
 
     /* 2. Initialize SPI bus on SPI2_HOST */
     spi_bus_config_t buscfg = {
@@ -361,12 +394,14 @@ shrikefi_err_t shrikefi_fpga_flash_init(void) {
     esp_err_t ret = spi_bus_initialize(SPI2_HOST, &buscfg, SPI_DMA_CH_AUTO);
     if (ret != ESP_OK && ret != ESP_ERR_INVALID_STATE) {
         ESP_LOGE(LINK_TAG, "SPI bus initialize failed (err %d)", ret);
+        shrikefi_fpga_power_down();
         return SHRIKEFI_ERR_TIMEOUT;
     }
 
     ret = spi_bus_add_device(SPI2_HOST, &devcfg, &spi);
     if (ret != ESP_OK) {
         ESP_LOGE(LINK_TAG, "SPI bus add device failed (err %d)", ret);
+        shrikefi_fpga_power_down();
         return SHRIKEFI_ERR_TIMEOUT;
     }
 
@@ -376,9 +411,9 @@ shrikefi_err_t shrikefi_fpga_flash_init(void) {
      *    SS=1              -> delay 1ms
      *
      * These use esp_rom_delay_us, NOT vTaskDelay(pdMS_TO_TICKS(..)). At
-     * CONFIG_FREERTOS_HZ=100 a tick is 10 ms, so pdMS_TO_TICKS is integer
-     * division: pdMS_TO_TICKS(5) and pdMS_TO_TICKS(2) are both ZERO ticks and
-     * vTaskDelay(0) is only a yield. The boot-mode latch window was therefore
+     * CONFIG_FREERTOS_HZ=200 a tick is 5 ms, so pdMS_TO_TICKS is integer
+     * division: pdMS_TO_TICKS(2) is ZERO ticks and vTaskDelay(0) is only a
+     * yield. The boot-mode latch window was therefore
      * not being held on any boot, deterministically, which is exactly the kind
      * of intermittent FPGA-programming failure that is worst to debug. Same
      * reasoning as bme280.c's sub-tick waits. */
@@ -400,6 +435,7 @@ shrikefi_err_t shrikefi_fpga_flash_init(void) {
     if (!dma_chunk) {
         ESP_LOGE(LINK_TAG, "Failed to allocate 256B DMA chunk buffer!");
         spi_bus_remove_device(spi);
+        shrikefi_fpga_power_down();
         return SHRIKEFI_ERR_TIMEOUT;
     }
 
@@ -425,6 +461,7 @@ shrikefi_err_t shrikefi_fpga_flash_init(void) {
                      (unsigned long)offset, ret);
             heap_caps_free(dma_chunk);
             spi_bus_remove_device(spi);
+            shrikefi_fpga_power_down();
             return SHRIKEFI_ERR_SPI_WRITE;
         }
 

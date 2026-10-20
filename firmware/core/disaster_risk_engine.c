@@ -12,6 +12,14 @@
 #include <math.h>
 
 
+/* Physiological inputs use 0 as "not measured". Non-finite values must become
+ * that sentinel rather than participating in comparisons: every comparison
+ * with NaN is false (so it silently skips a penalty), and +Inf compares true
+ * against every upper threshold (so it invents a maximal penalty). */
+static float finite_or_zero(float v) {
+    return isfinite(v) ? v : 0.0f;
+}
+
 /* Plausibility bounds for the AI wrappers (disaster_assess_nn/_int8).
  *
  * These are NOT the model's normalization ranges (NN_*_MIN/MAX in
@@ -139,7 +147,7 @@ int disaster_epa_pm25_aqi(float pm25_ugm3) {
      * mapped onto the lowest AQI band, which would report the air as "Good"
      * on the strength of a measurement that does not exist. -1 is the
      * "not assessed" marker; the pages and dashboards render it as such. */
-    if (pm25_ugm3 < 0.0f) return -1;
+    if (!isfinite(pm25_ugm3) || pm25_ugm3 < 0.0f) return -1;
     if (!(pm25_ugm3 > 0.0f)) return 0;
     /* US EPA AQI technical assistance document, PM2.5 breakpoints effective
      * 2024-05-06 (the 2024 revision lowered the Good/Moderate boundary to
@@ -190,40 +198,71 @@ void disaster_environment_condition_text(const env_sensors_t *env,
     out[0] = '\0';
     if (!env) return;
 
-    int aqi = disaster_epa_pm25_aqi(env->pm25);
+    /* A NaN is not a reading. Without these predicates the comparisons below
+     * are false for NaN, so the text would print "nan" for the sensor value
+     * and the NWS category would fall through to "Extreme Danger". */
+    const bool pm_valid = isfinite(env->pm25) && env->pm25 >= 0.0f;
+    const bool heat_valid = isfinite(env->ambient_temp_c) &&
+                            isfinite(env->humidity_pct);
+
+    int aqi = pm_valid ? disaster_epa_pm25_aqi(env->pm25) : -1;
     const char *pcat = disaster_epa_pm25_category(aqi);
-    float hi = disaster_calculate_heat_index_c(env->ambient_temp_c, env->humidity_pct);
-    const char *hcat = disaster_nws_heat_category(hi);
+    float hi = heat_valid
+                   ? disaster_calculate_heat_index_c(env->ambient_temp_c,
+                                                     env->humidity_pct)
+                   : 0.0f;
+    const char *hcat = heat_valid ? disaster_nws_heat_category(hi) : "Unavailable";
     const float who_24h = 15.0f;
 
     /* No PM2.5 reading: say so. Do not report the air as good, and do not
      * report a WHO multiple for a measurement that was never taken. */
-    if (env->pm25 < 0.0f) {
-        snprintf(out, cap,
-                 "PM2.5 not assessed (sensor unavailable). "
-                 "Heat index %.1f C: %s (NWS).", hi, hcat);
+    if (!pm_valid) {
+        if (heat_valid) {
+            snprintf(out, cap,
+                     "PM2.5 not assessed (sensor unavailable). "
+                     "Heat index %.1f C: %s (NWS).", (double)hi, hcat);
+        } else {
+            snprintf(out, cap,
+                     "PM2.5 not assessed (sensor unavailable). "
+                     "Heat index not assessed (ambient sensor unavailable).");
+        }
         return;
     }
 
     float who_x = (who_24h > 0.0f) ? env->pm25 / who_24h : 0.0f;
 
+    if (!heat_valid) {
+        snprintf(out, cap,
+                 "PM2.5 %.1f ug/m3: %s (EPA AQI %d, 2024). "
+                 "WHO 2021 24-h guideline 15 ug/m3 %s (%.1fx). "
+                 "Heat index not assessed (ambient sensor unavailable).",
+                 (double)env->pm25, pcat, aqi,
+                 (who_x > 1.0f) ? "exceeded" : "met", (double)who_x);
+        return;
+    }
+
     snprintf(out, cap,
              "PM2.5 %.1f ug/m3: %s (EPA AQI %d, 2024). "
              "WHO 2021 24-h guideline 15 ug/m3 %s (%.1fx). "
              "Heat index %.1f C: %s (NWS).",
-             env->pm25, pcat, aqi,
-             (who_x > 1.0f) ? "exceeded" : "met", who_x,
-             hi, hcat);
+             (double)env->pm25, pcat, aqi,
+             (who_x > 1.0f) ? "exceeded" : "met", (double)who_x,
+             (double)hi, hcat);
 }
 
 /* Heat Wave — Cardio-Thermal Strain Index (CTSI) */
 static risk_level_t assess_heat_risk(float bpm, float rmssd, float ambient_temp_c,
                                      float humidity_pct, const char **advisory) {
-    if (ambient_temp_c < -40.0f || ambient_temp_c > 85.0f ||
+    if (!isfinite(ambient_temp_c) || !isfinite(humidity_pct) ||
+        ambient_temp_c < -40.0f || ambient_temp_c > 85.0f ||
         humidity_pct < 0.0f || humidity_pct > 100.0f) {
         if (advisory) *advisory = "Heat risk unavailable: ambient sensor has no valid reading";
         return RISK_UNKNOWN;
     }
+    /* A non-finite physiological input is an absent measurement, not a
+     * maximal one. The environmental heat assessment still stands. */
+    bpm = finite_or_zero(bpm);
+    rmssd = finite_or_zero(rmssd);
     /* Guard: heat-related illness is physiologically impossible in cold
      * environments. Without this check, a low RMSSD from hypothermia
      * (or any other non-heat cause) incorrectly inflates the CTSI
@@ -291,11 +330,15 @@ static risk_level_t assess_pollution_risk(float bpm, float spo2, float pm25, flo
     /* No PM2.5 reading at all (sensor absent, unreadable, or no fresh sample
      * inside the rolling window). The pollution modality is then NOT
      * ASSESSED - it is not "normal". A missing measurement must never be
-     * reported as clean air. */
-    if (pm25 < 0.0f) {
+     * reported as clean air. NaN is also "no reading": it compares false
+     * against every band and used to fall through to the clean-air path. */
+    if (!isfinite(pm25) || pm25 < 0.0f) {
         *advisory = "PM2.5 sensor unavailable - air quality not assessed";
         return RISK_UNKNOWN;
     }
+    bpm = finite_or_zero(bpm);
+    spo2 = finite_or_zero(spo2);
+    rmssd = finite_or_zero(rmssd);
 
     /* Guard: if the air itself is clean (PM2.5 at or below the lowest
      * caution threshold), don't let autonomic/SpO2 body-response
@@ -517,8 +560,12 @@ static risk_level_t assess_cold_stress_proxy(float bpm, const env_sensors_t *env
 /* Dispatch on what the sensor set can actually support. */
 static risk_level_t assess_flood_risk(float bpm, const env_sensors_t *env, float rmssd,
                                       const char **advisory) {
-    /* Preferred: a measured skin temperature. */
-    if (env->skin_temp_c > 0.0f) {
+    bpm = finite_or_zero(bpm);
+    rmssd = finite_or_zero(rmssd);
+
+    /* Preferred: a measured skin temperature. A non-finite value is not a
+     * measurement; fall through to the ambient proxy instead of scoring it. */
+    if (isfinite(env->skin_temp_c) && env->skin_temp_c > 0.0f) {
         return assess_skin_hypothermia(bpm, env->skin_temp_c, rmssd, advisory);
     }
 
@@ -639,16 +686,21 @@ void disaster_assess(const hrv_state_t *hrv, float spo2, float bpm, const env_se
     }
 
     const bool vitals_valid = (hrv != NULL && hrv_is_ready(hrv));
-    rmssd = vitals_valid ? hrv->rmssd : 0.0f;
+    rmssd = (vitals_valid && hrv->rmssd > 0.0f) ? finite_or_zero(hrv->rmssd) : 0.0f;
 
-    /* Run each disaster-specific assessment engine */
-    result->heat_risk = assess_heat_risk(bpm, rmssd, env->ambient_temp_c, env->humidity_pct,
-                                         &result->heat_advisory);
+    /* Run each disaster-specific assessment engine. Sanitize only the
+     * physiological terms: a non-finite heart rate or SpO2 must not hide a
+     * valid heat, pollution or flood hazard from the environmental sensors. */
+    const float safe_bpm  = finite_or_zero(bpm);
+    const float safe_spo2 = finite_or_zero(spo2);
 
-    result->pollution_risk =
-        assess_pollution_risk(bpm, spo2, env->pm25, rmssd, &result->pollution_advisory);
+    result->heat_risk = assess_heat_risk(safe_bpm, rmssd, env->ambient_temp_c,
+                                         env->humidity_pct, &result->heat_advisory);
 
-    result->flood_risk = assess_flood_risk(bpm, env, rmssd, &result->flood_advisory);
+    result->pollution_risk = assess_pollution_risk(safe_bpm, safe_spo2, env->pm25, rmssd,
+                                                   &result->pollution_advisory);
+
+    result->flood_risk = assess_flood_risk(safe_bpm, env, rmssd, &result->flood_advisory);
 
     /* Overall risk triage via robust multi-modality aggregation */
     finalize_overall_risk(result, "All vitals and environmental conditions normal");
@@ -671,8 +723,9 @@ void disaster_assess(const hrv_state_t *hrv, float spo2, float bpm, const env_se
  * PM2.5 path is an integer conversion), so this guard is defence in depth:
  * a sensor or a future caller that passes NaN gets an honest UNKNOWN instead
  * of a fabricated score. */
-static bool nn_features_finite(float bpm, float spo2, const env_sensors_t *env) {
-    if (!isfinite(bpm) || !isfinite(spo2)) return false;
+static bool nn_features_finite(float bpm, float rmssd, float spo2,
+                                const env_sensors_t *env) {
+    if (!isfinite(bpm) || !isfinite(rmssd) || !isfinite(spo2)) return false;
     if (!isfinite(env->ambient_temp_c) || !isfinite(env->humidity_pct) ||
         !isfinite(env->pm25)) {
         return false;
@@ -693,9 +746,9 @@ static bool nn_features_finite(float bpm, float spo2, const env_sensors_t *env) 
  * for "no reading" and is handled by the pollution-channel logic below (the
  * channel goes UNKNOWN, the other two are still scored); refusing the whole
  * assessment would hide heat and flood risk from a working sensor. */
-static bool nn_inputs_valid(float bpm, float spo2, const env_sensors_t *env,
-                            const char **reason) {
-    if (!nn_features_finite(bpm, spo2, env)) {
+static bool nn_inputs_valid(float bpm, float rmssd, float spo2,
+                            const env_sensors_t *env, const char **reason) {
+    if (!nn_features_finite(bpm, rmssd, spo2, env)) {
         *reason = "non-finite sensor value";
         return false;
     }
@@ -800,7 +853,7 @@ void disaster_assess_nn(const hrv_state_t *hrv, float spo2, float bpm, const env
      * never asked to score a dropout or a corrupt reading as if it were data.
      * The kernel keeps its exact arithmetic; the policy lives here. */
     const char *invalid_reason = NULL;
-    if (!nn_inputs_valid(bpm, spo2, env, &invalid_reason)) {
+    if (!nn_inputs_valid(bpm, hrv->rmssd, spo2, env, &invalid_reason)) {
         result->heat_risk = RISK_UNKNOWN;
         result->pollution_risk = RISK_UNKNOWN;
         result->flood_risk = RISK_UNKNOWN;
@@ -828,6 +881,16 @@ void disaster_assess_nn(const hrv_state_t *hrv, float spo2, float bpm, const env
     model = nn_get_default_model();
     nn_predict(model, bpm, rmssd, nn_spo2, env->ambient_temp_c, env->humidity_pct, nn_pm25,
                &nn_out);
+
+    if (!nn_out.valid) {
+        result->heat_risk = RISK_UNKNOWN;
+        result->pollution_risk = RISK_UNKNOWN;
+        result->flood_risk = RISK_UNKNOWN;
+        result->overall_risk = RISK_UNKNOWN;
+        snprintf(result->overall_advisory, sizeof(result->overall_advisory),
+                 "AI assessment declined: non-finite inference result");
+        return;
+    }
 
     /* Map heat risk output neuron to risk level */
     result->heat_risk = nn_score_to_risk(
@@ -905,7 +968,7 @@ void disaster_assess_nn_int8(const hrv_state_t *hrv, float spo2, float bpm,
     /* Same gate as disaster_assess_nn(): one helper, so the two paths cannot
      * disagree about which readings are scoreable. */
     const char *invalid_reason = NULL;
-    if (!nn_inputs_valid(bpm, spo2, env, &invalid_reason)) {
+    if (!nn_inputs_valid(bpm, hrv->rmssd, spo2, env, &invalid_reason)) {
         result->heat_risk = RISK_UNKNOWN;
         result->pollution_risk = RISK_UNKNOWN;
         result->flood_risk = RISK_UNKNOWN;
@@ -935,6 +998,19 @@ void disaster_assess_nn_int8(const hrv_state_t *hrv, float spo2, float bpm,
     /* Run INT8 neural network forward pass */
     nn_predict_int8(&nn_default_model_int8, &nn_quant_params, bpm, rmssd, nn_spo2,
                     env->ambient_temp_c, env->humidity_pct, nn_pm25, &nn_out);
+
+    if (!nn_out.valid) {
+        result->heat_risk = RISK_UNKNOWN;
+        result->pollution_risk = RISK_UNKNOWN;
+        result->flood_risk = RISK_UNKNOWN;
+        result->overall_risk = RISK_UNKNOWN;
+        snprintf(result->overall_advisory, sizeof(result->overall_advisory),
+                 "AI assessment declined: non-finite inference result (INT8)");
+        if (raw_out != NULL) {
+            *raw_out = nn_out;
+        }
+        return;
+    }
 
     /* Copy raw activations if caller requested them for telemetry/logging.
      * A negative pollution score is the wire marker for "this channel was not

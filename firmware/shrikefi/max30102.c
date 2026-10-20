@@ -46,18 +46,17 @@ static int max30102_i2c_write_read(max30102_t *dev, uint8_t reg, uint8_t *data, 
 
 static void max30102_delay_ms(int ms) {
 #ifdef ESP_PLATFORM
-    /* vTaskDelay(pdMS_TO_TICKS(1)) is ZERO ticks at CONFIG_FREERTOS_HZ=100 -
-     * pdMS_TO_TICKS is integer division - and vTaskDelay(0) is only a yield.
-     * This function is used by the soft-reset and temperature poll loops, so
-     * those loops spun on back-to-back I2C transactions with no real wait and
-     * could exhaust their 100-iteration budget before the device cleared the
-     * bit. The failure mode was a silent "MAX30102 initialization failed!" and
-     * then no vitals at all, which reads like a wiring fault. Busy-wait the
-     * sub-tick intervals; bme280.c already does exactly this. */
-    if (ms * 1000 <= 10000) {
+    /* pdMS_TO_TICKS() truncates, so a request shorter than one tick becomes
+     * vTaskDelay(0), which is only a yield. That is not a wait: the soft-reset
+     * and temperature poll loops would spin on back-to-back I2C transactions
+     * and exhaust their iteration budget before the device cleared the bit.
+     * Busy-wait sub-tick intervals, and round longer intervals UP so a 29 ms
+     * conversion never becomes 25 ms of sleep. */
+    if (ms <= 0) return;
+    if (ms < portTICK_PERIOD_MS) {
         esp_rom_delay_us((uint32_t)ms * 1000u);
     } else {
-        vTaskDelay(pdMS_TO_TICKS(ms));
+        vTaskDelay((ms + portTICK_PERIOD_MS - 1) / portTICK_PERIOD_MS);
     }
 #elif defined(_WIN32)
     Sleep(ms);
@@ -299,12 +298,31 @@ int max30102_read_fifo(max30102_t *dev, max30102_sample_t *buf, int max_samples)
     return to_read;
 }
 
-/* Temperature
- *
- * The on-chip die-temperature read was removed on 2026-10-17 together with the
- * skin-temperature feature: the die temperature is dominated by LED self-heating
- * and is not a body temperature. Re-add a proper contact sensor (e.g. TMP117)
- * rather than reading this register again. */
+/* On-chip Die Temperature Acquisition */
+int max30102_read_die_temp(max30102_t *dev, float *out_temp_c) {
+    if (!dev || !dev->initialized || !out_temp_c || dev->is_max30100) return -1;
+
+    /* Write 0x01 to initiate one-shot die temperature conversion */
+    if (max30102_i2c_write_reg(dev, MAX30102_REG_TEMP_CONFIG, 0x01) != 0) {
+        return -1;
+    }
+
+    /* Wait for conversion bit to self-clear (typically ~29ms on MAX30102) */
+    for (int i = 0; i < 6; i++) {
+        max30102_delay_ms(10);
+        int cfg = max30102_i2c_read_reg(dev, MAX30102_REG_TEMP_CONFIG);
+        if (cfg < 0) return -1;
+        if ((cfg & 0x01) == 0) break;
+    }
+
+    int ti = max30102_i2c_read_reg(dev, MAX30102_REG_TEMP_INT);
+    int tf = max30102_i2c_read_reg(dev, MAX30102_REG_TEMP_FRAC);
+    if (ti < 0 || tf < 0) return -1;
+
+    /* 8-bit signed integer + 4-bit fractional (0.0625 C per LSB) */
+    *out_temp_c = (float)((int8_t)ti) + 0.0625f * (float)(tf & 0x0F);
+    return 0;
+}
 
 /* Power Management */
 int max30102_shutdown(max30102_t *dev) {

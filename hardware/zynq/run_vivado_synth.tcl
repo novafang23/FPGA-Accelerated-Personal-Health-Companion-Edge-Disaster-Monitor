@@ -49,6 +49,12 @@ read_xdc ppg_accelerator.xdc
 puts ">> Starting RTL Synthesis..."
 synth_design -top axi_ppg_accelerator -part $part -mode out_of_context -flatten_hierarchy rebuilt
 
+# Apply output loads after synthesis. `set_load` is not legal while reading an
+# XDC into an unsynthesized design; doing it there produced Common 17-69
+# critical warnings and left the timing analysis without output capacitance.
+set_load 5.000 [all_outputs]
+puts "  Output load on irq_beat: [get_property LOAD [get_ports irq_beat]]"
+
 # Generate Synthesis Utilization Report
 puts ">> Generating Utilization Report..."
 report_utilization -file utilization_synth.rpt -pb utilization_synth.pb

@@ -104,18 +104,17 @@ The SSD1306 OLED, MAX30102/MAX30100 optical pulse sensor, BME280 environmental s
      2. **SOS Assist Trigger:** Arms the emergency assist state machine (`sos.c`) with trigger `"fall"` and a 10s cancel grace period.
      3. **Motion Artifact Rejection:** Instantaneous motion energy ($|A_{mag} - 1.0g|$) gates optical PPG Signal Quality Index (`ppg_sqi.c`), holding false bradycardia/tachycardia alarms during sensor movement.
 
-5. **MAX30205 (Clinical Human Body Temperature Sensor — Optional / Modular):**
-   * `VCC` $\to$ **3.3V** (**Strict 3.3V LVCMOS**; never connect to 5V!)
+5. **TI TMP117 (Clinical Skin Temperature Sensor — Optional / Modular):**
+   * `VIN / VCC` $\to$ **3.3V** (**Strict 3.3V LVCMOS**; never connect to 5V!)
    * `GND` $\to$ **GND**
    * `SDA` $\to$ **GPIO 1**
    * `SCL` $\to$ **GPIO 2**
-   * `A0, A1, A2` $\to$ **GND** (selects clinical target address `0x48`)
-   * `OS` $\to$ *Leave unconnected (overtemperature shutdown output)*
-   * *I2C Address:* `0x48`
-   * *Two-Tier Clinical Architecture:*
-     * **Tier 2 (Physical MAX30205 connected):** The firmware auto-probes `0x48` at startup. If detected, it reads high-precision ($\pm 0.1^\circ\text{C}$) skin temperature directly.
-     * **Tier 1 (MAX30205 not present):** The firmware automatically falls back to the **MAX30102 on-chip die temperature sensor** (`0x57`) when finger contact is active, applying a calibrated $-1.2^\circ\text{C}$ LED dissipation offset and 1st-order IIR smoothing to estimate finger pulp temperature.
-     * **Tier 0 (No finger contact):** Falls back to the BME280 ambient cold-stress proxy (`env.skin_temp_c = 0.0f`).
+   * `ADD0 / ADDR` $\to$ **GND** for `0x48` (leave open on a breakout that already pulls it low)
+   * `ALERT` $\to$ *Leave unconnected (open-drain alert output)*
+   * *I2C Address:* `0x48` (`0x49`/`0x4A`/`0x4B` for the other ADD0 states; the driver probes all four)
+   * *Clinical temperature architecture:*
+     * **TMP117 only:** the skin temperature comes from this probe and from nothing else. The MAX30102 on-chip **die** temperature is deliberately **not** read — it is dominated by LED self-heating and is not a body temperature, so the read was deleted from `max30102.c` (see the note there).
+     * **No settled reading:** the value stays `0.0f` (unavailable). There is no fallback to the die sensor and no ambient proxy masquerading as skin temperature.
      * *NEWS2 Integration:* Feeds the Royal College of Physicians NEWS2 physiological scoring engine ($\le 35.0^\circ\text{C} \implies +3$ points `ALERT_HYPOTHERMIA`, $\ge 39.1^\circ\text{C} \implies +2$ points high fever).
 
 ---

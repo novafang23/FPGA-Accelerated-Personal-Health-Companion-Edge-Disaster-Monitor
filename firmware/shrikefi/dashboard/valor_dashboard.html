@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'sha256-T1UCKsGDNbr0n9osh70L0txgsaYPF305Eh9edW8Rpz0='; style-src 'unsafe-inline'; connect-src 'self'; form-action 'self'; base-uri 'none'; object-src 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'sha256-RbvCtxWaQFzJLBhxu5+T4lx7FtbyuPEqvLVYZ6H/+gM='; style-src 'unsafe-inline'; connect-src 'self'; form-action 'self'; base-uri 'none'; object-src 'none'">
 <title>VALOR — Edge Health &amp; Disaster Triage</title>
 <!--
   VALOR dashboard — single self-contained file.
@@ -234,8 +234,8 @@
   .ppg-card .scope-frame { flex: 1 1 auto; min-height: 200px; }
   .trace-wrap { position: relative; }
   .trace-tag {
-    position: absolute; right: 4px; bottom: 2px;
-    font: 10px var(--mono); letter-spacing: 0.04em;
+    display: block; margin: 3px 2px 0 0; text-align: right;
+    font: 10px/1 var(--mono); letter-spacing: 0.04em;
     color: var(--text-faint); pointer-events: none;
   }
   .device-verdict {
@@ -535,13 +535,13 @@
         <span class="unit" style="font-size:14px;margin-left:5px">bpm</span>
       </div>
     </div>
-    <div class="trace-wrap" style="margin:12px 0 4px;height:38px">
+    <div class="trace-wrap" style="margin:12px 0 0;height:38px">
       <canvas id="ecg" aria-label="Decorative ECG sparkline (not a measured ECG)" role="img">
         Decorative ECG trace
       </canvas>
-      <span class="trace-tag">SCHEMATIC</span>
     </div>
-    <div style="font-size:12px;color:var(--text-dim)" id="hr-note">&nbsp;</div>
+    <span class="trace-tag">SCHEMATIC</span>
+    <div style="font-size:12px;color:var(--text-dim);margin-top:3px" id="hr-note">&nbsp;</div>
   </div>
 
   <div class="card card-pad">
@@ -579,9 +579,9 @@
       <canvas id="rr" aria-label="Respiratory sinus arrhythmia envelope (schematic)" role="img">
         Respiratory rate modulation trace
       </canvas>
-      <span class="trace-tag">SCHEMATIC</span>
     </div>
-    <div style="margin-top:6px" class="dim" id="rr-note">PPG-derived &middot; RSA modulation</div>
+    <span class="trace-tag">SCHEMATIC</span>
+    <div style="margin-top:5px" class="dim" id="rr-note">PPG-derived &middot; RSA modulation</div>
   </div>
 
   <div class="card" style="padding:18px 16px">
@@ -882,12 +882,12 @@ if (schemeQuery) {
    until a device connects or a simulation is explicitly started. */
 const V = {
   hr: 0, spo2: 0, hrv: 0, rr: 0, rrConf: 0, rrDepth: 0, sqi: 0, contact: false,
-  temp: -100, hum: -1, pmRaw: 0, pmCal: null, pmConf: '', loc: '',
+  temp: -100, hum: -1, skinTemp: 0, pmRaw: 0, pmCal: null, pmConf: '', loc: '',
   psi: 0, aha: 0, heat: 0, poll: 0, flood: 0, storm: 0, news2: 0,
-  /* Device NEWS2 sub-scores from [TRIAGE] HRPTS/SPO2PTS/RRPTS. null means the
+  /* Device NEWS2 sub-scores from [TRIAGE] HRPTS/SPO2PTS/RRPTS/TEMPPTS. null means the
      firmware did not send them (older build) or this is a simulation, in which
      case the tiles fall back to the local RCP tables for display only. */
-  n2hrPts: null, n2spo2Pts: null, n2rrPts: null,
+  n2hrPts: null, n2spo2Pts: null, n2rrPts: null, n2tempPts: null,
   /* Beats currently in the device's HRV window, from [TELEMETRY] HRVN. The
      firmware withholds RMSSD until the window holds 240 of 300 beats and spans
      120 s of contact, so this is the progress toward a publishable value.
@@ -1598,6 +1598,7 @@ function clearLiveReadings() {
   Object.assign(V, {
     hr: 0, spo2: 0, hrv: 0, rr: 0, rrConf: 0, rrDepth: 0, sqi: 0, contact: false, pi: 0,
     temp: -100, hum: -1, pmRaw: 0, pmCal: null, pmConf: '', loc: '',
+    skinTemp: 0, n2tempPts: null,
     psi: 0, aha: 0, heat: 0, poll: 0, flood: 0, storm: 0, news2: 0,
     n2hrPts: null, n2spo2Pts: null, n2rrPts: null,
     hrvN: null,
@@ -1761,12 +1762,14 @@ function render() {
      parameters in the RCP table are simply not instrumented on this build, so
      they are shown as n/a rather than as a plausible-looking "+0". */
   const haveDevPts = (V.n2hrPts !== null && V.n2spo2Pts !== null && V.n2rrPts !== null);
+  const haveDevTemp = (V.n2tempPts !== null && V.n2tempPts !== undefined);
+  const showTemp = haveDevTemp || (V.skinTemp > 0);
   const tiles = [
     { k: 'RR',   v: V.rr,   pts: haveDevPts ? V.n2rrPts   : n2rr(V.rr),   dev: haveDevPts },
     { k: 'SpO2', v: V.spo2, pts: haveDevPts ? V.n2spo2Pts : n2spo2(V.spo2), dev: haveDevPts },
     { k: 'HR',   v: V.hr,   pts: haveDevPts ? V.n2hrPts   : n2hr(V.hr),   dev: haveDevPts },
     { k: 'SBP',  pts: null, na: true },
-    { k: 'Temp', pts: null, na: true },
+    { k: 'Temp', v: V.skinTemp, pts: haveDevTemp ? V.n2tempPts : (V.skinTemp <= 35 ? 3 : V.skinTemp <= 36 ? 1 : V.skinTemp <= 38 ? 0 : 1), dev: haveDevTemp, na: !showTemp },
     { k: 'Consc',pts: null, na: true },
   ];
   /* A third state exists between "measured" and "not on this build": the
@@ -1929,9 +1932,10 @@ function render() {
      fold on short screens; this keeps temperature/RH/PM2.5 visible even when
      the finger is absent. */
   const envTa = ambientValid ? V.temp.toFixed(1) + ' °C' : '--';
+  const envTs = (V.skinTemp !== undefined && V.skinTemp > 0) ? ' · Ts ' + V.skinTemp.toFixed(1) + ' °C' : '';
   const envRh = humidityValid ? V.hum.toFixed(0) + ' %' : '--';
   const envPm = pmValid ? V.pmCal.toFixed(1) + ' µg/m³' : '--';
-  $('v-env').textContent = 'Ta ' + envTa + ' · RH ' + envRh + ' · PM2.5 ' + envPm;
+  $('v-env').textContent = 'Ta ' + envTa + envTs + ' · RH ' + envRh + ' · PM2.5 ' + envPm;
 
   /* PSI and AHA are device-derived vitals. With no finger the board still
      emits zeros in these fields; "0.0/10" would be a physiological claim that
@@ -2212,6 +2216,7 @@ function handleLine(line) {
       const k = parseKV(line.replace('[TELEMETRY]', ''));
       if (k.TEMP) V.temp = num(k.TEMP);
       if (k.HUM)  V.hum  = num(k.HUM);
+      if (k.SKINTEMP) V.skinTemp = num(k.SKINTEMP);
       applyPm(k);
       return;
     }
@@ -2220,7 +2225,7 @@ function handleLine(line) {
        scored this contact yet. Drop the previous contact's sub-scores so the
        tiles show "--" rather than a stale breakdown beside a new heart rate. */
     if (line.indexOf('ACQUIRING') >= 0) {
-      V.n2hrPts = null; V.n2spo2Pts = null; V.n2rrPts = null;
+      V.n2hrPts = null; V.n2spo2Pts = null; V.n2rrPts = null; V.n2tempPts = null;
     }
     if (k.HR)    V.hr   = num(k.HR);
     if (k.SPO2)  V.spo2 = num(k.SPO2);
@@ -2240,6 +2245,7 @@ function handleLine(line) {
     V.contact = (V.hr > 0 || V.sqi > 0);
     if (k.TEMP)  V.temp = num(k.TEMP);
     if (k.HUM)   V.hum  = num(k.HUM);
+    if (k.SKINTEMP) V.skinTemp = num(k.SKINTEMP);
     applyPm(k);
     return;
   }
@@ -2254,6 +2260,7 @@ function handleLine(line) {
     if (k.HRPTS !== undefined)   V.n2hrPts   = pts(k.HRPTS);
     if (k.SPO2PTS !== undefined) V.n2spo2Pts = pts(k.SPO2PTS);
     if (k.RRPTS !== undefined)   V.n2rrPts   = pts(k.RRPTS);
+    if (k.TEMPPTS !== undefined) V.n2tempPts = pts(k.TEMPPTS);
     if (k.RISK)   V.risk   = k.RISK;
     if (k.NNHEAT)  V.nnHeat  = num(k.NNHEAT);
     /* AIVALID = 1 only when the device's INT8 model actually scored. NNHEAT

@@ -69,11 +69,12 @@ Conclusions that follow, and that the firmware comments refer back to:
 
   4. The remaining split detection is the dicrotic notch. See --wave output for
      the affected beat: the filtered pulse rises to ~187, dips to ~171, then
-     rises again to ~199. The FSM confirms a crest after two falling samples, so
-     it latches onto the first maximum; the second lands ~100 ms later, inside
-     the 250 ms refractory, and is ignored. One split contributes one short and
-     one long interval (600 ms then 1010 ms against a ~800 ms rhythm), which is
-     what drove RMSSD to ~116 ms on its own.
+     rises again to ~199. The current crest rule requires a drop of peak/4
+     (about 47 counts at 187) before it will confirm a crest, so that 16-count
+     notch is not enough. The older two-falling-sample rule split it; that is
+     why the rule changed. One split used to contribute one short and one long
+     interval (600 ms then 1010 ms against a ~800 ms rhythm), which is what
+     drove RMSSD to ~116 ms on its own.
 """
 
 import argparse
@@ -117,7 +118,25 @@ def rtl_moving_average(tx, nmax):
     return ma
 
 
-def rtl_peak_detector(ma, nmax, thresh="const12", rearm_below=True):
+def crest_fall_limit(thresh, peak):
+    """Required drop from `peak` for the selected crest rule."""
+    if thresh == "const12":
+        return 12
+    if thresh == "const24":
+        return 24
+    if thresh == "peak8":
+        return max(1, peak >> 3)
+    if thresh == "peak4":
+        # Current RTL: (peak_val > 48) ? (peak_val >> 2) : 6
+        return (peak >> 2) if peak > 48 else 6
+    if thresh == "drop4":
+        # Historical candidate, retained for comparisons. It is NOT the
+        # current RTL rule: it subtracts the arm threshold first.
+        return max(6, (peak - DYN_THRESHOLD) >> 2) if peak > DYN_THRESHOLD else 6
+    raise ValueError(f"unknown thresh rule {thresh!r}")
+
+
+def rtl_peak_detector(ma, nmax, thresh="peak4", rearm_below=False):
     """Bit-accurate model of ppg_peak_detector in its CURRENT form.
 
     The FSM no longer counts falling samples. It holds peak_val since entering
@@ -130,48 +149,38 @@ def rtl_peak_detector(ma, nmax, thresh="const12", rearm_below=True):
     `thresh` selects the crest-fall rule, so the same capture can be replayed
     under candidate RTL changes before anyone opens the ForgeFPGA GUI:
 
-        const12   the flashed design: an absolute 12 counts
+        peak4     current RTL: (peak_val > 48) ? (peak_val >> 2) : 6
+        const12   an absolute 12 counts
         const24   absolute 24
         peak8     peak_val >> 3          (12.5% of the peak)
-        drop4     max(6, (peak_val - 120) >> 2)   (25% of the pulse height)
+        drop4     max(6, (peak_val - 120) >> 2)   (historical candidate)
 
-    `rearm_below` models the OTHER half of the state machine:
+    `rearm_below` models an OLDER state machine:
 
         STATE_REFRACTORY: if (refractory_cnt == 0 && sample_valid &&
                               (sample_in < dyn_threshold)) -> ARMED
 
-    That level condition is what makes the detector go blind. If the scaled
-    signal is biased above 120 - which it is whenever the 640 ms baseline
-    tracker lags a slow DC drift by more than the pulse amplitude - then the
-    moving average never comes back below 120, the FSM never leaves REFRACTORY,
-    and the detector produces nothing until the bias goes away. Set this False
-    to model re-arming on the refractory alone.
+    The current RTL re-arms on the refractory alone, so the default is False.
+    Set this True to reproduce captures taken against the older bitstream. The
+    level condition made the detector go blind whenever the moving average
+    stayed biased above 120.
     """
     state = ARMED
     peak = 0
+    prev = 0
     refr = 0
     first_beat_seen = False
     beats = []
 
-    def limit(p):
-        if thresh == "const12":
-            return 12
-        if thresh == "const24":
-            return 24
-        if thresh == "peak8":
-            return max(1, p >> 3)
-        if thresh == "drop4":
-            return max(6, (p - DYN_THRESHOLD) >> 2) if p > DYN_THRESHOLD else 6
-        raise ValueError(f"unknown thresh rule {thresh!r}")
-
     for n in range(nmax + 1):
         s = ma[n]
 
-        # combinational next-state, evaluated with the CURRENT peak
+        # combinational next-state, evaluated with the CURRENT peak/prev
         if state == ARMED:
-            nxt = RISING if s >= DYN_THRESHOLD else ARMED
+            # Current RTL also requires a rising edge: s > prev_sample.
+            nxt = RISING if (s >= DYN_THRESHOLD and s > prev) else ARMED
         elif state == RISING:
-            nxt = PEAK if (peak > s and (peak - s) >= limit(peak)) else RISING
+            nxt = PEAK if (peak > s and (peak - s) >= crest_fall_limit(thresh, peak)) else RISING
         elif state == PEAK:
             nxt = REFRAC
         else:
@@ -194,7 +203,7 @@ def rtl_peak_detector(ma, nmax, thresh="const12", rearm_below=True):
         elif state == REFRAC and refr > 0:
             refr -= 1
 
-        state = nxt
+        state, prev = nxt, s
 
     return beats
 
@@ -233,9 +242,9 @@ def main():
                     help="dump the filtered waveform around each detected beat")
     ap.add_argument("--trace", type=int, nargs=2, metavar=("LO", "HI"),
                     help="print the FSM state for a sample range")
-    ap.add_argument("--thresh", default="const12",
-                    choices=["const12", "const24", "peak8", "drop4"],
-                    help="crest-fall rule to model (default const12 = as flashed)")
+    ap.add_argument("--thresh", default="peak4",
+                    choices=["peak4", "const12", "const24", "peak8", "drop4"],
+                    help="crest-fall rule to model (default peak4 = current RTL)")
     ap.add_argument("--sweep", action="store_true",
                     help="replay under every crest-fall rule and compare the "
                          "resulting interval distributions")
@@ -310,15 +319,15 @@ def main():
                 "missed": sum(1 for v in iv if v * 10 > 1500),
             }
 
-        rows = [("logged (as flashed)", quality(led))]
-        for rule in ("const12", "const24", "peak8", "drop4"):
+        rows = [("logged (capture)", quality(led))]
+        for rule in ("peak4", "const12", "const24", "peak8", "drop4"):
             b = rtl_peak_detector(ma, nmax, rule)
             rows.append((rule, quality(b)))
-        # the other half of the FSM: re-arm on the refractory alone, without
-        # requiring the moving average to fall back below the 120 threshold
+        # Reproduce the older bitstream that also required the moving average
+        # to fall back below 120 before re-arming.
         for rule in ("const12", "peak8"):
-            b = rtl_peak_detector(ma, nmax, rule, rearm_below=False)
-            rows.append((f"{rule} + no-rearm-level", quality(b)))
+            b = rtl_peak_detector(ma, nmax, rule, rearm_below=True)
+            rows.append((f"{rule} + rearm-level", quality(b)))
 
         print(f"\n   {'rule':22s} {'n':>5} {'median':>7} {'within +/-30%':>14} "
               f"{'<400':>6} {'>1300':>6} {'>1500':>6}")
@@ -357,24 +366,27 @@ def main():
 
     if args.trace:
         lo, hi_n = args.trace
-        print(f"\n-- FSM trace n={lo}..{hi_n} --")
-        state, prev, fall, refr = ARMED, 0, 0, 0
+        print(f"\n-- FSM trace n={lo}..{hi_n} (rule={args.thresh}) --")
+        state, prev, peak, refr = ARMED, 0, 0, 0
         for n in range(lo, min(hi_n, nmax) + 1):
             s = ma[n]
+            drop = peak - s
+            threshold = crest_fall_limit(args.thresh, peak)
             if state == ARMED:
-                nxt = RISING if s >= DYN_THRESHOLD else ARMED
+                nxt = RISING if (s >= DYN_THRESHOLD and s > prev) else ARMED
             elif state == RISING:
-                nxt = PEAK if (s < prev and fall >= 1) else RISING
+                nxt = PEAK if (peak > s and drop >= threshold) else RISING
             elif state == PEAK:
                 nxt = REFRAC
             else:
-                nxt = ARMED if (refr == 0 and s < DYN_THRESHOLD) else REFRAC
+                nxt = ARMED if refr == 0 else REFRAC
             print(f"   n={n:5d} tx={tx.get(n, 0):3d} ma={s:3d} prev={prev:3d} "
-                  f"fall={fall} {STATE_NAMES[state]:6s} -> {STATE_NAMES[nxt]}")
-            if state == RISING:
-                fall = fall + 1 if s < prev else 0
-            elif state == ARMED:
-                fall = 0
+                  f"peak={peak:3d} drop={drop:3d}/{threshold:3d} "
+                  f"{STATE_NAMES[state]:6s} -> {STATE_NAMES[nxt]}")
+            if state == ARMED:
+                peak = s
+            elif state == RISING and s > peak:
+                peak = s
             if state == PEAK:
                 refr = REFRACTORY_SAMPLES
             elif state == REFRAC and refr > 0:

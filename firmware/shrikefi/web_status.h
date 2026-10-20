@@ -40,6 +40,11 @@ typedef struct {
     float    sqi;
     float    rmssd;
     float    temp;
+    /* Clinical skin temperature from TMP117 (0.0f = unavailable / settling).
+     * skin_valid is true only when active optical contact is confirmed and
+     * the sensor has thermally equilibrated (|dT/dt| <= 0.05 C/s over 3 samples). */
+    float    skin_temp;
+    bool     skin_valid;
     float    hum;
     float    pm25;
     /* Raw PMS5003 reading behind the published PM2.5 estimate, and the

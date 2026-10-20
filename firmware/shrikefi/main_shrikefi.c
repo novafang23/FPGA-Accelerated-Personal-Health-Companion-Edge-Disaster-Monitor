@@ -20,6 +20,7 @@
 #include "esp32_i2c_hal.h"
 #include "max30102.h"
 #include "bme280.h"
+#include "skin_estimate.h"
 #include "pms5003.h"
 #include "ssd1306.h"
 
@@ -72,6 +73,7 @@ static inline void xSemaphoreGive(SemaphoreHandle_t s) { (void)s; }
 
 static const char *TAG __attribute__((unused)) = "SHRIKEFI_MAIN";
 static SemaphoreHandle_t s_data_mutex __attribute__((unused)) = NULL;
+static bool s_fpga_link_ready = false;
 
 /* Signal quality and contact status */
 typedef enum {
@@ -99,6 +101,8 @@ typedef struct {
     float respiratory_rate_bpm; /* PPG-derived (Charlton 2018 RSA); 0 = unavailable */
     float ppg_sqi;              /* composite signal quality index [0,1]        */
     float perfusion_index;      /* AC/DC ratio percent from the SQI window     */
+    float skin_temp_c;          /* clinical skin temp from TMP117 (0 = uninstrumented/settling) */
+    uint8_t skin_temp_valid;    /* 1 when TMP117 is thermally settled and contact is active */
     /* The estimator's own inputs for the respiratory rate, published so the
      * thresholds can be set from measurements of real data rather than from
      * first principles. On hardware RR published in 4 of 118 frames in one
@@ -118,6 +122,7 @@ static health_system_state_t g_state;
 /* Sensor driver instances */
 static max30102_t s_max30102;
 static bme280_t s_bme280;
+static skin_estimate_t s_skin_est;
 static pms5003_t s_pms5003;
 static ssd1306_t s_ssd1306;
 static gnss_nmea_t s_gnss;
@@ -429,7 +434,7 @@ static void ppg_update_respiration_and_sqi(hrv_state_t *hrv,
     ppg_rr_tracker_update(&s_rr_tracker, &rr);
 
     float motion_energy = 0.0f;
-    if (xSemaphoreTake(s_data_mutex, pdMS_TO_TICKS(5)) == pdTRUE) {
+    if (xSemaphoreTake(s_data_mutex, pdMS_TO_TICKS(10)) == pdTRUE) {
         motion_energy = g_state.imu_motion_energy;
         xSemaphoreGive(s_data_mutex);
     }
@@ -933,13 +938,20 @@ static void task_ppg_accelerator(void *pvParameters) {
             }
 #endif
 
-            /* 2. Stream to the ForgeFPGA over the SPI link */
-            if (raw_contact) {
-                shrikefi_write_red_sample(raw_red);
-                shrikefi_write_ir_sample(fg_ir);
-            } else {
-                shrikefi_write_red_sample(0);
-                shrikefi_write_ir_sample(0);
+            /* 2. Stream to the ForgeFPGA over the SPI link. If link_init()
+             * failed there is no device on SPI2; sending anyway just returns an
+             * error on every sample, so skip the transfer and let the MCU path
+             * run. */
+            if (s_fpga_link_ready) {
+                if (raw_contact) {
+                    shrikefi_write_red_sample(raw_red);
+                    shrikefi_write_ir_sample(fg_ir);
+                } else {
+                    shrikefi_write_red_sample(0);
+                    shrikefi_write_ir_sample(0);
+                }
+            }
+            if (!raw_contact) {
                 s_spo2_ma_n   = 0;
                 s_spo2_ma_idx = 0;
             }
@@ -1028,27 +1040,26 @@ static void task_ppg_accelerator(void *pvParameters) {
                  * the trace shows WHY. On the affected beats the 8-tap filtered
                  * pulse is not one hump but two: a first systolic maximum at
                  * ~187 counts, a dicrotic notch down to ~171, then a second and
-                 * larger maximum at ~199. The FSM confirms a crest as soon as it
-                 * sees two consecutive falling samples, so it latches onto the
-                 * FIRST maximum. The second one lands ~100 ms later, inside the
-                 * 250 ms refractory, so it is ignored and the next detection is
-                 * a whole cardiac cycle late.
+                 * larger maximum at ~199. The OLD FSM confirmed a crest after
+                 * two consecutive falling samples, so it latched onto the first
+                 * maximum. The second one lands ~100 ms later, inside the
+                 * 250 ms refractory, so it was ignored and the next detection
+                 * was a whole cardiac cycle late.
                  *
                  * That is the dicrotic notch, on finger PPG, ~100-210 ms after
-                 * the first systolic peak. An earlier revision of this comment
-                 * retracted the notch as the cause on the grounds that the
-                 * notch sits inside the refractory; that retraction was wrong,
-                 * because the notch does not need to be detected itself - it
-                 * only has to make the waveform fall, which is all the FSM
-                 * needs to declare the preceding sample a crest.
+                 * the first systolic peak. The notch does not need to be
+                 * detected itself - it only has to make the waveform fall,
+                 * which was all the old FSM needed to declare the preceding
+                 * sample a crest.
                  *
-                 * Fixing this properly means changing the RTL (confirm a crest
-                 * only after a fall of, say, 8% of the peak, or widen the
-                 * averaging window), which requires re-synthesising the
-                 * bitstream in the Renesas ForgeFPGA GUI. Until that happens
-                 * this guard removes the symptom, and ibi_pipeline_submit()
-                 * removes the residual one-in-N split with its ratio/pair
-                 * gate; the median only supplies the local rhythm reference. */
+                 * The current RTL requires a fall of peak/4 (minimum 6 counts)
+                 * before confirming a crest. At the 187-count first maximum the
+                 * requirement is ~47 counts, so the 16-count notch is ignored
+                 * and the detector keeps tracking to the true ~199 maximum.
+                 * This guard remains for older bitstreams and for residual
+                 * artifacts, and ibi_pipeline_submit() removes the residual
+                 * one-in-N split with its ratio/pair gate; the median only
+                 * supplies the local rhythm reference. */
                 float beat_amp = (float)s_ir_peak_since_beat;
                 s_ir_peak_since_beat = 0;
                 if (!SHRIKEFI_IBI_SOFTWARE &&
@@ -1565,17 +1576,20 @@ static void sos_render_card(ssd1306_t *d, uint32_t active_ms, sos_trigger_t trig
      * deployed. The stored NVS location is only a fallback for when there is no
      * fix. */
     char loc[LOCATION_MAX_LEN];
-    if (s_has_gps_fix) {
-        char temp_coord[GNSS_COORD_STR_LEN];
-        temp_coord[0] = '\0';
-        if (xSemaphoreTake(s_data_mutex, pdMS_TO_TICKS(10)) == pdTRUE) {
+    bool have_live_fix = false;
+    char temp_coord[GNSS_COORD_STR_LEN];
+    temp_coord[0] = '\0';
+
+    if (xSemaphoreTake(s_data_mutex, pdMS_TO_TICKS(10)) == pdTRUE) {
+        if (s_has_gps_fix && s_last_gps_coord[0] != '\0') {
             strncpy(temp_coord, s_last_gps_coord, sizeof(temp_coord));
             temp_coord[sizeof(temp_coord) - 1] = '\0';
-            xSemaphoreGive(s_data_mutex);
-        } else {
-            strncpy(temp_coord, s_last_gps_coord, sizeof(temp_coord));
-            temp_coord[sizeof(temp_coord) - 1] = '\0';
+            have_live_fix = true;
         }
+        xSemaphoreGive(s_data_mutex);
+    }
+
+    if (have_live_fix) {
         location_card_text(temp_coord, loc, sizeof(loc));
     } else {
         location_card_text(location_get(), loc, sizeof(loc));
@@ -1583,7 +1597,13 @@ static void sos_render_card(ssd1306_t *d, uint32_t active_ms, sos_trigger_t trig
     snprintf(line, sizeof(line), "LOC: %s", loc);
     ssd1306_draw_string(d, 0, 45, line);
 
-    ssd1306_draw_string(d, 0, 54, "CALL 108 DO NOT MOVE");
+    uint32_t cancel_pct = sos_cancel_progress_pct((uint32_t)(esp_timer_get_time() / 1000));
+    if (cancel_pct > 0) {
+        snprintf(line, sizeof(line), "HOLD TO CANCEL %2u%%", (unsigned)cancel_pct);
+        ssd1306_draw_string(d, 0, 54, line);
+    } else {
+        ssd1306_draw_string(d, 0, 54, "CALL 108 DO NOT MOVE");
+    }
 }
 
 static void task_disaster_monitor(void *pvParameters) {
@@ -1629,6 +1649,8 @@ static float s_last_pm10 = 0.0f;   /* coarse-particle proxy for dust detection *
         static uint32_t s_env_last_valid_ms = 0;
         const  uint32_t ENV_STALE_MS = 30000u;
 
+/* TMP117 retry block removed */
+
         uint32_t env_now_ms = (uint32_t)(esp_timer_get_time() / 1000);
         if (!s_bme280.initialized &&
             (int32_t)(env_now_ms - s_next_bme_retry_ms) >= 0) {
@@ -1638,6 +1660,8 @@ static float s_last_pm10 = 0.0f;   /* coarse-particle proxy for dust detection *
                 s_bme_read_errors = 0;
             }
         }
+
+/* TMP117 hot-plug discovery removed */
 
         /* Read BME280 (temperature, humidity, pressure) */
         bme280_data_t bme_data;
@@ -1711,6 +1735,33 @@ static float s_last_pm10 = 0.0f;   /* coarse-particle proxy for dust detection *
                 ? -1.0f
                 : pm25_reading.raw_mean;
 
+        /* Snapshot optical contact status before updating skin temperature settling */
+        if (xSemaphoreTake(s_data_mutex, pdMS_TO_TICKS(10)) == pdTRUE) {
+            sig_stat = g_state.signal_status;
+            xSemaphoreGive(s_data_mutex);
+        }
+
+        /* Read MAX30102 on-die junction temperature and update skin temperature estimator.
+         * Dual-sensor thermal divider model: T_skin = b0 + b1 * T_die + b2 * T_amb.
+         * Gated by active finger contact so idle die temperatures are never scored. */
+        float raw_die_temp = 0.0f;
+        bool finger_on = (sig_stat != SIGNAL_STATUS_NO_FINGER) && (env_now_ms > 2000u);
+        if (s_max30102.initialized && max30102_read_die_temp(&s_max30102, &raw_die_temp) == 0) {
+            skin_estimate_update(&s_skin_est, raw_die_temp, env.ambient_temp_c, finger_on, env_now_ms);
+        } else if (!finger_on) {
+            skin_estimate_update(&s_skin_est, 0.0f, env.ambient_temp_c, false, env_now_ms);
+        }
+
+        /* Continuous calibration telemetry line for empirical regression fitting */
+        printf("[CALIB] DIE=%.2f,AMB=%.2f,CONTACT=%d,SLOPE=%.4f,SETTLED=%d,EST=%.2f\n",
+               s_skin_est.last_filtered_die_c, s_skin_est.last_amb_c,
+               (int)finger_on, s_skin_est.slope_c_per_sec,
+               (int)s_skin_est.is_settled, s_skin_est.estimated_skin_c);
+        fflush(stdout);
+
+        /* Only publish settled skin temperature inside valid range */
+        const float pub_skin_temp = s_skin_est.is_valid ? s_skin_est.estimated_skin_c : 0.0f;
+
         /* Unconditionally update shared system state with live environmental telemetry */
         if (xSemaphoreTake(s_data_mutex, pdMS_TO_TICKS(20)) == pdTRUE) {
             g_state.ambient_temp_c   = env.ambient_temp_c;
@@ -1718,6 +1769,8 @@ static float s_last_pm10 = 0.0f;   /* coarse-particle proxy for dust detection *
             g_state.pm25_ugm3        = env.pm25;
             g_state.pm25_raw_ugm3    = pm25_raw_pub;
             g_state.pm25_confidence  = (uint8_t)pm25_reading.confidence;
+            g_state.skin_temp_c      = pub_skin_temp;
+            g_state.skin_temp_valid  = s_skin_est.is_valid ? 1 : 0;
             xSemaphoreGive(s_data_mutex);
         }
 
@@ -1764,18 +1817,7 @@ static float s_last_pm10 = 0.0f;   /* coarse-particle proxy for dust detection *
             xSemaphoreGive(s_data_mutex);
         }
 
-        /* Skin temperature is intentionally NOT instrumented (2026-10-17).
-         *
-         * The only on-board candidate was the MAX30102 die-temperature register,
-         * but that is the sensor's own silicon temperature: LED self-heating puts
-         * it at 40-41 C while the finger is normal, which NEWS2 then scored as a
-         * high fever and turned into false CRITICAL alarms. The optional MAX30205
-         * was never populated on this build.
-         *
-         * env.skin_temp_c therefore stays 0.0f ("unavailable"), so the disaster
-         * engine uses its documented ambient-air cold-stress proxy and body
-         * temperature stays uninstrumented in NEWS2. Re-enable when a real contact
-         * sensor (e.g. TMP117) is fitted. */
+        /* Die-temp skin estimate is uninstrumented for clinical disaster engine */
         env.skin_temp_c = 0.0f;
 
         /* 1. Execute Rule-based Disaster Risk Engine & TinyML only when vitals are genuine */
@@ -1841,9 +1883,11 @@ static float s_last_pm10 = 0.0f;   /* coarse-particle proxy for dust detection *
              * neutral input to a triage score, it is an optimistic one. */
             const float engine_spo2 = spo2;
 
-            /* No skin-temperature sensor is fitted, so env.skin_temp_c is always
-             * 0.0f (unavailable): the disaster engine uses its documented BME280
-             * ambient cold-stress proxy, and NEWS2 has no body temperature. */
+            /* When a TMP117 clinical temperature sensor is fitted and settled,
+             * env.skin_temp_c carries the measured skin temperature. If TMP117 is
+             * absent or still settling, skin_temp_c is 0.0f (unavailable): the
+             * disaster engine automatically falls back to its documented BME280
+             * ambient cold-stress proxy, and NEWS2 defaults to unmeasured temp. */
             env_sensors_t env_for_assessment = env;
 
             /* 1. Execute Clinical Deterministic Rule Engine */
@@ -1866,15 +1910,12 @@ static float s_last_pm10 = 0.0f;   /* coarse-particle proxy for dust detection *
                           storm_advisory ? storm_advisory : "");
             }
 
-            /* This build has no skin-temperature sensor: the BME280 measures
-             * ambient air, so env.skin_temp_c is 0 and assess_flood_risk() uses
-             * its ambient cold-stress proxy instead of the clinical skin-temp
-             * thresholds. This block is therefore now a FALLBACK for the case
-             * where even the ambient reading is unusable (BME280 absent or out
-             * of range): finalize_overall_risk() deliberately propagates a
-             * single UNKNOWN, which would otherwise bury a normal heat/pollution
-             * picture behind "Overall: UNKNOWN". Report the blind spot honestly
-             * rather than letting it mask the modalities that did run. */
+            /* When neither a measured skin temperature nor ambient air reading is
+             * usable (e.g. BME280 absent or out of range, and no TMP117 settled):
+             * finalize_overall_risk() deliberately propagates a single UNKNOWN,
+             * which would otherwise bury a normal heat/pollution picture behind
+             * "Overall: UNKNOWN". Report the blind spot honestly rather than
+             * letting it mask the modalities that did run. */
             if (rule_risk.flood_risk == RISK_UNKNOWN && rule_risk.heat_risk != RISK_UNKNOWN) {
                 if (rule_risk.pollution_risk > rule_risk.heat_risk) {
                     rule_risk.overall_risk = rule_risk.pollution_risk;
@@ -1926,9 +1967,9 @@ static float s_last_pm10 = 0.0f;   /* coarse-particle proxy for dust detection *
                 rr_depth_dbg  = g_state.rr_rsa_depth_ms;
                 xSemaphoreGive(s_data_mutex);
             }
-            /* No body-temperature sensor is fitted (see the skin-temp note in the
-             * acquisition path). Temperature therefore stays the NEWS2
-             * "uninstrumented" sentinel (0.0f) and contributes no score. */
+            /* Body temperature for mNEWS2: uses estimated core temperature from settled
+             * TMP117 reading (or 0.0f uninstrumented if not fitted / still settling). */
+            /* Die-temp skin estimate is uninstrumented for NEWS2 triage (never claim core) */
             const float news2_temp = 0.0f;
             clinical_vitals_assess_ext(hr, engine_spo2, hrv_snapshot.rmssd,
                                        rr_for_news2, sqi_for_news2, news2_temp, &clin_assess);
@@ -1938,6 +1979,18 @@ static float s_last_pm10 = 0.0f;   /* coarse-particle proxy for dust detection *
 
             /* 4. Unified Triage: Fuse deterministic bounds, TinyML patterns, and clinical vitals */
             risk_assessment_t env_fused = rule_risk;
+            if (nn_risk.heat_risk > env_fused.heat_risk) {
+                env_fused.heat_risk = nn_risk.heat_risk;
+                env_fused.heat_advisory = nn_risk.heat_advisory;
+            }
+            if (nn_risk.pollution_risk > env_fused.pollution_risk) {
+                env_fused.pollution_risk = nn_risk.pollution_risk;
+                env_fused.pollution_advisory = nn_risk.pollution_advisory;
+            }
+            if (nn_risk.flood_risk > env_fused.flood_risk) {
+                env_fused.flood_risk = nn_risk.flood_risk;
+                env_fused.flood_advisory = nn_risk.flood_advisory;
+            }
             if (nn_risk.overall_risk > env_fused.overall_risk) {
                 env_fused.overall_risk = nn_risk.overall_risk;
                 snprintf(env_fused.overall_advisory, sizeof(env_fused.overall_advisory), "%s",
@@ -1976,11 +2029,12 @@ static float s_last_pm10 = 0.0f;   /* coarse-particle proxy for dust detection *
                     * last for the same backward-compatibility reason. A
                     * negative PM25 means "no fresh PM2.5 reading" - not a
                     * measurement of zero. */
-                   "PMRAW=%.1f,PMCONF=%s\n",
+                   "PMRAW=%.1f,PMCONF=%s,SKINTEMP=%.1f\n",
                    hr, engine_spo2, hrv_snapshot.rmssd, env.ambient_temp_c,
                    env.humidity_pct, env.pm25, rr_for_news2, sqi_for_news2,
                    rr_depth_dbg, rr_conf_dbg, pi_pub, hrv_snapshot.count,
-                   pm25_raw_pub, pm25_confidence_str(pm25_reading.confidence));
+                   pm25_raw_pub, pm25_confidence_str(pm25_reading.confidence),
+                   pub_skin_temp);
             fflush(stdout);
             /* The temporary [STATUS] diagnostic lived here; the structured
              * [TRIAGE] line below carries the same risk fields. */
@@ -2024,7 +2078,7 @@ static float s_last_pm10 = 0.0f;   /* coarse-particle proxy for dust detection *
                     * HRPTS/SPO2PTS/RRPTS are the device's own NEWS2 sub-scores,
                     * so a dashboard renders the breakdown instead of
                     * reconstructing it from the raw vitals (2026-10-19). */
-                   "CYCLONE=%s,PTREND=%.2f,HRPTS=%u,SPO2PTS=%u,RRPTS=%u,"
+                   "CYCLONE=%s,PTREND=%.2f,HRPTS=%u,SPO2PTS=%u,RRPTS=%u,TEMPPTS=%u,"
                    /* AIVALID is 1 when the INT8 model actually scored this
                     * cycle and 0 when it declined (no published RMSSD, no
                     * temperature/environment). Appended, not inserted, so
@@ -2047,6 +2101,7 @@ static float s_last_pm10 = 0.0f;   /* coarse-particle proxy for dust detection *
                    (unsigned)clin_assess.news2_hr_pts,
                    (unsigned)clin_assess.news2_spo2_pts,
                    (unsigned)clin_assess.news2_rr_pts,
+                   (unsigned)clin_assess.news2_temp_pts,
                    (unsigned)(nn_risk.overall_risk != RISK_UNKNOWN));
             fflush(stdout);
 
@@ -2093,17 +2148,19 @@ static float s_last_pm10 = 0.0f;   /* coarse-particle proxy for dust detection *
              * the floor (it only accepts them from the "HR=..." packet) and
              * flickered its contact indicator. Report the real state instead. */
             if (sig_stat == SIGNAL_STATUS_NO_FINGER) {
-                printf("[TELEMETRY] NO_FINGER,TEMP=%.1f,HUM=%.1f,PM25=%.1f,PMRAW=%.1f,PMCONF=%s\n",
+                printf("[TELEMETRY] NO_FINGER,TEMP=%.1f,HUM=%.1f,PM25=%.1f,PMRAW=%.1f,PMCONF=%s,SKINTEMP=%.1f\n",
                        env.ambient_temp_c, env.humidity_pct, env.pm25,
-                       pm25_raw_pub, pm25_confidence_str(pm25_reading.confidence));
+                       pm25_raw_pub, pm25_confidence_str(pm25_reading.confidence),
+                       pub_skin_temp);
             } else {
                 float tele_spo2 = (spo2 > 0.0f) ? spo2 : g_state.spo2_percent;
-                printf("[TELEMETRY] ACQUIRING,HR=%.1f,SPO2=%.1f,RMSSD=%.1f,TEMP=%.1f,HUM=%.1f,PM25=%.1f,RR=%.1f,SQI=%.2f,RRDEPTH=%.1f,RRCONF=%.2f,HRVN=%d,PMRAW=%.1f,PMCONF=%s\n",
+                printf("[TELEMETRY] ACQUIRING,HR=%.1f,SPO2=%.1f,RMSSD=%.1f,TEMP=%.1f,HUM=%.1f,PM25=%.1f,RR=%.1f,SQI=%.2f,RRDEPTH=%.1f,RRCONF=%.2f,HRVN=%d,PMRAW=%.1f,PMCONF=%s,SKINTEMP=%.1f\n",
                        hr, tele_spo2, hrv_snapshot.rmssd,
                        env.ambient_temp_c, env.humidity_pct, env.pm25,
                        rr_pub, sqi_pub, rrdepth_pub, rrconf_pub,
                        hrv_snapshot.count,
-                       pm25_raw_pub, pm25_confidence_str(pm25_reading.confidence));
+                       pm25_raw_pub, pm25_confidence_str(pm25_reading.confidence),
+                       pub_skin_temp);
             }
             fflush(stdout);
         }
@@ -2198,6 +2255,11 @@ static float s_last_pm10 = 0.0f;   /* coarse-particle proxy for dust detection *
             live_gps_buf[0] = '\0';
             st.uptime_s = sos_now_ms / 1000u;
             st.contact  = contact_present;
+            /* Only the thermally settled value is published. The OLED may show
+             * the raw reading while the sensor is still settling, but a status
+             * page must not present an unsettled value as a measurement. */
+            st.skin_temp  = pub_skin_temp;
+            st.skin_valid = s_skin_est.is_valid;
             if (xSemaphoreTake(s_data_mutex, pdMS_TO_TICKS(10)) == pdTRUE) {
                 st.motion = g_state.imu_motion_energy;
                 st.fall   = fall_state_name(g_state.fall_state);
@@ -2281,7 +2343,12 @@ static float s_last_pm10 = 0.0f;   /* coarse-particle proxy for dust detection *
                 ssd1306_draw_string(&s_ssd1306, 4, 2, "! FALL DETECTED !");
                 ssd1306_draw_hline(&s_ssd1306, 0, 11, 128);
                 char warn[32];
-                snprintf(warn, sizeof(warn), "ALARM IN: %u SEC", rem_sec);
+                uint32_t cancel_pct = sos_cancel_progress_pct(sos_now_ms);
+                if (cancel_pct > 0) {
+                    snprintf(warn, sizeof(warn), "CANCELLING: %u%%", (unsigned)cancel_pct);
+                } else {
+                    snprintf(warn, sizeof(warn), "ALARM IN: %u SEC", rem_sec);
+                }
                 ssd1306_draw_string(&s_ssd1306, 8, 16, warn);
                 ssd1306_draw_string(&s_ssd1306, 8, 28, "HOLD CANCEL TO STOP");
                 ssd1306_draw_string(&s_ssd1306, 8, 40, "RESTORING IF ACTIVE");
@@ -2308,14 +2375,7 @@ static float s_last_pm10 = 0.0f;   /* coarse-particle proxy for dust detection *
             }
             ssd1306_draw_string(&s_ssd1306, 2, 16, buf_vitals);
 
-            // Line 2: Ambient / PM2.5 - Page 3 (rows 24-31). No skin temperature
-            // is instrumented (see the acquisition-path note).
-            //
-            // The PM2.5 number is the published estimate (the PMS5003 reading
-            // after the documented correction). The trailing flag says how much
-            // to trust it: H humidity-corrected (RH >= 80 %), D dust aerosol
-            // (correction suppressed), ! above the sensor range, ~ window still
-            // settling, ? no reading. See the demo runbook for the legend.
+            // Line 2: Ambient / PM2.5 - Page 3 (rows 24-31)
             char buf_env[32];
             char pm_flag = ' ';
             switch (pm25_reading.confidence) {
@@ -2330,13 +2390,26 @@ static float s_last_pm10 = 0.0f;   /* coarse-particle proxy for dust detection *
                 snprintf(buf_env, sizeof(buf_env), "Ta:--  PM:%3.0f%c",
                          (env.pm25 >= 0.0f) ? env.pm25 : 0.0f, pm_flag);
             } else {
-                snprintf(buf_env, sizeof(buf_env), "T:%4.1fC PM:%3.0f%c",
+                snprintf(buf_env, sizeof(buf_env), "Ta:%4.1fC PM:%3.0f%c",
                          env.ambient_temp_c,
                          (env.pm25 >= 0.0f) ? env.pm25 : 0.0f, pm_flag);
             }
             ssd1306_draw_string(&s_ssd1306, 2, 24, buf_env);
 
-            // Line 3: HRV RMSSD or Guidance Feedback - Page 4 (rows 32-39)
+            // Line 3: Skin Temperature (MAX30102 Die + BME280) - Page 4 (rows 32-39)
+            char buf_skin[32];
+            if (sig_stat == SIGNAL_STATUS_NO_FINGER) {
+                snprintf(buf_skin, sizeof(buf_skin), "Skin: -- (PLACE FGR)");
+            } else if (s_skin_est.is_valid) {
+                snprintf(buf_skin, sizeof(buf_skin), "Skin: %4.1f C", s_skin_est.estimated_skin_c);
+            } else if (s_skin_est.is_below_range && s_skin_est.is_settled) {
+                snprintf(buf_skin, sizeof(buf_skin), "Skin: <31.0C (COLD)");
+            } else {
+                snprintf(buf_skin, sizeof(buf_skin), "Skin: ACQUIRING...");
+            }
+            ssd1306_draw_string(&s_ssd1306, 2, 32, buf_skin);
+
+            // Line 4: HRV RMSSD or Guidance Feedback - Page 5 (rows 40-47)
             char buf_hrv[32];
             if (sig_stat == SIGNAL_STATUS_NO_FINGER) {
                 snprintf(buf_hrv, sizeof(buf_hrv), "Touch MAX30102...");
@@ -2351,22 +2424,17 @@ static float s_last_pm10 = 0.0f;   /* coarse-particle proxy for dust detection *
             } else if (sqi_pub < PPG_SQI_THRESHOLD_VALID) {
                 snprintf(buf_hrv, sizeof(buf_hrv), "HRV: Low Signal");
             } else if (hrv_snapshot.count < HRV_SETTLE_MIN_SAMPLES) {
-                /* Settling progress. RMSSD is withheld until the beat window
-                 * holds HRV_SETTLE_MIN_SAMPLES beats AND spans 120 s of contact
-                 * (see hrv_analysis.h), so show how far the window has filled
-                 * instead of a bare "Stabilizing". Quality checks come first,
-                 * so an unusable signal still reads Low Signal / Hold Still. */
                 snprintf(buf_hrv, sizeof(buf_hrv), "HRV settle %d/%d",
                          hrv_snapshot.count, HRV_SETTLE_MIN_SAMPLES);
             } else {
                 snprintf(buf_hrv, sizeof(buf_hrv), "HRV: Stabilizing");
             }
-            ssd1306_draw_string(&s_ssd1306, 2, 32, buf_hrv);
+            ssd1306_draw_string(&s_ssd1306, 2, 40, buf_hrv);
 
-            // Divider 2: Page 5 (row 40)
-            ssd1306_draw_hline(&s_ssd1306, 0, 40, 128);
+            // Divider 2: Page 6 (row 48)
+            ssd1306_draw_hline(&s_ssd1306, 0, 48, 128);
 
-            // Line 4: Health Condition Alert (TinyML & Disaster Engine) - Page 6 (rows 48-55)
+            // Line 5: Health Condition Alert (TinyML & Disaster Engine) - Page 7 (rows 56-63)
             char buf_cond[32];
             if (sig_stat == SIGNAL_STATUS_NO_FINGER) {
                 snprintf(buf_cond, sizeof(buf_cond), "CONDITION: WAITING");
@@ -2378,7 +2446,7 @@ static float s_last_pm10 = 0.0f;   /* coarse-particle proxy for dust detection *
                 const char *risk_str = risk_level_to_string(final_risk.overall_risk);
                 snprintf(buf_cond, sizeof(buf_cond), "CONDITION: %s", risk_str);
             }
-            ssd1306_draw_string(&s_ssd1306, 2, 48, buf_cond);
+            ssd1306_draw_string(&s_ssd1306, 2, 56, buf_cond);
             }   /* end normal dashboard */
 
             static uint8_t oled_write_failures = 0;
@@ -2411,23 +2479,89 @@ static float s_last_pm10 = 0.0f;   /* coarse-particle proxy for dust detection *
         }
 
 #if defined(CONFIG_SHRIKEFI_SOS_CANCEL_GPIO) && CONFIG_SHRIKEFI_SOS_CANCEL_GPIO >= 0
+        /* Dual-function hardware button on GPIO 5 (active-low with internal pull-up):
+         * - Short press (>= 100 ms) in normal mode triggers manual SOS emergency.
+         * - 5-second hold during emergency or fall countdown cancels the alarm.
+         * s_btn_mode latches the press intent on the initial falling edge:
+         *   0 = released, 1 = trigger mode, 2 = cancel mode, 3 = action done (wait release) */
+        static uint8_t s_btn_press_ticks = 0;
+        static uint8_t s_btn_mode = 0;
+
         for (int i = 0; i < 20; i++) {
             uint32_t tick_ms = (uint32_t)(esp_timer_get_time() / 1000);
-            /* Active low. 30ms debounce implicitly handled by polling at 50ms intervals. */
+            bool btn_down = (gpio_get_level((gpio_num_t)CONFIG_SHRIKEFI_SOS_CANCEL_GPIO) == 0);
+            bool triggered_now = false;
+            bool cancelled_now = false;
+            bool press_started = false;
+
             if (xSemaphoreTake(s_data_mutex, pdMS_TO_TICKS(10)) == pdTRUE) {
                 sos_lock();
-                if (gpio_get_level(CONFIG_SHRIKEFI_SOS_CANCEL_GPIO) == 0) {
-                    sos_cancel_press(tick_ms);
-                    sos_update(tick_ms, triage_level == (int)CLINICAL_CRITICAL, contact_present);
+                sos_state_t cur_st = sos_get_state();
+                sos_trigger_t cur_trig = sos_get_trigger();
+                bool alarm_or_fall_cd = (cur_st == SOS_ACTIVE) ||
+                                        (cur_st == SOS_ARMED && cur_trig == SOS_TRIGGER_FALL);
+
+                if (btn_down) {
+                    if (s_btn_mode == 0) {
+                        s_btn_mode = alarm_or_fall_cd ? 2 : 1;
+                        press_started = true;
+                    }
+                    if (s_btn_press_ticks < 255) s_btn_press_ticks++;
+
+                    if (s_btn_mode == 1) {
+                        /* Short press (2 ticks = 100 ms debounce): Trigger Manual SOS */
+                        if (s_btn_press_ticks >= 2 && !alarm_or_fall_cd) {
+                            sos_manual_trigger(tick_ms);
+                            s_btn_mode = 3;
+                            triggered_now = true;
+                        }
+                    } else if (s_btn_mode == 2) {
+                        /* Emergency active / fall countdown: hold 5s to cancel */
+                        if (alarm_or_fall_cd) {
+                            sos_cancel_press(tick_ms);
+                            sos_update(tick_ms, triage_level == (int)CLINICAL_CRITICAL, contact_present);
+                            if (sos_get_state() == SOS_CANCELLED) {
+                                s_btn_mode = 3;
+                                cancelled_now = true;
+                            }
+                        } else {
+                            /* Already transitioned to CANCELLED by top-of-loop sos_update */
+                            s_btn_mode = 3;
+                            cancelled_now = true;
+                        }
+                    }
                 } else {
+                    /* Button released: reset hold counter and mode */
+                    s_btn_press_ticks = 0;
+                    s_btn_mode = 0;
                     sos_cancel_release();
                 }
+
+                /* Continuously refresh state within 50ms so buzzer and UI respond with zero lag */
+                sos_now = sos_get_state();
+                sos_trig = sos_get_trigger();
                 sos_unlock();
                 xSemaphoreGive(s_data_mutex);
             }
 
+            /* IMPORTANT: Log OUTSIDE sos_lock() spinlock! Calling ESP_LOG inside
+             * taskENTER_CRITICAL triggers a FreeRTOS assert/panic reset on ESP32-S3! */
+            if (press_started) {
+                ESP_LOGI(TAG, "[BUTTON] GPIO%d pressed (mode=%s)",
+                         CONFIG_SHRIKEFI_SOS_CANCEL_GPIO,
+                         (s_btn_mode == 2) ? "HOLD_TO_CANCEL" : "SHORT_PRESS_SOS");
+            }
+            if (triggered_now) {
+                ESP_LOGW(TAG, "[BUTTON] Hardware manual SOS triggered via GPIO%d!",
+                         CONFIG_SHRIKEFI_SOS_CANCEL_GPIO);
+            }
+            if (cancelled_now) {
+                ESP_LOGI(TAG, "[BUTTON] SOS emergency cancelled via GPIO%d 5s hold!",
+                         CONFIG_SHRIKEFI_SOS_CANCEL_GPIO);
+            }
+
 #if defined(PIN_BUZZER) && PIN_BUZZER >= 0
-            /* Drive Active Buzzer on GPIO 4:
+            /* Drive Active Buzzer on GPIO 4 with sub-50ms responsiveness:
              * - SOS_ACTIVE: Pulsing loud emergency siren (100ms ON / 100ms OFF)
              * - SOS_ARMED (Fall countdown): 100ms alert chirp at start of each second
              * - Normal: Silenced (LOW) */
@@ -2436,9 +2570,16 @@ static float s_last_pm10 = 0.0f;   /* coarse-particle proxy for dust detection *
                 buzzer_val = (i % 4 < 2) ? 1 : 0;
             } else if (sos_now == SOS_ARMED && sos_trig == SOS_TRIGGER_FALL) {
                 buzzer_val = (i < 2) ? 1 : 0;
+            } else {
+                buzzer_val = 0;
             }
             gpio_set_level((gpio_num_t)PIN_BUZZER, buzzer_val);
 #endif
+
+            /* If an emergency was just manually triggered or cancelled, break early to immediately update OLED */
+            if (triggered_now || cancelled_now) {
+                break;
+            }
 
             vTaskDelay(pdMS_TO_TICKS(50));
         }
@@ -2581,6 +2722,8 @@ static void task_imu_monitor(void *pvParameters) {
     }
 }
 
+/* TMP117 bus diagnostic removed */
+
 void app_main(void) {
     ESP_LOGI(TAG, "================================================================");
     ESP_LOGI(TAG, "  SIH26181 ShrikeFi Health Companion Firmware");
@@ -2602,6 +2745,9 @@ void app_main(void) {
         ESP_LOGI(TAG, "I2C HAL ready: SDA=GPIO%d SCL=GPIO%d at %d Hz; probing sensors.",
                  PIN_I2C_SDA, PIN_I2C_SCL, I2C_BUS_SPEED_HZ);
         esp32_i2c_hal_scan();
+        if (esp32_i2c_hal_probe(0x48) != I2C_HAL_SUCCESS) {
+            ESP_LOGW("TMP117", "TMP117: Device NOT responding at I2C address 0x48! (NO ACK - Hardware Defective/DOA)");
+        }
     }
 
     /* ForgeFPGA bitstream delivery over SPI2, using the Vicharak
@@ -2624,9 +2770,18 @@ void app_main(void) {
         ESP_LOGW(TAG, "ForgeFPGA SPI programming did not complete. Falling back to dual-core MCU DSP.");
     }
 
-    /* Initialize the runtime SPI link to the ForgeFPGA */
-    shrikefi_link_init();
-    shrikefi_set_threshold(120);
+    /* Initialize the runtime SPI link to the ForgeFPGA. A failure here means
+     * the accelerator is unavailable; it is not fatal because the MCU DSP path
+     * remains valid, but it must be reported and the link must not be used. */
+    shrikefi_err_t link_err = shrikefi_link_init();
+    s_fpga_link_ready = (link_err == SHRIKEFI_OK);
+    if (s_fpga_link_ready) {
+        shrikefi_set_threshold(120);
+        ESP_LOGI(TAG, "ForgeFPGA runtime link ready (threshold 120)");
+    } else {
+        ESP_LOGW(TAG, "ForgeFPGA runtime link unavailable (err %d); using MCU DSP fallback",
+                 (int)link_err);
+    }
 
     /* Radio.
      *
@@ -2693,9 +2848,10 @@ void app_main(void) {
         ESP_LOGI(TAG, "MAX30102 initialized OK");
     }
 
-    /* No skin-temperature sensor is probed: the MAX30205 was never populated and
-     * the MAX30102 die-temperature proxy is not a body temperature. Add a TMP117
-     * probe here when that sensor is fitted. */
+    /* Initialize Skin Temperature Estimator (MAX30102 on-die temp + BME280 ambient) */
+    skin_estimate_init(&s_skin_est, SKIN_EST_DEFAULT_B0, SKIN_EST_DEFAULT_B1, SKIN_EST_DEFAULT_B2, true);
+    ESP_LOGI(TAG, "Skin temperature estimator ready (T_skin = %.2f + %.2f*T_die + %.2f*T_amb)",
+             SKIN_EST_DEFAULT_B0, SKIN_EST_DEFAULT_B1, SKIN_EST_DEFAULT_B2);
 
     /* Initialize BME280 (environmental sensor) */
     if (bme280_init(&s_bme280, esp32_i2c_hal_get_handle(), BME280_I2C_ADDR) != 0) {
@@ -2798,7 +2954,7 @@ void app_main(void) {
      *                                   an embedded char[512] instead of a
      *                                   const char* - the C-02 fix)
      *   clinical_assessment_t  284 B
-     *   nn_output_t             12 B
+     *   nn_output_t             16 B (three scores + validity flag)
      *
      * That is ~3.7 KB before any call frame, and its ESP_LOGI/printf lines with
      * a dozen arguments (four of them doubles) need several hundred more. At the
@@ -2836,12 +2992,14 @@ void app_main(void) {
 int main(void) {
     printf("================================================================\n");
     printf("  SIH26181 ShrikeFi (ESP32-S3 + Renesas ForgeFPGA) Host Test\n");
-    printf("  Qualcomm Hardware Challenge — Smart India Hackathon 2026\n");
+    printf("  Qualcomm Hardware Challenge â€” Smart India Hackathon 2026\n");
     printf("================================================================\n\n");
 
-    // Initialize link driver (stub)
-    shrikefi_link_init();
-    shrikefi_set_threshold(120);
+    // Initialize link driver (stub on host)
+    s_fpga_link_ready = (shrikefi_link_init() == SHRIKEFI_OK);
+    if (s_fpga_link_ready) {
+        shrikefi_set_threshold(120);
+    }
 
     // Prepare simulated inputs
     float hr = 135.0f;
@@ -3089,7 +3247,7 @@ int main(void) {
     sos_update(2000 + 5000, false, true);
     printf("  [SOS Button] Held for 5.0s (Progress: %u%%). State: %s\n", sos_cancel_progress_pct(7000), sos_state_name(sos_get_state()));
 
-    /* Profile 8: Requirement 7 — 24-Hour Rolling Health History and Trends */
+    /* Profile 8: Requirement 7 â€” 24-Hour Rolling Health History and Trends */
     printf("\nHost Test - Requirement 7: 24-Hour Rolling Health History & Trends:\n");
     web_status_history_init();
     valor_status_t sim_stat = {
@@ -3431,7 +3589,7 @@ int main(void) {
     mpu6050_data_t imu_reading;
 
     // Test 1: Normal resting baseline (1.0g on Z-axis, low gyro)
-    mpu6050_set_mock_raw(0, 0, 4096, 0, 0, 0, 0); // 4096 LSB = 1.0g in ±8g mode
+    mpu6050_set_mock_raw(0, 0, 4096, 0, 0, 0, 0); // 4096 LSB = 1.0g in Â±8g mode
     mpu6050_read(&test_imu, &imu_reading);
     printf("  [IMU Resting]   Ax=%.2fg Ay=%.2fg Az=%.2fg (A_mag=%.2fg) Gyro=%.1fdps\n",
            imu_reading.ax, imu_reading.ay, imu_reading.az, imu_reading.a_mag, imu_reading.g_mag);
@@ -3705,8 +3863,67 @@ int main(void) {
     }
     printf("  [PASS] Profile 11 GNSS NMEA & u-blox NEO-M8N Succeeded!\n");
 
-    /* Profile 12 intentionally removed with the skin-temperature feature
-     * (2026-10-17). Re-add a temperature-scoring profile when a TMP117 is fitted. */
+    /* Profile 12: MAX30102 On-Die Temperature, Skin Estimation & mNEWS2 Scoring */
+    printf("\nHost Test - Profile 12: MAX30102 On-Die Temperature & Skin Estimation:\n");
+    max30102_t test_max_temp;
+    if (max30102_init(&test_max_temp, esp32_i2c_hal_get_handle()) != 0) {
+        printf("  [FAIL] Failed to initialize MAX30102 for die temp test!\n");
+        return 1;
+    }
+    esp32_i2c_hal_sim_set_max30102_temp(33, 8); /* 33.5 C */
+    float die_t = 0.0f;
+    if (max30102_read_die_temp(&test_max_temp, &die_t) != 0 || fabsf(die_t - 33.5f) > 0.1f) {
+        printf("  [FAIL] Expected 33.5 C die temp, got %.2f C!\n", die_t);
+        return 1;
+    }
+    printf("  [MAX30102 Die Temp] Measured on-chip temperature: %.2f C\n", die_t);
+
+    skin_estimate_t test_skin;
+    skin_estimate_init(&test_skin, SKIN_EST_DEFAULT_B0, SKIN_EST_DEFAULT_B1, SKIN_EST_DEFAULT_B2, false);
+    uint32_t t_sim_skin = 1000;
+    for (int i = 0; i < 18; i++) {
+        t_sim_skin += 1000;
+        skin_estimate_update(&test_skin, 33.5f, 25.0f, true, t_sim_skin);
+    }
+    if (!test_skin.is_settled || !test_skin.is_valid) {
+        printf("  [FAIL] Skin estimator failed to settle after 18 seconds! (settled=%d, valid=%d)\n",
+               (int)test_skin.is_settled, (int)test_skin.is_valid);
+        return 1;
+    }
+    printf("  [Skin Estimator] Settled OK: %.2f C (slope: %.4f C/s)\n",
+           test_skin.estimated_skin_c, test_skin.slope_c_per_sec);
+
+    /* Test mNEWS2 temperature scoring:
+     * Standard RCP NEWS2 bands:
+     * <= 35.0 C: 3 pts | 35.1-36.0 C: 1 pt | 36.1-38.0 C: 0 pts | 38.1-39.0 C: 1 pt | >= 39.1 C: 2 pts */
+    clinical_assessment_t norm_temp_clin;
+    clinical_vitals_assess_ext(72.0f, 98.0f, 45.0f, 14.0f, 0.95f, 36.8f, &norm_temp_clin);
+    printf("  [NEWS2 Normal]  Core: 36.8 C -> Temp Points: %u | Total NEWS2: %u\n",
+           norm_temp_clin.news2_temp_pts, norm_temp_clin.news2_score);
+    if (norm_temp_clin.news2_temp_pts != 0) {
+        printf("  [FAIL] Expected 0 temp points for normal core 36.8 C, got %u!\n", norm_temp_clin.news2_temp_pts);
+        return 1;
+    }
+
+    clinical_assessment_t mild_temp_clin;
+    clinical_vitals_assess_ext(72.0f, 98.0f, 45.0f, 14.0f, 0.95f, 35.7f, &mild_temp_clin);
+    printf("  [NEWS2 Mild]    Core: 35.7 C -> Temp Points: %u (RCP 35.1-36.0 C band)\n",
+           mild_temp_clin.news2_temp_pts);
+    if (mild_temp_clin.news2_temp_pts != 1) {
+        printf("  [FAIL] Expected 1 temp point for core 35.7 C, got %u!\n", mild_temp_clin.news2_temp_pts);
+        return 1;
+    }
+
+    /* Test Hypothermia scoring: core <= 35.0 C -> +3 points */
+    clinical_assessment_t hypo_clin;
+    clinical_vitals_assess_ext(55.0f, 96.0f, 30.0f, 12.0f, 0.90f, 34.8f, &hypo_clin);
+    printf("  [NEWS2 Hypo]    Core: 34.8 C -> Temp Points: %u (Hypothermia Flag: %s)\n",
+           hypo_clin.news2_temp_pts, (hypo_clin.alert_flags & ALERT_HYPOTHERMIA) ? "YES" : "NO");
+    if (hypo_clin.news2_temp_pts != 3 || !(hypo_clin.alert_flags & ALERT_HYPOTHERMIA)) {
+        printf("  [FAIL] Expected +3 points and ALERT_HYPOTHERMIA for core 34.8 C!\n");
+        return 1;
+    }
+    printf("  [PASS] Profile 12 MAX30102 Skin Estimation & mNEWS2 Succeeded!\n");
 
     /* Profile 13: SSD1306 Dirty-Page Differential Update & MAX30102 Non-Blinking FIFO Recovery */
     printf("\nHost Test - Profile 13: SSD1306 Differential Update & MAX30102 Burst/Recovery:\n");

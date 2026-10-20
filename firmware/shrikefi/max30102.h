@@ -222,6 +222,13 @@ int max30102_adjust_led_current(max30102_t *dev, uint32_t red_sample, uint32_t i
  * LED from a badly coupled finger. Returns 0 on success. */
 int max30102_get_led_current(max30102_t *dev, uint8_t *red_curr, uint8_t *ir_curr);
 
+/**
+ * @brief Read MAX30102 on-die junction temperature.
+ *        Triggers conversion via TEMP_CONFIG (0x21) and reads TEMP_INT (0x1F) + TEMP_FRAC (0x20).
+ * @return 0 on success, negative error code on failure
+ */
+int max30102_read_die_temp(max30102_t *dev, float *out_temp_c);
+
 #ifdef __cplusplus
 }
 #endif

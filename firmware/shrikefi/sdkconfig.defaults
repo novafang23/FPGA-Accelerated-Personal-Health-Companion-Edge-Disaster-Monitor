@@ -50,9 +50,12 @@ CONFIG_ESP_CONSOLE_UART_NUM=0
 CONFIG_ESP_CONSOLE_UART_BAUDRATE=115200
 
 # --- FreeRTOS -----------------------------------------------------------------
-# 100 Hz tick = 10 ms scheduling granularity. This is exactly why beat-to-beat
-# timing is done in the FPGA rather than in software.
-CONFIG_FREERTOS_HZ=100
+# 200 Hz tick = 5 ms scheduling granularity. The 40 Hz IMU loop is a
+# non-integer number of ticks at 100 Hz (pdMS_TO_TICKS(25) == 2, i.e. 20 ms), so
+# 200 Hz makes the intended 25 ms period exact (5 ticks). It also makes the
+# 10 ms shared-data mutex timeouts two real ticks instead of a zero-tick
+# try-lock. Beat-to-beat timing is still done in the FPGA, not in software.
+CONFIG_FREERTOS_HZ=200
 
 # Immediate stack-overflow detection.
 #

@@ -21,7 +21,6 @@ import json
 import argparse
 import urllib.request
 import urllib.error
-import ssl
 import re
 
 # Ensure UTF-8 output on Windows consoles to handle unicode characters in model output
@@ -32,6 +31,11 @@ if hasattr(sys.stderr, "reconfigure"):
 
 API_URL = "https://api.deepseek.com/chat/completions"
 MODELS_URL = "https://api.deepseek.com/models"
+
+# A hung socket must not wedge the developer's terminal. Streaming responses
+# can legitimately run longer than a one-shot request, so they get more time.
+REQUEST_TIMEOUT_S = 30
+STREAM_TIMEOUT_S = 120
 
 def extract_code_block(text, target_lang=None):
     """
@@ -120,10 +124,9 @@ def call_deepseek(messages, model=None, api_key=None, stream=True):
         }
     )
 
-    ctx = ssl._create_unverified_context()
     try:
         if not stream:
-            with urllib.request.urlopen(req, context=ctx) as resp:
+            with urllib.request.urlopen(req, timeout=REQUEST_TIMEOUT_S) as resp:
                 res_json = json.loads(resp.read().decode("utf-8"))
                 choice = res_json["choices"][0]["message"]
                 if "reasoning_content" in choice and choice["reasoning_content"]:
@@ -135,7 +138,7 @@ def call_deepseek(messages, model=None, api_key=None, stream=True):
             full_content = []
             in_reasoning = False
 
-            with urllib.request.urlopen(req, context=ctx) as resp:
+            with urllib.request.urlopen(req, timeout=STREAM_TIMEOUT_S) as resp:
                 for line in resp:
                     line_str = line.decode("utf-8").strip()
                     if not line_str or line_str == "data: [DONE]":
@@ -188,7 +191,7 @@ def cmd_models(args):
         headers={"Authorization": f"Bearer {api_key}"}
     )
     try:
-        with urllib.request.urlopen(req) as resp:
+        with urllib.request.urlopen(req, timeout=REQUEST_TIMEOUT_S) as resp:
             data = json.loads(resp.read().decode("utf-8"))
             print("\n===========================================================")
             print("         DEEPSEEK MODELS AVAILABLE ON YOUR ACCOUNT         ")

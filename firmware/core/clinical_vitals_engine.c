@@ -57,7 +57,7 @@ static void append_condition(char *buf, size_t buf_size, size_t *len,
     }
 
     size_t avail = buf_size - *len;
-    int ret = snprintf(buf + *len, avail, fmt, v);
+    int ret = snprintf(buf + *len, avail, fmt, (double)v);
     if (ret < 0) {
         buf[*len] = '\0';
         return;
@@ -125,7 +125,13 @@ void clinical_vitals_assess_ext(float hr, float spo2, float rmssd, float rr, flo
     /* 2. Compute canonical integer vitals (consistent rounding across all branches) */
     int hr_i   = (int)(hr + 0.5f);
     int spo2_i = (int)(spo2 + 0.5f);
-    int rr_i   = (rr > 0.0f && isfinite(rr)) ? (int)(rr + 0.5f) : 14; /* default 14 if unavailable */
+    /* NEWS2 needs a respiratory term even when RR is unavailable, so the
+     * scoring path uses the population default. The OUTPUT must not: 14 is a
+     * claim that the patient was breathing 14/min, and the dashboard would
+     * publish that invented measurement. 0.0f is the established "absent"
+     * sentinel in clinical_assessment_t. */
+    const bool rr_valid = (rr > 0.0f && isfinite(rr));
+    int rr_i = rr_valid ? (int)(rr + 0.5f) : 14;
     int32_t rmssd_x10 = -1;
     if (isfinite(rmssd) && rmssd > 0.0f && rmssd < 500.0f) {
         rmssd_x10 = (int32_t)(rmssd * 10.0f + 0.5f);
@@ -134,7 +140,7 @@ void clinical_vitals_assess_ext(float hr, float spo2, float rmssd, float rr, flo
     out->hr        = hr;
     out->spo2      = spo2;
     out->rmssd     = (rmssd > 0.0f && isfinite(rmssd)) ? rmssd : 0.0f;
-    out->rr        = (float)rr_i;
+    out->rr        = rr_valid ? (float)rr_i : 0.0f;
     out->sqi       = (sqi > 0.0f && isfinite(sqi)) ? sqi : 0.0f;
     out->body_temp = (temp_c > 0.0f && isfinite(temp_c)) ? temp_c : 0.0f;
 
@@ -175,7 +181,7 @@ void clinical_vitals_assess_ext(float hr, float spo2, float rmssd, float rr, flo
         out->level = CLINICAL_ELEVATED; /* Mark as elevated uncertainty / holding */
         out->alert_flags = ALERT_SIGNAL_NOISE;
         snprintf(out->advisory, sizeof(out->advisory),
-                 "SENSOR QUALITY LOW (SQI %.2f < 0.70): Motion artifact detected. Stabilize sensor, holding triage.", out->sqi);
+                 "SENSOR QUALITY LOW (SQI %.2f < 0.70): Motion artifact detected. Stabilize sensor, holding triage.", (double)out->sqi);
         return;
     }
 

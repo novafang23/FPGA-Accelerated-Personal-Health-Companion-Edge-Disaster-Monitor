@@ -160,8 +160,9 @@ programmer. `shrikefi_fpga_flash_init()` in `shrikefi_link_driver.c`:
 3. Runs the vendor boot-mode latch sequence — PWR=0/EN=0/SS=1, settle 3 ms;
    PWR=1/EN=1/SS=0, settle 10 ms; SS=1, settle 1 ms. (These use
    `esp_rom_delay_us`, not `vTaskDelay(pdMS_TO_TICKS(..))`: at
-   `CONFIG_FREERTOS_HZ=100` a tick is 10 ms, so `pdMS_TO_TICKS(5)` is **zero
-   ticks** and the latch window would never be held.)
+   `CONFIG_FREERTOS_HZ=200` a tick is 5 ms, so `pdMS_TO_TICKS(2)` is **zero
+   ticks** and the latch window would never be held. The microsecond delays
+   also avoid depending on the tick rate at all.)
 4. Streams the 46,408-byte image in 256-byte chunks with SS toggled per chunk.
 5. Waits 50 ms for user mode, removes the flashing device and leaves
    `SPI2_HOST` up for runtime communication.

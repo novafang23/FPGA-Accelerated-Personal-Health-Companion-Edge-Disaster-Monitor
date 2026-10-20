@@ -26,6 +26,20 @@ void ppg_calculate_sqi_with_motion(
 ) {
     if (!result) return;
 
+    /* Fail closed on a non-finite motion reading. The comparison-based
+     * penalties below are all false for NaN, so without this guard a NaN
+     * motion energy silently left the SQI uncorrected and could certify a
+     * pulse during motion the IMU could not quantify. */
+    if (!isfinite(motion_energy_g)) {
+        result->overall_sqi = 0.0f;
+        result->perfusion_index = 0.0f;
+        result->interval_regularity = 0.0f;
+        result->waveform_skewness = 0.0f;
+        result->is_motion_artifact = true;
+        result->motion_energy = 0.0f;
+        return;
+    }
+
     /* Default fallback for insufficient data */
     result->overall_sqi = 0.50f;
     result->perfusion_index = 1.0f;
@@ -100,13 +114,18 @@ void ppg_calculate_sqi_with_motion(
     /* 2. Beat-to-Beat Interval Regularity */
     bool reg_measured = false;
     if (ibi_ms && ibi_count >= 3) {
+        bool ibi_finite = true;
         float ibi_sum = 0.0f;
         for (size_t i = 0; i < ibi_count; i++) {
+            if (!isfinite(ibi_ms[i])) {
+                ibi_finite = false;
+                break;
+            }
             ibi_sum += ibi_ms[i];
         }
-        float ibi_mean = ibi_sum / (float)ibi_count;
+        float ibi_mean = ibi_finite ? (ibi_sum / (float)ibi_count) : 0.0f;
 
-        if (ibi_mean > 200.0f) {
+        if (ibi_finite && ibi_mean > 200.0f) {
             float ibi_var_sum = 0.0f;
             for (size_t i = 0; i < ibi_count; i++) {
                 float diff = ibi_ms[i] - ibi_mean;

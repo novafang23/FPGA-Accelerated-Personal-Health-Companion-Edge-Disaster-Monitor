@@ -49,6 +49,17 @@ jobs:
             exit 1
           fi
           echo "No tracked Wi-Fi credentials found."
+      - name: Reject unverified TLS contexts
+        run: |
+          if git grep -n "_create_unverified_context" -- scripts hardware; then
+            echo "::error::TLS certificate verification must not be disabled"
+            exit 1
+          fi
+          echo "No unverified TLS contexts found."
+      - name: Python syntax check
+        run: |
+          python3 -m py_compile scripts/deepseek_copilot.py \
+            hardware/shrikefi/tools/replay_fpga_link_log.py
 
   simulate:
     name: Simulate RTL & Firmware
@@ -87,11 +98,11 @@ jobs:
           # failed. Grep the summary so a regression actually fails the build.
           grep -q "6 passed, 0 failed" zynq.log
 
-      - name: Run common peak-detector unit testbench (expects 3/3)
+      - name: Run common peak-detector unit testbench (expects 4/4)
         run: |
           iverilog -o sim_common.vvp hardware/common/tb_ppg_peak_detector.v hardware/common/moving_average_8tap.v hardware/common/ppg_peak_detector.v
           vvp sim_common.vvp | tee common.log
-          grep -q "ALL 3 TESTS PASSED" common.log
+          grep -q "ALL 4 TESTS PASSED" common.log
 
       # hardware/shrikefi/forgefpga_ppg_top.v instantiates the DSP core from
       # hardware/common/ and does NOT contain inline copies of those modules.
@@ -106,6 +117,24 @@ jobs:
             hardware/common/ppg_peak_detector.v
           vvp sim_shrikefi.vvp | tee shrikefi.log
           grep -q "13 passed, 0 failed" shrikefi.log
+
+      - name: Enforce FP32 promotion hygiene (core only)
+        # The ESP32-S3 has a single-precision FPU and no double-precision unit.
+        # Variadic calls promote every float argument to double, and accidental
+        # double math is easy to introduce without noticing. The host unit-test
+        # file has many deliberate diagnostic printf()s of floats, so scope this
+        # -Werror gate to the shipped core sources rather than excluding the
+        # flag from the whole test build.
+        run: |
+          gcc -Wall -Wextra -Werror -pedantic -Wdouble-promotion -std=c11 \
+            -Ifirmware/core -Ifirmware/zynq -Ifirmware/shrikefi -fsyntax-only \
+            firmware/core/nn_risk_model.c firmware/core/nn_risk_model_int8.c \
+            firmware/core/hrv_analysis.c firmware/core/pm25_correction.c \
+            firmware/core/clinical_vitals_engine.c firmware/core/spo2_engine.c \
+            firmware/core/ppg_sqi.c firmware/core/disaster_risk_engine.c \
+            firmware/core/pressure_trend.c firmware/core/ppg_respiratory_rate.c \
+            firmware/core/ppg_baseline_rr.c firmware/shrikefi/web_status.c \
+            firmware/shrikefi/tmp117.c
 
       - name: Build & run firmware unit tests (incl. FP32 vs INT8 parity)
         run: |
@@ -127,15 +156,20 @@ jobs:
           gcc -Wall -Wextra -Werror -pedantic -std=c11 \
             -Ifirmware/shrikefi firmware/shrikefi/test_gps_l89hs.c firmware/shrikefi/gnss_nmea.c firmware/shrikefi/gps_l89hs.c -lm -o test_gnss
           ./test_gnss
+          gcc -Wall -Wextra -Werror -pedantic -Wdouble-promotion -std=c11 \
+            -Ifirmware/core -Ifirmware/shrikefi \
+            firmware/shrikefi/test_tmp117.c firmware/shrikefi/tmp117.c firmware/shrikefi/esp32_i2c_hal.c firmware/core/clinical_vitals_engine.c -lm -o test_tmp117
+          ./test_tmp117
           gcc -Wall -Wextra -Werror -pedantic -std=c11 \
             -Ifirmware/shrikefi -Ifirmware/core \
             firmware/shrikefi/main_shrikefi.c firmware/shrikefi/shrikefi_link_driver.c \
-            firmware/shrikefi/esp32_i2c_hal.c firmware/shrikefi/max30102.c firmware/shrikefi/bme280.c \
+            firmware/shrikefi/esp32_i2c_hal.c firmware/shrikefi/max30102.c firmware/shrikefi/bme280.c firmware/shrikefi/tmp117.c \
             firmware/shrikefi/pms5003.c firmware/shrikefi/gnss_nmea.c firmware/shrikefi/gps_l89hs.c \
             firmware/shrikefi/mpu6050.c firmware/shrikefi/fall_detect.c firmware/shrikefi/ssd1306.c \
             firmware/core/hrv_analysis.c firmware/core/spo2_engine.c firmware/core/disaster_risk_engine.c \
+            firmware/core/clinical_vitals_engine.c \
             firmware/core/nn_risk_model.c firmware/core/nn_risk_model_int8.c firmware/core/pm25_correction.c \
-            firmware/core/clinical_vitals_engine.c firmware/core/ppg_sqi.c firmware/core/ppg_respiratory_rate.c \
+            firmware/core/ppg_sqi.c firmware/core/ppg_respiratory_rate.c \
             firmware/core/ppg_baseline_rr.c \
             firmware/core/pressure_trend.c firmware/shrikefi/location.c firmware/shrikefi/sos.c firmware/shrikefi/web_status.c \
             -lm -o shrikefi_host

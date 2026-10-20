@@ -185,8 +185,8 @@
 # Category 8: Hardware-Software Integration
 
 ### Q8.1 (Intermediate): How do the two microcontroller cores communicate without memory corruption?
-- **Direct Answer:** "They communicate via a shared state structure `g_state` protected by a FreeRTOS binary mutex `s_data_mutex`. Core 0 writes vitals with a 5 ms timeout after each beat; Core 1 takes a stack snapshot at the start of its 1-second triage cycle."
-- **Technical Explanation:** To eliminate priority inversion, `s_data_mutex` uses priority inheritance. Core 0 never blocks waiting for Core 1; if the mutex is locked, it drops the non-critical telemetry write and continues sampling. Diagnostic logging reads on Core 0 are also wrapped in `s_data_mutex` to prevent memory tearing.
+- **Direct Answer:** "They communicate via a shared state structure `g_state` protected by a FreeRTOS binary mutex `s_data_mutex`. Core 0 writes vitals with a bounded 10 ms timeout after each beat; Core 1 takes a stack snapshot at the start of its 1-second triage cycle."
+- **Technical Explanation:** To eliminate priority inversion, `s_data_mutex` uses priority inheritance. Core 0 can wait at most 10 ms (two ticks at 200 Hz) for Core 1; if the mutex is still locked it drops the non-critical telemetry write and continues sampling. Diagnostic logging reads on Core 0 are also wrapped in `s_data_mutex` to prevent memory tearing.
 - **Evidence:** `firmware/shrikefi/main_shrikefi.c:1104-1160`.
 - **Follow-up Challenge:** "Why not use FreeRTOS queues instead of a shared memory mutex?"
 - **Safe Response:** "Queues introduce dynamic heap allocation and per-sample copy overhead. For high-frequency vital state snapshots, a mutex-guarded static structure provides deterministic execution without memory fragmentation."
@@ -260,9 +260,9 @@
 # Category 14: Candid Limitations, Unfinished Features & Future Work
 
 ### Q14.1 (Adversarial): What is the single weakest part of your current implementation?
-- **Direct Answer:** "Our skin temperature measurement currently uses the MAX30102 on-chip die sensor with a 1.2°C LED self-heating compensation constant. While sufficient for detecting severe hypothermia (<35°C) or fever (>38°C), it does not have the precision of a dedicated clinical skin-contact probe like the MAX30205."
-- **Technical Explanation:** The MAX30102 die temperature sensor is located within the optical package. While finger contact conducts heat to the die, internal LED illumination generates ~1.2°C of thermal offset. We filter and compensate for this in firmware, but a dedicated I2C skin probe (MAX30205) is required for hospital-grade thermometry.
-- **Evidence:** `firmware/shrikefi/main_shrikefi.c:1400-1435`.
+- **Direct Answer:** "Skin temperature. We use a dedicated TI TMP117 skin-contact probe rather than the MAX30102's on-chip die sensor — the die reading is dominated by LED self-heating and is not a body temperature, so we deleted that read instead of compensating for it. What is still weak is the physiology around the probe: skin temperature is reported, and the 'core' value shown next to it is a fixed skin-to-core offset applied to that reading, not an independent core measurement. We also require optical finger contact on the PPG sensor before any skin temperature is published, because a probe sitting on an open palm reads the pad, not a patient."
+- **Technical Explanation:** The TMP117 is a ±0.1 °C clinical-grade probe on the shared I2C bus (0x48, ADD0 → GND), configured for continuous 1 Hz conversion with 8-sample hardware averaging. Firmware applies a settling filter: the reading must be inside the 25–43 °C skin band, come from at least 3 consecutive samples that agree within 0.35 °C, and follow at least 6 s of continuous optical contact; only then is it published. Until it settles the value stays unavailable (0.0f) and the NEWS2 temperature sub-score contributes nothing, rather than scoring an unsettled or ambient number.
+- **Evidence:** `firmware/shrikefi/tmp117.c`, `firmware/shrikefi/test_tmp117.c`, `firmware/shrikefi/max30102.c` (the note recording the removal of the die-temperature read).
 
 ### Q14.2 (Intermediate): Has the physical fall/SOS path actually been tested?
 - **Direct Answer:** "Yes — one physical drop trial on 2026-10-19 was detected, and the full SOS path was exercised: the 10-second countdown ran, the buzzer sounded, and the 5-second hold-to-cancel worked. It is a single bench trial; false positives and multi-trial/orientation testing are still open, so we call it physically demonstrated, not field-validated."
@@ -274,13 +274,13 @@
 # Category 15: Adversarial Questions & Innovation Verification
 
 ### Q15.1 (Adversarial): "You claim this is an FPGA project, but your FPGA just runs a boxcar filter and peak detector while the ESP32 does all the real work. Isn't the FPGA just a marketing gimmick?"
-- **Direct Answer:** "No. Offloading peak detection to hardware is the only reason our Heart Rate Variability metrics are valid. Without the FPGA, peak detection in software would be quantized to the FreeRTOS 10 ms scheduling tick, introducing timing errors larger than the RMSSD signal itself."
-- **Technical Explanation:** In a healthy adult, RMSSD is 20–50 ms; in autonomic collapse, it drops below 15 ms. An RTOS tick jitter of 10 ms represents a 66% measurement error, rendering HRV calculation meaningless. The FPGA detects peaks with 20 ns resolution directly in hardware, shielding biosignal timing from CPU scheduling, Wi-Fi radio interrupts, and flash cache latency.
+- **Direct Answer:** "No. Offloading peak detection to hardware is the only reason our Heart Rate Variability metrics are valid. Without the FPGA, peak detection in software would be quantized to the FreeRTOS 5 ms scheduling tick, introducing timing errors larger than the RMSSD signal itself."
+- **Technical Explanation:** In a healthy adult, RMSSD is 20–50 ms; in autonomic collapse, it drops below 15 ms. A 5 ms RTOS tick is already the same size as the variation we are trying to measure, which makes software-timestamped HRV meaningless. The FPGA detects peaks with 20 ns resolution directly in hardware, shielding biosignal timing from CPU scheduling, Wi-Fi radio interrupts, and flash cache latency.
 - **Evidence:** `docs/MASTER_PROJECT_GUIDE.md:75-105`, `hardware/shrikefi/tb_forgefpga_system.v:310-340`.
 
 ---
 
 ### Q15.2 (Adversarial): "What would fail if we disconnected the FPGA right now during your demo?"
 - **Direct Answer:** "Heart Rate Variability (RMSSD) and Charlton respiratory rate estimation would fail because the cycle-accurate pulse timestamps would disappear. The system would fall back to software thresholding, but telemetry would flag that HRV precision is degraded."
-- **Technical Explanation:** `main_shrikefi.c` implements a software fallback path for demonstration resilience (`s_fpga_available`). If the FPGA fails to answer its SPI probe, Core 0 switches to software peak detection, but RMSSD is suppressed because timing jitter invalidates autonomic strain analysis.
+- **Technical Explanation:** `main_shrikefi.c` implements a software fallback path for demonstration resilience (`s_fpga_link_ready`). If the runtime SPI probe fails, Core 0 stops streaming to the FPGA and switches to software peak detection, but RMSSD is suppressed because timing jitter invalidates autonomic strain analysis.
 - **Evidence:** `firmware/shrikefi/main_shrikefi.c:712-745`.

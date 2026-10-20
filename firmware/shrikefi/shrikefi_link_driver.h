@@ -135,12 +135,11 @@ uint8_t shrikefi_read_filtered_ir(void);
 /**
  * @brief Inter-beat interval, in 50 MHz cycles, since the previous beat
  *
- * NOT read from the FPGA. The RTL keeps a 32-bit cycle counter, but there is no
- * room for it in the 8-bit SPI reply and it is never transmitted. The driver
- * timestamps each rising beat flag with esp_timer_get_time() and differences
- * consecutive timestamps, converting to 50 MHz-equivalent cycles. The value is
- * numerically right (the 50 MHz factor cancels downstream) but its resolution is
- * the SPI poll cadence - about 10 ms at ~100 Hz - not the FPGA's 20 ns tick.
+ * On a beat the driver reads the RTL's five-byte burst (0xC3 followed by the
+ * 32-bit 50 MHz cycle count, MSB first). If the bitstream has no burst, it
+ * falls back to esp_timer_get_time() deltas converted to 50 MHz-equivalent
+ * cycles. The fallback's resolution is the SPI poll cadence - about 10 ms at
+ * ~100 Hz - not the FPGA's 20 ns tick.
  */
 uint32_t shrikefi_read_ibi_cycles(void);
 

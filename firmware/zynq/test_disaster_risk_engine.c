@@ -847,6 +847,197 @@ static void test_nn_input_guards(void) {
            checked);
 }
 
+/* The kernels themselves, not just the wrappers, must reject non-finite
+ * features. Before `valid` existed, NaN passed normalization (every comparison
+ * is false) and the float model produced a plausible-looking score; the INT8
+ * requantizer turned the same NaN activation into 0 and produced a bias-only
+ * score. Both are fabricated measurements. */
+static void test_nn_kernels_reject_nonfinite(void) {
+    nn_output_t out;
+    env_sensors_t env = { .ambient_temp_c = 25.0f, .humidity_pct = 50.0f,
+                           .pm25 = 20.0f, .skin_temp_c = 0.0f };
+
+    memset(&out, 0xA5, sizeof(out));
+    nn_predict(nn_get_default_model(), NAN, 40.0f, 98.0f, 25.0f, 50.0f, 20.0f, &out);
+    assert(!out.valid);
+    assert(out.heat_score == 0.0f && out.pollution_score == 0.0f && out.flood_score == 0.0f);
+
+    memset(&out, 0xA5, sizeof(out));
+    nn_predict(nn_get_default_model(), 75.0f, 40.0f, 98.0f, 25.0f, 50.0f,
+               INFINITY, &out);
+    assert(!out.valid);
+    assert(out.heat_score == 0.0f && out.pollution_score == 0.0f && out.flood_score == 0.0f);
+
+    memset(&out, 0xA5, sizeof(out));
+    nn_predict_int8(&nn_default_model_int8, &nn_quant_params, 75.0f, 40.0f, 98.0f,
+                    25.0f, NAN, 20.0f, &out);
+    assert(!out.valid);
+    assert(out.heat_score == 0.0f && out.pollution_score == 0.0f && out.flood_score == 0.0f);
+
+    memset(&out, 0xA5, sizeof(out));
+    nn_predict_int8(&nn_default_model_int8, &nn_quant_params, 75.0f, INFINITY, 98.0f,
+                    25.0f, 50.0f, 20.0f, &out);
+    assert(!out.valid);
+    assert(out.heat_score == 0.0f && out.pollution_score == 0.0f && out.flood_score == 0.0f);
+
+    /* The wrappers must propagate that refusal, including the RMSSD that used
+     * to pass the `> 0.0f` guard when it was +Inf. */
+    hrv_state_t hrv;
+    init_hrv_ready(&hrv, 75.0f);
+    hrv.rmssd = INFINITY;
+    risk_assessment_t r;
+#if NN_ENABLE_FLOAT32_MODEL
+    disaster_assess_nn(&hrv, 98.0f, 75.0f, &env, &r);
+    assert(r.overall_risk == RISK_UNKNOWN);
+    assert(strstr(r.overall_advisory, "non-finite") != NULL);
+#endif
+    nn_output_t raw;
+    disaster_assess_nn_int8(&hrv, 98.0f, 75.0f, &env, &r, &raw);
+    assert(r.overall_risk == RISK_UNKNOWN);
+    assert(strstr(r.overall_advisory, "non-finite") != NULL);
+    assert(!raw.valid);
+
+    printf("test_nn_kernels_reject_nonfinite: PASS\n");
+}
+
+/* Physiological NaNs must not erase an environmental hazard. The old
+ * comparisons treated NaN bpm/SpO2/RMSSD as normal and, in the pollution path,
+ * a NaN PM2.5 fell through to "Good"; +Inf bpm invented every upper-band
+ * penalty. The environment here is genuinely hazardous, so the assessment must
+ * still report it while treating the absent physiology as unavailable. */
+static void test_disaster_nonfinite_preserves_environment(void) {
+    hrv_state_t hrv;
+    init_hrv_ready(&hrv, 75.0f);
+    hrv.rmssd = NAN;
+
+    env_sensors_t env = { .ambient_temp_c = 48.0f, .humidity_pct = 80.0f,
+                           .pm25 = 300.0f, .skin_temp_c = 0.0f };
+    risk_assessment_t r;
+
+    disaster_assess(&hrv, NAN, INFINITY, &env, &r);
+    assert(r.heat_risk >= RISK_MODERATE);
+    assert(r.pollution_risk >= RISK_HIGH);
+    assert(r.flood_risk != RISK_UNKNOWN);
+    assert(r.overall_risk >= RISK_HIGH);
+
+    /* A non-finite PM2.5 is "not assessed", not clean air. */
+    env.pm25 = NAN;
+    disaster_assess(&hrv, 98.0f, 75.0f, &env, &r);
+    assert(r.pollution_risk == RISK_UNKNOWN);
+    assert(disaster_epa_pm25_aqi(NAN) == -1);
+
+    /* A non-finite ambient temperature is "not assessed", not normal. */
+    env.pm25 = 20.0f;
+    env.ambient_temp_c = NAN;
+    disaster_assess(&hrv, 98.0f, 75.0f, &env, &r);
+    assert(r.heat_risk == RISK_UNKNOWN);
+
+    /* The human-readable card must not print NaN or fall through to an NWS
+     * "Extreme Danger" category when either environmental reading is absent. */
+    char text[192];
+    disaster_environment_condition_text(&env, text, sizeof(text));
+    assert(strstr(text, "nan") == NULL);
+    assert(strstr(text, "not assessed") != NULL);
+
+    env.pm25 = NAN;
+    env.ambient_temp_c = 28.0f;
+    env.humidity_pct = 60.0f;
+    disaster_environment_condition_text(&env, text, sizeof(text));
+    assert(strstr(text, "nan") == NULL);
+    assert(strstr(text, "not assessed") != NULL);
+
+    printf("test_disaster_nonfinite_preserves_environment: PASS\n");
+}
+
+/* The estimator must use the NEWEST 64 beats for every path. The old code
+ * averaged all 96 entries but detrended only the first 64, so the mean and the
+ * series described different windows. The first 32 beats here are deliberately
+ * a different rate and amplitude: only the newest 64 contain the 15 br/min
+ * modulation. */
+static void test_rr_uses_newest_window(void) {
+    float ibi[96];
+    float amp[96];
+    const float mean_ibi = 800.0f;
+
+    for (size_t i = 0; i < 32; i++) {
+        ibi[i] = 500.0f;
+        amp[i] = 100000.0f;
+    }
+    for (size_t i = 32; i < 96; i++) {
+        float phase = 2.0f * 3.14159265f * ((float)(i - 32) / 5.0f); /* 4 s = 15 br/min */
+        ibi[i] = mean_ibi + 40.0f * sinf(phase);
+        amp[i] = 50000.0f + 3000.0f * sinf(phase);
+    }
+
+    ppg_respiratory_result_t rr;
+    memset(&rr, 0, sizeof(rr));
+    ppg_estimate_respiratory_rate(ibi, amp, 96, &rr);
+
+    assert(rr.diag_beats == 64);
+    assert(fabsf(rr.diag_mean_ibi_ms - mean_ibi) < 5.0f);
+    assert(rr.is_reliable);
+    assert(fabsf(rr.respiratory_rate_bpm - 15.0f) < 1.0f);
+    assert(fabsf(rr.diag_am_bpm - 15.0f) < 1.0f);
+    assert(rr.diag_am_conf > 0.20f);
+
+    /* A non-finite amplitude only disables the optional AM path; the IBI/FM
+     * measurement is still valid. */
+    amp[80] = NAN;
+    memset(&rr, 0, sizeof(rr));
+    ppg_estimate_respiratory_rate(ibi, amp, 96, &rr);
+    assert(rr.is_reliable);
+    assert(isfinite(rr.respiratory_rate_bpm));
+    assert(rr.diag_am_conf == 0.0f);
+
+    /* A non-finite IBI invalidates the window rather than being averaged in. */
+    ibi[90] = INFINITY;
+    memset(&rr, 0, sizeof(rr));
+    ppg_estimate_respiratory_rate(ibi, NULL, 96, &rr);
+    assert(!rr.is_reliable);
+    assert(rr.diag_beats == 0);
+    assert(rr.respiratory_rate_bpm == PPG_RR_DEFAULT_BPM);
+
+    printf("test_rr_uses_newest_window: PASS\n");
+}
+
+/* SQI must not certify a pulse when the IMU motion value is non-finite. */
+static void test_sqi_rejects_nonfinite_motion(void) {
+    uint32_t raw[32];
+    float ibi[8] = {800.0f, 810.0f, 795.0f, 805.0f, 800.0f, 790.0f, 810.0f, 800.0f};
+    for (size_t i = 0; i < 32; i++) {
+        raw[i] = 100000u + (uint32_t)(i * 100u);
+    }
+
+    ppg_sqi_result_t sqi;
+    memset(&sqi, 0xA5, sizeof(sqi));
+    ppg_calculate_sqi_with_motion(raw, 32, ibi, 8, NAN, &sqi);
+    assert(sqi.is_motion_artifact);
+    assert(sqi.overall_sqi < PPG_SQI_THRESHOLD_VALID);
+    assert(sqi.motion_energy == 0.0f);
+
+    memset(&sqi, 0xA5, sizeof(sqi));
+    ppg_calculate_sqi_with_motion(raw, 32, ibi, 8, INFINITY, &sqi);
+    assert(sqi.is_motion_artifact);
+    assert(sqi.overall_sqi < PPG_SQI_THRESHOLD_VALID);
+
+    printf("test_sqi_rejects_nonfinite_motion: PASS\n");
+}
+
+/* An absent respiratory rate is 0.0f, not the NEWS2 population default 14. */
+static void test_clinical_rr_absent_value(void) {
+    clinical_assessment_t out;
+    clinical_vitals_assess_ext(75.0f, 98.0f, 40.0f, 0.0f, 0.95f, 36.5f, &out);
+    assert(out.rr == 0.0f);
+
+    clinical_vitals_assess_ext(75.0f, 98.0f, 40.0f, NAN, 0.95f, 36.5f, &out);
+    assert(out.rr == 0.0f);
+
+    clinical_vitals_assess_ext(75.0f, 98.0f, 40.0f, 16.0f, 0.95f, 36.5f, &out);
+    assert(out.rr == 16.0f);
+
+    printf("test_clinical_rr_absent_value: PASS\n");
+}
+
 static void test_spo2_clinical_rejection() {
     spo2_state_t spo2;
     spo2_init(&spo2);
@@ -1398,7 +1589,10 @@ static void test_web_status_json(void) {
     assert(strstr(buf, "\"rr\":0.0")         != NULL);
     assert(strstr(buf, "\"sqi\":0.87")       != NULL);
     assert(strstr(buf, "\"rmssd\":38.3")     != NULL);
-    assert(strstr(buf, "\"skin_temp\"") == NULL); /* no skin-temperature sensor */
+    /* No settled skin temperature yet (the TMP117 is absent or still warming
+     * up): the key is present and null, so the page shows "--" instead of
+     * inventing a reading or dropping the field silently. */
+    assert(strstr(buf, "\"skintemp\":null")  != NULL);
     assert(strstr(buf, "\"risk\":\"NORMAL\"")!= NULL);
     assert(strstr(buf, "\"sos\":\"IDLE\"")   != NULL);
     assert(strstr(buf, "\"loc\":\"UNSET\"")  != NULL);
@@ -1450,7 +1644,22 @@ static void test_web_status_json(void) {
     assert(strstr(buf, "\"trigger\":\"none\"") != NULL);
     assert(strstr(buf, "\"loc\":\"UNSET\"")    != NULL);
     assert(strstr(buf, "\"fall\":\"MONITORING\"") != NULL);
-    assert(strstr(buf, "\"skin_temp\"") == NULL);
+    assert(strstr(buf, "\"skintemp\":null") != NULL);
+
+    /* A settled TMP117 reading is published as a number. This is the value the
+     * status page shows in its Skin temp tile, so it has to survive the JSON
+     * encoder unchanged. */
+    s.skin_valid = true; s.skin_temp = 33.4f;
+    n = web_status_json(&s, buf, sizeof(buf));
+    assert(n > 0);
+    assert(strstr(buf, "\"skintemp\":33.4") != NULL);
+    assert(strstr(buf, "\"skintemp\":null") == NULL);
+    /* An out-of-range value is treated as no reading, never as a measurement. */
+    s.skin_temp = 61.0f;
+    n = web_status_json(&s, buf, sizeof(buf));
+    assert(n > 0);
+    assert(strstr(buf, "\"skintemp\":null") != NULL);
+    s.skin_valid = false; s.skin_temp = 0.0f;
 
     /* A buffer that cannot hold the document must report failure. A truncated
      * line would be invalid JSON and the page would silently stop updating. */
@@ -2270,9 +2479,14 @@ int main() {
     test_flood_ambient_proxy();
     test_int8_matches_float_nn();
     test_nn_input_guards();
+    test_nn_kernels_reject_nonfinite();
+    test_disaster_nonfinite_preserves_environment();
     test_spo2_clinical_rejection();
+    test_clinical_rr_absent_value();
     test_rr_estimate_rejects_clamped_value();
+    test_rr_uses_newest_window();
     test_sqi_requires_beat_intervals();
+    test_sqi_rejects_nonfinite_motion();
     test_sos_state_machine();
     test_web_status_json();
     test_web_status_history_skips_unavailable_fields();

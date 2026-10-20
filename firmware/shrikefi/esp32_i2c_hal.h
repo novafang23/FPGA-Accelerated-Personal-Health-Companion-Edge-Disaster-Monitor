@@ -9,6 +9,7 @@
 
 #include <stdint.h>
 #include <stdbool.h>
+#include <stddef.h>
 
 #ifdef __cplusplus
 extern "C" {
@@ -80,6 +81,34 @@ int esp32_i2c_hal_probe(uint8_t dev_addr);
 void esp32_i2c_hal_scan(void);
 
 /**
+ * @brief Scan all addresses at a divided clock speed and report the ones that ACK.
+ *        divider 1 = the configured bus speed, 4 = roughly a quarter of it. A
+ *        device that only appears at the slower speed is a signal-integrity
+ *        problem (weak pull-up, long wire, split breadboard row), not an
+ *        addressing problem.
+ * @param found Output array of addresses that acknowledged
+ * @param max_found Capacity of the output array
+ * @param divider Clock divider to apply for the scan (restored afterwards)
+ * @return Number of addresses found
+ */
+int esp32_i2c_hal_scan_div(uint8_t *found, size_t max_found, uint8_t divider);
+
+/**
+ * @brief Read a register with the ACK check disabled and report the raw bytes.
+ *        An absent device leaves the bus pulled high, so the result is 0xFF per
+ *        byte; a device that is present but whose ACK is being missed still
+ *        returns its data. This separates "not on the bus" from "not
+ *        acknowledging".
+ * @param dev_addr Device address
+ * @param reg_addr Register to point at
+ * @param buf Destination buffer, filled with the bytes seen on the bus
+ * @param len Number of bytes to read
+ * @return 0 on success, negative error code on failure
+ */
+int esp32_i2c_hal_read_raw_noack(uint8_t dev_addr, uint8_t reg_addr,
+                                  uint8_t *buf, uint16_t len);
+
+/**
  * @brief Issue 9 recovery clock pulses and a STOP condition to free a stuck I2C bus
  * @return 0 on success, negative error code on failure
  */
@@ -104,6 +133,11 @@ uint32_t esp32_i2c_hal_sim_get_max30102_mode_writes(void);
 uint32_t esp32_i2c_hal_sim_get_raw_writes(void);
 uint32_t esp32_i2c_hal_sim_get_raw_bytes(void);
 void esp32_i2c_hal_sim_reset_counters(void);
+void esp32_i2c_hal_sim_set_tmp117_present(bool present);
+void esp32_i2c_hal_sim_set_tmp117_device_id(uint16_t id);
+void esp32_i2c_hal_sim_set_tmp117_raw_temp(int16_t raw_temp);
+void esp32_i2c_hal_sim_set_tmp117_temp_c(float temp_c);
+uint16_t esp32_i2c_hal_sim_get_tmp117_config(void);
 #endif
 
 #ifdef __cplusplus

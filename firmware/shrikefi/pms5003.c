@@ -40,6 +40,13 @@ static int pms5003_parse_frame(pms5003_t *dev) {
         return -1;
     }
 
+    /* Plantower PMS5003 frame payload length is strictly 28 bytes (0x001C) */
+    uint16_t frame_len = extract_u16(buf, 2);
+    if (frame_len != 28) {
+        ESP_LOGW(TAG, "Unexpected frame length: %u (expected 28)", (unsigned)frame_len);
+        return -1;
+    }
+
     uint16_t checksum = 0;
     for (int i = 0; i < 30; i++) {
         checksum += buf[i];

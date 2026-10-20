@@ -332,11 +332,17 @@ module tb_ppg_system;
         $display("");
         $display("[TEST %0d] Write-1-to-Clear beat_flag verification...", test_num);
         axi_read(5'h0C, read_data);
-        if (read_data[0] == 1'b0) begin
-            $display("  PASS: beat_flag is cleared after W1C");
+        /* A status write is a read-modify-write in driver_ppg.c: bit 0 is W1C
+         * and bits [15:8] carry the current threshold. If the W1C path ever
+         * clobbers the threshold, the very act of clearing a beat changes the
+         * detector's arm level. Check both fields, not just the flag. */
+        if (read_data[0] == 1'b0 && read_data[15:8] == 8'd120) begin
+            $display("  PASS: beat_flag cleared and threshold preserved (%0d)",
+                     read_data[15:8]);
             tests_passed = tests_passed + 1;
         end else begin
-            $display("  FAIL: beat_flag still set after W1C");
+            $display("  FAIL: beat_flag/threshold after W1C: flag=%0d threshold=%0d (expected 0/120)",
+                     read_data[0], read_data[15:8]);
             tests_failed = tests_failed + 1;
         end
 

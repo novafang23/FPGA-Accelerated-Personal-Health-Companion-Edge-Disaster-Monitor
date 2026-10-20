@@ -22,6 +22,11 @@ static int s_sda_pin = 1;
 static int s_scl_pin = 2;
 static uint32_t s_clk_speed_hz = 400000;
 static SemaphoreHandle_t s_i2c_mutex = NULL;
+/* The SCL high/low periods of the configured bus speed, captured once so the
+ * diagnostic scan can divide the clock without guessing at the peripheral's
+ * clock source. */
+static int s_i2c_high_period = 0;
+static int s_i2c_low_period = 0;
 
 static inline void i2c_lock(void) {
     if (s_i2c_mutex) xSemaphoreTakeRecursive(s_i2c_mutex, portMAX_DELAY);
@@ -118,6 +123,9 @@ int esp32_i2c_hal_init(int sda_pin, int scl_pin, uint32_t clk_speed_hz) {
     err = i2c_driver_install(s_i2c_num, conf.mode, 0, 0, 0);
     if (err == ESP_OK) {
         s_i2c_handle.initialized = 1;
+        /* Remember the current SCL periods so a diagnostic scan can divide the
+         * clock speed without hard-coding the peripheral's clock source. */
+        (void)i2c_get_period(s_i2c_num, &s_i2c_high_period, &s_i2c_low_period);
 #ifdef ESP_PLATFORM
         /* Electrical diagnostic: driver init can succeed while the external
          * bus is open or held low. Report idle line levels before interpreting
@@ -196,6 +204,8 @@ void esp32_i2c_hal_scan(void) {
             const char *desc = "Unknown";
             if (addr == 0x3C || addr == 0x3D) desc = "SSD1306 OLED";
             else if (addr == 0x57) desc = "MAX30100/MAX30102 PPG";
+            else if (addr >= 0x48 && addr <= 0x4B) desc = "Auxiliary I2C Device";
+            else if (addr == 0x68 || addr == 0x69) desc = "MPU6050 IMU";
             else if (addr == 0x76 || addr == 0x77) desc = "BME280 Env";
             else if (addr == 0x08) desc = "ForgeFPGA";
             ESP_LOGI("I2C_SCAN", " -> Found device at 0x%02X (%s)", addr, desc);
@@ -207,6 +217,86 @@ void esp32_i2c_hal_scan(void) {
     } else {
         ESP_LOGI("I2C_SCAN", "Scan complete: %d device(s) found.", count);
     }
+}
+
+int esp32_i2c_hal_scan_div(uint8_t *found, size_t max_found, uint8_t divider) {
+    if (!found || max_found == 0) return 0;
+    if (divider == 0) divider = 1;
+
+    int count = 0;
+    bool changed = false;
+    if (divider > 1 && s_clk_speed_hz > 0) {
+        i2c_lock();
+        uint32_t slow_hz = s_clk_speed_hz / (uint32_t)divider;
+        if (slow_hz < 10000u) slow_hz = 10000u;
+        i2c_config_t conf = {
+            .mode = I2C_MODE_MASTER,
+            .sda_io_num = s_sda_pin,
+            .sda_pullup_en = GPIO_PULLUP_ENABLE,
+            .scl_io_num = s_scl_pin,
+            .scl_pullup_en = GPIO_PULLUP_ENABLE,
+            .master.clk_speed = slow_hz,
+        };
+        if (i2c_param_config(s_i2c_num, &conf) == ESP_OK) {
+            changed = true;
+        }
+        i2c_unlock();
+    }
+
+    for (uint8_t addr = 1; addr < 127; addr++) {
+        if (esp32_i2c_hal_probe(addr) == I2C_HAL_SUCCESS) {
+            if ((size_t)count < max_found) {
+                found[count++] = addr;
+            }
+        }
+    }
+
+    if (changed) {
+        i2c_lock();
+        i2c_config_t conf = {
+            .mode = I2C_MODE_MASTER,
+            .sda_io_num = s_sda_pin,
+            .sda_pullup_en = GPIO_PULLUP_ENABLE,
+            .scl_io_num = s_scl_pin,
+            .scl_pullup_en = GPIO_PULLUP_ENABLE,
+            .master.clk_speed = s_clk_speed_hz,
+        };
+        (void)i2c_param_config(s_i2c_num, &conf);
+        i2c_unlock();
+    }
+    return count;
+}
+
+int esp32_i2c_hal_read_raw_noack(uint8_t dev_addr, uint8_t reg_addr,
+                                  uint8_t *buf, uint16_t len) {
+    if (!buf || len == 0) return I2C_HAL_ERROR;
+    memset(buf, 0xFF, len);
+
+    i2c_lock();
+    i2c_cmd_handle_t cmd = i2c_cmd_link_create();
+    if (!cmd) {
+        i2c_unlock();
+        return I2C_HAL_ERROR;
+    }
+    /* Point at the register, then read it back. The ACK check is disabled on
+     * every byte: an absent device simply leaves the bus pulled high, and the
+     * bytes seen on the wire are then reported as they are. */
+    /* Use a Repeated-START (no intermediate STOP inside the same command link,
+     * which halts the ESP32-S3 I2C FSM at the first STOP and times out). */
+    i2c_master_start(cmd);
+    i2c_master_write_byte(cmd, (dev_addr << 1) | I2C_MASTER_WRITE, false);
+    i2c_master_write_byte(cmd, reg_addr, false);
+    i2c_master_start(cmd);
+    i2c_master_write_byte(cmd, (dev_addr << 1) | I2C_MASTER_READ, false);
+    for (uint16_t i = 0; i < len; i++) {
+        i2c_master_read_byte(cmd, &buf[i],
+                             (i == (uint16_t)(len - 1)) ? I2C_MASTER_NACK : I2C_MASTER_ACK);
+    }
+    i2c_master_stop(cmd);
+    esp_err_t err = i2c_master_cmd_begin(s_i2c_num, cmd, 100 / portTICK_PERIOD_MS);
+    i2c_cmd_link_delete(cmd);
+    i2c_unlock();
+    return (err == ESP_OK) ? I2C_HAL_SUCCESS : I2C_HAL_ERROR;
 }
 
 void esp32_i2c_hal_lock(void) { i2c_lock(); }
@@ -232,6 +322,10 @@ static uint8_t  s_sim_mode = 0x03; /* default MAX30102_MODE_SPO2 */
 static uint32_t s_sim_mode_writes = 0;
 static uint32_t s_sim_raw_writes = 0;
 static uint32_t s_sim_raw_bytes = 0;
+static bool     s_sim_tmp117_present = true;
+static uint16_t s_sim_tmp117_device_id = 0x0117;
+static int16_t  s_sim_tmp117_raw_temp = 0x1090; /* 33.125 C */
+static uint16_t s_sim_tmp117_config = 0x0220;
 
 void esp32_i2c_hal_sim_set_max30102_temp(int8_t tint, uint8_t tfrac) {
     s_sim_temp_int = tint;
@@ -270,6 +364,26 @@ void esp32_i2c_hal_sim_reset_counters(void) {
     s_sim_mode_writes = 0;
 }
 
+void esp32_i2c_hal_sim_set_tmp117_present(bool present) {
+    s_sim_tmp117_present = present;
+}
+
+void esp32_i2c_hal_sim_set_tmp117_device_id(uint16_t id) {
+    s_sim_tmp117_device_id = id;
+}
+
+void esp32_i2c_hal_sim_set_tmp117_raw_temp(int16_t raw_temp) {
+    s_sim_tmp117_raw_temp = raw_temp;
+}
+
+void esp32_i2c_hal_sim_set_tmp117_temp_c(float temp_c) {
+    s_sim_tmp117_raw_temp = (int16_t)(temp_c / 0.0078125f);
+}
+
+uint16_t esp32_i2c_hal_sim_get_tmp117_config(void) {
+    return s_sim_tmp117_config;
+}
+
 int esp32_i2c_hal_init(int sda_pin, int scl_pin, uint32_t clk_speed_hz) {
     (void)sda_pin; (void)scl_pin; (void)clk_speed_hz;
     return I2C_HAL_SUCCESS;
@@ -297,11 +411,33 @@ int esp32_i2c_hal_read(uint8_t dev_addr, uint8_t reg_addr, uint8_t *data, uint16
             data[i] = val;
         }
     }
+    if (dev_addr == 0x48) { /* TMP117 */
+        if (!s_sim_tmp117_present) return I2C_HAL_ERROR;
+        if (reg_addr == 0x00 && len >= 2) {
+            data[0] = (uint8_t)((uint16_t)s_sim_tmp117_raw_temp >> 8);
+            data[1] = (uint8_t)((uint16_t)s_sim_tmp117_raw_temp & 0xFFu);
+            return I2C_HAL_SUCCESS;
+        }
+        if (reg_addr == 0x01 && len >= 2) {
+            data[0] = (uint8_t)(s_sim_tmp117_config >> 8);
+            data[1] = (uint8_t)(s_sim_tmp117_config & 0xFFu);
+            return I2C_HAL_SUCCESS;
+        }
+        if (reg_addr == 0x0F && len >= 2) {
+            data[0] = (uint8_t)(s_sim_tmp117_device_id >> 8);
+            data[1] = (uint8_t)(s_sim_tmp117_device_id & 0xFFu);
+            return I2C_HAL_SUCCESS;
+        }
+    }
     return I2C_HAL_SUCCESS;
 }
 
 int esp32_i2c_hal_write(uint8_t dev_addr, uint8_t reg_addr, const uint8_t *data, uint16_t len) {
     if (dev_addr == 0x57) {
+        if (reg_addr == 0x21 && len > 0) {
+            /* Die temp conversion trigger: ready */
+            return I2C_HAL_SUCCESS;
+        }
         if (reg_addr == 0x09 && len > 0) {
             s_sim_mode_writes++;
             if (data[0] & 0x40) {
@@ -316,6 +452,13 @@ int esp32_i2c_hal_write(uint8_t dev_addr, uint8_t reg_addr, const uint8_t *data,
         } else if (reg_addr == 0x06 && len > 0) {
             s_sim_fifo_rd = data[0];
         }
+    }
+    if (dev_addr == 0x48) { /* TMP117 */
+        if (!s_sim_tmp117_present) return I2C_HAL_ERROR;
+        if (reg_addr == 0x01 && len >= 2) {
+            s_sim_tmp117_config = (uint16_t)(((uint16_t)data[0] << 8) | data[1]);
+        }
+        return I2C_HAL_SUCCESS;
     }
     return I2C_HAL_SUCCESS;
 }
@@ -373,12 +516,36 @@ int esp32_i2c_hal_read_byte(uint8_t dev_addr, uint8_t reg_addr, uint8_t *val) {
 }
 
 int esp32_i2c_hal_probe(uint8_t dev_addr) {
-    (void)dev_addr;
+    if (dev_addr == 0x48) {
+        return s_sim_tmp117_present ? I2C_HAL_SUCCESS : I2C_HAL_ERROR;
+    }
+    if (dev_addr == 0x49) {
+        return I2C_HAL_ERROR;
+    }
     return I2C_HAL_SUCCESS;
 }
 
 void esp32_i2c_hal_scan(void) {
     // stub
+}
+
+int esp32_i2c_hal_scan_div(uint8_t *found, size_t max_found, uint8_t divider) {
+    (void)divider;
+    if (!found || max_found == 0) return 0;
+    /* The simulator has one I2C device, the TMP117 at 0x48. */
+    found[0] = 0x48;
+    return 1;
+}
+
+int esp32_i2c_hal_read_raw_noack(uint8_t dev_addr, uint8_t reg_addr,
+                                  uint8_t *buf, uint16_t len) {
+    if (!buf || len == 0) return I2C_HAL_ERROR;
+    memset(buf, 0xFF, len);
+    if (dev_addr == 0x48 && reg_addr == 0x0F) {
+        buf[0] = (uint8_t)(s_sim_tmp117_device_id >> 8);
+        buf[1] = (uint8_t)(s_sim_tmp117_device_id & 0xFFu);
+    }
+    return I2C_HAL_SUCCESS;
 }
 
 void esp32_i2c_hal_lock(void) {}

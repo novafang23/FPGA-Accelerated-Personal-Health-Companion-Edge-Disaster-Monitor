@@ -7,6 +7,7 @@
 #define NN_RISK_MODEL_H
 
 #include <stdint.h>
+#include <stdbool.h>
 
 #ifdef __cplusplus
 extern "C" {
@@ -52,6 +53,10 @@ typedef struct {
     float heat_score;        /* [0.0, 1.0] -- heat/thermal risk     */
     float pollution_score;   /* [0.0, 1.0] -- air pollution risk    */
     float flood_score;       /* [0.0, 1.0] -- flood/hypothermia     */
+    /* False when the kernel refused the input (non-finite feature, invalid
+     * model pointer, or a non-finite intermediate). In that case every score
+     * is zero and callers MUST report UNKNOWN rather than "all clear". */
+    bool valid;
 } nn_output_t;
 
 /* Get the default pre-trained float32 model. */

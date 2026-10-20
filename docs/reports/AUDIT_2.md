@@ -312,7 +312,7 @@ Host build command:
 ### C2. Resolved `sdkconfig` Parameters
 Extracted directly from generated `build_shrikefi/config/sdkconfig.h`: [`STATIC`, `HOST-TESTED`]
 - `CONFIG_ESP_DEFAULT_CPU_FREQ_MHZ`: **`160`**
-- `CONFIG_FREERTOS_HZ`: **`100`**
+- `CONFIG_FREERTOS_HZ`: **`200`** (was `100` when this audit snapshot was captured; raised so the 40 Hz / 25 ms loop is an exact 5-tick period)
 - `CONFIG_ESP_WIFI_TASK_PINNED_TO_CORE_0`: **`y`** (Pinned to Core 0)
 - `lwIP TCPIP task core affinity`: **`CONFIG_LWIP_TCPIP_TASK_AFFINITY_NO_AFFINITY=y`** (`0x7FFFFFFF`)
 - `CONFIG_SHRIKEFI_SOFTAP`: **`y`**

@@ -83,20 +83,20 @@ Here is the crux, and it is the strongest technical argument in the entire proje
 
 Heart Rate Variability (HRV) — explained properly in section 5 — is the study of **tiny variations between consecutive heartbeats**. A healthy variation might be 30–50 milliseconds. A dying autonomic nervous system shows variations of 5 milliseconds or less.
 
-Now: the ESP32-S3 runs **FreeRTOS**, and `sdkconfig` sets `CONFIG_FREERTOS_HZ=100`. That is a **10 millisecond scheduling tick**. If you detect a heartbeat in software, the timestamp you record is quantised to that tick — plus whatever jitter the scheduler, Wi-Fi stack, and flash cache introduce. Your measurement error can be **larger than the signal you are trying to measure.**
+Now: the ESP32-S3 runs **FreeRTOS**, and `sdkconfig` sets `CONFIG_FREERTOS_HZ=200`. That is a **5 millisecond scheduling tick**. If you detect a heartbeat in software, the timestamp you record is quantised to that tick — plus whatever jitter the scheduler, Wi-Fi stack, and flash cache introduce. Your measurement error can be **larger than the signal you are trying to measure.**
 
 That is not a performance problem you can optimise away. It is a *category* problem.
 
 | | Software peak detection (ESP32-S3 alone) | Hardware peak detection (FPGA) |
 |---|---|---|
-| What the timestamp is quantised to | ~10 ms (RTOS tick) + jitter | **1 µs** MCU hardware timer, gated by a hardware-set beat flag |
+| What the timestamp is quantised to | ~5 ms (RTOS tick) + jitter | **1 µs** MCU hardware timer, gated by a hardware-set beat flag |
 | Peak-finding resolution | One task period, if the beat is seen at all | **20 ns** (one 50 MHz clock edge) |
 | Jitter under Wi-Fi load | Milliseconds, non-deterministic | **None in detection** — synchronous logic, no scheduler in the loop |
 | Cost per beat | CPU cycles, interrupts, power | Free — it's wires |
 | HRV usable? | Only for very large variations | **Yes, down to single milliseconds** |
 
 > [!IMPORTANT]
-> **Say this out loud:** "Our HRV is only valid because the *beat detection* happens in hardware. In software, detection would be quantised to the 10 ms scheduler tick. Wi-Fi shares Core 1, and the FPGA exposes a beat flag for the MCU to read. The MCU then reads the flag and its own 1 µs hardware timer."
+> **Say this out loud:** "Our HRV is only valid because the *beat detection* happens in hardware. In software, detection would be quantised to the 5 ms scheduler tick. Wi-Fi shares Core 0, and the FPGA exposes a beat flag for the MCU to read. The MCU then reads the flag and its own 1 µs hardware timer."
 
 ### Why can't the FPGA do it alone?
 
@@ -523,7 +523,7 @@ RMSSD  =   ╱   ─── ×  Σ   (IBIₖ₊₁ − IBIₖ)
 
 - Differences: +2, −3, +2, −1 → squares 4, 9, 4, 1 → mean 4.5 → **RMSSD = 2.1 ms**
 
-That collapse from 29 ms to 2 ms is what our engine watches for, and it is only measurable because each beat is *located* in hardware rather than by a scheduled task, and the interval between beats is timed by a 1 µs hardware timer instead of a 10 ms OS tick.
+That collapse from 29 ms to 2 ms is what our engine watches for, and it is only measurable because each beat is *located* in hardware rather than by a scheduled task, and the interval between beats is timed by a 1 µs hardware timer instead of a 5 ms OS tick.
 
 | RMSSD | Interpretation |
 |---|---|
@@ -796,8 +796,8 @@ A standalone Win32 GDI application — no Python, no browser, no dependencies. I
 **Q1. "Why did you use an FPGA when the ESP32-S3 has two 160 MHz cores?"**
 
 - **Elevator:** "Because the measurement we need is smaller than the timing error a software timestamp would introduce."
-- **Technical:** "HRV needs beat-to-beat intervals accurate to a few milliseconds. If the ESP32 timestamped beats inside a FreeRTOS task, the reading would be quantised to the 10 ms scheduler tick. Wi-Fi shares core 0, and the FPGA latches every beat and its 32-bit 20 ns interval in hardware, so the MCU does not time the beat in software. The MCU reads that count from the post-beat SPI burst."
-- **Evidence:** "`CONFIG_FREERTOS_HZ=100` in our sdkconfig; the RTL detects the peak at 50 MHz, returns the beat as **bit 7 of the MISO byte**, and queues a five-byte burst with the 32-bit cycle count. `shrikefi_link_driver.c` uses that FPGA count and falls back to `esp_timer_get_time()` only for older bitstreams. The 6/6 and 13/13 testbenches verify the peak detector, the beat flag, and the burst."
+- **Technical:** "HRV needs beat-to-beat intervals accurate to a few milliseconds. If the ESP32 timestamped beats inside a FreeRTOS task, the reading would be quantised to the 5 ms scheduler tick. Wi-Fi shares core 0, and the FPGA latches every beat and its 32-bit 20 ns interval in hardware, so the MCU does not time the beat in software. The MCU reads that count from the post-beat SPI burst."
+- **Evidence:** "`CONFIG_FREERTOS_HZ=200` in our sdkconfig; the RTL detects the peak at 50 MHz, returns the beat as **bit 7 of the MISO byte**, and queues a five-byte burst with the 32-bit cycle count. `shrikefi_link_driver.c` uses that FPGA count and falls back to `esp_timer_get_time()` only for older bitstreams. The 6/6 and 13/13 testbenches verify the peak detector, the beat flag, and the burst."
 
 ---
 

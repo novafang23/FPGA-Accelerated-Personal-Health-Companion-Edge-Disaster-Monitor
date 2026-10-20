@@ -34,6 +34,13 @@ static uint8_t clamp_uint8(float x) {
     return (uint8_t)roundf(x);
 }
 
+static void clear_output(nn_output_t *out) {
+    out->heat_score = 0.0f;
+    out->pollution_score = 0.0f;
+    out->flood_score = 0.0f;
+    out->valid = false;
+}
+
 void nn_predict_int8(
     const nn_model_int8_t *model,
     const nn_quant_params_t *qparams,
@@ -41,7 +48,17 @@ void nn_predict_int8(
     float temp, float hum, float pm25,
     nn_output_t *out
 ) {
-    if (!model || !qparams || !out) return;
+    if (!out) return;
+    clear_output(out);
+    if (!model || !qparams) return;
+
+    /* Same contract as the float32 kernel: a non-finite feature is not a
+     * number the network can score. clamp_uint8() would otherwise turn a NaN
+     * activation into 0 and leave a plausible bias-only output. */
+    if (!isfinite(hr) || !isfinite(rmssd) || !isfinite(spo2) ||
+        !isfinite(temp) || !isfinite(hum) || !isfinite(pm25)) {
+        return;
+    }
 
     int i, j;
     float input[NN_INPUT_SIZE];
@@ -71,6 +88,10 @@ void nn_predict_int8(
             sum += qparams->W1_scale * (float)((int32_t)model->W1[i][j] - (int32_t)qparams->W1_zp) * input[j];
         }
         /* Apply ReLU */
+        if (!isfinite(sum)) {
+            clear_output(out);
+            return;
+        }
         if (sum < 0.0f) sum = 0.0f;
         h1[i] = sum;
     }
@@ -79,6 +100,10 @@ void nn_predict_int8(
     uint8_t h1_q[NN_HIDDEN1_SIZE];
     for (i = 0; i < NN_HIDDEN1_SIZE; i++) {
         float val = h1[i] / qparams->act1_scale + (float)qparams->act1_zp;
+        if (!isfinite(val)) {
+            clear_output(out);
+            return;
+        }
         h1_q[i] = clamp_uint8(val);
     }
 
@@ -90,6 +115,10 @@ void nn_predict_int8(
             sum += qparams->W2_scale * (float)((int32_t)model->W2[i][j] - (int32_t)qparams->W2_zp) * h1_val;
         }
         /* Apply ReLU */
+        if (!isfinite(sum)) {
+            clear_output(out);
+            return;
+        }
         if (sum < 0.0f) sum = 0.0f;
         h2[i] = sum;
     }
@@ -98,6 +127,10 @@ void nn_predict_int8(
     uint8_t h2_q[NN_HIDDEN2_SIZE];
     for (i = 0; i < NN_HIDDEN2_SIZE; i++) {
         float val = h2[i] / qparams->act2_scale + (float)qparams->act2_zp;
+        if (!isfinite(val)) {
+            clear_output(out);
+            return;
+        }
         h2_q[i] = clamp_uint8(val);
     }
 
@@ -108,6 +141,10 @@ void nn_predict_int8(
             float h2_val = ((float)h2_q[j] - (float)qparams->act2_zp) * qparams->act2_scale;
             sum += qparams->W3_scale * (float)((int32_t)model->W3[i][j] - (int32_t)qparams->W3_zp) * h2_val;
         }
+        if (!isfinite(sum)) {
+            clear_output(out);
+            return;
+        }
         out_logit[i] = sum;
     }
 
@@ -116,6 +153,10 @@ void nn_predict_int8(
     for (i = 0; i < NN_OUTPUT_SIZE; i++) {
         float sigmoid_out = 1.0f / (1.0f + expf(-out_logit[i]));
         float q_val = sigmoid_out / qparams->act3_scale + (float)qparams->act3_zp;
+        if (!isfinite(q_val)) {
+            clear_output(out);
+            return;
+        }
         uint8_t out_q = clamp_uint8(q_val);
         out_logit[i] = ((float)out_q - (float)qparams->act3_zp) * qparams->act3_scale;
     }
@@ -123,4 +164,5 @@ void nn_predict_int8(
     out->heat_score      = out_logit[0];
     out->pollution_score = out_logit[1];
     out->flood_score     = out_logit[2];
+    out->valid           = true;
 }

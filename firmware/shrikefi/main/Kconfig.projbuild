@@ -100,11 +100,11 @@ menu "ShrikeFi configuration"
             Never commit this value to the repository.
 
     config SHRIKEFI_SOS_CANCEL_GPIO
-        int "GPIO pin for SOS hardware cancel (Default -1 to disable, BOOT is 0)"
-        default -1
+        int "GPIO pin for SOS hardware button (Default 5 for dedicated SOS button, 0 for BOOT, -1 to disable)"
+        default 5
         help
-            Physical button to cancel an active SOS emergency without needing a
-            phone connection. If set to 0, uses the ESP32-S3 BOOT button.
-            Debounce is 30ms, hold time is 5s.
+            Physical button to trigger or cancel an SOS emergency without needing a
+            phone connection. Connected active-low between GPIO and GND with internal pull-up.
+            Short press (>= 150 ms) triggers manual emergency; 5s hold cancels active alarm.
 
 endmenu

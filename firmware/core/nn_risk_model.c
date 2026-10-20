@@ -41,6 +41,13 @@ const nn_model_t* nn_get_default_model(void) {
     return &default_model;
 }
 
+static void clear_output(nn_output_t *out) {
+    out->heat_score = 0.0f;
+    out->pollution_score = 0.0f;
+    out->flood_score = 0.0f;
+    out->valid = false;
+}
+
 void nn_predict(
     const nn_model_t *model,
     float hr, float rmssd, float spo2,
@@ -52,6 +59,20 @@ void nn_predict(
     float h1[NN_HIDDEN1_SIZE];
     float h2[NN_HIDDEN2_SIZE];
     float output[NN_OUTPUT_SIZE];
+
+    if (!out) return;
+    clear_output(out);
+    if (!model) return;
+
+    /* Reject non-finite features before normalization. normalize() compares
+     * against the range, and every comparison with NaN is false, so a NaN
+     * feature used to pass through as-is and turn the whole forward pass into
+     * a finite-looking bias-only result. A missing or corrupt reading must
+     * produce valid=false, not a score. */
+    if (!isfinite(hr) || !isfinite(rmssd) || !isfinite(spo2) ||
+        !isfinite(temp) || !isfinite(hum) || !isfinite(pm25)) {
+        return;
+    }
 
     /* Feature Normalization */
     input[0] = normalize(hr,    NN_HR_MIN,    NN_HR_MAX);
@@ -67,6 +88,10 @@ void nn_predict(
         for (j = 0; j < NN_INPUT_SIZE; j++) {
             sum += model->W1[i][j] * input[j];
         }
+        if (!isfinite(sum)) {
+            clear_output(out);
+            return;
+        }
         h1[i] = relu(sum);
     }
 
@@ -75,6 +100,10 @@ void nn_predict(
         float sum = model->b2[i];
         for (j = 0; j < NN_HIDDEN1_SIZE; j++) {
             sum += model->W2[i][j] * h1[j];
+        }
+        if (!isfinite(sum)) {
+            clear_output(out);
+            return;
         }
         h2[i] = relu(sum);
     }
@@ -85,6 +114,10 @@ void nn_predict(
         for (j = 0; j < NN_HIDDEN2_SIZE; j++) {
             sum += model->W3[i][j] * h2[j];
         }
+        if (!isfinite(sum)) {
+            clear_output(out);
+            return;
+        }
         output[i] = sigmoid(sum);
     }
 
@@ -92,4 +125,5 @@ void nn_predict(
     out->heat_score      = output[0];
     out->pollution_score = output[1];
     out->flood_score     = output[2];
+    out->valid           = true;
 }

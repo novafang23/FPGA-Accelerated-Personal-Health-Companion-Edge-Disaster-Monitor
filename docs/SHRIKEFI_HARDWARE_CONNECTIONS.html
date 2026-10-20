@@ -115,19 +115,18 @@ All ESP32-S3 and Renesas ForgeFPGA I/O pins are strictly <strong>3.3V LVCMOS</st
 </ol>
 </li>
 <li>
-<p><strong>MAX30205 (Clinical Human Body Temperature Sensor — Optional / Modular):</strong></p>
+<p><strong>TI TMP117 (Clinical Skin Temperature Sensor — Optional / Modular):</strong></p>
 </li>
-<li><code>VCC</code> $\to$ <strong>3.3V</strong> (<strong>Strict 3.3V LVCMOS</strong>; never connect to 5V!)</li>
+<li><code>VIN / VCC</code> $\to$ <strong>3.3V</strong> (<strong>Strict 3.3V LVCMOS</strong>; never connect to 5V!)</li>
 <li><code>GND</code> $\to$ <strong>GND</strong></li>
 <li><code>SDA</code> $\to$ <strong>GPIO 1</strong></li>
 <li><code>SCL</code> $\to$ <strong>GPIO 2</strong></li>
-<li><code>A0, A1, A2</code> $\to$ <strong>GND</strong> (selects clinical target address <code>0x48</code>)</li>
-<li><code>OS</code> $\to$ <em>Leave unconnected (overtemperature shutdown output)</em></li>
-<li><em>I2C Address:</em> <code>0x48</code></li>
-<li><em>Two-Tier Clinical Architecture:</em><ul>
-<li><strong>Tier 2 (Physical MAX30205 connected):</strong> The firmware auto-probes <code>0x48</code> at startup. If detected, it reads high-precision ($\pm 0.1^\circ\text{C}$) skin temperature directly.</li>
-<li><strong>Tier 1 (MAX30205 not present):</strong> The firmware automatically falls back to the <strong>MAX30102 on-chip die temperature sensor</strong> (<code>0x57</code>) when finger contact is active, applying a calibrated $-1.2^\circ\text{C}$ LED dissipation offset and 1st-order IIR smoothing to estimate finger pulp temperature.</li>
-<li><strong>Tier 0 (No finger contact):</strong> Falls back to the BME280 ambient cold-stress proxy (<code>env.skin_temp_c = 0.0f</code>).</li>
+<li><code>ADD0 / ADDR</code> $\to$ <strong>GND</strong> for <code>0x48</code> (leave open on a breakout that already pulls it low)</li>
+<li><code>ALERT</code> $\to$ <em>Leave unconnected (open-drain alert output)</em></li>
+<li><em>I2C Address:</em> <code>0x48</code> (<code>0x49</code>/<code>0x4A</code>/<code>0x4B</code> for the other ADD0 states; the driver probes all four)</li>
+<li><em>Clinical temperature architecture:</em><ul>
+<li><strong>TMP117 only:</strong> the skin temperature comes from this probe and from nothing else. The MAX30102 on-chip <strong>die</strong> temperature is deliberately <strong>not</strong> read &mdash; it is dominated by LED self-heating and is not a body temperature, so the read was deleted from <code>max30102.c</code>.</li>
+<li><strong>No settled reading:</strong> the value stays <code>0.0f</code> (unavailable). There is no fallback to the die sensor and no ambient proxy masquerading as skin temperature.</li>
 <li><em>NEWS2 Integration:</em> Feeds the Royal College of Physicians NEWS2 physiological scoring engine ($\le 35.0^\circ\text{C} \implies +3$ points <code>ALERT_HYPOTHERMIA</code>, $\ge 39.1^\circ\text{C} \implies +2$ points high fever).</li>
 </ul>
 </li>

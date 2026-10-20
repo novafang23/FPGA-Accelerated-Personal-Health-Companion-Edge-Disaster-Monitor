@@ -38,6 +38,7 @@ idf_component_register(
         "${SHRIKEFI_DIR}/esp32_i2c_hal.c"
         "${SHRIKEFI_DIR}/max30102.c"
         "${SHRIKEFI_DIR}/bme280.c"
+        "${CORE_DIR}/skin_estimate.c"
         "${SHRIKEFI_DIR}/pms5003.c"
         "${SHRIKEFI_DIR}/ssd1306.c"
         "${CORE_DIR}/hrv_analysis.c"
