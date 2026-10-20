@@ -621,6 +621,7 @@ static void test_nn_input_guards(void) {
         const char *reason;
     } bad[] = {
         {"bpm NaN",        NAN,   98.0f,  25.0f,  50.0f,  20.0f, "non-finite"},
+        {"bpm +inf",       INFINITY, 98.0f, 25.0f, 50.0f,  20.0f, "non-finite"},
         {"spo2 NaN",       75.0f,  NAN,   25.0f,  50.0f,  20.0f, "non-finite"},
         {"temp NaN",       75.0f,  98.0f,  NAN,    50.0f,  20.0f, "non-finite"},
         {"hum NaN",        75.0f,  98.0f,  25.0f,  NAN,    20.0f, "non-finite"},
@@ -687,6 +688,7 @@ static void test_nn_input_guards(void) {
     } good[] = {
         {"bpm 30 (lower bound)",  30.0f,  98.0f,  25.0f,  50.0f,  20.0f, 0},
         {"bpm 220 (upper bound)", 220.0f, 98.0f,  25.0f,  50.0f,  20.0f, 0},
+        {"temp -20 C (lower bound)", 75.0f, 98.0f, -20.0f, 50.0f, 20.0f, 0},
         {"temp 0 C",               75.0f,  98.0f,   0.0f,  50.0f,  20.0f, 0},
         {"temp -5 C",              75.0f,  98.0f,  -5.0f,  50.0f,  20.0f, 0},
         {"temp 65 C",              75.0f,  98.0f,  65.0f,  50.0f,  20.0f, 0},
