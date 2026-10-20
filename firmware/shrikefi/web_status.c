@@ -45,6 +45,7 @@ static float    s_accum_hr = 0.0f;
 static float    s_accum_spo2 = 0.0f;
 static float    s_accum_rmssd = 0.0f;
 static float    s_accum_pm25 = 0.0f;
+static uint16_t s_accum_pm25_n = 0;   /* how many real PM2.5 readings this hour */
 static unsigned s_accum_news2 = 0;
 static bool     s_history_initialized = false;
 
@@ -196,14 +197,29 @@ size_t web_status_json(const valor_status_t *s, char *buf, size_t cap) {
         if (!json_append_format(buf, cap, &used, "\"hum\":%.1f,", (double)s->hum)) return 0;
     }
 
+    /* PM2.5: a negative value means "no reading". It is serialised as null so
+     * the page shows "--" and "not assessed" instead of a clean atmosphere. */
+    if (s->pm25 < 0.0f) {
+        if (!json_append(buf, cap, &used, "\"pm25\":null,", 12)) return 0;
+    } else {
+        if (!json_append_format(buf, cap, &used, "\"pm25\":%.1f,", (double)s->pm25)) return 0;
+    }
+    if (s->pm25_raw < 0.0f) {
+        if (!json_append(buf, cap, &used, "\"pm25raw\":null,", 15)) return 0;
+    } else {
+        if (!json_append_format(buf, cap, &used, "\"pm25raw\":%.1f,", (double)s->pm25_raw)) return 0;
+    }
+    if (!json_append(buf, cap, &used, "\"pm25conf\":", sizeof("\"pm25conf\":") - 1) ||
+        !json_append_string(buf, cap, &used, s->pm25_conf ? s->pm25_conf : "NODATA")) {
+        return 0;
+    }
+
     if (!json_append_format(
         buf, cap, &used,
-        "\"pm25\":%.1f,"
         "\"pressure\":%.1f,\"ptrend\":%.2f,"
         "\"pdrop\":%.1f,\"pspan\":%lu,\"pvalid\":%s,"
         "\"news2\":%u,\"level\":%u,\"flags\":%u,"
         "\"risk\":",
-        (double)s->pm25,
         (double)s->pressure_hpa, (double)s->pressure_trend_hpa_per_hr,
         (double)s->pdrop_hpa, (unsigned long)s->pspan_s,
         s->pvalid ? "true" : "false",
@@ -219,7 +235,7 @@ size_t web_status_json(const valor_status_t *s, char *buf, size_t cap) {
         !json_append_string(buf, cap, &used, s->loc ? s->loc : "UNSET") ||
         !json_append(buf, cap, &used, ",\"env\":", sizeof(",\"env\":") - 1) ||
         !json_append_string(buf, cap, &used, s->env ? s->env : "") ||
-        !json_append_format(buf, cap, &used, ",\"aqi\":%u,\"aqicat\":", s->aqi) ||
+        !json_append_format(buf, cap, &used, ",\"aqi\":%d,\"aqicat\":", s->aqi) ||
         !json_append_string(buf, cap, &used, s->aqi_cat ? s->aqi_cat : "") ||
         !json_append_format(buf, cap, &used, ",\"heatc\":%.1f,\"heatcat\":", (double)s->heat_c) ||
         !json_append_string(buf, cap, &used, s->heat_cat ? s->heat_cat : "") ||
@@ -385,6 +401,7 @@ void web_status_history_init(void) {
     s_accum_spo2 = 0.0f;
     s_accum_rmssd = 0.0f;
     s_accum_pm25 = 0.0f;
+    s_accum_pm25_n = 0;
     s_accum_news2 = 0;
     WS_UNLOCK();
 }
@@ -412,21 +429,27 @@ static void history_feed_locked(const valor_status_t *s) {
             s_history[i].hour_offset = (uint32_t)i;
         }
         s_history[0].hour_offset = 0;
-        if (s_accum_count > 0 || s_accum_pm25 > 0.0f) {
+        /* "valid" means the hour contains patient contact. An hour with only
+           environmental samples (no finger on the sensor) is not a patient
+           hour; its PM2.5 peak is still kept in the accumulator, and a missing
+           PM2.5 reading is reported as -1, never as a measured 0. */
+        if (s_accum_count > 0) {
             s_history[0].avg_hr = (s_accum_count > 0)
                                   ? s_accum_hr / (float)s_accum_count : 0.0f;
             s_history[0].avg_spo2 = (s_accum_spo2_n > 0)
                                     ? s_accum_spo2 / (float)s_accum_spo2_n : 0.0f;
             s_history[0].avg_rmssd = (s_accum_rmssd_n > 0)
                                      ? s_accum_rmssd / (float)s_accum_rmssd_n : 0.0f;
-            s_history[0].peak_pm25 = s_accum_pm25;
+            /* -1 means "no PM2.5 reading in this hour", which is not the same
+               claim as a peak of 0 (a measured clean atmosphere). */
+            s_history[0].peak_pm25 = (s_accum_pm25_n > 0) ? s_accum_pm25 : -1.0f;
             s_history[0].max_news2 = s_accum_news2;
             s_history[0].valid = true;
         } else {
             s_history[0].avg_hr = 0.0f;
             s_history[0].avg_spo2 = 0.0f;
             s_history[0].avg_rmssd = 0.0f;
-            s_history[0].peak_pm25 = 0.0f;
+            s_history[0].peak_pm25 = -1.0f;
             s_history[0].max_news2 = 0;
             s_history[0].valid = false;
         }
@@ -442,6 +465,7 @@ static void history_feed_locked(const valor_status_t *s) {
         s_accum_spo2 = 0.0f;
         s_accum_rmssd = 0.0f;
         s_accum_pm25 = 0.0f;
+        s_accum_pm25_n = 0;
         s_accum_news2 = 0;
 
         /* Prevent infinite loop on massive jumps (e.g. sleep/wake) */
@@ -471,30 +495,39 @@ static void history_feed_locked(const valor_status_t *s) {
             s_accum_news2 = s->news2;
         }
     }
-    if (s->pm25 > s_accum_pm25) {
-        s_accum_pm25 = s->pm25;
+    /* Only a real reading counts. A negative pm25 means the sensor produced no
+       value, which is not a PM2.5 of zero. */
+    if (s->pm25 >= 0.0f) {
+        if (s->pm25 > s_accum_pm25) {
+            s_accum_pm25 = s->pm25;
+        }
+        s_accum_pm25_n++;
     }
 
-    /* Update slot 0 live with running averages for the current hour */
+    /* Update slot 0 live with running averages for the current hour.
+       "valid" means the hour contains patient contact - an environmental-only
+       hour (no finger on the sensor) is not a patient hour, so it is not
+       published as one. The PM2.5 peak of such an hour is still kept in the
+       accumulator, and a missing reading is reported as -1, never as 0. */
     s_history[0].hour_offset = 0;
-    if (s_accum_count > 0 || s_accum_pm25 > 0.0f) {
+    if (s_accum_count > 0) {
         s_history[0].avg_hr = (s_accum_count > 0)
                               ? s_accum_hr / (float)s_accum_count : 0.0f;
         s_history[0].avg_spo2 = (s_accum_spo2_n > 0)
                                 ? s_accum_spo2 / (float)s_accum_spo2_n : 0.0f;
         s_history[0].avg_rmssd = (s_accum_rmssd_n > 0)
                                  ? s_accum_rmssd / (float)s_accum_rmssd_n : 0.0f;
-        s_history[0].peak_pm25 = s_accum_pm25;
+        s_history[0].peak_pm25 = (s_accum_pm25_n > 0) ? s_accum_pm25 : -1.0f;
         s_history[0].max_news2 = s_accum_news2;
         s_history[0].valid = true;
     } else {
-        /* No clinical contact and no environmental sample this hour. Clearing
-         * this is important: the old code left the previous hour's valid flag
-         * and values in slot 0, so the chart showed a stale current point. */
+        /* No clinical contact in this hour. Clearing this is important: the old
+           code left the previous hour's valid flag and values in slot 0, so the
+           chart showed a stale current point. */
         s_history[0].avg_hr = 0.0f;
         s_history[0].avg_spo2 = 0.0f;
         s_history[0].avg_rmssd = 0.0f;
-        s_history[0].peak_pm25 = 0.0f;
+        s_history[0].peak_pm25 = -1.0f;
         s_history[0].max_news2 = 0;
         s_history[0].valid = false;
     }
@@ -522,7 +555,20 @@ size_t web_status_history_json(char *buf, size_t cap) {
         if (i > 0) {
             if (!json_append(buf, cap, &used, ",", 1)) { WS_UNLOCK(); return 0; }
         }
-        if (!json_append_format(buf, cap, &used,
+        if (p->peak_pm25 < 0.0f) {
+            /* No PM2.5 reading in this hour: null, not 0. A zero would be a
+               claim of clean air that was never measured. */
+            if (!json_append_format(buf, cap, &used,
+                                    "{\"hour\":%u,\"hr\":%.1f,\"spo2\":%.1f,\"rmssd\":%.1f,"
+                                    "\"pm25\":null,\"news2\":%u,\"valid\":%s}",
+                                    (unsigned)p->hour_offset,
+                                    p->avg_hr, p->avg_spo2, p->avg_rmssd,
+                                    p->max_news2,
+                                    p->valid ? "true" : "false")) {
+                WS_UNLOCK();
+                return 0;
+            }
+        } else if (!json_append_format(buf, cap, &used,
                                 "{\"hour\":%u,\"hr\":%.1f,\"spo2\":%.1f,\"rmssd\":%.1f,"
                                 "\"pm25\":%.1f,\"news2\":%u,\"valid\":%s}",
                                 (unsigned)p->hour_offset,
@@ -555,7 +601,7 @@ size_t web_status_history_json(char *buf, size_t cap) {
 static const char PAGE_HTML[] =
 "<!DOCTYPE html><html lang='en'><head><meta charset='utf-8'>"
 "<meta name='viewport' content='width=device-width,initial-scale=1'>"
-"<meta http-equiv='Content-Security-Policy' content=\"default-src 'none'; script-src 'sha256-2uU/83cXyZm/fR5I19lxos2zxsaJv/Qq7/dXeNK+Am0='; style-src 'unsafe-inline'; connect-src 'self'; form-action 'self'; base-uri 'none'; object-src 'none'\">"
+"<meta http-equiv='Content-Security-Policy' content=\"default-src 'none'; script-src 'sha256-mg+g9dXuU8/LyK64h964FuCUsOl2O35cxeFLmNjHbkI='; style-src 'unsafe-inline'; connect-src 'self'; form-action 'self'; base-uri 'none'; object-src 'none'\">"
 "<title>VALOR - local status</title><style>"
 ":root{--bg:#070B14;--card:#0E1626;--line:#1C2740;--text:#E6EDF7;--dim:#8A9AB5;"
 "--cyan:#00E5FF;--emerald:#00FFAA;--amber:#FFB020;--crimson:#FF3B5C}"
@@ -681,10 +727,21 @@ static const char PAGE_HTML[] =
 "var sc={NORMAL:'#4ADE80',MODERATE:'#FBBF24',HIGH:'#FB923C',CRITICAL:'#F87171',UNKNOWN:'#94A3B8'};"
 "document.getElementById('storm').style.color=sc[storm]||'';"
 "t('pmv',num(s.pm25,1));"
-"if(typeof s.aqi==='number'&&s.aqicat){setBadge('aqibadge',s.aqicat+' | AQI '+s.aqi,aqiCol[s.aqicat]||'#94A3B8');"
+/* PM2.5: a null value means the sensor produced no reading. That is shown as
+   not-assessed - never as a clean atmosphere. The raw PMS5003 value and the
+   confidence code of the published estimate are shown next to it, so the
+   reader can see both the measurement and the correction.
+   NOTE: keep this comment free of double-quote characters - the dashboard
+   verification script extracts the embedded page with a simple string-literal
+   scan, and a quoted word here would be picked up as page content. */
+"var pmKnown=typeof s.pm25==='number'&&isFinite(s.pm25);"
+"var pmConf={OK:'',SETTLING:'reading still settling',HUMID:'humidity-corrected, RH >= 80%',DUST:'dust aerosol, correction suppressed',RANGE:'above sensor range',NODATA:'no reading'};"
+"var pmNote=pmKnown?(((typeof s.pm25raw==='number')?('raw '+s.pm25raw.toFixed(1)):'')+((s.pm25conf&&s.pm25conf!=='OK')?(' - '+pmConf[s.pm25conf]):'')):('no PM2.5 reading - this is not a clean-air report');"
+"if(pmKnown&&typeof s.aqi==='number'&&s.aqi>=0&&s.aqicat){setBadge('aqibadge',s.aqicat+' | AQI '+s.aqi,aqiCol[s.aqicat]||'#94A3B8');"
 "t('aqinote',aqiNote[s.aqicat]||'');"
-"t('whonote','WHO 2021 24-h 15 ug/m3'+((typeof s.pm25==='number'&&s.pm25>15)?' - '+((s.pm25/15).toFixed(1))+'x guideline':' - within guideline'))}"
-"else{setBadge('aqibadge',D,'');t('aqinote',D);t('whonote',D)}"
+"t('whonote','WHO 2021 24-h 15 ug/m3'+((s.pm25>15)?' - '+((s.pm25/15).toFixed(1))+'x guideline':' - within guideline')+(pmNote?' - '+pmNote:''))}"
+"else if(pmKnown){setBadge('aqibadge',D,'');t('aqinote','Air quality not assessed.');t('whonote',pmNote)}"
+"else{setBadge('aqibadge','Not assessed','#94A3B8');t('aqinote','PM2.5 sensor unavailable - air quality not assessed.');t('whonote',pmNote)}"
 "if(typeof s.heatc==='number'&&s.heatcat){t('heatv',s.heatc.toFixed(1));setBadge('heatbadge',s.heatcat,heatCol[s.heatcat]||'#94A3B8');t('heatnote',heatNote[s.heatcat]||'')}"
 "else{t('heatv',D);setBadge('heatbadge',D,'');t('heatnote',D)}"
 /* The trend is the number that carries the signal; the absolute pressure is
@@ -820,7 +877,7 @@ static esp_err_t h_root(httpd_req_t *req) {
      * re-fetch every second on a network with one client. */
     httpd_resp_set_hdr(req, "Cache-Control", "no-store");
     httpd_resp_set_hdr(req, "Content-Security-Policy",
-        "default-src 'none'; script-src 'sha256-2uU/83cXyZm/fR5I19lxos2zxsaJv/Qq7/dXeNK+Am0='; style-src 'unsafe-inline'; connect-src 'self'; form-action 'self'; base-uri 'none'; object-src 'none'; frame-ancestors 'none'");
+        "default-src 'none'; script-src 'sha256-mg+g9dXuU8/LyK64h964FuCUsOl2O35cxeFLmNjHbkI='; style-src 'unsafe-inline'; connect-src 'self'; form-action 'self'; base-uri 'none'; object-src 'none'; frame-ancestors 'none'");
     httpd_resp_set_hdr(req, "X-Content-Type-Options", "nosniff");
     httpd_resp_set_hdr(req, "X-Frame-Options", "DENY");
     httpd_resp_set_hdr(req, "Referrer-Policy", "same-origin");

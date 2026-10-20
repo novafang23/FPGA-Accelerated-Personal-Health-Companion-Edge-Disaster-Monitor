@@ -42,12 +42,19 @@ typedef struct {
     float    temp;
     float    hum;
     float    pm25;
+    /* Raw PMS5003 reading behind the published PM2.5 estimate, and the
+     * confidence code of that estimate ("OK", "SETTLING", "HUMID", "DUST",
+     * "RANGE", "NODATA"). pm25 < 0 means "no reading" - the page must not
+     * render that as a clean atmosphere. */
+    float    pm25_raw;
+    const char *pm25_conf;
     /* Literature-based environmental condition sentence (EPA AQI / WHO 2021 /
      * NWS heat index). Pointer to static storage owned by the publisher. */
     const char *env;
     /* Structured form of the same verdict, so the page can render tiles and
-     * colour-coded badges without re-deriving the EPA/NWS categories. */
-    unsigned    aqi;
+     * colour-coded badges without re-deriving the EPA/NWS categories.
+     * aqi < 0 means "not assessed" (no PM2.5 reading). */
+    int         aqi;
     const char *aqi_cat;
     float       heat_c;
     const char *heat_cat;

@@ -113,7 +113,7 @@ jobs:
             -Ifirmware/core -Ifirmware/zynq -Ifirmware/shrikefi \
             firmware/zynq/test_disaster_risk_engine.c \
             firmware/core/nn_risk_model.c firmware/core/nn_risk_model_int8.c \
-            firmware/core/hrv_analysis.c firmware/core/pm25_calibration_int8.c \
+            firmware/core/hrv_analysis.c firmware/core/pm25_correction.c \
             firmware/core/clinical_vitals_engine.c firmware/core/spo2_engine.c \
             firmware/core/ppg_sqi.c firmware/core/disaster_risk_engine.c \
             firmware/core/pressure_trend.c firmware/core/ppg_respiratory_rate.c \
@@ -134,7 +134,7 @@ jobs:
             firmware/shrikefi/pms5003.c firmware/shrikefi/gnss_nmea.c firmware/shrikefi/gps_l89hs.c \
             firmware/shrikefi/mpu6050.c firmware/shrikefi/fall_detect.c firmware/shrikefi/ssd1306.c \
             firmware/core/hrv_analysis.c firmware/core/spo2_engine.c firmware/core/disaster_risk_engine.c \
-            firmware/core/nn_risk_model.c firmware/core/nn_risk_model_int8.c firmware/core/pm25_calibration_int8.c \
+            firmware/core/nn_risk_model.c firmware/core/nn_risk_model_int8.c firmware/core/pm25_correction.c \
             firmware/core/clinical_vitals_engine.c firmware/core/ppg_sqi.c firmware/core/ppg_respiratory_rate.c \
             firmware/core/ppg_baseline_rr.c \
             firmware/core/pressure_trend.c firmware/shrikefi/location.c firmware/shrikefi/sos.c firmware/shrikefi/web_status.c \

@@ -52,7 +52,7 @@ idf_component_register(
         # dead payload. NN_ENABLE_FLOAT32_MODEL=0 compiles out the matching
         # float32 entry point in disaster_risk_engine.c.
         "${CORE_DIR}/nn_risk_model_int8.c"
-        "${CORE_DIR}/pm25_calibration_int8.c"
+        "${CORE_DIR}/pm25_correction.c"
         "${CORE_DIR}/clinical_vitals_engine.c"
         # Both of these were written and unit-exercised in the host harness but
         # were never added here, so on the device NEWS2 ran with its respiratory

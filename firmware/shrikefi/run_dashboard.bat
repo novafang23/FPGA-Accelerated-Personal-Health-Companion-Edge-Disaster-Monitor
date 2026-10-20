@@ -5,7 +5,7 @@ cd /d "%~dp0"
 echo ================================================================
 echo   Compiling VALOR (Vital and Atmospheric Logic for Offline Rescue) / ShrikeFi GUI Dashboard with GCC...
 echo ================================================================
-gcc -O2 -s -I. -I../../firmware/core -o shrikefi_dashboard.exe shrikefi_dashboard.c ../../firmware/core/clinical_vitals_engine.c ../../firmware/core/disaster_risk_engine.c ../../firmware/core/nn_risk_model.c ../../firmware/core/nn_risk_model_int8.c ../../firmware/core/pm25_calibration_int8.c ../../firmware/core/ppg_sqi.c ../../firmware/core/ppg_respiratory_rate.c ../../firmware/core/hrv_analysis.c ../../firmware/core/spo2_engine.c -mwindows -lgdi32 -luser32 -lkernel32 -lcomctl32 -lm
+gcc -O2 -s -I. -I../../firmware/core -o shrikefi_dashboard.exe shrikefi_dashboard.c ../../firmware/core/clinical_vitals_engine.c ../../firmware/core/disaster_risk_engine.c ../../firmware/core/nn_risk_model.c ../../firmware/core/nn_risk_model_int8.c ../../firmware/core/pm25_correction.c ../../firmware/core/ppg_sqi.c ../../firmware/core/ppg_respiratory_rate.c ../../firmware/core/hrv_analysis.c ../../firmware/core/spo2_engine.c -mwindows -lgdi32 -luser32 -lkernel32 -lcomctl32 -lm
 
 if %errorlevel% neq 0 (
     echo [ERROR] Compilation failed!

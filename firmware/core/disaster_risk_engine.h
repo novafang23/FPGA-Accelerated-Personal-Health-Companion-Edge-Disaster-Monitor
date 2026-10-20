@@ -170,7 +170,15 @@ typedef enum {
 typedef struct {
     float ambient_temp_c;   /* Ambient temperature (degrees Celsius)          */
     float humidity_pct;     /* Relative humidity (0-100%)                     */
-    float pm25;             /* PM2.5 concentration (micrograms per m^3)       */
+    /* PM2.5 concentration (micrograms per m^3), corrected for the documented
+     * PMS5003 bias (see firmware/core/pm25_correction.c).
+     * A NEGATIVE value means "no PM2.5 reading available" (the sensor is
+     * absent, unreadable, or has produced no fresh sample inside the
+     * rolling window). It is deliberately not 0: zero is a real reading
+     * ("no particles detected") and must not be used to say "the air is
+     * clean" when nothing was measured. A missing reading is reported as
+     * RISK_UNKNOWN ("not assessed"), never as RISK_NORMAL. */
+    float pm25;
     float skin_temp_c;      /* Skin temperature (degrees C), 0 if unavailable */
 } env_sensors_t;
 

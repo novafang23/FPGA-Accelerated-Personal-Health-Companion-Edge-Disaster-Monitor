@@ -35,7 +35,7 @@
 #include "disaster_risk_engine.h"
 #include "nn_risk_model.h"
 #include "nn_risk_model_int8.h"
-#include "pm25_calibration_int8.h"
+#include "pm25_correction.h"
 #include "ppg_sqi.h"
 #include "ppg_respiratory_rate.h"
 #include "hrv_analysis.h"
@@ -181,6 +181,7 @@ typedef struct {
     float humidity_pct;
     float pm25_raw;
     float pm25_calibrated;
+    char  pm25_conf[12];    /* confidence code of the published estimate */
     float moran_psi;
     float aha_autonomic_strain;
     
@@ -245,6 +246,45 @@ static HFONT g_font_value_small = NULL; /* Value sub-labels - 11pt bold */
 /* -------------------------------------------------------------------------- */
 /* High-Speed Robust Line-Buffered Serial Reader Thread                       */
 /* -------------------------------------------------------------------------- */
+
+/* The device publishes the raw PMS5003 value (PMRAW) and the confidence code
+ * of the published PM2.5 estimate (PMCONF) as trailing fields of the
+ * telemetry frame. They are parsed by searching for the key instead of by
+ * extending the sscanf format, so a frame that carries other trailing fields
+ * - now or later - still parses. Returns 1 if either field was found. */
+static int parse_pm_extras(const char *line, float *raw, char *conf, size_t conf_cap) {
+    const char *p;
+    int found = 0;
+
+    if (raw) *raw = -1.0f;
+    if (conf && conf_cap > 0) conf[0] = '\0';
+
+    p = strstr(line, "PMRAW=");
+    if (p && raw && sscanf(p, "PMRAW=%f", raw) == 1) found = 1;
+    p = strstr(line, "PMCONF=");
+    if (p && conf && conf_cap > 0 && sscanf(p, "PMCONF=%11s", conf) == 1) found = 1;
+    return found;
+}
+
+/* Apply the PM2.5 fields of a telemetry frame.
+ *
+ * The device owns the correction: it publishes PM25 (the estimate) and PMRAW
+ * (the uncorrected PMS5003 value behind it) plus PMCONF (the confidence code).
+ * This process does not re-derive the number - it renders the device's. A
+ * negative PM25 means "no reading" and stays negative here, so the cards show
+ * "not assessed" instead of a clean atmosphere. */
+static void apply_pm_telemetry(const char *line, float published) {
+    float raw_pm = -1.0f;
+    if (parse_pm_extras(line, &raw_pm, g_state.pm25_conf, sizeof(g_state.pm25_conf))) {
+        g_state.pm25_raw       = raw_pm;
+        g_state.pm25_calibrated = (published >= 0.0f) ? published : -1.0f;
+    } else {
+        /* Older firmware: PM25 is the only PM2.5 field on the wire. */
+        g_state.pm25_raw        = published;
+        g_state.pm25_calibrated = published;
+    }
+}
+
 static DWORD WINAPI SerialReaderThread(LPVOID lpParam) {
     (void)lpParam;
     char chunk[256];
@@ -273,7 +313,7 @@ static DWORD WINAPI SerialReaderThread(LPVOID lpParam) {
                             if (r_rmssd > 0.0f) g_state.rmssd = r_rmssd;
                             g_state.temp_c = r_temp;
                             g_state.humidity_pct = r_hum;
-                            g_state.pm25_raw = r_pm;
+                            apply_pm_telemetry(line_buf, r_pm);
                             if (parsed == 8) {
                                 g_state.derived_rr = r_rr;
                                 g_state.sqi = r_sqi;
@@ -288,7 +328,7 @@ static DWORD WINAPI SerialReaderThread(LPVOID lpParam) {
                                         &r_temp, &r_hum, &r_pm) == 3) {
                             g_state.temp_c = r_temp;
                             g_state.humidity_pct = r_hum;
-                            g_state.pm25_raw = r_pm;
+                            apply_pm_telemetry(line_buf, r_pm);
                             g_state.is_finger_present = 0;
                             g_state.last_packet_time_ms = GetTickCount();
                         }
@@ -304,7 +344,7 @@ static DWORD WINAPI SerialReaderThread(LPVOID lpParam) {
                             if (r_rmssd > 0.0f) g_state.rmssd = r_rmssd;
                             g_state.temp_c = r_temp;
                             g_state.humidity_pct = r_hum;
-                            g_state.pm25_raw = r_pm;
+                            apply_pm_telemetry(line_buf, r_pm);
                             g_state.is_finger_present = 1;
                             g_state.sqi = 0.60f;   /* acquiring, not yet locked */
                             g_state.last_packet_time_ms = GetTickCount();
@@ -469,8 +509,21 @@ static void UpdateTelemetryStep(void) {
         curr_hr += jitter * 0.5f;
     }
     
-    /* 1. Neural PM2.5 Humidity Compensation (Slashing optical scattering bias) */
-    g_state.pm25_calibrated = pm25_calibrate_nn_int8(g_state.pm25_raw, g_state.temp_c, g_state.humidity_pct);
+    /* 1. PM2.5. The device publishes the corrected estimate (PM25) and the
+     *    raw PMS5003 value behind it (PMRAW); both arrive on the wire and
+     *    were applied in the serial reader. Re-deriving the number here
+     *    would put a second, divergent implementation of the correction on
+     *    the screen, so the local computation is used only when no device is
+     *    connected (simulation). A negative published value means "no
+     *    reading" and is kept as such: it is not clean air. */
+    if (!g_state.is_serial_connected) {
+        pm25_confidence_t pm_conf;
+        g_state.pm25_calibrated =
+            pm25_correct(g_state.pm25_raw, g_state.humidity_pct, 0.0f, &pm_conf);
+        strncpy(g_state.pm25_conf, pm25_confidence_str(pm_conf),
+                sizeof(g_state.pm25_conf) - 1);
+        g_state.pm25_conf[sizeof(g_state.pm25_conf) - 1] = '\0';
+    }
     
     /* 2. Peer-Reviewed Biomarkers */
     g_state.moran_psi = disaster_calculate_moran_psi(curr_hr, g_state.temp_c, g_state.humidity_pct);
@@ -1102,23 +1155,40 @@ static void RenderDashboard(HDC hdcMem, int width, int height) {
     TEXTOUT(hdcMem, e2_x + 18, r3_y + 98, (g_state.humidity_pct > 80.0f) ? "Hygroscopic Growth Active" : "Comfort Zone: 40-60%");
     
     int e3_x = 600, e3_w = 318;
-    COLORREF pmCol = (g_state.pm25_calibrated > 150.0f) ? COL_RED : (g_state.pm25_calibrated > 60.0f) ? COL_AMBER : COL_GREEN_BRT;
-    DrawDarkCard(hdcMem, e3_x, r3_y, e3_w, r3_h, "PM2.5 AIR QUALITY (NEURAL CALIBRATED)", pmCol);
-    
-    snprintf(szVal, sizeof(szVal), "%.0f ug/m3", g_state.pm25_calibrated);
+    const int pm_aqi = disaster_epa_pm25_aqi(g_state.pm25_calibrated);
+    const char *pm_cat = disaster_epa_pm25_category(pm_aqi);
+    COLORREF pmCol = (pm_aqi < 0)      ? COL_TEXT_MUTED :
+                     (pm_aqi <= 50)    ? COL_GREEN_BRT :
+                     (pm_aqi <= 100)   ? COL_AMBER :
+                     (pm_aqi <= 150)   ? COL_AMBER : COL_RED;
+    DrawDarkCard(hdcMem, e3_x, r3_y, e3_w, r3_h, "PM2.5 AIR QUALITY (EPA-CORRECTED)", pmCol);
+
+    if (g_state.pm25_calibrated < 0.0f) {
+        snprintf(szVal, sizeof(szVal), "-- (not assessed)");
+    } else {
+        snprintf(szVal, sizeof(szVal), "%.0f ug/m3", g_state.pm25_calibrated);
+    }
     SelectObject(hdcMem, g_font_med_val);
     SetTextColor(hdcMem, pmCol);
     TextOutA(hdcMem, e3_x + 18, r3_y + 34, szVal, strlen(szVal));
-    
+
     SelectObject(hdcMem, g_font_small);
     SetTextColor(hdcMem, COL_TEXT_MUTED);
-    char szRawPm[64];
-    snprintf(szRawPm, sizeof(szRawPm), "Raw Laser: %.0f ug/m3 (Bias: -%.0f ug/m3)",
-             g_state.pm25_raw, g_state.pm25_raw - g_state.pm25_calibrated);
+    char szRawPm[80];
+    if (g_state.pm25_calibrated < 0.0f) {
+        snprintf(szRawPm, sizeof(szRawPm), "No PM2.5 reading - not a clean-air report");
+    } else {
+        snprintf(szRawPm, sizeof(szRawPm), "Raw PMS5003: %.0f ug/m3  (%s)",
+                 g_state.pm25_raw, g_state.pm25_conf[0] ? g_state.pm25_conf : "OK");
+    }
     TextOutA(hdcMem, e3_x + 18, r3_y + 76, szRawPm, strlen(szRawPm));
-    
-    const char *szAqi = (g_state.pm25_calibrated > 150.0f) ? "AQI: VERY UNHEALTHY / HAZARDOUS" :
-                        (g_state.pm25_calibrated > 60.0f)  ? "AQI: MODERATE / UNHEALTHY SENSITIVE" : "AQI: GOOD / CLEAN AIR";
+
+    char szAqi[80];
+    if (pm_aqi < 0) {
+        snprintf(szAqi, sizeof(szAqi), "AQI: NOT ASSESSED");
+    } else {
+        snprintf(szAqi, sizeof(szAqi), "AQI %d: %s", pm_aqi, pm_cat);
+    }
     SetTextColor(hdcMem, pmCol);
     TextOutA(hdcMem, e3_x + 18, r3_y + 98, szAqi, strlen(szAqi));
     

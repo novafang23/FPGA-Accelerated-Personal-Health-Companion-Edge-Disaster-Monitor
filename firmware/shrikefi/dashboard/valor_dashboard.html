@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'sha256-am+Zs0lYTPTg7XXDVhDJwXSPKJQVyt4UQtL6WXsoRW8='; style-src 'unsafe-inline'; connect-src 'self'; form-action 'self'; base-uri 'none'; object-src 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'sha256-vgWgyPYXbhiJv6PllM9sZOaEGg4UY9Cb2Ra6pJQgtlg='; style-src 'unsafe-inline'; connect-src 'self'; form-action 'self'; base-uri 'none'; object-src 'none'">
 <title>VALOR â€” Edge Health &amp; Disaster Triage</title>
 <!--
   VALOR dashboard â€” single self-contained file.
@@ -486,7 +486,7 @@
       <div class="faint" id="pm-raw">raw --</div>
       <div class="mono" style="font-size:11px;font-weight:600" id="pm-label">--</div>
     </div>
-    <div style="margin-top:8px" class="dim">PMS5003 &middot; INT8 humidity calibration</div>
+    <div style="margin-top:8px" class="dim">PMS5003 &middot; published humidity correction (EPA / AirGradient)</div>
   </div>
 
   <div class="card card-pad">
@@ -675,7 +675,7 @@ const C = {
    until a device connects or a simulation is explicitly started. */
 const V = {
   hr: 0, spo2: 0, hrv: 0, rr: 0, rrConf: 0, rrDepth: 0, sqi: 0, contact: false,
-  temp: -100, hum: -1, pmRaw: 0, pmCal: 0, loc: '',
+  temp: -100, hum: -1, pmRaw: 0, pmCal: null, pmConf: '', loc: '',
   psi: 0, aha: 0, heat: 0, poll: 0, flood: 0, storm: 0, news2: 0,
   /* Device NEWS2 sub-scores from [TRIAGE] HRPTS/SPO2PTS/RRPTS. null means the
      firmware did not send them (older build) or this is a simulation, in which
@@ -732,11 +732,15 @@ const NEWS2_BANDS = [
 ];
 const news2Band = (s) => NEWS2_BANDS.find((b) => s <= b.max) || NEWS2_BANDS[NEWS2_BANDS.length - 1];
 
+/* US EPA PM2.5 AQI bands, 2024 revision (effective 2024-05-06). These are the
+ * same breakpoints the device uses in disaster_epa_pm25_aqi(), so the number on
+ * this page and the number on the OLED cannot disagree. */
 function aqiBand(pm) {
-  if (pm < 12)    return { label: 'Good',             color: C.emerald };
-  if (pm < 35.4)  return { label: 'Moderate',         color: C.amber };
-  if (pm < 55.4)  return { label: 'Sensitive Groups', color: '#F97316' };
-  if (pm < 150)   return { label: 'Unhealthy',        color: C.crimson };
+  if (pm <= 9.0)   return { label: 'Good',                color: C.emerald };
+  if (pm <= 35.4)  return { label: 'Moderate',            color: C.amber };
+  if (pm <= 55.4)  return { label: 'Sensitive Groups',    color: '#F97316' };
+  if (pm <= 125.4) return { label: 'Unhealthy',           color: C.crimson };
+  if (pm <= 225.4) return { label: 'Very Unhealthy',      color: C.purple };
   return { label: 'Hazardous', color: C.purple };
 }
 
@@ -1124,7 +1128,7 @@ function makeHistory() {
     }
 
     let sumHr = 0, nHr = 0, minSpo2 = 100, nSpo2 = 0;
-    let sumRmssd = 0, nRmssd = 0, peakN2 = 0, peakPm = 0;
+    let sumRmssd = 0, nRmssd = 0, peakN2 = 0, peakPm = 0, nPm = 0;
     validPts.forEach((p) => {
       /* An environmental-only hour has valid=true but no clinical values.
          Do not average its zeros into HR/SpO2/RMSSD. */
@@ -1132,14 +1136,18 @@ function makeHistory() {
       if (p.spo2 > 0) { if (p.spo2 < minSpo2) minSpo2 = p.spo2; nSpo2++; }
       if (p.rmssd > 0) { sumRmssd += p.rmssd; nRmssd++; }
       if (p.news2 > peakN2) peakN2 = p.news2;
-      if (p.pm25 > peakPm) peakPm = p.pm25;
+      /* A null PM2.5 is an hour without a reading, not an hour of clean air. */
+      if (typeof p.pm25 === 'number' && isFinite(p.pm25) && p.pm25 >= 0) {
+        nPm++;
+        if (p.pm25 > peakPm) peakPm = p.pm25;
+      }
     });
 
     const mHr = $('h-mean-hr'); if (mHr) mHr.textContent = nHr ? Math.round(sumHr / nHr) + ' bpm' : '--';
     const mSp = $('h-min-spo2'); if (mSp) mSp.textContent = nSpo2 ? minSpo2.toFixed(1) + ' %' : '--';
     const mRm = $('h-mean-rmssd'); if (mRm) mRm.textContent = nRmssd ? (sumRmssd / nRmssd).toFixed(1) + ' ms' : '--';
     const pN2 = $('h-peak-news2'); if (pN2) pN2.textContent = peakN2 + (peakN2 >= 5 ? ' (HIGH)' : ' pts');
-    const pPm = $('h-peak-pm25'); if (pPm) pPm.textContent = peakPm.toFixed(0) + ' \u00b5g/m\u00b3';
+    const pPm = $('h-peak-pm25'); if (pPm) pPm.textContent = nPm ? peakPm.toFixed(0) + ' \u00b5g/m\u00b3' : '--';
     const cnt = $('h-sample-count'); if (cnt) cnt.textContent = n + '/24';
     const sub = $('hist-sub');
     if (sub) {
@@ -1364,7 +1372,7 @@ function setStatus(kind, text) {
 function clearLiveReadings() {
   Object.assign(V, {
     hr: 0, spo2: 0, hrv: 0, rr: 0, rrConf: 0, rrDepth: 0, sqi: 0, contact: false, pi: 0,
-    temp: -100, hum: -1, pmRaw: 0, pmCal: 0, loc: '',
+    temp: -100, hum: -1, pmRaw: 0, pmCal: null, pmConf: '', loc: '',
     psi: 0, aha: 0, heat: 0, poll: 0, flood: 0, storm: 0, news2: 0,
     n2hrPts: null, n2spo2Pts: null, n2rrPts: null,
     hrvN: null,
@@ -1424,9 +1432,9 @@ function renderIdle() {
   $('v-hum').textContent = D;  $('v-hum').style.color = 'var(--text-faint)';
   $('bar-hum').style.width = '0%';
   $('v-pm').textContent = D;   $('v-pm').style.color = 'var(--text-faint)';
-  $('pm-raw').textContent = 'raw --';
-  $('pm-label').textContent = '';
-  $('pm-label').style.color = '';
+  $('pm-raw').textContent = 'no reading';
+  $('pm-label').textContent = 'Not assessed';
+  $('pm-label').style.color = 'var(--text-faint)';
 
   $('psi-val').innerHTML = D + '<span style="font-size:10px;color:var(--text-faint)">/10</span>';
   $('psi-val').style.color = 'var(--text-faint)';
@@ -1639,7 +1647,9 @@ function render() {
   /* â”€â”€ Environment â”€â”€ */
   const ambientValid = isFinite(V.temp) && V.temp >= 5 && V.temp <= 65;
   const humidityValid = ambientValid && isFinite(V.hum) && V.hum >= 0 && V.hum <= 100;
-  const pmValid = isFinite(V.pmCal) && V.pmCal > 0;
+  /* A published PM2.5 of 0 is a real reading ("no particles detected"); only a
+     null (no reading at all) makes the tile say "not assessed". */
+  const pmValid = V.pmCal !== null && V.pmCal !== undefined && isFinite(V.pmCal);
   const tempColor = !ambientValid ? 'var(--text-faint)' : V.temp > 38 ? C.crimson : V.temp > 35 ? C.amber : '#e2e8f0';
   $('v-temp').textContent = ambientValid ? V.temp.toFixed(1) : '--';
   $('v-temp').style.color = tempColor;
@@ -1658,8 +1668,20 @@ function render() {
   const aqi = pmValid ? aqiBand(V.pmCal) : { label: '--', color: C.faint };
   $('v-pm').textContent = pmValid ? V.pmCal.toFixed(1) : '--';
   $('v-pm').style.color = pmValid ? aqi.color : 'var(--text-faint)';
-  $('pm-raw').textContent = pmValid ? 'raw ' + V.pmRaw.toFixed(1) : 'raw --';
-  $('pm-label').textContent = aqi.label;
+  /* The raw sensor value and the confidence code of the published estimate.
+     A caveat is shown next to the number, not hidden in a tooltip: a reader
+     has to be able to tell "the air is clean" from "we are not sure". */
+  const pmCaveat = {
+    SETTLING: 'window still filling',
+    HUMID: 'humidity-corrected, RH high',
+    DUST: 'dust aerosol, correction suppressed',
+    RANGE: 'above sensor range',
+    NODATA: 'no reading'
+  }[V.pmConf] || '';
+  $('pm-raw').textContent = pmValid
+    ? 'raw ' + V.pmRaw.toFixed(1) + (pmCaveat ? ' · ' + pmCaveat : '')
+    : (V.pmConf === 'NODATA' ? 'no reading' : 'raw --');
+  $('pm-label').textContent = pmValid ? aqi.label : 'Not assessed';
   $('pm-label').style.color = pmValid ? aqi.color : 'var(--text-faint)';
 
   /* Compact always-visible environment strip. The full cards are below the
@@ -1667,7 +1689,7 @@ function render() {
      the finger is absent. */
   const envTa = ambientValid ? V.temp.toFixed(1) + ' °C' : '--';
   const envRh = humidityValid ? V.hum.toFixed(0) + ' %' : '--';
-  const envPm = (isFinite(V.pmCal) && V.pmCal > 0) ? V.pmCal.toFixed(1) + ' µg/m³' : '--';
+  const envPm = pmValid ? V.pmCal.toFixed(1) + ' µg/m³' : '--';
   $('v-env').textContent = 'Ta ' + envTa + ' · RH ' + envRh + ' · PM2.5 ' + envPm;
 
   const psiColor = V.psi > 7 ? C.crimson : V.psi > 4 ? C.amber : C.mid;
@@ -1814,8 +1836,13 @@ function simStep() {
   V.rr   = Math.max(0, b.rr + j(0.5));
   V.temp = b.temp + j(0.12);
   V.hum  = b.hum + j(0.4);
-  V.pmRaw = b.pmRaw + j(0.7);
-  V.pmCal = b.pmCal + j(0.55);
+  /* The mock profile carries the *published* PM2.5. The raw PMS5003 value sits
+     above it by roughly the size of the published correction, so the demo
+     shows the same raw-vs-published relationship the device reports instead of
+     pretending no correction happens. */
+  V.pmCal = Math.max(0, b.pmCal + j(0.55));
+  V.pmRaw = V.pmCal / 0.72 + j(0.7);
+  V.pmConf = '';
   V.psi  = Math.max(0, b.psi + j(0.12));
   V.aha  = clamp(b.aha + j(0.10), 0, 1);
   V.heat = clamp(b.heat + j(1.2), 0, 100);
@@ -1874,6 +1901,25 @@ const num = (s) => { const v = parseFloat(s); return isFinite(v) ? v : 0; };
    missing value is not confused with a real 0-point score. */
 const pts = (s) => { const n = parseInt(s, 10); return Number.isFinite(n) ? n : null; };
 
+/* PM2.5 from the device.
+ *
+ * PM25 is the published estimate - the PMS5003 reading after the published
+ * humidity correction. PMRAW is the uncorrected sensor value behind it and
+ * PMCONF is the confidence code of the estimate (OK, SETTLING, HUMID, DUST,
+ * RANGE, NODATA).
+ *
+ * A negative PM25 means "no reading" (the sensor is absent or silent). It is
+ * kept as null, never as 0: a missing measurement is not a clean atmosphere,
+ * and the tile has to say "not assessed" rather than 0 ug/m3. Older firmware
+ * published no PMRAW, in which case the published value is also the raw one. */
+function applyPm(k) {
+  if (k.PM25 === undefined) return;
+  const pub = num(k.PM25);
+  V.pmCal = (pub >= 0) ? pub : null;
+  V.pmRaw = (k.PMRAW !== undefined) ? num(k.PMRAW) : pub;
+  V.pmConf = k.PMCONF || '';
+}
+
 function parseKV(line) {
   const out = {};
   for (const part of line.split(',')) {
@@ -1917,7 +1963,7 @@ function handleLine(line) {
       const k = parseKV(line.replace('[TELEMETRY]', ''));
       if (k.TEMP) V.temp = num(k.TEMP);
       if (k.HUM)  V.hum  = num(k.HUM);
-      if (k.PM25) { V.pmCal = num(k.PM25); V.pmRaw = num(k.PM25); }
+      applyPm(k);
       return;
     }
     const k = parseKV(line.replace('[TELEMETRY]', ''));
@@ -1945,7 +1991,7 @@ function handleLine(line) {
     V.contact = (V.hr > 0 || V.sqi > 0);
     if (k.TEMP)  V.temp = num(k.TEMP);
     if (k.HUM)   V.hum  = num(k.HUM);
-    if (k.PM25)  { V.pmCal = num(k.PM25); V.pmRaw = num(k.PM25); }
+    applyPm(k);
     return;
   }
 
@@ -1985,12 +2031,15 @@ function handleLine(line) {
       const hIdx = parseInt(hStr.replace(/^H/, ''), 10);
       if (hIdx >= 0 && hIdx < 24 && typeof HIST !== 'undefined') {
         const k = parseKV(raw.slice(comma + 1));
+        const hPm = k.PM25 !== undefined ? num(k.PM25) : null;
         HIST.setPoint(hIdx, {
           hr: k.HR !== undefined ? num(k.HR) : 0,
           spo2: k.SPO2 !== undefined ? num(k.SPO2) : 0,
           rmssd: k.RMSSD !== undefined ? num(k.RMSSD) : 0,
           news2: k.NEWS2 !== undefined ? (parseInt(k.NEWS2, 10) || 0) : 0,
-          pm25: k.PM25 !== undefined ? num(k.PM25) : 0,
+          /* A negative PM25 means the device had no reading in that hour:
+             null, not 0 - a missing measurement is not a clean atmosphere. */
+          pm25: (hPm !== null && hPm >= 0) ? hPm : null,
           valid: true,
         });
       }
@@ -2124,7 +2173,7 @@ function enterIdle() {
   mode = 'idle';
   Object.assign(V, {
     hr: 0, spo2: 0, hrv: 0, rr: 0, rrConf: 0, rrDepth: 0, sqi: 0, contact: false,
-    temp: -100, hum: -1, pmRaw: 0, pmCal: 0, loc: '',
+    temp: -100, hum: -1, pmRaw: 0, pmCal: null, pmConf: '', loc: '',
     psi: 0, aha: 0, heat: 0, poll: 0, flood: 0, news2: 0,
     pi: 0, level: 0, flags: 0, risk: 'UNKNOWN',
     rHeat: 'UNKNOWN', rPoll: 'UNKNOWN', rFlood: 'UNKNOWN',
@@ -2247,7 +2296,8 @@ function pollHttpHistory() {
           if (h >= 0 && h < 24) {
             HIST.setPoint(h, {
               hr: num(p.hr), spo2: num(p.spo2), rmssd: num(p.rmssd),
-              pm25: num(p.pm25), news2: parseInt(p.news2, 10) || 0,
+              pm25: (typeof p.pm25 === 'number' && isFinite(p.pm25)) ? p.pm25 : null,
+              news2: parseInt(p.news2, 10) || 0,
               valid: p.valid
             });
           }

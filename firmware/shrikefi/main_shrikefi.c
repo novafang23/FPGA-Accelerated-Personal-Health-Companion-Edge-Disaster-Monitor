@@ -28,7 +28,7 @@
 #include "spo2_engine.h"
 #include "disaster_risk_engine.h"
 #include "nn_risk_model_int8.h"
-#include "pm25_calibration_int8.h"
+#include "pm25_correction.h"
 #include "clinical_vitals_engine.h"
 #include "ppg_sqi.h"
 #include "ppg_respiratory_rate.h"
@@ -93,7 +93,9 @@ typedef struct {
     signal_status_t signal_status; /* real-time contact & perfusion quality */
     float ambient_temp_c;
     float humidity_percent;
-    float pm25_ugm3;
+    float pm25_ugm3;          /* published PM2.5 estimate; negative = no reading */
+    float pm25_raw_ugm3;      /* raw PMS5003 value behind the published estimate */
+    uint8_t pm25_confidence;  /* pm25_confidence_t of the published estimate     */
     float respiratory_rate_bpm; /* PPG-derived (Charlton 2018 RSA); 0 = unavailable */
     float ppg_sqi;              /* composite signal quality index [0,1]        */
     float perfusion_index;      /* AC/DC ratio percent from the SQI window     */
@@ -1616,6 +1618,7 @@ static void task_disaster_monitor(void *pvParameters) {
         static float s_last_temp = -100.0f; /* invalid until a real BME280 sample */
         static float s_last_hum  = -1.0f;
         static float s_last_pm25 = 15.0f;
+static float s_last_pm10 = 0.0f;   /* coarse-particle proxy for dust detection */
         static uint32_t s_pm25_warn_last_ms = 0;
         static uint32_t s_next_bme_retry_ms = 0;
         static uint8_t s_bme_read_errors = 0;
@@ -1667,39 +1670,70 @@ static void task_disaster_monitor(void *pvParameters) {
         env.ambient_temp_c = s_last_temp;
         env.humidity_pct   = s_last_hum;
 
-        /* Read PMS5003 (PM2.5) */
+        /* Read PMS5003 (PM2.5). The atm ("environmental") channel is the one the
+         * published correction was fitted on; PM10 is needed as well, because
+         * a coarse, dust-dominated aerosol is the one case where the PMS5003
+         * UNDER-reads PM2.5 and the correction must be suppressed. */
         pms5003_data_t pms_data;
-        if (read_pms5003_data(&pms_data) == 0 && pms_data.valid) {
+        const bool pms_ok = (read_pms5003_data(&pms_data) == 0 && pms_data.valid);
+        if (pms_ok) {
             s_last_pm25 = (float)pms_data.pm2_5_atm;
+            s_last_pm10 = (float)pms_data.pm10_atm;
         }
 
-        /* 3-input INT8 humidity-correction NN. The humidity-correction idea is
-         * motivated by Si et al. (AMT 2019), but this model's weights were
-         * trained for this build (pm25_calibration_int8.c): its training data
-         * and script are not in this repo, and the "60%" figure is not
-         * established by it. */
-        float calibrated_pm25 = ambient_valid
-            ? pm25_calibrate_nn_int8(s_last_pm25, env.ambient_temp_c, env.humidity_pct)
-            : s_last_pm25;
-        env.pm25 = calibrated_pm25;
+        /* Published correction of the PMS5003 reading.
+         *
+         * The PMS5003 converts a laser-scattering count into a mass
+         * concentration with an assumed particle density and size, and
+         * over-reads by roughly 40-60 % (Barkjohn et al. 2021, AMT 14, 4617;
+         * AirGradient: 17 outdoor sites, 12,513 daily collocation points). We
+         * apply the published EPA correction for the PMS5003 atm channel,
+         * computed from a 60 s rolling mean of the raw reading (see
+         * firmware/core/pm25_correction.c for the equations, their source and
+         * the residual uncertainty). A NEGATIVE value here means "no fresh PM2.5 reading":
+         * the pollution modality is then reported as not assessed, never as
+         * clean air. */
+        pm25_reading_t pm25_reading;
+        pm25_correction_push(env_now_ms, pms_ok ? s_last_pm25 : -1.0f,
+                             pms_ok ? s_last_pm10 : 0.0f,
+                             ambient_valid ? env.humidity_pct : -1.0f,
+                             &pm25_reading);
+        env.pm25 = (pm25_reading.confidence == PM25_CONF_NO_DATA)
+                       ? -1.0f
+                       : pm25_reading.corrected;
+
+        /* The "raw" value we publish is the one the correction was actually
+         * applied to - the 60 s mean of the PMS5003 readings - and -1 when
+         * there is no reading at all. Showing the last single sample instead
+         * would make the raw and the published numbers disagree. */
+        const float pm25_raw_pub =
+            (pm25_reading.confidence == PM25_CONF_NO_DATA)
+                ? -1.0f
+                : pm25_reading.raw_mean;
 
         /* Unconditionally update shared system state with live environmental telemetry */
         if (xSemaphoreTake(s_data_mutex, pdMS_TO_TICKS(20)) == pdTRUE) {
             g_state.ambient_temp_c   = env.ambient_temp_c;
             g_state.humidity_percent = env.humidity_pct;
             g_state.pm25_ugm3        = env.pm25;
+            g_state.pm25_raw_ugm3    = pm25_raw_pub;
+            g_state.pm25_confidence  = (uint8_t)pm25_reading.confidence;
             xSemaphoreGive(s_data_mutex);
         }
 
-        if (ambient_valid && pm25_is_humidity_distorted(s_last_pm25, env.humidity_pct)) {
+        if (pm25_reading.confidence == PM25_CONF_HUMIDITY ||
+            pm25_reading.confidence == PM25_CONF_DUST ||
+            pm25_reading.confidence == PM25_CONF_OUT_OF_RANGE) {
             /* Rate-limited. High ambient RH is persistent in this environment, so
              * logging unconditionally produced ~69 identical lines per minute and
              * buried the vitals output the operator actually needs. */
             uint32_t now_ms = (uint32_t)(xTaskGetTickCount() * portTICK_PERIOD_MS);
             if (now_ms - s_pm25_warn_last_ms >= 60000u) {
                 s_pm25_warn_last_ms = now_ms;
-                ESP_LOGW(TAG, "[PM2.5 Calibration] Humidity spike (RH: %.1f%%) - correction applied. Raw: %.1f -> Calibrated: %.1f ug/m3",
-                         env.humidity_pct, s_last_pm25, calibrated_pm25);
+                ESP_LOGW(TAG, "[PM2.5] %s: raw %.1f -> published %.1f ug/m3 (RH %.0f%%)",
+                         pm25_confidence_str(pm25_reading.confidence),
+                         pm25_raw_pub, pm25_reading.corrected,
+                         pm25_reading.rh_used);
             }
         } else {
             s_pm25_warn_last_ms = 0;   /* re-arm once conditions recover */
@@ -1918,10 +1952,19 @@ static void task_disaster_monitor(void *pvParameters) {
                     * HRVN - beats currently in the HRV window - is appended last
                     * for the same reason: it lets a dashboard show how far the
                     * RMSSD window has filled while the value is still withheld. */
-                   "RRDEPTH=%.1f,RRCONF=%.2f,PI=%.2f,HRVN=%d\n",
+                   "RRDEPTH=%.1f,RRCONF=%.2f,PI=%.2f,HRVN=%d,"
+                   /* PMRAW is the uncorrected PMS5003 value the correction was
+                    * applied to (the 60 s mean of the raw readings) and PMCONF
+                    * the confidence code of the published PM2.5 estimate (OK,
+                    * SETTLING, HUMID, DUST, RANGE, NODATA). Both are appended
+                    * last for the same backward-compatibility reason. A
+                    * negative PM25 means "no fresh PM2.5 reading" - not a
+                    * measurement of zero. */
+                   "PMRAW=%.1f,PMCONF=%s\n",
                    hr, engine_spo2, hrv_snapshot.rmssd, env.ambient_temp_c,
                    env.humidity_pct, env.pm25, rr_for_news2, sqi_for_news2,
-                   rr_depth_dbg, rr_conf_dbg, pi_pub, hrv_snapshot.count);
+                   rr_depth_dbg, rr_conf_dbg, pi_pub, hrv_snapshot.count,
+                   pm25_raw_pub, pm25_confidence_str(pm25_reading.confidence));
             fflush(stdout);
             /* The temporary [STATUS] diagnostic lived here; the structured
              * [TRIAGE] line below carries the same risk fields. */
@@ -2012,13 +2055,19 @@ static void task_disaster_monitor(void *pvParameters) {
             } else {
                 snprintf(hr_str, sizeof(hr_str), "--");
             }
-            ESP_LOGI(TAG, "[ShrikeFi] Vitals: HR=%s BPM SpO2=%s | Status: %s | IBI samples: %d (need %d for risk engines) | Temp: %.1f C | PM2.5: %.0f",
+            char pm_str[12];
+            if (env.pm25 >= 0.0f) {
+                snprintf(pm_str, sizeof(pm_str), "%.0f", env.pm25);
+            } else {
+                snprintf(pm_str, sizeof(pm_str), "--");
+            }
+            ESP_LOGI(TAG, "[ShrikeFi] Vitals: HR=%s BPM SpO2=%s | Status: %s | IBI samples: %d (need %d for risk engines) | Temp: %.1f C | PM2.5: %s",
                      hr_str,
                      (spo2 > 0.0f ? "VALID" : "--"),
                      (sig_stat == SIGNAL_STATUS_LOW_PERFUSION) ? "LOW PERFUSION (PRESS FIRMER)" :
                      (sig_stat == SIGNAL_STATUS_ACQUIRING)     ? "ACQUIRING" :
                      (sig_stat == SIGNAL_STATUS_TRACKING)      ? "READY" : "WAITING",
-                     hrv_snapshot.count, 10, env.ambient_temp_c, env.pm25);
+                     hrv_snapshot.count, 10, env.ambient_temp_c, pm_str);
             /* This branch runs while the HRV window is not yet full - but that
              * is NOT the same thing as "no finger". It previously printed
              * "[TELEMETRY] NO_FINGER" unconditionally, so for the first ~8 s of
@@ -2028,15 +2077,17 @@ static void task_disaster_monitor(void *pvParameters) {
              * the floor (it only accepts them from the "HR=..." packet) and
              * flickered its contact indicator. Report the real state instead. */
             if (sig_stat == SIGNAL_STATUS_NO_FINGER) {
-                printf("[TELEMETRY] NO_FINGER,TEMP=%.1f,HUM=%.1f,PM25=%.1f\n",
-                       env.ambient_temp_c, env.humidity_pct, env.pm25);
+                printf("[TELEMETRY] NO_FINGER,TEMP=%.1f,HUM=%.1f,PM25=%.1f,PMRAW=%.1f,PMCONF=%s\n",
+                       env.ambient_temp_c, env.humidity_pct, env.pm25,
+                       pm25_raw_pub, pm25_confidence_str(pm25_reading.confidence));
             } else {
                 float tele_spo2 = (spo2 > 0.0f) ? spo2 : g_state.spo2_percent;
-                printf("[TELEMETRY] ACQUIRING,HR=%.1f,SPO2=%.1f,RMSSD=%.1f,TEMP=%.1f,HUM=%.1f,PM25=%.1f,RR=%.1f,SQI=%.2f,RRDEPTH=%.1f,RRCONF=%.2f,HRVN=%d\n",
+                printf("[TELEMETRY] ACQUIRING,HR=%.1f,SPO2=%.1f,RMSSD=%.1f,TEMP=%.1f,HUM=%.1f,PM25=%.1f,RR=%.1f,SQI=%.2f,RRDEPTH=%.1f,RRCONF=%.2f,HRVN=%d,PMRAW=%.1f,PMCONF=%s\n",
                        hr, tele_spo2, hrv_snapshot.rmssd,
                        env.ambient_temp_c, env.humidity_pct, env.pm25,
                        rr_pub, sqi_pub, rrdepth_pub, rrconf_pub,
-                       hrv_snapshot.count);
+                       hrv_snapshot.count,
+                       pm25_raw_pub, pm25_confidence_str(pm25_reading.confidence));
             }
             fflush(stdout);
         }
@@ -2095,6 +2146,8 @@ static void task_disaster_monitor(void *pvParameters) {
              
             st.hum      = env.humidity_pct;
             st.pm25     = env.pm25;
+            st.pm25_raw = pm25_raw_pub;
+            st.pm25_conf = pm25_confidence_str(pm25_reading.confidence);
             /* Literature-based environmental condition (EPA AQI 2024 / WHO 2021
              * PM2.5 guideline / NWS heat index). Static storage: the published
              * snapshot keeps the pointer after this frame. */
@@ -2103,7 +2156,7 @@ static void task_disaster_monitor(void *pvParameters) {
             st.env      = s_env_text;
             /* Structured copy for the page tiles: the device is the single
              * source of truth, the browser only renders. */
-            st.aqi      = (unsigned)disaster_epa_pm25_aqi(env.pm25);
+            st.aqi      = disaster_epa_pm25_aqi(env.pm25);   /* -1 = not assessed */
             st.aqi_cat  = disaster_epa_pm25_category((int)st.aqi);
             st.heat_c   = disaster_calculate_heat_index_c(env.ambient_temp_c, env.humidity_pct);
             st.heat_cat = disaster_nws_heat_category(st.heat_c);
@@ -2241,12 +2294,29 @@ static void task_disaster_monitor(void *pvParameters) {
 
             // Line 2: Ambient / PM2.5 - Page 3 (rows 24-31). No skin temperature
             // is instrumented (see the acquisition-path note).
+            //
+            // The PM2.5 number is the published estimate (the PMS5003 reading
+            // after the documented correction). The trailing flag says how much
+            // to trust it: H humidity-corrected (RH >= 80 %), D dust aerosol
+            // (correction suppressed), ! above the sensor range, ~ window still
+            // settling, ? no reading. See the demo runbook for the legend.
             char buf_env[32];
+            char pm_flag = ' ';
+            switch (pm25_reading.confidence) {
+            case PM25_CONF_SETTLING:     pm_flag = '~'; break;
+            case PM25_CONF_HUMIDITY:     pm_flag = 'H'; break;
+            case PM25_CONF_DUST:         pm_flag = 'D'; break;
+            case PM25_CONF_OUT_OF_RANGE: pm_flag = '!'; break;
+            case PM25_CONF_NO_DATA:      pm_flag = '?'; break;
+            default:                     pm_flag = ' '; break;
+            }
             if (!ambient_valid) {
-                snprintf(buf_env, sizeof(buf_env), "Ta:--   PM:%3.0f", env.pm25);
+                snprintf(buf_env, sizeof(buf_env), "Ta:--  PM:%3.0f%c",
+                         (env.pm25 >= 0.0f) ? env.pm25 : 0.0f, pm_flag);
             } else {
-                snprintf(buf_env, sizeof(buf_env), "T:%4.1fC   PM:%3.0f",
-                         env.ambient_temp_c, env.pm25);
+                snprintf(buf_env, sizeof(buf_env), "T:%4.1fC PM:%3.0f%c",
+                         env.ambient_temp_c,
+                         (env.pm25 >= 0.0f) ? env.pm25 : 0.0f, pm_flag);
             }
             ssd1306_draw_string(&s_ssd1306, 2, 24, buf_env);
 
@@ -2846,24 +2916,42 @@ int main(void) {
     printf("  [Unified Triage] Final Condition: %s\n", risk_level_to_string(final_risk.overall_risk));
     printf("  [Unified Triage] Action Advisory: %s\n\n", final_risk.overall_advisory);
 
-    /* Profile 2: High-Humidity Storm / Fog (Testing Si et al. 2019 Neural Calibration) */
-    printf("Host Test - High Humidity / Flood Fog Profile (Paper Neural Calibration):\n");
+    /* Profile 2: High-Humidity Storm / Fog (published PM2.5 correction) */
+    printf("Host Test - High Humidity / Fog Profile (published PM2.5 correction):\n");
     float raw_fog_pm = 85.0f;
     float fog_temp   = 20.0f;
     float fog_hum    = 85.0f;
-    float cal_fog_pm = pm25_calibrate_nn_int8(raw_fog_pm, fog_temp, fog_hum);
-    bool  is_distorted = pm25_is_humidity_distorted(raw_fog_pm, fog_hum);
+    pm25_confidence_t fog_conf;
+    float cal_fog_pm = pm25_correct(raw_fog_pm, fog_hum, 0.25f, &fog_conf);
 
     printf("  [Sensor Input] Raw PM2.5: %.1f ug/m3 | Temp: %.1f C | Humidity: %.1f%%\n", raw_fog_pm, fog_temp, fog_hum);
-    printf("  [Neural Net]   Calibrated PM2.5: %.1f ug/m3 (Humidity bias suppressed: %s)\n",
-           cal_fog_pm, is_distorted ? "YES (-60% error correction)" : "NO");
+    printf("  [Correction]   Published PM2.5: %.1f ug/m3 (confidence: %s)\n",
+           cal_fog_pm, pm25_confidence_str(fog_conf));
 
     env_sensors_t fog_env = {
         .ambient_temp_c = fog_temp,
         .humidity_pct   = fog_hum,
-        .pm25           = cal_fog_pm, /* Use neural-calibrated PM2.5 */
+        .pm25           = cal_fog_pm, /* the published (corrected) PM2.5 */
         .skin_temp_c    = 0.0f  /* reserved for a future TMP117 */
     };
+
+    /* Profile 2b: a missing PM2.5 reading must not read as clean air. */
+    env_sensors_t no_pm_env = {
+        .ambient_temp_c = 22.0f,
+        .humidity_pct   = 45.0f,
+        .pm25           = -1.0f,  /* no reading: the sensor is absent or silent */
+        .skin_temp_c    = 0.0f
+    };
+    risk_assessment_t no_pm_risk;
+    disaster_assess(&hrv, 98.0f, 75.0f, &no_pm_env, &no_pm_risk);
+    if (no_pm_risk.pollution_risk != RISK_UNKNOWN) {
+        fprintf(stderr, "[FAIL] A missing PM2.5 reading must be UNKNOWN, got %s\n",
+                risk_level_to_string(no_pm_risk.pollution_risk));
+        return 1;
+    }
+    printf("  [PM Guard] No PM2.5 reading -> pollution %s (%s)\n",
+           risk_level_to_string(no_pm_risk.pollution_risk),
+           no_pm_risk.pollution_advisory);
     risk_assessment_t fog_risk;
     disaster_assess(&hrv, 98.0f, 75.0f, &fog_env, &fog_risk);
     /* Profile 3: Clinical ICU Emergency (MIMIC-III Sepsis & Severe Hypoxia in Normal Room) */

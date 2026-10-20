@@ -109,6 +109,11 @@ float disaster_calculate_heat_index_c(float temp_c, float humidity_pct) {
 }
 
 int disaster_epa_pm25_aqi(float pm25_ugm3) {
+    /* A negative PM2.5 means "no reading" (see env_sensors_t). It must not be
+     * mapped onto the lowest AQI band, which would report the air as "Good"
+     * on the strength of a measurement that does not exist. -1 is the
+     * "not assessed" marker; the pages and dashboards render it as such. */
+    if (pm25_ugm3 < 0.0f) return -1;
     if (!(pm25_ugm3 > 0.0f)) return 0;
     /* US EPA AQI technical assistance document, PM2.5 breakpoints effective
      * 2024-05-06 (the 2024 revision lowered the Good/Moderate boundary to
@@ -134,6 +139,7 @@ int disaster_epa_pm25_aqi(float pm25_ugm3) {
 }
 
 const char *disaster_epa_pm25_category(int aqi) {
+    if (aqi < 0)    return "Not assessed";
     if (aqi <= 50)  return "Good";
     if (aqi <= 100) return "Moderate";
     if (aqi <= 150) return "Unhealthy for Sensitive Groups";
@@ -163,6 +169,16 @@ void disaster_environment_condition_text(const env_sensors_t *env,
     float hi = disaster_calculate_heat_index_c(env->ambient_temp_c, env->humidity_pct);
     const char *hcat = disaster_nws_heat_category(hi);
     const float who_24h = 15.0f;
+
+    /* No PM2.5 reading: say so. Do not report the air as good, and do not
+     * report a WHO multiple for a measurement that was never taken. */
+    if (env->pm25 < 0.0f) {
+        snprintf(out, cap,
+                 "PM2.5 not assessed (sensor unavailable). "
+                 "Heat index %.1f C: %s (NWS).", hi, hcat);
+        return;
+    }
+
     float who_x = (who_24h > 0.0f) ? env->pm25 / who_24h : 0.0f;
 
     snprintf(out, cap,
@@ -245,6 +261,15 @@ static risk_level_t assess_heat_risk(float bpm, float rmssd, float ambient_temp_
 static risk_level_t assess_pollution_risk(float bpm, float spo2, float pm25, float rmssd,
                                           const char **advisory) {
     float prsi = 0.0f;
+
+    /* No PM2.5 reading at all (sensor absent, unreadable, or no fresh sample
+     * inside the rolling window). The pollution modality is then NOT
+     * ASSESSED - it is not "normal". A missing measurement must never be
+     * reported as clean air. */
+    if (pm25 < 0.0f) {
+        *advisory = "PM2.5 sensor unavailable - air quality not assessed";
+        return RISK_UNKNOWN;
+    }
 
     /* Guard: if the air itself is clean (PM2.5 at or below the lowest
      * caution threshold), don't let autonomic/SpO2 body-response
@@ -687,13 +712,21 @@ void disaster_assess_nn(const hrv_state_t *hrv, float spo2, float bpm, const env
 
     rmssd = hrv->rmssd;
 
+    /* PM2.5: a negative value means "no reading at all" (see env_sensors_t).
+     * The network gets a neutral clean-air value so its arithmetic stays
+     * finite, and the pollution channel is then marked NOT ASSESSED below.
+     * Substituting a clean-air value into a risk channel would turn a missing
+     * measurement into an all-clear. */
+    const bool  pm_valid = (env->pm25 >= 0.0f);
+    const float nn_pm25  = pm_valid ? env->pm25 : 0.0f;
+
     /* If SpO2 is not yet locked/calibrated (<= 0.0f), use neutral 96.0% baseline
      * so the neural network does not falsely interpret 0.0f as severe asphyxia/hypoxemia */
     float nn_spo2 = (spo2 > 0.0f) ? spo2 : 96.0f;
 
     /* Run neural network forward pass */
     model = nn_get_default_model();
-    nn_predict(model, bpm, rmssd, nn_spo2, env->ambient_temp_c, env->humidity_pct, env->pm25,
+    nn_predict(model, bpm, rmssd, nn_spo2, env->ambient_temp_c, env->humidity_pct, nn_pm25,
                &nn_out);
 
     /* Map heat risk output neuron to risk level */
@@ -704,12 +737,18 @@ void disaster_assess_nn(const hrv_state_t *hrv, float spo2, float bpm, const env
         "CAUTION: AI detects moderate thermal strain. Stay hydrated", "Thermal status normal (AI)");
 
     /* Map pollution risk output neuron to risk level */
-    result->pollution_risk =
-        nn_score_to_risk(nn_out.pollution_score, &result->pollution_advisory,
-                         "DANGER: AI detects severe respiratory distress pattern! Use N95 mask",
-                         "WARNING: AI detects respiratory strain. Wear mask, limit exposure",
-                         "CAUTION: AI detects mild pollution impact. Consider wearing a mask",
-                         "Respiratory status normal (AI)");
+    if (pm_valid) {
+        result->pollution_risk =
+            nn_score_to_risk(nn_out.pollution_score, &result->pollution_advisory,
+                             "DANGER: AI detects severe respiratory distress pattern! Use N95 mask",
+                             "WARNING: AI detects respiratory strain. Wear mask, limit exposure",
+                             "CAUTION: AI detects mild pollution impact. Consider wearing a mask",
+                             "Respiratory status normal (AI)");
+    } else {
+        result->pollution_risk = RISK_UNKNOWN;
+        result->pollution_advisory =
+            "PM2.5 sensor unavailable - AI pollution channel not assessed";
+    }
 
     /* Map flood/cold risk output neuron to risk level */
     result->flood_risk =
@@ -778,17 +817,30 @@ void disaster_assess_nn_int8(const hrv_state_t *hrv, float spo2, float bpm,
 
     rmssd = hrv->rmssd;
 
+    /* PM2.5: a negative value means "no reading at all" (see env_sensors_t).
+     * The network gets a neutral clean-air value so its arithmetic stays
+     * finite, and the pollution channel is then marked NOT ASSESSED below.
+     * Substituting a clean-air value into a risk channel would turn a missing
+     * measurement into an all-clear. */
+    const bool  pm_valid = (env->pm25 >= 0.0f);
+    const float nn_pm25  = pm_valid ? env->pm25 : 0.0f;
+
     /* If SpO2 is not yet locked/calibrated (<= 0.0f), use neutral 96.0% baseline
      * so the neural network does not falsely interpret 0.0f as severe asphyxia/hypoxemia */
     float nn_spo2 = (spo2 > 0.0f) ? spo2 : 96.0f;
 
     /* Run INT8 neural network forward pass */
     nn_predict_int8(&nn_default_model_int8, &nn_quant_params, bpm, rmssd, nn_spo2,
-                    env->ambient_temp_c, env->humidity_pct, env->pm25, &nn_out);
+                    env->ambient_temp_c, env->humidity_pct, nn_pm25, &nn_out);
 
-    /* Copy raw activations if caller requested them for telemetry/logging */
+    /* Copy raw activations if caller requested them for telemetry/logging.
+     * A negative pollution score is the wire marker for "this channel was not
+     * assessed" (no PM2.5 reading). */
     if (raw_out != NULL) {
         *raw_out = nn_out;
+        if (!pm_valid) {
+            raw_out->pollution_score = -1.0f;
+        }
     }
 
     /* Map heat risk output neuron to risk level */
@@ -799,12 +851,18 @@ void disaster_assess_nn_int8(const hrv_state_t *hrv, float spo2, float bpm,
         "CAUTION: AI detects moderate thermal strain. Stay hydrated", "Thermal status normal (AI)");
 
     /* Map pollution risk output neuron to risk level */
-    result->pollution_risk =
-        nn_score_to_risk(nn_out.pollution_score, &result->pollution_advisory,
-                          "DANGER: AI detects severe respiratory distress pattern! Use N95 mask",
-                          "WARNING: AI detects respiratory strain. Wear mask, limit exposure",
-                          "CAUTION: AI detects mild pollution impact. Consider wearing a mask",
-                          "Respiratory status normal (AI)");
+    if (pm_valid) {
+        result->pollution_risk =
+            nn_score_to_risk(nn_out.pollution_score, &result->pollution_advisory,
+                              "DANGER: AI detects severe respiratory distress pattern! Use N95 mask",
+                              "WARNING: AI detects respiratory strain. Wear mask, limit exposure",
+                              "CAUTION: AI detects mild pollution impact. Consider wearing a mask",
+                              "Respiratory status normal (AI)");
+    } else {
+        result->pollution_risk = RISK_UNKNOWN;
+        result->pollution_advisory =
+            "PM2.5 sensor unavailable - AI pollution channel not assessed";
+    }
 
     /* Map flood/cold risk output neuron to risk level */
     result->flood_risk =

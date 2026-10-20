@@ -166,6 +166,39 @@ static void test_pollution_risk() {
     printf("test_pollution_risk: PASS\n");
 }
 
+/* A missing PM2.5 reading must never read as clean air.
+ *
+ * env_sensors_t.pm25 uses a negative value for "no reading available" (the
+ * sensor is absent, unreadable, or stale). The rule engine must report the
+ * pollution modality as UNKNOWN, the EPA AQI helper must return -1 ("not
+ * assessed") instead of the lowest band, and the INT8 model must decline its
+ * pollution channel rather than score a zero PM2.5 as clean air. */
+static void test_missing_pm25_is_not_clean_air() {
+    hrv_state_t hrv;
+    init_hrv_ready(&hrv, 75.0f);
+    env_sensors_t env = { .ambient_temp_c = 25.0f, .humidity_pct = 30.0f,
+                           .pm25 = -1.0f, .skin_temp_c = 36.0f };
+    risk_assessment_t result;
+
+    disaster_assess(&hrv, 98.0f, 75.0f, &env, &result);
+    assert(result.pollution_risk == RISK_UNKNOWN);
+
+    /* The EPA helper must not fall back to the "Good" band. */
+    assert(disaster_epa_pm25_aqi(-1.0f) == -1);
+    assert(strcmp(disaster_epa_pm25_category(-1), "Not assessed") == 0);
+
+    /* The AI model must not score a pollution channel it cannot see. */
+    risk_assessment_t nn_risk;
+    nn_output_t nn_out;
+    memset(&nn_risk, 0, sizeof(nn_risk));
+    memset(&nn_out, 0, sizeof(nn_out));
+    disaster_assess_nn_int8(&hrv, 98.0f, 75.0f, &env, &nn_risk, &nn_out);
+    assert(nn_risk.pollution_risk == RISK_UNKNOWN);
+    assert(nn_out.pollution_score < 0.0f);
+
+    printf("test_missing_pm25_is_not_clean_air: PASS\n");
+}
+
 static void test_flood_risk() {
     hrv_state_t hrv;
     init_hrv_ready(&hrv, 75.0f);
@@ -1944,6 +1977,7 @@ int main() {
     test_hrv_full_buffer_does_not_take_summary_shortcut();
     test_heat_risk();
     test_pollution_risk();
+    test_missing_pm25_is_not_clean_air();
     test_flood_risk();
     test_environmental_condition();
     test_hrv_not_ready();

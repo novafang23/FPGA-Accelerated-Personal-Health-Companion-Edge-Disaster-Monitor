@@ -39,7 +39,9 @@ bool mqtt_is_connected(void);
  * @param rmssd HRV RMSSD in ms
  * @param spo2 SpO2 percentage
  * @param temp Ambient Temperature in Celsius
- * @param pm25 PM2.5 in ug/m3
+ * @param pm25 PM2.5 in ug/m3. A negative value means "no reading" (the sensor
+ *             is absent or silent) and is published as such - never as 0,
+ *             which would be a claim of clean air that was not measured.
  * @param risk_level String representation of overall risk (e.g., "CRITICAL")
  */
 void cloud_publish_health_data(float hr, float rmssd, float spo2, float temp, float pm25, const char* risk_level);

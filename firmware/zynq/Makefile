@@ -34,7 +34,7 @@ SRCS_CORE := \
     $(CORE_DIR)/pressure_trend.c \
     $(CORE_DIR)/ppg_respiratory_rate.c \
     $(CORE_DIR)/ppg_baseline_rr.c \
-    $(CORE_DIR)/pm25_calibration_int8.c \
+    $(CORE_DIR)/pm25_correction.c \
     $(CORE_DIR)/clinical_vitals_engine.c \
     $(CORE_DIR)/ppg_sqi.c
 

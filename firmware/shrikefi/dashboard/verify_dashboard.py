@@ -58,6 +58,18 @@ window.onerror = function (m) { window.__err = String(m); };
       handleLine('[TELEMETRY] HR=0.0,SPO2=0.0,RMSSD=0.0,TEMP=29.7,HUM=63.3,PM25=86.6,RR=0.0,SQI=0.00,RRDEPTH=0.0,RRCONF=0.00,PI=0.00');
     } else if (new URLSearchParams(location.search).get('case') === 'pi') {
       handleLine('[TELEMETRY] HR=72.0,SPO2=98.0,RMSSD=42.0,TEMP=25.0,HUM=50.0,PM25=12.0,RR=15.0,SQI=0.90,RRDEPTH=42.5,RRCONF=0.80,PI=3.21');
+    } else if (new URLSearchParams(location.search).get('case') === 'pm_published') {
+      /* The device publishes the corrected PM2.5 and the raw sensor value
+         behind it, with a confidence code. Both must be shown: the raw number
+         is what the sensor actually said, the published one is the estimate. */
+      handleLine('[TELEMETRY] HR=72.0,SPO2=98.0,RMSSD=42.0,TEMP=25.0,HUM=50.0,PM25=25.0,RR=15.0,SQI=0.90,RRDEPTH=0.0,RRCONF=0.0,PI=3.0,HRVN=240,PMRAW=34.7,PMCONF=OK');
+    } else if (new URLSearchParams(location.search).get('case') === 'pm_nodata') {
+      /* No PM2.5 reading at all. This must not render as 0 ug/m3, which would
+         be a claim of clean air that was never measured. */
+      handleLine('[TELEMETRY] HR=72.0,SPO2=98.0,RMSSD=42.0,TEMP=25.0,HUM=50.0,PM25=-1.0,RR=15.0,SQI=0.90,RRDEPTH=0.0,RRCONF=0.0,PI=3.0,HRVN=240,PMRAW=-1.0,PMCONF=NODATA');
+    } else if (new URLSearchParams(location.search).get('case') === 'pm_humid') {
+      /* A humidity caveat has to be visible next to the number, not hidden. */
+      handleLine('[TELEMETRY] HR=72.0,SPO2=98.0,RMSSD=42.0,TEMP=25.0,HUM=88.0,PM25=65.0,RR=15.0,SQI=0.90,RRDEPTH=0.0,RRCONF=0.0,PI=3.0,HRVN=240,PMRAW=85.0,PMCONF=HUMID');
     } else if (new URLSearchParams(location.search).get('case') === 'hrv_settle') {
       /* Contact present but RMSSD withheld: the device's beat window is 120/240
          beats, so the card must show progress rather than a bare dash. */
@@ -110,6 +122,7 @@ window.onerror = function (m) { window.__err = String(m); };
       histExportDisabled: document.getElementById('hist-export').disabled,
       scopeSrc: txt('scope-src'), envStrip: txt('v-env'),
       temp: txt('v-temp'), hum: txt('v-hum'), pm: txt('v-pm'),
+      pmRaw: txt('pm-raw'), pmLabel: txt('pm-label'),
       status: txt('status-text').indexOf('NO DATA') === 0,
       sqi: txt('v-sqi'), sqiPill: txt('sqi-pill'), sqiNumCol: col('v-sqi'),
       histMeanHr: txt('h-mean-hr'),
@@ -204,7 +217,8 @@ def check(case, r, expect):
 
 
 failures = []
-for case in ("zero", "healthy", "hrv_settle", "device_pts", "ai_declined", "ai_scored", "nofinger", "sensor_missing", "ambient", "pi", "stale"):
+for case in ("zero", "healthy", "hrv_settle", "device_pts", "ai_declined", "ai_scored", "nofinger", "sensor_missing", "ambient", "pi", "stale",
+             "pm_published", "pm_nodata", "pm_humid"):
     try:
         r = render(case)
     except (RuntimeError, json.JSONDecodeError) as e:
@@ -269,6 +283,29 @@ for case in ("zero", "healthy", "hrv_settle", "device_pts", "ai_declined", "ai_s
         expect = {"gHeat": "--", "gPoll": "--", "gFlood": "--"}
     elif case == "ai_scored":
         expect = {"gHeat": "25.0%", "gPoll": "10.0%", "gFlood": "5.0%"}
+    elif case == "pm_published":
+        # The published (corrected) value is the headline; the raw sensor value
+        # and the confidence code sit under it.
+        expect = {
+            "pm": "25.0",
+            "pmRaw": "raw 34.7",
+            "pmLabel": "Moderate",
+        }
+    elif case == "pm_humid":
+        # A humidity caveat must be visible, and the band must come from the
+        # EPA 2024 breakpoints the device uses.
+        expect = {
+            "pm": "65.0",
+            "pmRaw": "raw 85.0 \u00b7 humidity-corrected, RH high",
+            "pmLabel": "Unhealthy",
+        }
+    elif case == "pm_nodata":
+        # No reading is not a reading of zero.
+        expect = {
+            "pm": "--",
+            "pmRaw": "no reading",
+            "pmLabel": "Not assessed",
+        }
     else:
         expect = {
             "hr": chr(0x2014),
