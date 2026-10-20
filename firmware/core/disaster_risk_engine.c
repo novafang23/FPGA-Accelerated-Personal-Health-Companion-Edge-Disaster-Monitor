@@ -684,7 +684,7 @@ static bool nn_inputs_valid(float bpm, float spo2, const env_sensors_t *env,
         *reason = "humidity outside 0-100 %";
         return false;
     }
-    if (spo2 > 0.0f &&
+    if (spo2 != 0.0f &&
         !(spo2 >= NN_SPO2_CORRUPT_MIN && spo2 <= NN_SPO2_CORRUPT_MAX)) {
         *reason = "SpO2 outside 50-100 %";
         return false;

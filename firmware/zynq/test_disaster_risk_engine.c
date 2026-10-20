@@ -624,6 +624,16 @@ static void test_nn_input_guards(void) {
         {"hum 100.1 %",    75.0f,  98.0f,  25.0f, 100.1f,  20.0f, "humidity outside"},
         {"spo2 40 %",      75.0f,  40.0f,  25.0f,  50.0f,  20.0f, "SpO2 outside"},
         {"spo2 150 %",     75.0f, 150.0f,  25.0f,  50.0f,  20.0f, "SpO2 outside"},
+        /* Exactly 0.0f is the "oximeter not locked" sentinel and is accepted
+         * below. Any other value, including a negative one, must be a
+         * plausible reading: substituting 96 % for -5 % would invent a
+         * healthy value and feed it to the network. */
+        {"spo2 -5 %",      75.0f,  -5.0f,  25.0f,  50.0f,  20.0f, "SpO2 outside"},
+        {"spo2 -0.1 %",    75.0f,  -0.1f,  25.0f,  50.0f,  20.0f, "SpO2 outside"},
+        {"spo2 -100 %",    75.0f, -100.0f, 25.0f,  50.0f,  20.0f, "SpO2 outside"},
+        {"spo2 49.9 %",    75.0f,  49.9f,  25.0f,  50.0f,  20.0f, "SpO2 outside"},
+        {"spo2 49.99 %",   75.0f,  49.99f, 25.0f,  50.0f,  20.0f, "SpO2 outside"},
+        {"spo2 100.01 %",  75.0f, 100.01f, 25.0f,  50.0f,  20.0f, "SpO2 outside"},
     };
 
     for (size_t i = 0; i < sizeof(bad) / sizeof(bad[0]); i++) {
@@ -671,8 +681,8 @@ static void test_nn_input_guards(void) {
         {"hum 0 %",                75.0f,  98.0f,  25.0f,   0.0f,  20.0f, 0},
         {"hum 100 %",              75.0f,  98.0f,  25.0f, 100.0f,  20.0f, 0},
         {"spo2 0 (unlocked)",      75.0f,   0.0f,  25.0f,  50.0f,  20.0f, 0},
-        {"spo2 50 %",              75.0f,  50.0f,  25.0f,  50.0f,  20.0f, 0},
-        {"spo2 100 %",             75.0f, 100.0f,  25.0f,  50.0f,  20.0f, 0},
+        {"spo2 50 % (lower bound)", 75.0f, 50.0f,  25.0f,  50.0f,  20.0f, 0},
+        {"spo2 100 % (upper bound)", 75.0f, 100.0f, 25.0f,  50.0f,  20.0f, 0},
         {"pm25 0 (real clean air)", 75.0f, 98.0f,  25.0f,  50.0f,   0.0f, 0},
         {"pm25 -1 (no reading)",   75.0f,  98.0f,  25.0f,  50.0f,  -1.0f, 1},
     };
