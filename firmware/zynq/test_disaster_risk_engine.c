@@ -23,6 +23,14 @@
  * here rather than on a 0.96" panel. */
 #include "location.h"
 
+/* disaster_risk_engine.c compiles disaster_assess_nn() out when this is 0
+ * (the device ships the INT8 wrapper only). Mirror the engine's default here
+ * so the float-wrapper tests are excluded from the same build and the INT8
+ * tests still link and run. */
+#ifndef NN_ENABLE_FLOAT32_MODEL
+#define NN_ENABLE_FLOAT32_MODEL 1
+#endif
+
 /* ---------------------------------------------------------------------------
  * Compile-time contract: the INT8 model struct must exactly match the
  * 6 -> 24 -> 16 -> 3 architecture that train_nn_risk_model.py emits, and its
@@ -369,8 +377,10 @@ static void test_null_env() {
     assert(result.flood_risk == RISK_UNKNOWN);
     assert(result.overall_risk == RISK_UNKNOWN);
 
+#if NN_ENABLE_FLOAT32_MODEL
     disaster_assess_nn(&hrv, 98.0f, 75.0f, NULL, &result);
     assert(result.overall_risk == RISK_UNKNOWN);
+#endif
 
     disaster_assess_nn_int8(&hrv, 98.0f, 75.0f, NULL, &result, NULL);
     assert(result.overall_risk == RISK_UNKNOWN);
@@ -642,6 +652,7 @@ static void test_nn_input_guards(void) {
         env.pm25           = bad[i].pm25;
 
         /* Float reference path. */
+#if NN_ENABLE_FLOAT32_MODEL
         memset(&r, 0xA5, sizeof(r));
         disaster_assess_nn(&hrv, bad[i].spo2, bad[i].bpm, &env, &r);
         assert(r.heat_risk == RISK_UNKNOWN);
@@ -650,6 +661,7 @@ static void test_nn_input_guards(void) {
         assert(r.overall_risk == RISK_UNKNOWN);
         assert(strstr(r.overall_advisory, "AI assessment declined") != NULL);
         assert(strstr(r.overall_advisory, bad[i].reason) != NULL);
+#endif
 
         /* Shipped INT8 path. */
         memset(&r, 0xA5, sizeof(r));
@@ -692,12 +704,14 @@ static void test_nn_input_guards(void) {
         env.humidity_pct   = good[i].hum;
         env.pm25           = good[i].pm25;
 
+#if NN_ENABLE_FLOAT32_MODEL
         memset(&r, 0xA5, sizeof(r));
         disaster_assess_nn(&hrv, good[i].spo2, good[i].bpm, &env, &r);
         assert(strstr(r.overall_advisory, "AI assessment declined") == NULL);
         assert(r.heat_risk != RISK_UNKNOWN);
         assert(r.flood_risk != RISK_UNKNOWN);
         assert((r.pollution_risk == RISK_UNKNOWN) == good[i].pollution_expected_unknown);
+#endif
 
         memset(&r, 0xA5, sizeof(r));
         memset(&raw, 0xA5, sizeof(raw));
@@ -714,7 +728,9 @@ static void test_nn_input_guards(void) {
      * and every wrapper risk level must equal the tier of the direct kernel
      * output. Because the wrapper did nothing but call the kernel before this
      * change, this also pins the change as behaviour-preserving. */
+#if NN_ENABLE_FLOAT32_MODEL
     const nn_model_t *fmodel = nn_get_default_model();
+#endif
     const int N_IDENTITY = 1000;
     unsigned lcg = 12345u;
     int checked = 0;
@@ -726,11 +742,16 @@ static void test_nn_input_guards(void) {
         env.humidity_pct   = test_rand_range(&lcg, NN_HUM_MIN, NN_HUM_MAX);
         env.pm25           = test_rand_range(&lcg, NN_PM25_MIN, NN_PM25_MAX);
 
-        nn_output_t direct_i, direct_f;
+        nn_output_t direct_i;
+#if NN_ENABLE_FLOAT32_MODEL
+        nn_output_t direct_f;
+#endif
         nn_predict_int8(&nn_default_model_int8, &nn_quant_params, bpm, hrv.rmssd, spo2,
                         env.ambient_temp_c, env.humidity_pct, env.pm25, &direct_i);
+#if NN_ENABLE_FLOAT32_MODEL
         nn_predict(fmodel, bpm, hrv.rmssd, spo2,
                    env.ambient_temp_c, env.humidity_pct, env.pm25, &direct_f);
+#endif
 
         disaster_assess_nn_int8(&hrv, spo2, bpm, &env, &r, &raw);
         assert(strstr(r.overall_advisory, "AI assessment declined") == NULL);
@@ -741,11 +762,13 @@ static void test_nn_input_guards(void) {
         assert((int)r.pollution_risk == score_to_tier(direct_i.pollution_score));
         assert((int)r.flood_risk == score_to_tier(direct_i.flood_score));
 
+#if NN_ENABLE_FLOAT32_MODEL
         disaster_assess_nn(&hrv, spo2, bpm, &env, &r);
         assert(strstr(r.overall_advisory, "AI assessment declined") == NULL);
         assert((int)r.heat_risk == score_to_tier(direct_f.heat_score));
         assert((int)r.pollution_risk == score_to_tier(direct_f.pollution_score));
         assert((int)r.flood_risk == score_to_tier(direct_f.flood_score));
+#endif
 
         checked++;
     }
