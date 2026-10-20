@@ -1039,7 +1039,7 @@ still open.
 | 1 | Continuous monitoring | HR, SpO₂, RR, SQI and IMU motion energy — **body temperature not measured**; activity classification and sleep staging are not implemented | **T2.1** (MAX30205/TMP117, ~₹200) closes body temperature; activity would be new work on the already-fitted IMU, sleep is scoped out |
 | 2 | AI anomaly detection | **Strong** — real RR in NEWS2, SQI gating, INT8 TinyML head, 5-state fall FSM on the fitted MPU6050 | fall detection is implemented and unit-tested but not field-validated (multi-trial drops pending) |
 | 3 | Disaster alerts | Heat + air quality good; **cyclone done via the pressure trend (T3.1)**; flood still not instrumented | a water sensor; the flood path still runs on an ambient cold-stress proxy |
-| 4 | Environmental awareness | **Strong** | — |
+| 4 | Environmental awareness | **Strong** — PM2.5 now uses the published EPA/AirGradient correction on a 60 s mean, with the raw value, a confidence code and "not assessed" when there is no reading | a local reference instrument for the PM2.5 number (see 5b) |
 | 5 | Privacy-preserving edge AI | **Satisfied** — cloud publishing off by default | — |
 | 6 | Emergency assistance | **Partial — SOS latch + OLED emergency card + local SoftAP page + stored location + POST `/api/emergency/trigger`/`cancel` all shipped and exercised (T1.2-T1.4)** | only the **physical** GPIO5 SOS cancel button (T2.2) remains unbuilt |
 | 7 | Wellness dashboard | **24-slot hourly history + chart, NVS-persisted (device-hours, no wall clock)** | — |
@@ -1052,12 +1052,28 @@ still open.
 ```
 DONE: T1.1-T1.7 core software/status; T2.3 IMU fitted (physical fall test
       1/1 passed 2026-10-19; false positives not yet characterised);
-      T3.1, T3.2, T3.3, T3.4, T3.5; T4.4 fit recorded (515 LUT5s / 303 FFs / 105 CLBs).
+      T3.1, T3.2, T3.3, T3.4, T3.5; T4.4 fit recorded (515 LUT5s / 303 FFs / 105 CLBs);
+      AI model audit 2026-10-20 (INT8-only device build, non-finite-input guard,
+      published-RMSSD guard, every published number corrected - see
+      docs/reports/AI_MODEL_AUDIT_2026-10-20.md);
+      PM2.5 private calibration net DELETED and replaced by the published
+      EPA/AirGradient correction on a 60 s rolling mean (2026-10-20) - see
+      docs/reports/PM25_CALIBRATION_2026-10-20.md.
 
-BOARD RECONNECT GATE — do this before the next measurement:
-  The HRV readiness fix and the 2026-10-19 peak/4 bitstream are flashed on COM4.
-  Run docs/HARDWARE_DEBUG_HANDOVER.md §6 and the 90 s finger capture; live HRV
-  behaviour is not yet hardware-validated.
+BOARD RECONNECT GATE - do this before the next measurement:
+  As of 2026-10-20 the bench machine no longer enumerates ANY USB serial port:
+  COM3, COM4, COM5 and COM6 are all listed by Get-PnpDevice with status
+  "Unknown" and all four fail to open (FileNotFoundError). That is a host USB
+  enumeration problem, not a busy-port problem - replug the board, check the
+  cable/USB hub, and confirm `python -c "import serial; serial.Serial('COM4')"`
+  opens before assuming the firmware is at fault.
+  Once it is back, run docs/HARDWARE_DEBUG_HANDOVER.md section 6 and:
+   - the 90 s / 6-minute still-contact HRV capture (live HRV behaviour is not
+     yet hardware-validated);
+   - the PM2.5 capture: confirm PM25=, PMRAW= and PMCONF= on the [TELEMETRY]
+     line, and the raw-versus-published pair on the dashboard, against the
+     host-suite expectation (raw 85 at RH 85 -> published 65.2, confidence HUMID);
+   - the OLED confidence flag (H / D / ~ / ! / ?) on page 3.
 
 Physical gates / user actions, in this order:
   1. Print the MAX30102 reflective cradle; assemble; recalibrate SpO2 at the fixed
@@ -1074,6 +1090,12 @@ Physical gates / user actions, in this order:
      MPU6050. The fall/SOS path has one passing physical trial (countdown +
      buzzer + cancel verified); still run multi-trial/orientation drops and
      false-positive characterisation, and capture the logs.
+  5b. PM2.5 field sanity: put the sensor next to a known reference (a phone
+     showing an AQI, or a hand-held particle counter) for 10 minutes and record
+     the raw-versus-published pair. We have no reference instrument of our own,
+     so this is the only way to learn whether the published correction behaves
+     the same way here as it did in the 17 AirGradient collocation sites. Do not
+     claim accuracy from the correction's own literature.
 
 Validation / evidence:
   6. T4.1 independent HRV/IBI reference (AD8232 or borrowed chest strap), compared
@@ -1102,8 +1124,10 @@ Optional polish:
   - T3.6 is applied, and the device now sends the NEWS2 sub-scores so live
     tiles are no longer reconstructed locally.
   - Raise the web SOS cancel hold from 3 s to 5 s to match the physical button.
-  - Reconcile the remaining subjective latency claims (0.44/0.38/18 us) and
-    "integer-only" wording.
+  - Latency and "integer-only" wording: DONE 2026-10-20. The hazard net is
+    int8 weights with float MACs and a real expf() sigmoid; the only host
+    measurement is 0.44 us (GCC x86-64, -O2) and no ESP32-S3 figure is claimed
+    anywhere. The int32/LUT description belonged to the deleted PM2.5 net.
   - Standalone mNEWS2/environment card, if time permits.
   - H5 Zynq PS I2C slave address (only affects a real Zynq board).
 ```
