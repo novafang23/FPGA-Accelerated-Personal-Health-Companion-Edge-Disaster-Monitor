@@ -29,17 +29,17 @@
 -->
 <style>
   :root {
-    --bg:          #080c14;
-    --card:        rgba(11, 17, 32, 0.85);
-    --card-solid:  #0b1120;
-    --inset:       #0a1022;
-    --border:      #1a2540;
-    --border-soft: #131f35;
-    --text:        #e2e8f0;
-    --text-title:  #cbd5e1;
-    --text-mid:    #8492a6;
-    --text-dim:    #8996aa;
-    --text-faint:  #7587a0;
+    --bg:          #070b12;
+    --card:        #0d1424;
+    --card-solid:  #0d1424;
+    --inset:       #111b2e;
+    --border:      #27364f;
+    --border-soft: #1c2940;
+    --text:        #eef3f9;
+    --text-title:  #dbe4ef;
+    --text-mid:    #b9c6d8;
+    --text-dim:    #a3b1c6;
+    --text-faint:  #8492a6;
     --emerald:     #00FFAA;
     --cyan:        #00E5FF;
     --amber:       #F59E0B;
@@ -47,6 +47,10 @@
     --purple:      #A855F7;
     --sky:         #38bdf8;
     --violet:      #a78bfa;
+    --focus:       #7dd3fc;
+    --radius:      10px;
+    --radius-ctl:  8px;
+    --radius-chip: 6px;
     --mono: ui-monospace, "JetBrains Mono", "Cascadia Mono", Consolas, monospace;
     --sans: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
   }
@@ -62,7 +66,7 @@
   }
 
   body {
-    padding: 14px 18px 20px;
+    padding: 16px 20px 24px;
     min-height: 100vh;
   }
 
@@ -79,15 +83,13 @@
 
   .card {
     background: var(--card);
-    -webkit-backdrop-filter: blur(16px);
-    backdrop-filter: blur(16px);
     border: 1px solid var(--border);
-    border-radius: 12px;
+    border-radius: var(--radius);
   }
 
   .mono { font-family: var(--mono); }
-  .dim  { font-size: 11px; color: var(--text-dim); }
-  .faint{ font-size: 10px; color: var(--text-faint); font-family: var(--mono); }
+  .dim  { font-size: 13px; color: var(--text-dim); }
+  .faint{ font-size: 12px; color: var(--text-faint); font-family: var(--mono); }
 
   /* â”€â”€ Header â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
   header {
@@ -96,16 +98,16 @@
   }
   .brand { display: flex; align-items: center; gap: 10px; }
   .brand-name {
-    margin: 0; font-weight: 800; font-size: 20px; letter-spacing: -0.03em; color: #f1f5f9;
+    margin: 0; font-weight: 800; font-size: 22px; letter-spacing: -0.03em; color: #f1f5f9;
   }
-  .brand-sub { font-size: 13px; color: var(--text-dim); }
+  .brand-sub { font-size: 14px; color: var(--text-mid); }
   .board-sub {
-    margin-top: 3px; font-size: 11px; color: var(--text-faint); font-family: var(--mono);
+    margin-top: 3px; font-size: 12px; color: var(--text-dim); font-family: var(--mono);
   }
 
   .status-pill {
     display: flex; align-items: center; gap: 6px; margin-left: 6px;
-    padding: 3px 10px; border-radius: 20px;
+    padding: 4px 10px; border-radius: 20px;
   }
   .status-pill.live   { background: rgba(0,255,170,0.07); border: 1px solid rgba(0,255,170,0.22); }
   .status-pill.sim    { background: rgba(245,158,11,0.07); border: 1px solid rgba(245,158,11,0.22); }
@@ -116,7 +118,7 @@
   .status-pill.sim  .status-dot { background: var(--amber);   box-shadow: 0 0 7px var(--amber); }
   .status-pill.err  .status-dot { background: var(--crimson); box-shadow: 0 0 7px var(--crimson); }
   .status-pill.idle .status-dot { background: var(--text-mid); }
-  .status-pill span { font-family: var(--mono); font-size: 10px; }
+  .status-pill span { font-family: var(--mono); font-size: 12px; }
   .status-pill.live span { color: var(--emerald); }
   .status-pill.sim  span { color: var(--amber); }
   .status-pill.err  span { color: var(--crimson); }
@@ -127,39 +129,44 @@
     50%      { opacity: 0.4; transform: scale(0.75); }
   }
 
-  .controls { display: flex; gap: 4px; flex-wrap: wrap; align-items: center; }
+  .controls { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
 
   button {
-    font-family: var(--sans); font-size: 11px; font-weight: 400;
-    padding: 5px 12px; border-radius: 8px; border: 1px solid var(--border);
+    font-family: var(--sans); font-size: 13px; font-weight: 400;
+    min-height: 38px;
+    padding: 8px 14px; border-radius: var(--radius-ctl); border: 1px solid var(--border);
     background: transparent; color: var(--text-dim);
-    cursor: pointer; transition: all 0.15s;
+    cursor: pointer; transition: color 0.15s, border-color 0.15s, background 0.15s;
   }
-  button:hover { color: var(--text-mid); border-color: #26375a; }
+  button:hover { color: var(--text); border-color: #3b4f70; }
   button.active {
     font-weight: 600; border-color: #334b70; background: #0f1e38; color: #93c5fd;
   }
   button.primary { border-color: rgba(0,255,170,0.35); color: var(--emerald); }
   button.primary:hover { background: rgba(0,255,170,0.08); }
   button:disabled { opacity: 0.45; cursor: default; }
+  button:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
 
   /* â”€â”€ Rows â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
-  .row { display: grid; gap: 12px; margin-bottom: 12px; }
+  .row { display: grid; gap: 14px; margin-bottom: 14px; }
   .row-1 { grid-template-columns: 1fr 340px; }
   .row-2 { grid-template-columns: 1fr 1fr 1fr 1fr 180px; }
   .row-3 { grid-template-columns: repeat(5, 1fr); }
-  .row-4 { grid-template-columns: repeat(4, 1fr); gap: 24px; }
+  .row-4 { grid-template-columns: repeat(4, 1fr); gap: 20px; }
 
-  .card-pad { padding: 18px 20px; }
+  .card-pad { padding: 20px 22px; }
 
-  .card-head { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 12px; }
-  .card-title { font-size: 13px; font-weight: 600; color: var(--text-title); margin-bottom: 2px; }
+  .card-head { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 16px; }
+  .card-title { font-size: 14px; font-weight: 600; color: var(--text-title); margin-bottom: 2px; }
 
   .chip {
-    font-size: 10px; color: var(--text-faint); background: var(--inset);
-    border: 1px solid var(--border); border-radius: 4px; padding: 2px 7px;
+    font-size: 11px; color: var(--text-dim); background: var(--inset);
+    border: 1px solid var(--border); border-radius: var(--radius-chip); padding: 3px 8px;
     font-family: var(--mono);
   }
+  #hist-export { min-height: 36px; padding-left: 12px; padding-right: 12px; }
+  #profile-buttons { gap: 6px; flex-wrap: wrap; }
+  #profile-buttons button { font-size: 12px; padding-left: 10px; padding-right: 10px; }
   button.chip:hover { color: var(--text-mid); border-color: #26375a; }
 
   .scope-frame {
@@ -168,22 +175,22 @@
   }
   canvas { display: block; width: 100%; height: 100%; }
 
-  .metric-row { display: flex; gap: 24px; margin-top: 12px; flex-wrap: wrap; }
+  .metric-row { display: flex; gap: 20px 28px; margin-top: 12px; flex-wrap: wrap; }
   .metric { }
-  .metric .k { font-size: 10px; color: var(--text-faint); margin-bottom: 2px; font-family: var(--mono); }
-  .metric .v { font-size: 13px; color: var(--text-mid); font-family: var(--mono); font-weight: 500; }
+  .metric .k { font-size: 12px; color: var(--text-faint); margin-bottom: 2px; font-family: var(--mono); }
+  .metric .v { font-size: 15px; color: var(--text-mid); font-family: var(--mono); font-weight: 500; }
 
   .ppg-card { display: flex; flex-direction: column; }
   .ppg-card .scope-frame { flex: 1 1 auto; min-height: 200px; }
   .trace-wrap { position: relative; }
   .trace-tag {
     position: absolute; right: 4px; bottom: 2px;
-    font: 9px var(--mono); letter-spacing: 0.04em;
+    font: 10px var(--mono); letter-spacing: 0.04em;
     color: var(--text-faint); pointer-events: none;
   }
   .device-verdict {
-    margin-top: 10px; padding: 5px 8px; border: 1px solid var(--border);
-    border-radius: 6px; font: 10px var(--mono); color: var(--text-dim);
+    margin-top: 10px; padding: 6px 10px; border: 1px solid var(--border);
+    border-radius: var(--radius-ctl); font: 11px var(--mono); color: var(--text-dim);
     text-align: center; letter-spacing: 0.02em;
   }
   .sr-only {
@@ -191,62 +198,63 @@
     overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0;
   }
 
-  .big { font-family: var(--mono); font-weight: 800; line-height: 1; }
-  .unit { font-size: 13px; color: var(--text-dim); margin-left: 4px; }
+  .big { font-family: var(--mono); font-weight: 800; line-height: 1; font-variant-numeric: tabular-nums; }
+  .unit { font-size: 14px; color: var(--text-dim); margin-left: 4px; }
+  .vital-xl { font-size: clamp(38px, 4.2vw, 48px); }
+  .vital-lg { font-size: clamp(32px, 3.6vw, 40px); }
 
   /* â”€â”€ NEWS2 â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
   .news2-card { padding: 20px; display: flex; flex-direction: column; gap: 16px; }
   .news2-hero { text-align: center; padding: 20px 0 16px; }
-  .news2-score { font-family: var(--mono); font-size: 72px; font-weight: 900; line-height: 1; }
+  .news2-score { font-family: var(--mono); font-size: clamp(56px, 6vw, 72px); font-weight: 900; line-height: 1; font-variant-numeric: tabular-nums; }
   .news2-label { margin-top: 8px; font-size: 15px; font-weight: 700; letter-spacing: 0.02em; }
-  .news2-sub   { margin-top: 6px; font-size: 11px; color: var(--text-mid); line-height: 1.6; padding: 0 8px; }
+  .news2-sub   { margin-top: 6px; font-size: 12px; color: var(--text-mid); line-height: 1.6; padding: 0 8px; }
   .divider     { border-top: 1px solid var(--border); padding-top: 14px; }
 
-  .subscore-grid { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 6px; }
+  .subscore-grid { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px; }
   .subscore {
-    text-align: center; padding: 6px 4px; border-radius: 6px;
+    text-align: center; padding: 10px 6px; border-radius: var(--radius-ctl); min-height: 56px;
     background: var(--inset); border: 1px solid var(--border-soft);
   }
-  .subscore.hot { background: rgba(245,158,11,0.1); border-color: #4a3010; }
+  .subscore.hot { background: rgba(245,158,11,0.1); border-color: #4a3010; box-shadow: inset 3px 0 0 var(--amber); }
   .subscore.na  { border-color: var(--border-soft); }
-  .subscore .k { font-family: var(--mono); font-size: 10px; color: var(--text-faint); }
+  .subscore .k { font-family: var(--mono); font-size: 12px; color: var(--text-faint); }
   .subscore.hot .k { color: var(--amber); }
-  .subscore .v { font-family: var(--mono); font-size: 15px; font-weight: 700; color: var(--text-faint); margin-top: 2px; }
+  .subscore .v { font-family: var(--mono); font-size: 18px; font-weight: 700; color: var(--text-faint); margin-top: 2px; font-variant-numeric: tabular-nums; }
   .subscore.hot .v { color: #fbbf24; }
 
   /* â”€â”€ Bars â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
-  .bar { height: 6px; border-radius: 3px; background: #0d1526; overflow: hidden; }
-  .bar > i { display: block; height: 100%; border-radius: 3px; transition: width 0.25s ease, background 0.4s; }
+  .bar { height: 8px; border-radius: 4px; background: #16233a; overflow: hidden; }
+  .bar > i { display: block; height: 100%; border-radius: 4px; transition: width 0.25s ease, background 0.4s; }
 
-  .band { display: flex; gap: 3px; height: 6px; align-items: stretch; }
+  .band { display: flex; gap: 4px; height: 8px; align-items: stretch; }
   .band > i { height: 100%; border-radius: 2px; opacity: 0.15; transition: opacity 0.5s; }
   .band > i.on { opacity: 1; }
 
   .gauge-label { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 8px; }
   .gauge-label .name { font-size: 13px; font-weight: 600; color: var(--text-title); }
-  .gauge-label .val  { font-family: var(--mono); font-size: 20px; font-weight: 700; }
+  .gauge-label .val  { font-family: var(--mono); font-size: 24px; font-weight: 700; font-variant-numeric: tabular-nums; }
 
   .pill {
-    padding: 5px 8px; border-radius: 6px; margin-top: 4px;
+    padding: 5px 10px; border-radius: var(--radius-chip); margin-top: 4px;
     background: var(--inset); border: 1px solid var(--border-soft);
-    font-size: 10px; font-family: var(--mono); color: var(--text-dim);
+    font-size: 11px; font-family: var(--mono); color: var(--text-dim);
   }
   .pill.bad { background: rgba(239,68,68,0.1); border-color: #5a1d1d; color: var(--crimson); }
 
   /* â”€â”€ Splash / helper overlay â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
   #gate {
     position: fixed; inset: 0; z-index: 50;
-    background: rgba(8,12,20,0.94);
-    -webkit-backdrop-filter: blur(6px); backdrop-filter: blur(6px);
+    background: rgba(7,11,18,0.96);
     display: flex; align-items: center; justify-content: center; padding: 24px;
   }
   #gate.hidden { display: none; }
-  .gate-box { max-width: 560px; text-align: center; }
-  .gate-box .gate-title { font-size: 30px; margin: 0 0 6px; letter-spacing: -0.03em; color: #f1f5f9; }
-  .gate-box p  { color: var(--text-mid); font-size: 13px; line-height: 1.7; }
-  .gate-actions { display: flex; gap: 10px; justify-content: center; margin-top: 22px; flex-wrap: wrap; }
-  .gate-actions button { padding: 10px 18px; font-size: 13px; }
-  .gate-note { margin-top: 18px; font-size: 11px; color: var(--text-faint); font-family: var(--mono); }
+  .gate-box { max-width: 640px; text-align: center; }
+  .gate-box .gate-title { font-size: 36px; margin: 0 0 8px; letter-spacing: -0.03em; color: #f1f5f9; }
+  .gate-box p  { color: var(--text-mid); font-size: 14px; line-height: 1.7; }
+  .gate-actions { display: flex; gap: 12px; justify-content: center; margin-top: 26px; flex-wrap: wrap; }
+  .gate-actions button { padding: 12px 20px; font-size: 15px; min-height: 48px; }
+  .gate-note { margin-top: 18px; font-size: 12px; color: var(--text-faint); font-family: var(--mono); }
 
   @media (prefers-reduced-motion: reduce) {
     *, *::before, *::after {
@@ -256,6 +264,19 @@
     }
   }
 
+  /* Light desktop surround. The instrument cards stay dark because the script
+     writes signal colours (C.emerald, C.crimson, ...) as inline styles; a full
+     inversion would need a palette change in JavaScript. */
+  @media (prefers-color-scheme: light) {
+    html, body { background: #e9eef5; }
+    body::before { opacity: 0.35; }
+    header {
+      background: var(--card-solid); border: 1px solid var(--border);
+      border-radius: var(--radius); padding: 12px 16px;
+    }
+    main > .faint { color: #475569 !important; }
+  }
+
   @media (max-height: 760px) {
     body { padding-top: 10px; }
     .row { gap: 8px; margin-bottom: 8px; }
@@ -263,11 +284,11 @@
     .ppg-card .scope-frame { flex: 0 0 180px; min-height: 180px; }
     .news2-card { padding: 14px; gap: 10px; }
     .news2-hero { padding: 10px 0 8px; }
-    .news2-score { font-size: 48px; }
-    .news2-sub { font-size: 10px; }
-    #n2-note { font-size: 10px; line-height: 1.35; }
-    .device-verdict { margin-top: 6px; padding: 3px 6px; }
-    .subscore { padding: 4px 3px; }
+    .news2-score { font-size: 52px; }
+    .news2-sub { font-size: 11px; }
+    #n2-note { font-size: 11px; line-height: 1.35; }
+    .device-verdict { margin-top: 6px; padding: 4px 8px; }
+    .subscore { padding: 6px 4px; min-height: 44px; }
     .subscore-grid { gap: 4px; }
   }
 
@@ -288,7 +309,7 @@
 <div id="gate" role="dialog" aria-modal="true" aria-labelledby="gate-title" aria-describedby="gate-desc">
   <div class="gate-box">
     <h2 class="gate-title" id="gate-title">VALOR</h2>
-    <p style="font-family:var(--mono);font-size:11px;color:var(--text-dim);margin:0 0 18px">
+    <p style="font-family:var(--mono);font-size:12px;color:var(--text-dim);margin:0 0 18px">
       Vital &amp; Atmospheric Logic for Offline Rescue &middot; SIH26181
     </p>
     <p id="gate-desc">
@@ -337,7 +358,7 @@
         <div class="dim" id="scope-sub">AC-coupled reflectance &middot; ring buffer &middot; auto-ranged</div>
       </div>
       <div style="display:flex;gap:8px;align-items:center">
-        <span class="mono" style="font-size:11px" id="scope-sqi">SQI --</span>
+        <span class="mono" style="font-size:12px" id="scope-sqi">SQI --</span>
         <span class="chip" id="scope-rate">-- Hz</span>
         <span class="chip" id="scope-src">--</span>
       </div>
@@ -383,7 +404,7 @@
     <div class="dim" style="margin-bottom:10px">Heart Rate <span class="faint" id="hr-source">--</span></div>
     <div style="display:flex;align-items:flex-end;justify-content:space-between">
       <div>
-        <span class="big" id="v-hr" style="font-size:44px">--</span>
+        <span class="big vital-xl" id="v-hr">--</span>
         <span class="unit" style="font-size:14px;margin-left:5px">bpm</span>
       </div>
     </div>
@@ -393,7 +414,7 @@
       </canvas>
       <span class="trace-tag">SCHEMATIC</span>
     </div>
-    <div style="font-size:11px;color:var(--text-dim)" id="hr-note">&nbsp;</div>
+    <div style="font-size:12px;color:var(--text-dim)" id="hr-note">&nbsp;</div>
   </div>
 
   <div class="card card-pad">
@@ -403,9 +424,9 @@
         SpO2 arc indicator
       </canvas>
       <div>
-        <span class="big" id="v-spo2" style="font-size:36px">--</span>
+        <span class="big vital-lg" id="v-spo2">--</span>
         <span class="unit">%</span>
-        <div style="font-size:11px;color:var(--text-dim);margin-top:4px" id="spo2-note">&nbsp;</div>
+        <div style="font-size:12px;color:var(--text-dim);margin-top:4px" id="spo2-note">&nbsp;</div>
       </div>
     </div>
     <div style="margin-top:12px" class="dim" id="spo2-src">Plethysmographic &middot; red/IR ratio</div>
@@ -414,17 +435,17 @@
   <div class="card card-pad">
     <div class="dim" style="margin-bottom:10px">HRV &mdash; RMSSD</div>
     <div style="margin-bottom:14px">
-      <span class="big" id="v-hrv" style="font-size:36px">--</span>
+      <span class="big vital-lg" id="v-hrv">--</span>
       <span class="unit">ms</span>
     </div>
     <div class="bar"><i id="bar-hrv" style="width:0%"></i></div>
-    <div style="margin-top:8px;font-size:11px;color:var(--text-dim)" id="hrv-note">&nbsp;</div>
+    <div style="margin-top:8px;font-size:12px;color:var(--text-dim)" id="hrv-note">&nbsp;</div>
   </div>
 
   <div class="card card-pad">
     <div class="dim" style="margin-bottom:10px">Resp. Rate</div>
     <div style="margin-bottom:10px">
-      <span class="big" id="v-rr" style="font-size:36px">--</span>
+      <span class="big vital-lg" id="v-rr">--</span>
       <span class="unit">br/min</span>
     </div>
     <div class="trace-wrap" style="height:44px">
@@ -439,7 +460,7 @@
   <div class="card" style="padding:18px 16px">
     <div class="dim" style="margin-bottom:10px">Signal Quality</div>
     <div style="margin-bottom:8px">
-      <span class="big" id="v-sqi" style="font-size:36px">--</span>
+      <span class="big vital-lg" id="v-sqi">--</span>
       <span class="unit">%</span>
     </div>
     <div class="pill" id="sqi-pill">--</div>
@@ -452,7 +473,7 @@
   <div class="card card-pad">
     <div class="dim" style="margin-bottom:10px">Ambient Temp</div>
     <div style="margin-bottom:12px">
-      <span class="big" id="v-temp" style="font-size:38px;font-weight:700">--</span>
+      <span class="big vital-lg" id="v-temp">--</span>
       <span class="unit" style="font-size:14px">&deg;C</span>
     </div>
     <div class="band" id="temp-band">
@@ -467,7 +488,7 @@
   <div class="card card-pad">
     <div class="dim" style="margin-bottom:10px">Humidity</div>
     <div style="margin-bottom:12px">
-      <span class="big" id="v-hum" style="font-size:38px;font-weight:700">--</span>
+      <span class="big vital-lg" id="v-hum">--</span>
       <span class="unit" style="font-size:14px">% RH</span>
     </div>
     <div class="bar"><i id="bar-hum" style="width:0%"></i></div>
@@ -478,13 +499,13 @@
     <div class="dim" style="margin-bottom:10px">PM2.5</div>
     <div style="display:flex;align-items:baseline;gap:10px;margin-bottom:8px">
       <div>
-        <span class="big" id="v-pm" style="font-size:38px;font-weight:700">--</span>
+        <span class="big vital-lg" id="v-pm">--</span>
         <span class="unit">&micro;g/m&sup3;</span>
       </div>
     </div>
     <div style="display:flex;align-items:center;justify-content:space-between">
       <div class="faint" id="pm-raw">raw --</div>
-      <div class="mono" style="font-size:11px;font-weight:600" id="pm-label">--</div>
+      <div class="mono" style="font-size:12px;font-weight:600" id="pm-label">--</div>
     </div>
     <div style="margin-top:8px" class="dim">PMS5003 &middot; published humidity correction (EPA / AirGradient)</div>
   </div>
@@ -506,14 +527,14 @@
     <div class="dim" style="margin-bottom:14px">Physiological Stress</div>
     <div style="margin-bottom:12px">
       <div class="gauge-label">
-        <span style="font-size:11px;color:var(--text-dim)">Moran PSI</span>
+        <span style="font-size:12px;color:var(--text-dim)">Moran PSI</span>
         <span class="mono" style="font-size:18px;font-weight:700" id="psi-val">--<span style="font-size:10px;color:var(--text-faint)">/10</span></span>
       </div>
       <div class="bar"><i id="bar-psi" style="width:0%"></i></div>
     </div>
     <div>
       <div class="gauge-label">
-        <span style="font-size:11px;color:var(--text-dim)">AHA Autonomic</span>
+        <span style="font-size:12px;color:var(--text-dim)">AHA Autonomic</span>
         <span class="mono" style="font-size:18px;font-weight:700" id="aha-val">--<span style="font-size:10px;color:var(--text-faint)">/1.0</span></span>
       </div>
       <div class="bar"><i id="bar-aha" style="width:0%"></i></div>
@@ -574,7 +595,7 @@
       <div class="dim" id="hist-sub">On-device hourly summaries &middot; 24-point circular buffer &middot; restored after reboot &middot; zero cloud</div>
     </div>
     <div style="display:flex;gap:14px;align-items:center;flex-wrap:wrap">
-      <div style="display:flex;gap:12px;align-items:center;font-size:11px;font-family:var(--mono)">
+      <div style="display:flex;gap:12px;align-items:center;font-size:12px;font-family:var(--mono)">
         <span style="display:flex;align-items:center;gap:4px;color:var(--emerald)">
           <i style="display:inline-block;width:8px;height:8px;border-radius:2px;background:var(--emerald)"></i>HR (bpm)
         </span>
@@ -596,15 +617,15 @@
     </div>
   </div>
 
-  <div style="height:170px;position:relative;border-radius:8px;overflow:hidden;border:1px solid #111c33;background:#05080f">
+  <div style="height:200px;position:relative;border-radius:8px;overflow:hidden;border:1px solid var(--border-soft);background:#05080f">
     <canvas id="hist-canvas" tabindex="0" aria-label="24-Hour Clinical Trends Chart" aria-describedby="hist-help" role="img">
       24-hour health and hazard trend chart
     </canvas>
     <div id="hist-help" class="sr-only">Use the left and right arrow keys to inspect the hourly trend points.</div>
-    <div id="hist-tooltip" style="position:absolute;display:none;pointer-events:none;background:rgba(11,17,32,0.92);border:1px solid #2d3f5c;border-radius:6px;padding:6px 10px;font-family:var(--mono);font-size:10px;color:#e2e8f0;box-shadow:0 4px 12px rgba(0,0,0,0.5);z-index:10"></div>
+    <div id="hist-tooltip" style="position:absolute;display:none;pointer-events:none;background:rgba(13,20,36,0.97);border:1px solid #2d3f5c;border-radius:8px;padding:8px 12px;font-family:var(--mono);font-size:12px;color:var(--text);box-shadow:0 4px 12px rgba(0,0,0,0.5);z-index:10"></div>
   </div>
 
-  <div class="faint" id="hist-scale" style="margin-top:8px;font-family:var(--mono);font-size:10px">
+  <div class="faint" id="hist-scale" style="margin-top:8px;font-family:var(--mono);font-size:11px">
     Display scales:
     <span style="color:var(--emerald)">HR 40&ndash;160 bpm</span> &middot;
     <span style="color:var(--cyan)">SpO&#8322; 80&ndash;100%</span> &middot;
