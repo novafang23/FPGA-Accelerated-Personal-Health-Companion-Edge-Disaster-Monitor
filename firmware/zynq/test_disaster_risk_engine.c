@@ -174,6 +174,73 @@ static void test_pollution_risk() {
     printf("test_pollution_risk: PASS\n");
 }
 
+/* A1: the EPA AQI sets a floor on the pollution verdict, because a rescuer
+ * with normal vitals can still be in dangerous air. The floor may raise the
+ * PRSI level but must never lower it or replace a higher PRSI advisory. */
+static void test_pollution_aqi_floor() {
+    hrv_state_t hrv;
+    init_hrv_ready(&hrv, 75.0f);
+    hrv.rmssd = 40.0f; /* no autonomic points: isolate the air component */
+    env_sensors_t env = { .ambient_temp_c = 25.0f, .humidity_pct = 30.0f,
+                           .pm25 = 132.8f, .skin_temp_c = 36.0f };
+    risk_assessment_t result;
+
+    /* The room reading captured on COM4: AQI 208 with clean vitals. */
+    assert(disaster_epa_pm25_aqi(132.8f) == 208);
+    disaster_assess(&hrv, 98.0f, 75.0f, &env, &result);
+    assert(result.pollution_risk == RISK_HIGH);
+    assert(result.overall_risk == RISK_HIGH);
+    assert(strstr(result.pollution_advisory, "Very unhealthy air") != NULL);
+
+    /* No finger, no vitals at all: the air still has to warn. */
+    hrv_state_t none;
+    memset(&none, 0, sizeof(none));
+    disaster_assess(&none, 0.0f, 0.0f, &env, &result);
+    assert(result.pollution_risk == RISK_HIGH);
+    assert(result.overall_risk == RISK_HIGH);
+
+    /* AQI 99 (top of Moderate) stays NORMAL. */
+    env.pm25 = 35.0f;
+    assert(disaster_epa_pm25_aqi(env.pm25) == 99);
+    disaster_assess(&hrv, 98.0f, 75.0f, &env, &result);
+    assert(result.pollution_risk == RISK_NORMAL);
+    assert(strstr(result.pollution_advisory, "Respiratory status normal") != NULL);
+
+    /* AQI 100 is the last Moderate point; still NORMAL. */
+    env.pm25 = 35.4f;
+    assert(disaster_epa_pm25_aqi(env.pm25) == 100);
+    disaster_assess(&hrv, 98.0f, 75.0f, &env, &result);
+    assert(result.pollution_risk == RISK_NORMAL);
+
+    /* AQI 102: sensitive groups only. Level stays NORMAL, text warns. */
+    env.pm25 = 36.0f;
+    assert(disaster_epa_pm25_aqi(env.pm25) == 102);
+    disaster_assess(&hrv, 98.0f, 75.0f, &env, &result);
+    assert(result.pollution_risk == RISK_NORMAL);
+    assert(strstr(result.pollution_advisory, "sensitive groups") != NULL);
+
+    /* AQI 154: Unhealthy -> MODERATE. */
+    env.pm25 = 60.0f;
+    assert(disaster_epa_pm25_aqi(env.pm25) == 154);
+    disaster_assess(&hrv, 98.0f, 75.0f, &env, &result);
+    assert(result.pollution_risk == RISK_MODERATE);
+
+    /* AQI 500: Hazardous -> CRITICAL even with clean vitals. */
+    env.pm25 = 400.0f;
+    assert(disaster_epa_pm25_aqi(env.pm25) == 500);
+    disaster_assess(&hrv, 98.0f, 75.0f, &env, &result);
+    assert(result.pollution_risk == RISK_CRITICAL);
+    assert(strstr(result.pollution_advisory, "Hazardous air") != NULL);
+
+    /* A higher PRSI verdict keeps its own advisory. */
+    env.pm25 = 60.0f;
+    disaster_assess(&hrv, 85.0f, 75.0f, &env, &result); /* SpO2 85 adds 40 */
+    assert(result.pollution_risk == RISK_HIGH);
+    assert(strstr(result.pollution_advisory, "Respiratory strain") != NULL);
+
+    printf("test_pollution_aqi_floor: PASS\n");
+}
+
 /* A missing PM2.5 reading must never read as clean air.
  *
  * env_sensors_t.pm25 uses a negative value for "no reading available" (the
@@ -2190,6 +2257,7 @@ int main() {
     test_hrv_full_buffer_does_not_take_summary_shortcut();
     test_heat_risk();
     test_pollution_risk();
+    test_pollution_aqi_floor();
     test_missing_pm25_is_not_clean_air();
     test_flood_risk();
     test_environmental_condition();

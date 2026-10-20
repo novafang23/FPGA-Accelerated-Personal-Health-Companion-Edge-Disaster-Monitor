@@ -346,19 +346,48 @@ static risk_level_t assess_pollution_risk(float bpm, float spo2, float pm25, flo
     }
 
     /* Map score to risk level */
+    risk_level_t level;
+    const char *msg;
     if (prsi >= POLLUTION_PRSI_CRITICAL) {
-        *advisory = "DANGER: Severe respiratory distress! Use N95 mask, seek clean air";
-        return RISK_CRITICAL;
+        level = RISK_CRITICAL;
+        msg = "DANGER: Severe respiratory distress! Use N95 mask, seek clean air";
     } else if (prsi >= POLLUTION_PRSI_HIGH) {
-        *advisory = "WARNING: Respiratory strain. Wear mask, minimize outdoor exposure";
-        return RISK_HIGH;
+        level = RISK_HIGH;
+        msg = "WARNING: Respiratory strain. Wear mask, minimize outdoor exposure";
     } else if (prsi >= POLLUTION_PRSI_MODERATE) {
-        *advisory = "CAUTION: Air quality affecting health. Consider wearing a mask";
-        return RISK_MODERATE;
+        level = RISK_MODERATE;
+        msg = "CAUTION: Air quality affecting health. Consider wearing a mask";
     } else {
-        *advisory = "Respiratory status normal";
-        return RISK_NORMAL;
+        level = RISK_NORMAL;
+        msg = "Respiratory status normal";
     }
+
+    /* Environmental floor: the air itself can be the hazard. A rescuer with
+     * clean vitals in smoke may not desaturate for minutes, so a NORMAL PRSI
+     * score must not report dangerous air as safe. The floor can only raise
+     * the level and never replaces a higher PRSI advisory. */
+    int aqi = disaster_epa_pm25_aqi(pm25);
+    if (aqi >= POLLUTION_AQI_HAZARDOUS) {
+        if (level < RISK_CRITICAL) {
+            level = RISK_CRITICAL;
+            msg = "DANGER: Hazardous air (AQI 301+). Wear a respirator, leave the area";
+        }
+    } else if (aqi >= POLLUTION_AQI_VERY_UNHEALTHY) {
+        if (level < RISK_HIGH) {
+            level = RISK_HIGH;
+            msg = "WARNING: Very unhealthy air (AQI 201+). Wear N95, minimize outdoor exposure";
+        }
+    } else if (aqi >= POLLUTION_AQI_UNHEALTHY) {
+        if (level < RISK_MODERATE) {
+            level = RISK_MODERATE;
+            msg = "CAUTION: Unhealthy air (AQI 151+). Consider wearing a mask";
+        }
+    } else if (level == RISK_NORMAL && aqi >= POLLUTION_AQI_SENSITIVE) {
+        msg = "ADVISORY: Air unhealthy for sensitive groups (AQI 101-150)";
+    }
+
+    *advisory = msg;
+    return level;
 }
 
 /* Flood / Hypothermia / Extreme Exertion */

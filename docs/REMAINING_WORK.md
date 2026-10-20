@@ -1077,14 +1077,16 @@ BOARD RE-ENUMERATED 2026-10-20 (COM4, CH9102):
      (the host expectation raw 85 at RH 85 -> 65.2, HUMID is unchanged);
    - the OLED confidence flag was not photographed.
 
-NEW FINDING - pollution rule under-calls the AQI band (2026-10-20):
-  At PM25=132.8 ug/m3 the capture printed RPOLL=NORMAL. The 75-150 band adds
-  20 PRSI points and POLLUTION_PRSI_MODERATE is 30, so normal vitals leave it
-  below MODERATE - a rescuer in air the same file maps to AQI ~208 (Very
-  Unhealthy) is told the air is normal. The AI channel was declined that cycle
-  (AIVALID=0), so nothing corrected it. Needs a policy decision: lower
-  POLLUTION_PRSI_MODERATE, add an AQI-only floor, or accept that environmental
-  warnings require vital corroboration. Do not retune thresholds before that.
+RESOLVED - pollution rule under-called the AQI band (2026-10-20):
+  The capture at PM25=132.8 printed RPOLL=NORMAL (AQI 208). Decision: A1, an
+  EPA-AQI floor in assess_pollution_risk(). AQI 151-200 now raises the
+  pollution verdict to at least MODERATE, 201-300 to HIGH, 301+ to CRITICAL;
+  AQI 101-150 stays NORMAL but the advisory names sensitive groups. The floor
+  can only raise the PRSI verdict, never lower it or overwrite a higher PRSI
+  advisory, and it works with no finger (no vitals). PM25=132.8 with clean
+  vitals is now RPOLL=HIGH (overall HIGH); 400 is CRITICAL. Covered by
+  test_pollution_aqi_floor(). The POLLUTION_PM25_*/POLLUTION_PRSI_*
+  thresholds and the AI model are unchanged.
 
 Physical gates / user actions, in this order:
   1. Print the MAX30102 reflective cradle; assemble; recalibrate SpO2 at the fixed

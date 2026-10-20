@@ -237,13 +237,16 @@ available, so this proves the chain and the confidence transitions, not the
 absolute accuracy. The dashboard raw-versus-published pair was not opened in
 this capture and the OLED page-3 flag was not photographed.
 
-**Open policy issue found in the same capture.** At PM25=132.8 the rule engine
-printed `RPOLL=NORMAL`. The 75-150 ug/m3 band contributes 20 PRSI points and
-`POLLUTION_PRSI_MODERATE` is 30, so a rescuer with normal vitals is told the
-air is normal even though the same file's AQI function maps 132.8 to about 208
-(Very Unhealthy). The AI channel was declined in that cycle (no finger,
-`AIVALID=0`), so nothing corrected it. Tracked in `docs/REMAINING_WORK.md`;
-thresholds must not be retuned before that decision is made.
+**Policy issue resolved from the same capture (A1, 2026-10-20).** At
+PM25=132.8 the rule engine printed `RPOLL=NORMAL` even though the AQI function
+maps 132.8 to 208 (Very Unhealthy). The 75-150 band contributes 20 PRSI points
+and the MODERATE cut is 30, so normal vitals could not reach it. The engine now
+applies an EPA-AQI floor inside `assess_pollution_risk()`: AQI 151-200 raises
+the pollution verdict to at least MODERATE, 201-300 to HIGH, 301+ to CRITICAL;
+101-150 stays NORMAL with a sensitive-groups advisory. The floor only raises
+the PRSI verdict and never replaces a higher one. With clean vitals, 132.8 now
+reports `RPOLL=HIGH` (overall HIGH) and 400 reports CRITICAL. The PRSI
+thresholds and the AI model are unchanged; see `test_pollution_aqi_floor()`.
 
 ## 7. Reproduction
 

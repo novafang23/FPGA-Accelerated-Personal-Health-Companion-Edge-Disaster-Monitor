@@ -63,6 +63,18 @@
 #define POLLUTION_PRSI_HIGH     50.0f
 #define POLLUTION_PRSI_MODERATE 30.0f
 
+/* Environmental floor on the pollution verdict. The PRSI score measures how
+ * the wearer is responding; a fit rescuer in heavy smoke can show no
+ * desaturation yet and still be in danger. These are US EPA AQI band edges
+ * (see disaster_epa_pm25_aqi()): 151-200 Unhealthy raises the verdict to at
+ * least MODERATE, 201-300 Very Unhealthy to HIGH, 301+ Hazardous to CRITICAL.
+ * AQI 101-150 (Unhealthy for Sensitive Groups) leaves the level alone and only
+ * changes the advisory text. The floor never lowers a higher PRSI verdict. */
+#define POLLUTION_AQI_SENSITIVE      101
+#define POLLUTION_AQI_UNHEALTHY      151
+#define POLLUTION_AQI_VERY_UNHEALTHY 201
+#define POLLUTION_AQI_HAZARDOUS      301
+
 /* --- Flood/Cold Risk Thresholds ---
  *
  * `FLOOD_SKIN_TEMP_*` are SKIN-temperature thresholds and must only ever be fed
