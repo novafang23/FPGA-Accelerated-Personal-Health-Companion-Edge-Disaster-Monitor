@@ -26,8 +26,8 @@
  *   - ambient -20..65 C. The BME280 path rejects outside 5..65 C, but 0 C and
  *     -5 C are real winter readings and must NOT be treated as dropout.
  *   - humidity 0-100 %RH.
- *   - a POSITIVE SpO2 outside 50-100 % is corrupt. SpO2 <= 0 keeps its
- *     existing meaning of "not locked yet" and is substituted with 96 %. */
+ *   - SpO2 must be exactly 0.0f (oximeter not locked, substituted with 96 %)
+ *     or a plausible 50-100 % reading; anything else is corrupt. */
 #define NN_BPM_MIN            30.0f
 #define NN_BPM_MAX           220.0f
 #define NN_AMBIENT_MIN_C     (-20.0f)
