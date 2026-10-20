@@ -943,9 +943,11 @@ byte for byte, INT8-vs-FP32 max error is 0.0914 with 97.32% tier agreement, and 
 **deployed INT8 model agrees with the rule-based teacher 88.39%** (float32 reference
 88.47%) on the 7,000-sample held-out split. Fixed in this pass:
 
-- A non-finite sensor value used to produce a finite, plausible score (the uint8
-  requantiser clamped the NaN to 0, so the network returned its bias vector as a
-  measurement). `nn_features_finite()` now declines with `RISK_UNKNOWN`.
+- A non-finite or implausible sensor value used to produce a finite, plausible score
+  (the uint8 requantiser clamped the NaN to 0, so the network returned its bias vector
+  as a measurement; `hr = 0` from an absent finger scored flood 0.31 MODERATE).
+  `nn_inputs_valid()` now refuses non-finite values and anything outside bpm 30-220,
+  ambient -20..65 C, humidity 0-100 % or SpO2 50-100 %, returning `RISK_UNKNOWN`.
 - The float32 model and its 2.5 kB of weights were dead payload in the device image
   (`nn_predict()` has no device caller). The ESP32 build is now INT8-only
   (`NN_ENABLE_FLOAT32_MODEL=0`); the link map confirms `nn_risk_model.c.obj` is gone.
@@ -1060,20 +1062,29 @@ DONE: T1.1-T1.7 core software/status; T2.3 IMU fitted (physical fall test
       EPA/AirGradient correction on a 60 s rolling mean (2026-10-20) - see
       docs/reports/PM25_CALIBRATION_2026-10-20.md.
 
-BOARD RECONNECT GATE - do this before the next measurement:
-  As of 2026-10-20 the bench machine no longer enumerates ANY USB serial port:
-  COM3, COM4, COM5 and COM6 are all listed by Get-PnpDevice with status
-  "Unknown" and all four fail to open (FileNotFoundError). That is a host USB
-  enumeration problem, not a busy-port problem - replug the board, check the
-  cable/USB hub, and confirm `python -c "import serial; serial.Serial('COM4')"`
-  opens before assuming the firmware is at fault.
-  Once it is back, run docs/HARDWARE_DEBUG_HANDOVER.md section 6 and:
-   - the 90 s / 6-minute still-contact HRV capture (live HRV behaviour is not
-     yet hardware-validated);
-   - the PM2.5 capture: confirm PM25=, PMRAW= and PMCONF= on the [TELEMETRY]
-     line, and the raw-versus-published pair on the dashboard, against the
-     host-suite expectation (raw 85 at RH 85 -> published 65.2, confidence HUMID);
-   - the OLED confidence flag (H / D / ~ / ! / ?) on page 3.
+BOARD RE-ENUMERATED 2026-10-20 (COM4, CH9102):
+  The board is back and was re-flashed (1,001,712 bytes, hash verified). The
+  PM2.5 chain is now captured end to end:
+    boot:              PM25=-1.0, PMRAW=-1.0, PMCONF=NODATA
+    after 20 samples:  PMRAW=168.3 -> PM25=132.8 at 60.8 %RH, SETTLING
+    steady state:      PMCONF=OK
+  No finger: AIVALID=0, NNHEAT/NNPOLL/NNFLOOD=0.000, RISK=UNKNOWN, and the
+  serial log prints the decline reason once per change
+  ("Insufficient HRV data for AI risk assessment (INT8)" at boot).
+  Still open from this gate:
+   - the 90 s / 6-minute still-contact HRV capture;
+   - the dashboard raw-versus-published pair has not been repeated on hardware
+     (the host expectation raw 85 at RH 85 -> 65.2, HUMID is unchanged);
+   - the OLED confidence flag was not photographed.
+
+NEW FINDING - pollution rule under-calls the AQI band (2026-10-20):
+  At PM25=132.8 ug/m3 the capture printed RPOLL=NORMAL. The 75-150 band adds
+  20 PRSI points and POLLUTION_PRSI_MODERATE is 30, so normal vitals leave it
+  below MODERATE - a rescuer in air the same file maps to AQI ~208 (Very
+  Unhealthy) is told the air is normal. The AI channel was declined that cycle
+  (AIVALID=0), so nothing corrected it. Needs a policy decision: lower
+  POLLUTION_PRSI_MODERATE, add an AQI-only floor, or accept that environmental
+  warnings require vital corroboration. Do not retune thresholds before that.
 
 Physical gates / user actions, in this order:
   1. Print the MAX30102 reflective cradle; assemble; recalibrate SpO2 at the fixed

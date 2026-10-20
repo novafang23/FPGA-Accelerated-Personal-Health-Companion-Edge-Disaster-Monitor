@@ -216,17 +216,34 @@ Other suites, after the change:
   never been validated against a reference instrument and must not be quoted
   as one.
 
-## 6. Hardware verification — OPEN
+## 6. Hardware verification - RECORDED 2026-10-20 (COM4)
 
-The final on-device capture (the `[TELEMETRY] … PMRAW=… PMCONF=…` line and the
-OLED flag) is **not yet recorded**: every USB serial port on the bench
-machine disappeared while the work was in progress (COM3/4/5/6 all report
-`FileNotFoundError`, i.e. the devices are not enumerated at all, not merely
-busy), so the board could not be flashed or read. The firmware build, the
-host suite, the engine suite and both dashboard verifications all pass on the
-same source tree; the device capture must be repeated once the board is
-reconnected. Until then the claim "verified on hardware" does not apply to
-the PM2.5 chain.
+Flashed image: 1,001,712 bytes (0xf48f0), esptool hash-verified. Boot log shows
+`PMS5003 initialized OK` and the ForgeFPGA bitstream loaded (46,408 bytes).
+
+At boot, before the first PMS5003 frame:
+
+    PM25=-1.0, PMRAW=-1.0, PMCONF=NODATA
+
+so the no-reading sentinel survives end to end and is not published as 0.
+
+After the 20-sample window filled (ambient 27.2 C, 60.8 %RH):
+
+    PMRAW=168.3  PM25=132.8  PMCONF=SETTLING   (OK after roughly 3 minutes)
+
+Check: 0.786 x 168.3 - 0.0862 x 60.8 + 5.75 = 132.8, matching the published
+value. Raw stayed at 165-168 ug/m3 in this room. No reference instrument was
+available, so this proves the chain and the confidence transitions, not the
+absolute accuracy. The dashboard raw-versus-published pair was not opened in
+this capture and the OLED page-3 flag was not photographed.
+
+**Open policy issue found in the same capture.** At PM25=132.8 the rule engine
+printed `RPOLL=NORMAL`. The 75-150 ug/m3 band contributes 20 PRSI points and
+`POLLUTION_PRSI_MODERATE` is 30, so a rescuer with normal vitals is told the
+air is normal even though the same file's AQI function maps 132.8 to about 208
+(Very Unhealthy). The AI channel was declined in that cycle (no finger,
+`AIVALID=0`), so nothing corrected it. Tracked in `docs/REMAINING_WORK.md`;
+thresholds must not be retuned before that decision is made.
 
 ## 7. Reproduction
 
