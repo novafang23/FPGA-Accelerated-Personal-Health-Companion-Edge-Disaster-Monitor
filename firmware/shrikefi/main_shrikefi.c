@@ -1892,6 +1892,22 @@ static float s_last_pm10 = 0.0f;   /* coarse-particle proxy for dust detection *
             /* 2. Execute On-Device TinyML INT8 Neural Network (single-pass populates both risk and telemetry) */
             if (ambient_valid) {
                 disaster_assess_nn_int8(&hrv_snapshot, engine_spo2, hr, &env_for_assessment, &nn_risk, &nn_out);
+
+                /* An UNKNOWN verdict here is a refusal, not a calm reading.
+                 * Print the reason once per change so the serial log explains
+                 * why the AI tiles read "--" (no finger -> bpm 0, withheld
+                 * HRV, corrupt environment). Repeating it every second would
+                 * bury the rest of the telemetry. */
+                static char s_last_ai_decline[sizeof(nn_risk.overall_advisory)];
+                if (nn_risk.overall_risk == RISK_UNKNOWN) {
+                    if (strcmp(s_last_ai_decline, nn_risk.overall_advisory) != 0) {
+                        ESP_LOGW(TAG, "%s", nn_risk.overall_advisory);
+                        snprintf(s_last_ai_decline, sizeof(s_last_ai_decline), "%s",
+                                 nn_risk.overall_advisory);
+                    }
+                } else {
+                    s_last_ai_decline[0] = '\0';
+                }
             }
 
             /* 3. Execute NEWS2 Clinical Physiological Triage Engine.
