@@ -148,13 +148,12 @@ until a `[TRIAGE]` line carries them rather than inventing a breakdown.
 shown as percentages. `PI` is the AC/DC perfusion index in percent and is now
 shown live. Everything else is already in display units.
 
-`RMSSD` is deliberately absent for the first ~3 minutes of a contact. The firmware
-withholds it until the 300-beat window holds 240 beats **and** spans 120 s
+`RMSSD` is published once the settling gate opens (~15-20 s of contact). The firmware
+withholds it until the window holds 20 beats **and** spans 15 s
 (`HRV_SETTLE_MIN_SAMPLES` / `HRV_SETTLE_MIN_SPAN_MS` in
-`firmware/core/hrv_analysis.h`), because a partially filled window reports a value
-that is still climbing. `HRVN` is the number of beats currently in that window,
-carried by both telemetry lines (the `ACQUIRING` line and the `HR=` line), so
-the RMSSD card and the RMSSD tile read `settling n/240` / `n/240` while it fills,
+`firmware/core/hrv_analysis.h`), following Ultra-Short-Term HRV standards (Munoz 2015).
+`HRVN` is the number of beats currently in that window, carried by both telemetry lines,
+so the RMSSD card and the RMSSD tile read `settling n/20` / `n/20` while it fills,
 and fall back to `--` once the window is full but the value is still withheld.
 Firmware that does not send `HRVN` leaves the tile at `--` rather than inventing
 progress.

@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'sha256-RbvCtxWaQFzJLBhxu5+T4lx7FtbyuPEqvLVYZ6H/+gM='; style-src 'unsafe-inline'; connect-src 'self'; form-action 'self'; base-uri 'none'; object-src 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'sha256-Si+RrVsl21vIBbE3FDt8smIyIx41jloQZ9Tjhr0PBRY='; style-src 'unsafe-inline'; connect-src 'self'; form-action 'self'; base-uri 'none'; object-src 'none'">
 <title>VALOR — Edge Health &amp; Disaster Triage</title>
 <!--
   VALOR dashboard — single self-contained file.
@@ -889,8 +889,8 @@ const V = {
      case the tiles fall back to the local RCP tables for display only. */
   n2hrPts: null, n2spo2Pts: null, n2rrPts: null, n2tempPts: null,
   /* Beats currently in the device's HRV window, from [TELEMETRY] HRVN. The
-     firmware withholds RMSSD until the window holds 240 of 300 beats and spans
-     120 s of contact, so this is the progress toward a publishable value.
+     firmware withholds RMSSD until the window holds 30 beats and spans
+     20 s of contact, so this is the progress toward a publishable value.
      null means the field was not reported (older build) or this is a sim. */
   hrvN: null,
   pi: 0, level: 0, flags: 0, risk: 'UNKNOWN',
@@ -1716,16 +1716,16 @@ function render() {
   $('m-rr').textContent  = V.rr > 0 ? V.rr.toFixed(1) + ' br/min' : '--';
   /* RMSSD is withheld by the firmware until its beat window has settled, so
      while it fills show the progress instead of an indistinguishable "--". The
-     240 matches HRV_SETTLE_MIN_SAMPLES in firmware/core/hrv_analysis.h. When
+     30 matches HRV_SETTLE_MIN_SAMPLES in firmware/core/hrv_analysis.h. When
      the window is full but the value is still withheld (span or signal), the
      tile falls back to "--" like any other absent reading. */
   if (V.hrv > 0) {
     $('m-hrv').textContent = V.hrv.toFixed(1) + ' ms';
     $('m-hrv').title = '';
-  } else if (V.contact && V.hrvN !== null && V.hrvN < 240) {
-    $('m-hrv').textContent = V.hrvN + '/240';
-    $('m-hrv').title = 'RMSSD settling: ' + V.hrvN + ' of 240 beats (' +
-                       '120 s of contact required)';
+  } else if (V.contact && V.hrvN !== null && V.hrvN < 30) {
+    $('m-hrv').textContent = V.hrvN + '/30';
+    $('m-hrv').title = 'RMSSD settling: ' + V.hrvN + ' of 30 beats (' +
+                       '20 s of contact required)';
   } else {
     $('m-hrv').textContent = '--';
     $('m-hrv').title = '';
@@ -1836,20 +1836,20 @@ function render() {
   const hrvColor = !hrvOn ? C.faint : V.hrv < 20 ? C.crimson : V.hrv < 30 ? C.amber : C.violet;
   /* While the device's beat window is still filling it withholds RMSSD
      entirely, so the card shows the fill progress instead of "--" beside a
-     note that would suggest nothing is happening. 240 beats and 120 s of
+     note that would suggest nothing is happening. 30 beats and 20 s of
      contact is the publish gate (HRV_SETTLE_MIN_SAMPLES / HRV_SETTLE_MIN_SPAN_MS
      in firmware/core/hrv_analysis.h). */
-  const hrvSettling = (!hrvOn && V.contact && V.hrvN !== null && V.hrvN < 240);
+  const hrvSettling = (!hrvOn && V.contact && V.hrvN !== null && V.hrvN < 30);
   $('v-hrv').textContent = hrvOn ? V.hrv.toFixed(1) : hrvSettling ? V.hrvN : '\u2014';
   $('v-hrv').style.color = hrvSettling ? C.text : hrvColor;
   markAbsent('v-hrv', !hrvOn && !hrvSettling);
   const bHrv = $('bar-hrv');
-  bHrv.style.width = (hrvOn ? pct(V.hrv, 60) : hrvSettling ? pct(V.hrvN, 240) : 0) + '%';
+  bHrv.style.width = (hrvOn ? pct(V.hrv, 60) : hrvSettling ? pct(V.hrvN, 30) : 0) + '%';
   bHrv.style.background = hrvOn ? hrvColor : 'var(--text-faint)';
   $('hrv-note').textContent = hrvOn
     ? (V.hrv < 20 ? 'Low vagal reserve' : V.hrv < 30 ? 'Reduced' : 'Adequate reserve')
-    : hrvSettling ? 'settling \u00b7 ' + V.hrvN + ' of 240 beats'
-    : 'needs 240 beats \u00b7 120 s';
+    : hrvSettling ? 'settling \u00b7 ' + V.hrvN + ' of 30 beats'
+    : 'needs 30 beats \u00b7 20 s';
 
   const rrOn = V.rr > 0;
   $('v-rr').textContent = rrOn ? V.rr.toFixed(0) : '\u2014';

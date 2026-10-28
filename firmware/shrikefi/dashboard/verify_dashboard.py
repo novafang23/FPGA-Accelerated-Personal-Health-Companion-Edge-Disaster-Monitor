@@ -82,7 +82,7 @@ window.onerror = function (m) { window.__err = String(m); };
     } else if (new URLSearchParams(location.search).get('case') === 'hrv_settle') {
       /* Contact present but RMSSD withheld: the device's beat window is 120/240
          beats, so the card must show progress rather than a bare dash. */
-      V.contact = true; V.hr = 72; V.spo2 = 98; V.hrv = 0; V.hrvN = 120; V.sqi = 95;
+      V.contact = true; V.hr = 72; V.spo2 = 98; V.hrv = 0; V.hrvN = 10; V.sqi = 95;
       V.news2 = 0; V.level = 0; V.flags = 0; V.pi = 1.2;
     } else if (new URLSearchParams(location.search).get('case') === 'device_pts') {
       V.hr = 72; V.spo2 = 98; V.hrv = 42; V.rr = 15; V.sqi = 95; V.contact = true;
@@ -360,7 +360,7 @@ for case in ("zero", "healthy", "hrv_settle", "device_pts", "ai_declined", "ai_s
         expect = {
             "hr": "\u2014", "spo2": "\u2014", "hrv": "\u2014", "rr": "\u2014", "sqi": "\u2014",
             "hrNote": "acquiring", "spo2Note": "calibrating",
-            "hrvNote": "needs 240 beats \u00b7 120 s", "sqiPill": "waiting for contact",
+            "hrvNote": "needs 30 beats \u00b7 20 s", "sqiPill": "waiting for contact",
             "psi": "--", "aha": "--", "hrSource": "awaiting IBI",
             "histMeanHr": "--", "histSampleCount": "0/24",
             "histSub": "No history yet \u2014 connect a device or start a simulation",
@@ -412,8 +412,8 @@ for case in ("zero", "healthy", "hrv_settle", "device_pts", "ai_declined", "ai_s
         }
     elif case == "hrv_settle":
         expect = {
-            "hrv": "120", "mHrv": "120/240",
-            "hrvNote": "settling \u00b7 120 of 240 beats",
+            "hrv": "10", "mHrv": "10/30",
+            "hrvNote": "settling \u00b7 10 of 30 beats",
             "psi": "0.0/10", "aha": "--",
         }
     elif case == "ai_declined":
