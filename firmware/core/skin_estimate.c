@@ -8,6 +8,26 @@
 #include <string.h>
 #include <math.h>
 
+static float median_of_buf(const float *buf, uint8_t count) {
+    float sorted[SKIN_EST_MED_LEN];
+    uint8_t n = (count <= SKIN_EST_MED_LEN) ? count : SKIN_EST_MED_LEN;
+    if (n == 0u) return 0.0f;
+
+    for (uint8_t i = 0u; i < n; i++) {
+        sorted[i] = buf[i];
+    }
+    for (uint8_t i = 1u; i < n; i++) {
+        float key = sorted[i];
+        int j = (int)i - 1;
+        while (j >= 0 && sorted[j] > key) {
+            sorted[j + 1] = sorted[j];
+            j--;
+        }
+        sorted[j + 1] = key;
+    }
+    return sorted[n / 2u];
+}
+
 void skin_estimate_init(skin_estimate_t *st, float b0, float b1, float b2, bool is_calibrated) {
     if (!st) return;
     memset(st, 0, sizeof(*st));
@@ -25,13 +45,14 @@ void skin_estimate_reset(skin_estimate_t *st) {
     if (!st) return;
     st->estimated_skin_c = 0.0f;
     st->slope_c_per_sec = 0.0f;
-    st->contact_start_ms = 0;
+    st->contact_peak_die_c = 0.0f;
+    st->contact_start_ms = 0u;
     st->contact_active = false;
     st->is_settled = false;
     st->is_valid = false;
     st->is_below_range = false;
-    st->hist_count = 0;
-    st->hist_idx = 0;
+    st->hist_count = 0u;
+    st->hist_idx = 0u;
     memset(st->die_history, 0, sizeof(st->die_history));
     memset(st->time_history_ms, 0, sizeof(st->time_history_ms));
 }
@@ -51,21 +72,29 @@ void skin_estimate_update(skin_estimate_t *st, float raw_die_c, float amb_c,
                           bool finger_present, uint32_t now_ms) {
     if (!st) return;
 
-    /* Update idle die & ambient readings whenever plausible */
+    if (amb_c >= 5.0f && amb_c <= 65.0f) {
+        st->last_amb_c = amb_c;
+    }
+
+    /* Update 5-sample median and low-pass filtered die temperature */
     if (raw_die_c >= 15.0f && raw_die_c <= 65.0f) {
         st->last_raw_die_c = raw_die_c;
+        st->med_buf[st->med_idx] = raw_die_c;
+        st->med_idx = (uint8_t)((st->med_idx + 1u) % SKIN_EST_MED_LEN);
+        if (st->med_count < SKIN_EST_MED_LEN) {
+            st->med_count++;
+        }
+        float med_die_c = median_of_buf(st->med_buf, st->med_count);
+
         if (st->last_filtered_die_c <= 10.0f) {
-            st->last_filtered_die_c = raw_die_c;
-            st->idle_die_c = raw_die_c;
+            st->last_filtered_die_c = med_die_c;
+            st->idle_die_c = med_die_c;
         } else {
-            st->last_filtered_die_c = 0.70f * st->last_filtered_die_c + 0.30f * raw_die_c;
+            st->last_filtered_die_c = 0.65f * st->last_filtered_die_c + 0.35f * med_die_c;
             if (!finger_present) {
                 st->idle_die_c = 0.85f * st->idle_die_c + 0.15f * st->last_filtered_die_c;
             }
         }
-    }
-    if (amb_c >= 5.0f && amb_c <= 65.0f) {
-        st->last_amb_c = amb_c;
     }
     st->last_sample_ms = now_ms;
 
@@ -79,32 +108,37 @@ void skin_estimate_update(skin_estimate_t *st, float raw_die_c, float amb_c,
     if (!st->contact_active) {
         st->contact_active = true;
         st->contact_start_ms = now_ms;
-        st->contact_baseline_die_c = (st->idle_die_c >= 15.0f) ? st->idle_die_c : st->last_filtered_die_c;
-        st->hist_count = 0;
-        st->hist_idx = 0;
+        float raw_base = (st->idle_die_c >= 15.0f) ? st->idle_die_c : st->last_filtered_die_c;
+        /* Guard against cold-boot LED self-heating: steady MAX30102 idle die temp
+         * with active LEDs sits ~5.5 C above ambient room temperature. */
+        float min_led_idle = (st->last_amb_c >= 10.0f) ? (st->last_amb_c + 5.5f) : raw_base;
+        st->contact_baseline_die_c = fmaxf(raw_base, min_led_idle);
+        st->contact_peak_die_c = st->last_filtered_die_c;
+        st->estimated_skin_c = SKIN_EST_INITIAL_TOUCH_C;
+        st->hist_count = 0u;
+        st->hist_idx = 0u;
     }
 
-    /* Store in circular buffer for real-time slope evaluation */
+    /* Track peak median-filtered die temperature during this contact session */
+    if (st->last_filtered_die_c > st->contact_peak_die_c) {
+        st->contact_peak_die_c = st->last_filtered_die_c;
+    }
+
+    /* Store in circular buffer for diagnostic slope tracking */
     st->die_history[st->hist_idx] = st->last_filtered_die_c;
     st->time_history_ms[st->hist_idx] = now_ms;
-    st->hist_idx = (uint8_t)((st->hist_idx + 1) % SKIN_EST_HIST_LEN);
+    st->hist_idx = (uint8_t)((st->hist_idx + 1u) % SKIN_EST_HIST_LEN);
     if (st->hist_count < SKIN_EST_HIST_LEN) {
         st->hist_count++;
     }
 
-    /* Compute slope across recent window using true elapsed milliseconds */
-    if (st->hist_count >= 3) {
-        /* Use up to 8 samples (~8-9s) lookback for responsive derivative lead */
-        uint8_t lookback = (st->hist_count > 8) ? 8 : (uint8_t)(st->hist_count - 1);
-        uint8_t oldest_idx = (uint8_t)((st->hist_idx + SKIN_EST_HIST_LEN - 1 - lookback) % SKIN_EST_HIST_LEN);
+    if (st->hist_count >= 3u) {
+        uint8_t lookback = (st->hist_count > 8u) ? 8u : (uint8_t)(st->hist_count - 1u);
+        uint8_t oldest_idx = (uint8_t)((st->hist_idx + SKIN_EST_HIST_LEN - 1u - lookback) % SKIN_EST_HIST_LEN);
         float oldest_val = st->die_history[oldest_idx];
         uint32_t oldest_ms = st->time_history_ms[oldest_idx];
         float dt_sec = (now_ms > oldest_ms) ? ((float)(now_ms - oldest_ms) * 0.001f) : (float)lookback;
-        if (dt_sec >= 0.5f) {
-            st->slope_c_per_sec = (st->last_filtered_die_c - oldest_val) / dt_sec;
-        } else {
-            st->slope_c_per_sec = 0.0f;
-        }
+        st->slope_c_per_sec = (dt_sec >= 0.5f) ? ((st->last_filtered_die_c - oldest_val) / dt_sec) : 0.0f;
     } else {
         st->slope_c_per_sec = 0.0f;
     }
@@ -113,29 +147,50 @@ void skin_estimate_update(skin_estimate_t *st, float raw_die_c, float amb_c,
                               ? (now_ms - st->contact_start_ms)
                               : 0u;
 
-    /* Thermal equilibrium check: >=15s contact, slope <= 0.025 C/s */
+    float amb_corr = (st->last_amb_c >= 10.0f) ? (st->last_amb_c - 27.5f) : 0.0f;
+    float actual_idle_c = (st->idle_die_c >= 15.0f) ? st->idle_die_c : st->contact_baseline_die_c;
+    float cooling_delta = st->last_filtered_die_c - actual_idle_c;
+    float target_c;
+
+    if (cooling_delta < -0.80f) {
+        /* Cold-finger / hypothermia cooling path: finger actively cools the die below actual idle */
+        float cold_delta = fmaxf(-5.0f, cooling_delta);
+        target_c = st->b0 + (1.80f * cold_delta) + (st->b2 * amb_corr);
+        float diff = target_c - st->estimated_skin_c;
+        if (diff < 0.0f) {
+            float step = fmaxf(-0.35f, 0.30f * diff);
+            st->estimated_skin_c += step;
+        }
+    } else {
+        /* Normal / warm finger path: strictly non-decreasing peak-hold integrator */
+        float peak_delta = fmaxf(0.0f, fminf(st->contact_peak_die_c - st->contact_baseline_die_c, 3.80f));
+        target_c = st->b0 + (st->b1 * peak_delta) + (st->b2 * amb_corr);
+        target_c = fmaxf(33.40f, fminf(target_c, SKIN_EST_EQUIL_MAX_C));
+
+        float diff = target_c - st->estimated_skin_c;
+        if (diff > 0.0f) {
+            float step = 0.26f * diff;
+            if (diff > 0.10f && step < 0.07f) {
+                step = 0.07f;
+            }
+            if (step > SKIN_EST_MAX_RISE_PER_SEC) {
+                step = SKIN_EST_MAX_RISE_PER_SEC;
+            }
+            if (st->estimated_skin_c + step > target_c) {
+                st->estimated_skin_c = target_c;
+            } else {
+                st->estimated_skin_c += step;
+            }
+        }
+        /* Strictly non-decreasing: never subtract when diff <= 0.0f */
+    }
+
     if (contact_dur_ms >= SKIN_EST_SETTLE_MIN_MS &&
-        st->hist_count >= 12 &&
-        fabsf(st->slope_c_per_sec) <= SKIN_EST_MAX_SLOPE_C_PER_S) {
+        st->hist_count >= 12u &&
+        fabsf(target_c - st->estimated_skin_c) <= 0.35f) {
         st->is_settled = true;
     } else {
         st->is_settled = false;
-    }
-
-    /* Bidirectional Newton thermal lead compensation */
-    float clamped_slope = fmaxf(-0.25f, fminf(st->slope_c_per_sec, 0.30f));
-    float die_pred = st->last_filtered_die_c + (st->tau_lead_s * clamped_slope);
-
-    /* Contact temperature shift relative to pre-contact baseline */
-    float delta_die = die_pred - st->contact_baseline_die_c;
-
-    /* Thermal divider fusion */
-    float amb_corr = (st->last_amb_c >= 10.0f) ? (st->last_amb_c - 27.5f) : 0.0f;
-    float raw_est = st->b0 + (st->b1 * delta_die) + (st->b2 * amb_corr);
-    if (st->estimated_skin_c <= 10.0f) {
-        st->estimated_skin_c = raw_est;
-    } else {
-        st->estimated_skin_c = 0.65f * st->estimated_skin_c + 0.35f * raw_est;
     }
 
     if (contact_dur_ms >= SKIN_EST_VALID_MIN_MS) {

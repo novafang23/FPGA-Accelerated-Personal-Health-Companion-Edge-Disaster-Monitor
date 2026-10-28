@@ -10,6 +10,7 @@
 #include "ppg_respiratory_rate.h"
 #include "ppg_baseline_rr.h"
 #include "ppg_sqi.h"
+#include "skin_estimate.h"
 /* sos.c lives under firmware/shrikefi/ but is deliberately free of any hardware
  * or FreeRTOS dependency, so the emergency state machine is testable here
  * alongside everything else rather than only on the bench. */
@@ -2505,6 +2506,96 @@ static void test_max30102_temperature_conversion(void) {
     printf("test_max30102_temperature_conversion: PASS (masking and two's complement verified)\n");
 }
 
+static void test_skin_estimate_monotonic_and_bounded(void) {
+    /* 1. Trace 1 from tools/skin_calib_session.json: Neutral Finger #1
+     * Raw die temp jumps up and down (35.01 -> 34.76 -> 34.42 -> 34.84 -> 34.71 -> 35.46 -> 35.04 -> 35.56).
+     * Estimator must climb monotonically (never decrease) and settle in [34.4, 35.3] C. */
+    const float trace_neutral[] = {
+        33.75f, 33.90f, 34.23f, 34.31f, 35.01f, 34.76f, 34.42f,
+        34.84f, 34.92f, 34.80f, 34.71f, 34.80f, 34.99f, 35.27f,
+        35.34f, 35.46f, 35.04f, 35.03f, 35.56f
+    };
+    skin_estimate_t st_neutral;
+    skin_estimate_init(&st_neutral, SKIN_EST_DEFAULT_B0, SKIN_EST_DEFAULT_B1, SKIN_EST_DEFAULT_B2, true);
+    skin_estimate_update(&st_neutral, 33.75f, 27.80f, false, 1000u);
+
+    float prev_est = 0.0f;
+    uint32_t t_ms = 2000u;
+    for (size_t i = 0; i < sizeof(trace_neutral) / sizeof(trace_neutral[0]); i++) {
+        t_ms += 1000u;
+        skin_estimate_update(&st_neutral, trace_neutral[i], 27.80f, true, t_ms);
+        assert(st_neutral.estimated_skin_c >= prev_est); /* Strictly non-decreasing! */
+        prev_est = st_neutral.estimated_skin_c;
+    }
+    assert(st_neutral.is_valid);
+    assert(st_neutral.is_settled);
+    assert(st_neutral.estimated_skin_c >= 34.40f && st_neutral.estimated_skin_c <= 35.30f);
+
+    /* 2. Trace 2 from tools/skin_calib_session.json: Warm Finger #1 (plus 1-sample spike at 41.0 C)
+     * Must reject the 1-sample spike via median-of-5, climb monotonically, and settle higher than neutral in [35.4, 36.35] C. */
+    const float trace_warm[] = {
+        35.39f, 35.40f, 35.21f, 35.39f, 35.70f, 35.70f, 36.11f,
+        36.56f, 41.00f, /* 1-sample I2C/ADC glitch spike - must be rejected by median-of-5 */
+        36.60f, 36.48f, 36.93f, 37.03f, 37.13f, 37.24f, 37.39f,
+        37.88f, 37.44f, 37.56f, 37.26f, 37.71f
+    };
+    skin_estimate_t st_warm;
+    skin_estimate_init(&st_warm, SKIN_EST_DEFAULT_B0, SKIN_EST_DEFAULT_B1, SKIN_EST_DEFAULT_B2, true);
+    skin_estimate_update(&st_warm, 33.75f, 27.75f, false, 1000u);
+
+    prev_est = 0.0f;
+    t_ms = 2000u;
+    for (size_t i = 0; i < sizeof(trace_warm) / sizeof(trace_warm[0]); i++) {
+        t_ms += 1000u;
+        skin_estimate_update(&st_warm, trace_warm[i], 27.75f, true, t_ms);
+        assert(st_warm.estimated_skin_c >= prev_est); /* Strictly non-decreasing! */
+        assert(st_warm.estimated_skin_c <= 36.45f);   /* Never overheats into fever! */
+        prev_est = st_warm.estimated_skin_c;
+    }
+    float warm_final = st_warm.estimated_skin_c;
+    assert(st_warm.is_valid);
+    assert(st_warm.is_settled);
+    assert(warm_final > st_neutral.estimated_skin_c + 0.40f);
+    assert(warm_final >= 35.40f && warm_final <= 36.35f);
+
+    /* 3. Cold-boot touch immunity: idle die starts at room temp (27.8 C) before LEDs warm package */
+    skin_estimate_t st_coldboot;
+    skin_estimate_init(&st_coldboot, SKIN_EST_DEFAULT_B0, SKIN_EST_DEFAULT_B1, SKIN_EST_DEFAULT_B2, true);
+    skin_estimate_update(&st_coldboot, 27.80f, 27.80f, false, 1000u);
+    prev_est = 0.0f;
+    t_ms = 2000u;
+    for (int i = 0; i < 20; i++) {
+        t_ms += 1000u;
+        float die_ramp = 28.50f + 0.45f * (float)i; /* ramps up to 37.05 C */
+        skin_estimate_update(&st_coldboot, die_ramp, 27.80f, true, t_ms);
+        assert(st_coldboot.estimated_skin_c >= prev_est);
+        assert(st_coldboot.estimated_skin_c <= 36.45f);
+        prev_est = st_coldboot.estimated_skin_c;
+    }
+
+    /* 4. Cold-finger / hypothermia detection: cold finger cools die from 33.5 C down to 30.2 C */
+    skin_estimate_t st_cold_fgr;
+    skin_estimate_init(&st_cold_fgr, SKIN_EST_DEFAULT_B0, SKIN_EST_DEFAULT_B1, SKIN_EST_DEFAULT_B2, true);
+    skin_estimate_update(&st_cold_fgr, 33.50f, 24.00f, false, 1000u);
+    t_ms = 2000u;
+    for (int i = 0; i < 18; i++) {
+        t_ms += 1000u;
+        skin_estimate_update(&st_cold_fgr, 30.20f, 24.00f, true, t_ms);
+    }
+    assert(st_cold_fgr.estimated_skin_c < 31.0f);
+    assert(st_cold_fgr.is_below_range);
+    assert(!st_cold_fgr.is_valid);
+
+    /* 5. Finger release immediately clears estimate and validity */
+    skin_estimate_update(&st_warm, 36.0f, 27.75f, false, t_ms + 1000u);
+    assert(!st_warm.is_valid);
+    assert(!st_warm.is_settled);
+    assert(st_warm.estimated_skin_c == 0.0f);
+
+    printf("test_skin_estimate_monotonic_and_bounded: PASS (neutral=%.2f C, warm=%.2f C, coldboot=%.2f C, cold=%.2f C)\n",
+           st_neutral.estimated_skin_c, warm_final, prev_est, st_cold_fgr.estimated_skin_c);
+}
+
 int main() {
     /* Unbuffered, because a failing assert calls abort() and abort() does not
      * flush stdio. With the default block buffering the diagnostic printed
@@ -2556,6 +2647,7 @@ int main() {
     test_rr_baseline_path();
     test_news2_temperature_scoring();
     test_max30102_temperature_conversion();
+    test_skin_estimate_monotonic_and_bounded();
     printf("ALL TESTS PASSED.\n");
     return 0;
 }

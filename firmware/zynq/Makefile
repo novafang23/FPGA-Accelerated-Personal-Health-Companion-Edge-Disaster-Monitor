@@ -36,7 +36,8 @@ SRCS_CORE := \
     $(CORE_DIR)/ppg_baseline_rr.c \
     $(CORE_DIR)/pm25_correction.c \
     $(CORE_DIR)/clinical_vitals_engine.c \
-    $(CORE_DIR)/ppg_sqi.c
+    $(CORE_DIR)/ppg_sqi.c \
+    $(CORE_DIR)/skin_estimate.c
 
 SRCS_DRIVERS := \
     i2c_hal.c \

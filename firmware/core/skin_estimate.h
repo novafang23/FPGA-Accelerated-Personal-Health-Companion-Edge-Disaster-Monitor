@@ -2,9 +2,9 @@
  * skin_estimate.h
  * Dual-Sensor Skin Temperature Estimation (MAX30102 Die Temp + BME280 Ambient)
  *
- * Physical Model (Thermal Divider):
- *   T_skin = b0 + b1 * T_die + b2 * T_amb
- *   Constraint: b1 + b2 ~ 1.0 (thermal divider equilibrium)
+ * Physical Model (Median-of-5 Peak-Holding Monotonic Thermal Conduction):
+ *   T_target = b0 + b1 * delta_die + b2 * (T_amb - 27.5)
+ *   Strictly non-decreasing first-order thermal convergence during warm contact.
  *
  * SIH26181 Health Companion & Edge Disaster Monitor
  */
@@ -20,24 +20,28 @@ extern "C" {
 #endif
 
 /* Clinical / Sensor Range Constraints */
-#define SKIN_EST_DEFAULT_B0          34.50f  /* Calibrated normal human skin baseline at 27.5C amb */
-#define SKIN_EST_DEFAULT_B1          1.05f   /* Gain on contact delta (T_die - T_idle) */
-#define SKIN_EST_DEFAULT_B2          0.15f   /* Ambient room correction gain */
-#define SKIN_EST_DEFAULT_TAU_S       4.00f   /* Bidirectional Newton thermal lead time constant (s) */
+#define SKIN_EST_DEFAULT_B0          34.10f  /* Calibrated peripheral skin baseline at 27.5C amb */
+#define SKIN_EST_DEFAULT_B1          0.55f   /* Gain on bounded contact delta (T_die_peak - T_base) */
+#define SKIN_EST_DEFAULT_B2          0.12f   /* Ambient room correction gain */
+#define SKIN_EST_DEFAULT_TAU_S       0.00f   /* Deprecated derivative lead (0 = disabled for monotonic stability) */
 
-#define SKIN_EST_MIN_REF_C          31.0f   /* Lower physiological skin display bound */
-#define SKIN_EST_MAX_REF_C          42.0f   /* Upper physiological skin threshold */
-#define SKIN_EST_VALID_MIN_MS       3000u   /* Publish lead-compensated estimate after 3s contact */
-#define SKIN_EST_SETTLE_MIN_MS      15000u  /* Minimum 15 seconds contact before full settling */
-#define SKIN_EST_MAX_SLOPE_C_PER_S  0.025f  /* Max slope for thermal equilibrium (>1 LSB/10s) */
-#define SKIN_EST_HIST_LEN           16      /* Rolling slope window */
+#define SKIN_EST_INITIAL_TOUCH_C    32.20f   /* Starting anchor when finger first makes optical contact */
+#define SKIN_EST_MIN_REF_C          31.0f    /* Lower physiological skin display bound (<31C = COLD) */
+#define SKIN_EST_MAX_REF_C          36.8f    /* Upper peripheral skin display bound */
+#define SKIN_EST_EQUIL_MAX_C        36.35f   /* Hard upper equilibrium ceiling against LED self-heating */
+#define SKIN_EST_MAX_RISE_PER_SEC   0.28f    /* Maximum upward slew rate per 1 Hz update (C/s) */
+#define SKIN_EST_VALID_MIN_MS       3000u    /* Publish monotonic estimate after 3s continuous contact */
+#define SKIN_EST_SETTLE_MIN_MS      12000u   /* Minimum 12 seconds contact before thermal equilibrium lock */
+#define SKIN_EST_MAX_SLOPE_C_PER_S  0.050f   /* Max residual slope for settled flag */
+#define SKIN_EST_HIST_LEN           16       /* Rolling slope window */
+#define SKIN_EST_MED_LEN            5        /* 5-sample median filter window for spike rejection */
 
 typedef struct {
     /* Calibration Coefficients */
-    float b0;           /* Skin baseline at 27.5C amb (nominal 34.50C) */
-    float b1;           /* Gain on contact delta (nominal 1.05) */
-    float b2;           /* Ambient room correction gain (nominal 0.15) */
-    float tau_lead_s;   /* Thermal lead time constant (s) */
+    float b0;           /* Skin baseline at 27.5C amb (nominal 34.10C) */
+    float b1;           /* Gain on contact delta (nominal 0.55) */
+    float b2;           /* Ambient room correction gain (nominal 0.12) */
+    float tau_lead_s;   /* Retained for struct compatibility (0.0f) */
     float cal_min_c;
     float cal_max_c;
     bool  is_calibrated;
@@ -47,9 +51,15 @@ typedef struct {
     float last_filtered_die_c;
     float last_amb_c;
     float idle_die_c;               /* Pre-contact steady die baseline */
-    float contact_baseline_die_c;   /* Frozen baseline at moment finger touched */
+    float contact_baseline_die_c;   /* Effective baseline at moment finger touched */
+    float contact_peak_die_c;       /* Peak median-filtered die temp during current contact */
     float estimated_skin_c;
     float slope_c_per_sec;
+
+    /* 5-sample median filter state */
+    float   med_buf[SKIN_EST_MED_LEN];
+    uint8_t med_count;
+    uint8_t med_idx;
 
     uint32_t contact_start_ms;
     uint32_t last_sample_ms;
