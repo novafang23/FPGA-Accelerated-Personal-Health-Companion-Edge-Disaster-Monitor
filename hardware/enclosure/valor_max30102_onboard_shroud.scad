@@ -1,33 +1,32 @@
 // =============================================================================
-// valor_max30102_onboard_shroud_v2.scad
-// Fixed Manifold Geometry - Solid Internal Mask & Sealed Back Light-Trap
+// valor_max30102_onboard_shroud_v4.scad
+// Fully Updated with Wider PCB Slide-In Pocket
 // =============================================================================
 
 $fn = 64;
 
-// 1. Hardware Dimensions
-pcb_w          = 14.4;  // MAX30102 PCB width (X) + clearance
-pcb_l          = 18.8;  // MAX30102 PCB length (Y) + clearance
+// 1. Hardware Dimensions (Widened to fit your actual 18+ mm board module)
+pcb_w          = 18.5;  // Width across X (widened for easy board insertion)
+pcb_l          = 22.5;  // Length along Y
 pcb_t          = 1.6;   // PCB thickness
 hdr_h          = 8.5;   // Black female header height
 stack_h        = hdr_h + pcb_t; // 10.1 mm from perfboard to top of PCB
 
-// 2. Optical Window & Internal Component Reliefs (FIXED HEIGHTS)
+// 2. Optical Window & Internal Component Reliefs
 ic_offset_y    = 2.2;   // Optical IC shift toward back of PCB
 win_w          = 7.0;   // Optical window width over MAX30102 glass
 win_l          = 5.0;   // Optical window length over MAX30102 glass
 
 mask_t         = 2.8;   // Total thickness of protective ceiling above PCB
 relief_h       = 1.6;   // Underside pocket depth for tall solder cones & SMDs
-                        // Leaves (2.8 - 1.6) = 1.2 mm of SOLID plastic above pins!
 
-pin_trench_w   = 3.4;   // Width of left/right underside slots for the 8 solder cones
+pin_trench_w   = 3.4;   // Width of left/right underside slots for header pins
 smd_trench_l   = 7.0;   // Front underside relief length for LDO & capacitors
 
 // 3. Exterior & Finger Tunnel Dimensions
 wall_left      = 1.6;   // Slim left wall to clear blue TMP117 board
 wall_right     = 3.2;   // Sturdy right wall
-back_ext       = 10.0;  // Extension behind PCB (fits in 27 mm GPS space)
+back_ext       = 10.0;  // Extension behind PCB
 front_ext      = 7.0;   // Front finger entry extension
 
 finger_w       = 16.5;  // Finger tunnel width
@@ -45,7 +44,7 @@ front_y        = -pcb_l / 2.0 - front_ext;
 back_y         =  pcb_l / 2.0 + back_ext;
 total_l        = back_y - front_y;
 
-floor_z        = stack_h + mask_t; // Z height where the finger rests (12.9 mm)
+floor_z        = stack_h + mask_t; 
 total_h        = floor_z + tunnel_h + roof_t;
 
 module valor_max30102_shroud() {
@@ -66,7 +65,7 @@ module valor_max30102_shroud() {
         translate([-pcb_w / 2.0 + 3.0, -pcb_l / 2.0 - 0.5, -0.1])
             cube([pcb_w - 6.0, pcb_l + 1.0, hdr_h - 1.0]);
 
-        // 3. Underside Relief Pockets for the 8 Solder Peaks (Blind pockets - do NOT break through floor!)
+        // 3. Underside Relief Pockets for the 8 Solder Peaks
         translate([-pcb_w / 2.0, -pcb_l / 2.0, stack_h - 0.1])
             cube([pin_trench_w, pcb_l, relief_h + 0.1]);
         translate([pcb_w / 2.0 - pin_trench_w, -pcb_l / 2.0, stack_h - 0.1])
@@ -77,7 +76,6 @@ module valor_max30102_shroud() {
             cube([pcb_w, smd_trench_l, relief_h + 0.1]);
 
         // 5. Precision Optical Aperture Over MAX30102 Glass Window
-        // Connects the finger tunnel floor down to the optical sensor IC
         hull() {
             translate([-win_w / 2.0, ic_offset_y - win_l / 2.0, stack_h - 0.2])
                 cube([win_w, win_l, 0.2]);
@@ -85,7 +83,7 @@ module valor_max30102_shroud() {
                 cube([win_w + 3.0, win_l + 3.0, 0.2]);
         }
 
-        // 6. Contoured Finger Tunnel (Open at Front, SOLID Light-Tight Wall at Back)
+        // 6. Contoured Finger Tunnel
         hull() {
             translate([tunnel_cx - 5.5, front_y - 1.0, floor_z])
                 cube([11.0, total_l - 3.0, 0.5]);
@@ -95,7 +93,7 @@ module valor_max30102_shroud() {
                 cube([10.0, total_l - 3.0, 1.5]);
         }
 
-        // 7. Front & Back Lower Skirt Cutouts (Stops 2 mm below PCB so back stays light-tight)
+        // 7. Front & Back Lower Skirt Cutouts
         translate([left_x - 1, front_y - 1, -0.1])
             cube([total_w + 2, front_ext + 0.1, hdr_h]);
         translate([left_x - 1, pcb_l / 2.0 - 0.1, -0.1])
