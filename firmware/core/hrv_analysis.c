@@ -131,8 +131,8 @@ int hrv_is_ready(const hrv_state_t *state) {
 
 /* Publication gate. Structural readiness (hrv_is_ready) is not enough: a
  * window with fewer than 10-20 beats yields a high RSA-phase variance. Wait
- * for the Ultra-Short-Term stabilization threshold (HRV_SETTLE_MIN_SAMPLES = 20
- * beats) and a window spanning at least HRV_SETTLE_MIN_SPAN_MS (15.0 s of contact). */
+ * for the Ultra-Short-Term stabilization threshold (HRV_SETTLE_MIN_SAMPLES = 30
+ * beats) and a window spanning at least HRV_SETTLE_MIN_SPAN_MS (20.0 s of contact). */
 int hrv_is_settled(const hrv_state_t *state) {
     if (state == NULL || !hrv_is_ready(state)) return 0;
 

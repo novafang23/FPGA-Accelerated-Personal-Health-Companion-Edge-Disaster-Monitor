@@ -34,15 +34,15 @@ extern "C" {
  *   hrv_is_ready()   - structural: enough contiguous pairs to compute a value.
  *                      Used by the risk engines and by callers that treat the
  *                      struct as a summary (they check the value itself).
- *   hrv_is_settled() - publication: the window holds at least 20 beats covering
- *                      at least 15 s of contact so RSA phase bias is stabilized.
+ *   hrv_is_settled() - publication: the window holds at least 30 beats covering
+ *                      at least 20 s of contact so RSA phase bias is stabilized.
  *                      Used by the publish paths that write g_state.hrv_rmssd. */
-#define HRV_SETTLE_MIN_SAMPLES 20
+#define HRV_SETTLE_MIN_SAMPLES 30
 /* Minimum time span the window must cover before RMSSD may be published.
- * Expressed in milliseconds of summed IBI, not wall-clock time: 15.0 s ensures
+ * Expressed in milliseconds of summed IBI, not wall-clock time: 20.0 s ensures
  * that even under extreme tachycardia (e.g. 120+ BPM where 20 beats take <10 s),
  * at least 3-4 respiratory cycles must elapse before publication. */
-#define HRV_SETTLE_MIN_SPAN_MS 15000.0f
+#define HRV_SETTLE_MIN_SPAN_MS 20000.0f
 
 /* Maximum physiological beat-to-beat difference (Task Force 1996, Kamath 2012).
  * Sinus rhythm cannot accelerate/decelerate by >120 ms in a single beat without

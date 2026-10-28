@@ -107,6 +107,56 @@ static void test_hrv_rmssd_does_not_bridge_rejected_interval(void) {
     printf("test_hrv_rmssd_does_not_bridge_rejected_interval: PASS\n");
 }
 
+static void test_hrv_consecutive_delta_gate(void) {
+    hrv_state_t hrv;
+    hrv_init(&hrv);
+
+    /* Feed 15 steady beats at 800 ms with +/- 20 ms normal RSA variation */
+    for (int i = 0; i < 15; i++) {
+        float ibi = 800.0f + ((i % 2 == 0) ? 20.0f : -20.0f);
+        hrv_add_ibi(&hrv, ibi);
+    }
+    hrv_compute(&hrv);
+    float baseline_rmssd = hrv.rmssd;
+    assert(baseline_rmssd > 35.0f && baseline_rmssd < 45.0f);
+
+    /* Inject a single 250 ms motion/dicrotic jump (800 -> 1050 ms), then return to 800 ms */
+    hrv_add_ibi(&hrv, 1050.0f);
+    hrv_add_ibi(&hrv, 800.0f);
+    hrv_compute(&hrv);
+
+    /* Without the delta gate, the 250 ms jump would inflate RMSSD to >70 ms.
+     * With HRV_MAX_DELTA_IBI_MS (120 ms), both jumps are excluded from RMSSD
+     * while the beats are still counted in hrv.count and mean_hr. */
+    assert(hrv.rmssd < 50.0f);
+    assert(hrv.count == 17);
+    printf("test_hrv_consecutive_delta_gate: PASS (RMSSD=%.1f ms)\n", hrv.rmssd);
+}
+
+static void test_hrv_settle_window_thresholds(void) {
+    hrv_state_t hrv;
+    hrv_init(&hrv);
+
+    /* Feed 20 beats at 800 ms (16.0 s) */
+    for (int i = 0; i < 20; i++) {
+        hrv_add_ibi(&hrv, 800.0f);
+    }
+    hrv_compute(&hrv);
+    /* Structural readiness requires 10 beats */
+    assert(hrv_is_ready(&hrv));
+    /* Under 30 beats / 20 s gate, 20 beats must NOT be settled */
+    assert(!hrv_is_settled(&hrv));
+
+    /* Feed 10 more beats to reach 30 beats (24.0 s span) */
+    for (int i = 0; i < 10; i++) {
+        hrv_add_ibi(&hrv, 800.0f);
+    }
+    hrv_compute(&hrv);
+    /* Now settled and ready for clinical publication */
+    assert(hrv_is_settled(&hrv));
+    printf("test_hrv_settle_window_thresholds: PASS\n");
+}
+
 static void test_hrv_full_buffer_does_not_take_summary_shortcut(void) {
     hrv_state_t hrv;
     hrv_init(&hrv);
@@ -2463,6 +2513,8 @@ int main() {
     setvbuf(stdout, NULL, _IONBF, 0);
     printf("Running unit tests for disaster_risk_engine...\n");
     test_hrv_rmssd_does_not_bridge_rejected_interval();
+    test_hrv_consecutive_delta_gate();
+    test_hrv_settle_window_thresholds();
     test_hrv_full_buffer_does_not_take_summary_shortcut();
     test_heat_risk();
     test_pollution_risk();
