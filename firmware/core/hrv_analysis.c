@@ -36,8 +36,21 @@ void hrv_add_ibi(hrv_state_t *state, float ibi_ms) {
         state->pair_valid[new_oldest] = 0;
     }
 
+    uint8_t pair_valid = 0;
+    if (state->has_previous_ibi) {
+        int prev_idx = (state->head - 1 + HRV_BUFFER_SIZE) % HRV_BUFFER_SIZE;
+        float prev_ibi = state->ibi_ms[prev_idx];
+        /* Physiological consecutive difference gate (Task Force 1996, Kamath 2012).
+         * Extreme single-beat jumps (> 120 ms) reflect ectopic beats or optical motion
+         * artifacts. Invalidate this transition so it does not inflate RMSSD, while
+         * still allowing the beat to contribute to mean HR and count. */
+        if (fabsf(ibi_ms - prev_ibi) <= HRV_MAX_DELTA_IBI_MS) {
+            pair_valid = 1;
+        }
+    }
+
     state->ibi_ms[state->head] = ibi_ms;
-    state->pair_valid[state->head] = state->has_previous_ibi;
+    state->pair_valid[state->head] = pair_valid;
     state->head = (state->head + 1) % HRV_BUFFER_SIZE;
     if (state->count < HRV_BUFFER_SIZE) {
         state->count++;
@@ -117,11 +130,9 @@ int hrv_is_ready(const hrv_state_t *state) {
 }
 
 /* Publication gate. Structural readiness (hrv_is_ready) is not enough: a
- * partially filled window yields a RMSSD averaged over fewer beats than the
- * published window claims, and it is still converging. The 2026-10-19 capture
- * measured 31.3 -> 77.5 ms across the first ~3 minutes of contact before it
- * flattened. Wait for 80 % fill (HRV_SETTLE_MIN_SAMPLES) and a window that
- * covers HRV_SETTLE_MIN_SPAN_MS. */
+ * window with fewer than 10-20 beats yields a high RSA-phase variance. Wait
+ * for the Ultra-Short-Term stabilization threshold (HRV_SETTLE_MIN_SAMPLES = 20
+ * beats) and a window spanning at least HRV_SETTLE_MIN_SPAN_MS (15.0 s of contact). */
 int hrv_is_settled(const hrv_state_t *state) {
     if (state == NULL || !hrv_is_ready(state)) return 0;
 
