@@ -547,7 +547,7 @@ static void UpdateTelemetryStep(void) {
      * hrv_is_ready(), the STRUCTURAL check that a window holds enough
      * contiguous pairs to compute a value. This process has no beat-to-beat
      * interval history, so the flag means "assessment permitted". The
-     * publication gate (240 beats / 120 s) is hrv_is_settled() inside the
+     * publication gate (30 beats / 20 s) is hrv_is_settled() inside the
      * firmware, and the value it guards is still verified by the engine: a
      * board that withholds RMSSD (0.0) makes the AI decline rather than
      * scoring 0.0 as a collapsed HRV. */

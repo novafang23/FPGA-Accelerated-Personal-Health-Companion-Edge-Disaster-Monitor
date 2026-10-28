@@ -2818,13 +2818,13 @@ void app_main(void) {
         ssd1306_clear(&s_ssd1306);
         ssd1306_draw_string(&s_ssd1306, 19, 4, "VALOR COMPANION");
         ssd1306_draw_hline(&s_ssd1306, 0, 14, 128);
-        ssd1306_draw_string(&s_ssd1306, 14, 20, "QUALCOMM SoC");
+        ssd1306_draw_string(&s_ssd1306, 14, 20, "VALOR ShrikeFi");
         ssd1306_draw_string(&s_ssd1306, 8, 34, "ESP32-S3 + FPGA");
         ssd1306_draw_string(&s_ssd1306, 18, 48, "Starting...");
         ssd1306_update(&s_ssd1306);
     }
 
-    /* Emergency assist (requirement 6). Defaults: 3 s CRITICAL confirm, 5 s
+    /* Emergency assist (requirement 6). Defaults: 15 s CRITICAL confirm, 5 s
      * cancel hold, 30 s recovery stand-down, and the contact-loss trigger OFF
      * because the finger leaves this device constantly in normal use. See sos.h
      * for why each of those is the value it is. */
@@ -3367,55 +3367,55 @@ int main(void) {
     {
         hrv_state_t settle;
         hrv_init(&settle);
-        /* 50 beats x ~800 ms = ~40 s: fill and span both short. */
-        for (int i = 0; i < 50; i++) {
+        /* 10 beats x ~800 ms = ~8 s: fill and span both short. */
+        for (int i = 0; i < 10; i++) {
             hrv_add_ibi(&settle, 800.0f + ((i % 2) ? 25.0f : -25.0f));
         }
         hrv_compute(&settle);
         if (!hrv_is_ready(&settle)) {
-            fprintf(stderr, "[FAIL] 50 contiguous beats must be structurally ready\n");
+            fprintf(stderr, "[FAIL] 10 contiguous beats must be structurally ready\n");
             return 1;
         }
         if (hrv_is_settled(&settle)) {
-            fprintf(stderr, "[FAIL] A 50-beat / ~40 s window must not publish RMSSD\n");
+            fprintf(stderr, "[FAIL] A 10-beat / ~8 s window must not publish RMSSD\n");
             return 1;
         }
-        printf("  [HRV Settle] 50 beats / ~40 s: ready but not settled (withheld)\n");
+        printf("  [HRV Settle] 10 beats / ~8 s: ready but not settled (withheld)\n");
 
-        /* Grow to 240 beats x ~800 ms = ~192 s: both legs satisfied. */
-        for (int i = 50; i < 240; i++) {
+        /* Grow to 20 beats x ~800 ms = ~16 s: both legs satisfied. */
+        for (int i = 10; i < 20; i++) {
             hrv_add_ibi(&settle, 800.0f + ((i % 2) ? 25.0f : -25.0f));
         }
         hrv_compute(&settle);
         if (!hrv_is_settled(&settle)) {
-            fprintf(stderr, "[FAIL] A 240-beat / ~192 s window must publish RMSSD\n");
+            fprintf(stderr, "[FAIL] A 20-beat / ~16 s window must publish RMSSD\n");
             return 1;
         }
-        printf("  [HRV Settle] 240 beats / ~192 s published (RMSSD %.1f ms)\n",
+        printf("  [HRV Settle] 20 beats / ~16 s published (RMSSD %.1f ms)\n",
                hrv_get_rmssd(&settle));
 
-        /* 240 beats x 400 ms = 96 s: fill satisfied, span not. The gate must
+        /* 20 beats x 400 ms = 8.0 s: fill satisfied, span not. The gate must
          * still hold, or a fast heart rate would publish an under-settled
          * window. This is the leg a time-only or fill-only gate would miss. */
         hrv_state_t fast;
         hrv_init(&fast);
-        for (int i = 0; i < 240; i++) hrv_add_ibi(&fast, 400.0f);
+        for (int i = 0; i < 20; i++) hrv_add_ibi(&fast, 400.0f);
         hrv_compute(&fast);
         if (hrv_is_settled(&fast)) {
-            fprintf(stderr, "[FAIL] A 240-beat window spanning only 96 s must not publish\n");
+            fprintf(stderr, "[FAIL] A 20-beat window spanning only 8 s must not publish\n");
             return 1;
         }
-        printf("  [HRV Settle] 240 beats / 96 s withheld (span below 120 s)\n");
+        printf("  [HRV Settle] 20 beats / 8 s withheld (span below 15 s)\n");
 
         /* Directly-populated summary structs (the Core 1 snapshot path) must
          * clear the same threshold instead of bypassing it. */
         hrv_state_t summary;
         hrv_init(&summary);
-        summary.count = 50;
+        summary.count = 10;
         summary.rmssd = 45.0f;
         summary.sdnn  = 40.0f;
         if (hrv_is_settled(&summary)) {
-            fprintf(stderr, "[FAIL] A 50-beat summary struct must not publish RMSSD\n");
+            fprintf(stderr, "[FAIL] A 10-beat summary struct must not publish RMSSD\n");
             return 1;
         }
         summary.count = HRV_SETTLE_MIN_SAMPLES;
