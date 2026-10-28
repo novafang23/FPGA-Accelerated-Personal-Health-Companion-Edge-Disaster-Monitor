@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'sha256-BdizaUUoUn7rfwEOwDrO+ieNqAcQKlfsIfVPfJdwfHE='; style-src 'unsafe-inline'; connect-src 'self'; form-action 'self'; base-uri 'none'; object-src 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'sha256-Cj0j6WozfllCde4GyecsGwet/OPqT28+wHw9nSIcjnI='; style-src 'unsafe-inline'; connect-src 'self'; form-action 'self'; base-uri 'none'; object-src 'none'">
 <title>VALOR — Edge Health &amp; Disaster Triage</title>
 <!--
   VALOR dashboard — single self-contained file.
@@ -609,7 +609,7 @@
       <i style="flex:1;background:var(--amber)"></i>
       <i style="flex:1;background:var(--crimson)"></i>
     </div>
-    <div style="margin-top:6px" class="dim">BME280 &middot; ambient</div>
+    <div style="margin-top:6px" class="dim" id="temp-note">BME280 &middot; ambient</div>
   </div>
 
   <div class="card card-pad">
@@ -763,7 +763,7 @@
 
   <div class="metric-row" style="margin-top:14px;justify-content:space-between">
     <div class="metric"><div class="k">24h Mean HR</div><div class="v" id="h-mean-hr">--</div></div>
-    <div class="metric"><div class="k">24h SpO&#8322; Nadir</div><div class="v" id="h-min-spo2">--</div></div>
+    <div class="metric"><div class="k">24h SpO&#8322; Low (hourly avg)</div><div class="v" id="h-min-spo2">--</div></div>
     <div class="metric"><div class="k">24h Mean RMSSD</div><div class="v" id="h-mean-rmssd">--</div></div>
     <div class="metric"><div class="k">24h Peak NEWS2</div><div class="v" id="h-peak-news2">--</div></div>
     <div class="metric"><div class="k">24h Peak PM2.5</div><div class="v" id="h-peak-pm25">--</div></div>
@@ -935,11 +935,10 @@ const n2rr = (rr) =>
   rr <= 8 ? 3 : rr <= 11 ? 1 : rr <= 20 ? 0 : rr <= 24 ? 2 : 3;
 
 const NEWS2_BANDS = [
-  { max: 0, label: 'Stable',    key: 'emerald', sub: 'Routine monitoring — no action required.' },
-  { max: 2, label: 'Low Risk',  key: 'cyan',    sub: 'Increased monitoring. Ward assessment.' },
-  { max: 4, label: 'Medium Risk', key: 'amber', sub: 'Urgent review within 30 minutes.' },
-  { max: 6, label: 'High Risk', key: 'crimson', sub: 'Emergency. Activate MET team now.' },
-  { max: 99, label: 'Critical', key: 'purple',  sub: 'Imminent deterioration. ICU transfer.' },
+  { max: 0, label: 'Normal',   key: 'emerald', sub: 'Score 0 — routine monitoring.' },
+  { max: 3, label: 'Elevated', key: 'amber',   sub: 'Score 1–3 — increased monitoring.' },
+  { max: 6, label: 'High',     key: 'crimson', sub: 'Score 4–6 — urgent clinical review.' },
+  { max: 99, label: 'Critical', key: 'purple', sub: 'Score ≥ 7 — emergency response.' },
 ];
 const news2Band = (s) => NEWS2_BANDS.find((b) => s <= b.max) || NEWS2_BANDS[NEWS2_BANDS.length - 1];
 
@@ -1362,7 +1361,7 @@ function makeHistory() {
     const mHr = $('h-mean-hr'); if (mHr) mHr.textContent = nHr ? Math.round(sumHr / nHr) + ' bpm' : '--';
     const mSp = $('h-min-spo2'); if (mSp) mSp.textContent = nSpo2 ? minSpo2.toFixed(1) + ' %' : '--';
     const mRm = $('h-mean-rmssd'); if (mRm) mRm.textContent = nRmssd ? (sumRmssd / nRmssd).toFixed(1) + ' ms' : '--';
-    const pN2 = $('h-peak-news2'); if (pN2) pN2.textContent = nN2 ? peakN2 + (peakN2 >= 5 ? ' (HIGH)' : ' pts') : '--';
+    const pN2 = $('h-peak-news2'); if (pN2) pN2.textContent = nN2 ? peakN2 + (peakN2 >= 7 ? ' (CRITICAL)' : peakN2 >= 4 ? ' (HIGH)' : ' pts') : '--';
     const pPm = $('h-peak-pm25'); if (pPm) pPm.textContent = nPm ? peakPm.toFixed(0) + ' \u00b5g/m\u00b3' : '--';
     const cnt = $('h-sample-count'); if (cnt) cnt.textContent = n + '/24';
     const sub = $('hist-sub');
@@ -1472,7 +1471,7 @@ function makeHistory() {
       const x = xAt(i);
       const normN2 = clamp(pt.news2 / 9, 0, 1);
       const y = padT + (1 - normN2) * plotH;
-      ctx.fillStyle = pt.news2 >= 5 ? C.crimson : C.amber;
+      ctx.fillStyle = pt.news2 >= 7 ? C.purple : pt.news2 >= 4 ? C.crimson : C.amber;
       ctx.beginPath();
       ctx.arc(x, y, 3.5, 0, Math.PI * 2);
       ctx.fill();
@@ -1518,7 +1517,7 @@ function makeHistory() {
         'HR: ' + (hasHr ? '<span style="color:' + C.emerald + '">' + Math.round(pt.hr) + ' bpm</span>' : dash) + '<br>' +
         'SpO2: ' + (hasSpo2 ? '<span style="color:' + C.cyan + '">' + pt.spo2.toFixed(1) + '%</span>' : dash) + '<br>' +
         'RMSSD: ' + (hasRmssd ? '<span style="color:' + C.violet + '">' + pt.rmssd.toFixed(1) + ' ms</span>' : dash) + '<br>' +
-        'NEWS2: ' + (hasN2 ? '<span style="color:' + (pt.news2 >= 5 ? C.crimson : C.amber) + '">' + pt.news2 + '</span>' : dash) + '<br>' +
+        'NEWS2: ' + (hasN2 ? '<span style="color:' + (pt.news2 >= 7 ? C.purple : pt.news2 >= 4 ? C.crimson : C.amber) + '">' + pt.news2 + '</span>' : dash) + '<br>' +
         'PM2.5: ' + (hasPm ? '<span style="color:' + C.amber + '">' + pt.pm25.toFixed(0) + ' &micro;g/m&sup3;</span>' : dash);
     }
 
@@ -1657,6 +1656,7 @@ function renderIdle() {
   $('v-env').textContent = 'Ta -- · RH -- · PM2.5 --';
   $('v-temp').textContent = D; $('v-temp').style.color = 'var(--text-faint)';
   [...$('temp-band').children].forEach((b) => { b.className = ''; });
+  if ($('temp-note')) $('temp-note').textContent = 'BME280 \u00b7 ambient';
   $('v-hum').textContent = D;  $('v-hum').style.color = 'var(--text-faint)';
   $('bar-hum').style.width = '0%';
   $('v-pm').textContent = D;   $('v-pm').style.color = 'var(--text-faint)';
@@ -1685,7 +1685,9 @@ function renderIdle() {
     $('g-' + k).style.width = '0%';
     $('g-' + k + '-sub').textContent = '';
   }
-  if (typeof HIST !== 'undefined') HIST.reset();
+  if (mode === 'idle') {
+    if (typeof HIST !== 'undefined') HIST.reset();
+  }
   $('hist-sub').textContent = 'No history yet \u2014 connect a device or start a simulation';
   $('hist-span').textContent = 'NO DATA';
   $('hist-export').disabled = true;
@@ -1762,8 +1764,8 @@ function render() {
      parameters in the RCP table are simply not instrumented on this build, so
      they are shown as n/a rather than as a plausible-looking "+0". */
   const haveDevPts = (V.n2hrPts !== null && V.n2spo2Pts !== null && V.n2rrPts !== null);
-  const haveDevTemp = (V.n2tempPts !== null && V.n2tempPts !== undefined);
-  const showTemp = haveDevTemp || (V.skinTemp > 0);
+  const haveDevTemp = (V.n2tempPts !== null && V.n2tempPts !== undefined && V.n2tempPts > 0);
+  const showTemp = haveDevTemp;
   const tiles = [
     { k: 'RR',   v: V.rr,   pts: haveDevPts ? V.n2rrPts   : n2rr(V.rr),   dev: haveDevPts },
     { k: 'SpO2', v: V.spo2, pts: haveDevPts ? V.n2spo2Pts : n2spo2(V.spo2), dev: haveDevPts },
@@ -1900,6 +1902,7 @@ function render() {
   bands[1].className = ambientValid && V.temp >= 10 && V.temp <= 35 ? 'on' : '';
   bands[2].className = ambientValid && V.temp > 35 && V.temp <= 40 ? 'on' : '';
   bands[3].className = ambientValid && V.temp > 40 ? 'on' : '';
+  if ($('temp-note')) $('temp-note').textContent = (V.skinTemp > 0) ? ('BME280 ambient \u00b7 Skin ' + V.skinTemp.toFixed(1) + ' \u00b0C') : 'BME280 \u00b7 ambient';
 
   $('v-hum').textContent = humidityValid ? V.hum.toFixed(0) : '\u2014';
   $('v-hum').style.color = !humidityValid ? 'var(--text-faint)' : V.hum > 90 ? C.crimson : 'var(--text)';
@@ -1980,7 +1983,7 @@ function render() {
     $('storm-risk-badge').style.color =
       stormRisk === 'CRITICAL' ? C.crimson :
       stormRisk === 'HIGH' ? C.amber :
-      stormRisk === 'ELEVATED' ? C.sky :
+      (stormRisk === 'MODERATE' || stormRisk === 'ELEVATED') ? C.sky :
       stormRisk === 'NORMAL' ? C.emerald : 'var(--text-faint)';
 
     $('storm-sub').textContent =
@@ -2010,7 +2013,7 @@ function render() {
   const flood = aiAbsent ? null : (V.nnFlood != null ? V.nnFlood * 100 : V.flood);
   const storm = V.cyclone === 'CRITICAL' ? 95 :
                 V.cyclone === 'HIGH' ? 70 :
-                V.cyclone === 'ELEVATED' ? 40 :
+                (V.cyclone === 'MODERATE' || V.cyclone === 'ELEVATED') ? 40 :
                 V.cyclone === 'NORMAL' ? 5 :
                 (V.ptrend != null ? clamp(Math.max(0, -V.ptrend) / 3.0 * 100, 0, 100) : (V.storm || 0));
 
@@ -2055,12 +2058,12 @@ function applyProfile(name) {
   const base = PROFILES[name];
   Object.assign(V, {
     hr: base.hr, spo2: base.spo2, hrv: base.hrv, rr: base.rr, sqi: base.sqi,
-    temp: base.temp, hum: base.hum, pmRaw: base.pmRaw, pmCal: base.pmCal,
+    temp: base.temp, hum: base.hum, skinTemp: 0, pmRaw: base.pmRaw, pmCal: base.pmCal,
     psi: base.psi, aha: base.aha, heat: base.heat, poll: base.poll,
     flood: base.flood, storm: base.storm || 0,
     cyclone: base.cyclone || 'NORMAL', ptrend: base.ptrend !== undefined ? base.ptrend : 0.0,
     news2: n2hr(base.hr) + n2spo2(base.spo2) + n2rr(base.rr),
-    n2hrPts: null, n2spo2Pts: null, n2rrPts: null,
+    n2hrPts: null, n2spo2Pts: null, n2rrPts: null, n2tempPts: null,
     hrvN: null,
     nnHeat: null, nnPoll: null, nnFlood: null, aiValid: null,
     rHeat: 'NORMAL', rPoll: 'NORMAL', rFlood: 'UNKNOWN',
@@ -2243,6 +2246,11 @@ function handleLine(line) {
        ambient sensors are valid. Infer tissue contact from a real pulse/signal,
        not from the mere presence of a packet. */
     V.contact = (V.hr > 0 || V.sqi > 0);
+    if (!V.contact) {
+      V.skinTemp = 0;
+      V.n2hrPts = null; V.n2spo2Pts = null; V.n2rrPts = null; V.n2tempPts = null;
+      V.hrvN = null;
+    }
     if (k.TEMP)  V.temp = num(k.TEMP);
     if (k.HUM)   V.hum  = num(k.HUM);
     if (k.SKINTEMP) V.skinTemp = num(k.SKINTEMP);
@@ -2321,7 +2329,8 @@ async function connect() {
   try {
     port = await navigator.serial.requestPort();
     await port.open({ baudRate: 115200 });
-mode = 'live';
+    mode = 'live';
+    if (typeof HIST !== 'undefined') HIST.reset();
     lastTelemetryAt = performance.now();
     liveNoData = false;
     keepReading = true;
