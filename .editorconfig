@@ -1,0 +1,37 @@
+# EditorConfig helps maintain consistent coding styles across editors
+# https://editorconfig.org
+
+root = true
+
+[*]
+charset = utf-8
+end_of_line = lf
+indent_style = space
+indent_size = 4
+trim_trailing_whitespace = true
+insert_final_newline = true
+
+# Verilog and SystemVerilog RTL
+[*.{v,sv,vh,svh}]
+indent_size = 2
+
+# C/C++ Embedded Firmware (matching .clang-format)
+[*.{c,h,cpp,hpp}]
+indent_size = 4
+
+# Python Tooling
+[*.py]
+indent_size = 4
+
+# Web Dashboard & JSON configs
+[*.{html,htm,css,js,ts,json,yaml,yml}]
+indent_size = 2
+
+# Markdown documentation
+[*.md]
+indent_size = 2
+trim_trailing_whitespace = false
+
+# Windows Batch scripts require CRLF
+[*.{bat,cmd}]
+end_of_line = crlf

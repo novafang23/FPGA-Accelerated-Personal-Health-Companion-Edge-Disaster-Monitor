@@ -167,3 +167,38 @@ htmlcov/
 
 # Presentation PDFs are not tracked
 docs/presentation/*.pdf
+
+# ── Node / Web Development Caches ────────────────────────────
+node_modules/
+package-lock.json
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+.npm/
+.turbo/
+
+# ── Microsoft Office Lock Files ──────────────────────────────
+~$*.docx
+~$*.pptx
+~$*.xlsx
+
+# ── 3D Printing & Mechanical CAD Exports ─────────────────────
+*.gcode
+*.curaprofile
+*.3mf.bak
+
+# ── Generic Temp / Swap Files ────────────────────────────────
+*.tmp
+*.temp
+*.swp
+*.swo
+*~
+
+# ── macOS / Linux System Metadata ────────────────────────────
+.AppleDouble
+.LSOverride
+._*
+.directory
+.fuse_hidden*
+
