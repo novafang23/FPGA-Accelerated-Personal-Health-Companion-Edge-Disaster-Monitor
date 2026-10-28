@@ -134,7 +134,7 @@ jobs:
             firmware/core/ppg_sqi.c firmware/core/disaster_risk_engine.c \
             firmware/core/pressure_trend.c firmware/core/ppg_respiratory_rate.c \
             firmware/core/ppg_baseline_rr.c firmware/shrikefi/web_status.c \
-            firmware/shrikefi/tmp117.c
+            firmware/core/skin_estimate.c
 
       - name: Build & run firmware unit tests (incl. FP32 vs INT8 parity)
         run: |
@@ -146,7 +146,7 @@ jobs:
             firmware/core/clinical_vitals_engine.c firmware/core/spo2_engine.c \
             firmware/core/ppg_sqi.c firmware/core/disaster_risk_engine.c \
             firmware/core/pressure_trend.c firmware/core/ppg_respiratory_rate.c \
-            firmware/core/ppg_baseline_rr.c \
+            firmware/core/ppg_baseline_rr.c firmware/core/skin_estimate.c \
             firmware/shrikefi/sos.c firmware/shrikefi/location.c firmware/shrikefi/web_status.c \
             -lm -o test_engine
           ./test_engine
@@ -158,19 +158,19 @@ jobs:
           ./test_gnss
           gcc -Wall -Wextra -Werror -pedantic -Wdouble-promotion -std=c11 \
             -Ifirmware/core -Ifirmware/shrikefi \
-            firmware/shrikefi/test_tmp117.c firmware/shrikefi/tmp117.c firmware/shrikefi/esp32_i2c_hal.c firmware/core/clinical_vitals_engine.c -lm -o test_tmp117
-          ./test_tmp117
+            -fsyntax-only firmware/core/skin_estimate.c
+
           gcc -Wall -Wextra -Werror -pedantic -std=c11 \
             -Ifirmware/shrikefi -Ifirmware/core \
             firmware/shrikefi/main_shrikefi.c firmware/shrikefi/shrikefi_link_driver.c \
-            firmware/shrikefi/esp32_i2c_hal.c firmware/shrikefi/max30102.c firmware/shrikefi/bme280.c firmware/shrikefi/tmp117.c \
+            firmware/shrikefi/esp32_i2c_hal.c firmware/shrikefi/max30102.c firmware/shrikefi/bme280.c \
             firmware/shrikefi/pms5003.c firmware/shrikefi/gnss_nmea.c firmware/shrikefi/gps_l89hs.c \
             firmware/shrikefi/mpu6050.c firmware/shrikefi/fall_detect.c firmware/shrikefi/ssd1306.c \
             firmware/core/hrv_analysis.c firmware/core/spo2_engine.c firmware/core/disaster_risk_engine.c \
             firmware/core/clinical_vitals_engine.c \
             firmware/core/nn_risk_model.c firmware/core/nn_risk_model_int8.c firmware/core/pm25_correction.c \
             firmware/core/ppg_sqi.c firmware/core/ppg_respiratory_rate.c \
-            firmware/core/ppg_baseline_rr.c \
+            firmware/core/ppg_baseline_rr.c firmware/core/skin_estimate.c \
             firmware/core/pressure_trend.c firmware/shrikefi/location.c firmware/shrikefi/sos.c firmware/shrikefi/web_status.c \
             -lm -o shrikefi_host
           ./shrikefi_host

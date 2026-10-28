@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'sha256-Si+RrVsl21vIBbE3FDt8smIyIx41jloQZ9Tjhr0PBRY='; style-src 'unsafe-inline'; connect-src 'self'; form-action 'self'; base-uri 'none'; object-src 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'sha256-BdizaUUoUn7rfwEOwDrO+ieNqAcQKlfsIfVPfJdwfHE='; style-src 'unsafe-inline'; connect-src 'self'; form-action 'self'; base-uri 'none'; object-src 'none'">
 <title>VALOR — Edge Health &amp; Disaster Triage</title>
 <!--
   VALOR dashboard — single self-contained file.
@@ -2211,7 +2211,7 @@ function handleLine(line) {
       V.hr = 0; V.spo2 = 0; V.hrv = 0; V.rr = 0; V.rrConf = 0; V.rrDepth = 0;
       V.sqi = 0; V.pi = 0; V.contact = false;
       V.level = 0; V.flags = 0; V.risk = 'UNKNOWN';
-      V.n2hrPts = null; V.n2spo2Pts = null; V.n2rrPts = null;
+      V.n2hrPts = null; V.n2spo2Pts = null; V.n2rrPts = null; V.n2tempPts = null; V.skinTemp = 0;
       V.hrvN = null;
       const k = parseKV(line.replace('[TELEMETRY]', ''));
       if (k.TEMP) V.temp = num(k.TEMP);

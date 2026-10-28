@@ -3383,7 +3383,7 @@ int main(void) {
         printf("  [HRV Settle] 10 beats / ~8 s: ready but not settled (withheld)\n");
 
         /* Grow to 20 beats x ~800 ms = ~16 s: both legs satisfied. */
-        for (int i = 10; i < 20; i++) {
+        for (int i = 10; i < HRV_SETTLE_MIN_SAMPLES; i++) {
             hrv_add_ibi(&settle, 800.0f + ((i % 2) ? 25.0f : -25.0f));
         }
         hrv_compute(&settle);
@@ -3399,7 +3399,7 @@ int main(void) {
          * window. This is the leg a time-only or fill-only gate would miss. */
         hrv_state_t fast;
         hrv_init(&fast);
-        for (int i = 0; i < 20; i++) hrv_add_ibi(&fast, 400.0f);
+        for (int i = 0; i < HRV_SETTLE_MIN_SAMPLES; i++) hrv_add_ibi(&fast, 400.0f);
         hrv_compute(&fast);
         if (hrv_is_settled(&fast)) {
             fprintf(stderr, "[FAIL] A 20-beat window spanning only 8 s must not publish\n");
@@ -3880,10 +3880,14 @@ int main(void) {
 
     skin_estimate_t test_skin;
     skin_estimate_init(&test_skin, SKIN_EST_DEFAULT_B0, SKIN_EST_DEFAULT_B1, SKIN_EST_DEFAULT_B2, false);
+    skin_estimate_update(&test_skin, 33.5f, 25.0f, false, 1000);
     uint32_t t_sim_skin = 1000;
+    float prev_sim_skin = 0.0f;
     for (int i = 0; i < 18; i++) {
         t_sim_skin += 1000;
-        skin_estimate_update(&test_skin, 33.5f, 25.0f, true, t_sim_skin);
+        skin_estimate_update(&test_skin, 34.8f, 25.0f, true, t_sim_skin);
+        if (test_skin.estimated_skin_c < prev_sim_skin) return 1;
+        prev_sim_skin = test_skin.estimated_skin_c;
     }
     if (!test_skin.is_settled || !test_skin.is_valid) {
         printf("  [FAIL] Skin estimator failed to settle after 18 seconds! (settled=%d, valid=%d)\n",
