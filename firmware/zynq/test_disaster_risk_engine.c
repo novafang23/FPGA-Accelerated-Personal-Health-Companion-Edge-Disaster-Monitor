@@ -1627,6 +1627,7 @@ static void test_web_status_json(void) {
     valor_status_t s;
     memset(&s, 0, sizeof(s));
     s.hr = 72.1f; s.spo2 = 97.5f; s.rr = 0.0f; s.sqi = 0.87f; s.rmssd = 38.3f;
+    s.hrv_n = 18;
     s.temp = 29.2f; s.hum = 61.7f; s.pm25 = 13.9f;
     s.news2 = 0; s.level = 0; s.flags = 0;
     s.risk = "NORMAL"; s.sos = "IDLE"; s.trigger = "none"; s.loc = "UNSET";
@@ -1655,6 +1656,7 @@ static void test_web_status_json(void) {
     assert(strstr(buf, "\"rr\":0.0")         != NULL);
     assert(strstr(buf, "\"sqi\":0.87")       != NULL);
     assert(strstr(buf, "\"rmssd\":38.3")     != NULL);
+    assert(strstr(buf, "\"hrvn\":18")        != NULL);
     /* No settled skin temperature yet (the TMP117 is absent or still warming
      * up): the key is present and null, so the page shows "--" instead of
      * inventing a reading or dropping the field silently. */

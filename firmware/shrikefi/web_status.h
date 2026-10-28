@@ -37,9 +37,10 @@ typedef struct {
     float    hr;
     float    spo2;
     float    rr;
-    float    sqi;
-    float    rmssd;
-    float    temp;
+    float    sqi;          /* [0, 1]                                            */
+    float    rmssd;        /* ms, 0 when withheld by the SQI / 9-pair gate      */
+    int      hrv_n;        /* beats currently in the HRV window (0..30+)        */
+    float    temp;         /* deg C, < -40 when BME280 has no reading           */
     /* Clinical skin temperature from TMP117 (0.0f = unavailable / settling).
      * skin_valid is true only when active optical contact is confirmed and
      * the sensor has thermally equilibrated (|dT/dt| <= 0.05 C/s over 3 samples). */

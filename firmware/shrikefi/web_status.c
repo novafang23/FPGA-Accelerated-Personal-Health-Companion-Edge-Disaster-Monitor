@@ -191,10 +191,10 @@ size_t web_status_json(const valor_status_t *s, char *buf, size_t cap) {
     buf[0] = '\0';
     if (!json_append_format(
         buf, cap, &used,
-        "{\"hr\":%.1f,\"spo2\":%.1f,\"rr\":%.1f,\"sqi\":%.2f,\"rmssd\":%.1f,"
+        "{\"hr\":%.1f,\"spo2\":%.1f,\"rr\":%.1f,\"sqi\":%.2f,\"rmssd\":%.1f,\"hrvn\":%d,"
         "\"temp\":",
         (double)s->hr, (double)s->spo2, (double)s->rr, (double)s->sqi,
-        (double)s->rmssd)) return 0;
+        (double)s->rmssd, s->hrv_n < 0 ? 0 : s->hrv_n)) return 0;
 
     if (s->temp < -40.0f || s->temp > 85.0f) {
         if (!json_append(buf, cap, &used, "null,", 5)) return 0;
@@ -620,7 +620,7 @@ size_t web_status_history_json(char *buf, size_t cap) {
 static const char PAGE_HTML[] =
 "<!DOCTYPE html><html lang='en'><head><meta charset='utf-8'>"
 "<meta name='viewport' content='width=device-width,initial-scale=1'>"
-"<meta http-equiv='Content-Security-Policy' content=\"default-src 'none'; script-src 'sha256-OOVRxXW48FELgHXwkTY1TOE8BlmJoM0S2XLDi4kBqnU='; style-src 'unsafe-inline'; connect-src 'self'; form-action 'self'; base-uri 'none'; object-src 'none'\">"
+"<meta http-equiv='Content-Security-Policy' content=\"default-src 'none'; script-src 'sha256-cX+16m1WEpuvBN0jbcLrYsbkETqhQ1b+7mSLU/QfueE='; style-src 'unsafe-inline'; connect-src 'self'; form-action 'self'; base-uri 'none'; object-src 'none'\">"
 "<title>VALOR - local status</title><style>"
 ":root{--bg:#070B14;--card:#0E1626;--line:#1C2740;--text:#E6EDF7;--dim:#8A9AB5;"
 "--cyan:#00E5FF;--emerald:#00FFAA;--amber:#FFB020;--crimson:#FF3B5C}"
@@ -685,7 +685,7 @@ static const char PAGE_HTML[] =
    reads -- rather than showing a number the device does not stand behind. */
 "<div class='card'><div class='k'>Skin temp</div>"
 "<div class='v'><span id='skin'>--</span><span class='u'>&deg;C</span></div></div>"
-"<div class='card wide'><div class='k'>Signal quality</div>"
+"<div class='card'><div class='k'>Signal quality</div>"
 "<div class='v'><span id='sqi'>--</span><span class='u'>%</span></div></div>"
 "<div class='card wide'><label class='k' for='locin'>Deployment location</label>"
 "<form class='setloc' method='post' action='/location'>"
@@ -744,7 +744,8 @@ static const char PAGE_HTML[] =
 "t('msg',s.sos==='ACTIVE'?'SOS active ('+s.trigger+') - call emergency services':"
 "(s.sos==='ARMED'?'WARNING: Fall detected! SOS countdown active ('+s.trigger+'). Cancel if safe.':"
 "'Triage verdict computed on the device. Updates every second.'));"
-"t('hr',positive(s.hr,0));t('spo2',positive(s.spo2,1));t('rmssd',positive(s.rmssd,1));"
+"t('hr',positive(s.hr,0));t('spo2',positive(s.spo2,1));"
+"t('rmssd',s.rmssd>0?s.rmssd.toFixed(1):(s.contact&&typeof s.hrvn==='number'&&s.hrvn>0&&s.hrvn<30?(s.hrvn+'/30'):D));"
 "t('rr',positive(s.rr,0));t('sqi',s.contact&&typeof s.sqi==='number'?(s.sqi*100).toFixed(0):D);"
 "t('temp',num(s.temp,1));t('hum',num(s.hum,0));t('pm',num(s.pm25,0));"
 /* skintemp is null until the TMP117 has settled on skin. A null value means
@@ -795,9 +796,9 @@ static const char PAGE_HTML[] =
 ".catch(function(){t('sos-note',action+' request failed; check the connection')})}"
 "document.getElementById('sos-trigger').addEventListener('click',function(){postEmergency('/api/emergency/trigger','SOS trigger')});"
 "(function(){var b=document.getElementById('sos-cancel'),tm=null,ok=false;"
-"function start(e){if(ok)return;if(e&&e.preventDefault)e.preventDefault();t('sos-note','Hold for 3 s to cancel...');"
-"tm=setTimeout(function(){ok=true;postEmergency('/api/emergency/cancel','SOS cancel',3000)},3000)}"
-"function stop(){if(tm){clearTimeout(tm);tm=null}if(!ok)t('sos-note','Cancel aborted - hold for 3 s')}"
+"function start(e){if(tm)return;ok=false;if(e&&e.preventDefault)e.preventDefault();t('sos-note','Hold for 3 s to cancel...');"
+"tm=setTimeout(function(){tm=null;ok=true;postEmergency('/api/emergency/cancel','SOS cancel',3000)},3000)}"
+"function stop(){if(tm){clearTimeout(tm);tm=null;if(!ok)t('sos-note','Cancel aborted - hold for 3 s')}ok=false}"
 "b.addEventListener('pointerdown',start);b.addEventListener('pointerup',stop);"
 "b.addEventListener('pointerleave',stop);b.addEventListener('pointercancel',stop);"
 "b.addEventListener('keydown',function(e){if(e.key===' '||e.key==='Enter')start(e)});"
@@ -906,7 +907,7 @@ static esp_err_t h_root(httpd_req_t *req) {
      * re-fetch every second on a network with one client. */
     httpd_resp_set_hdr(req, "Cache-Control", "no-store");
     httpd_resp_set_hdr(req, "Content-Security-Policy",
-        "default-src 'none'; script-src 'sha256-OOVRxXW48FELgHXwkTY1TOE8BlmJoM0S2XLDi4kBqnU='; style-src 'unsafe-inline'; connect-src 'self'; form-action 'self'; base-uri 'none'; object-src 'none'; frame-ancestors 'none'");
+        "default-src 'none'; script-src 'sha256-cX+16m1WEpuvBN0jbcLrYsbkETqhQ1b+7mSLU/QfueE='; style-src 'unsafe-inline'; connect-src 'self'; form-action 'self'; base-uri 'none'; object-src 'none'; frame-ancestors 'none'");
     httpd_resp_set_hdr(req, "X-Content-Type-Options", "nosniff");
     httpd_resp_set_hdr(req, "X-Frame-Options", "DENY");
     httpd_resp_set_hdr(req, "Referrer-Policy", "same-origin");

@@ -1868,11 +1868,11 @@ static float s_last_pm10 = 0.0f;   /* coarse-particle proxy for dust detection *
         /* Hoisted out of the vitals_ready branch: the emergency card shows the
          * same respiratory rate and signal quality the triage used, and it has
          * to be drawable whatever state the assessment is in. */
-        float rr_for_news2 = 0.0f;
-        float sqi_for_news2 = 0.0f;
+        float rr_for_news2 = rr_pub;
+        float sqi_for_news2 = sqi_pub;
         /* The estimator's raw inputs, for judging the gate against real data. */
-        float rr_conf_dbg = 0.0f;
-        float rr_depth_dbg = 0.0f;
+        float rr_conf_dbg = rrconf_pub;
+        float rr_depth_dbg = rrdepth_pub;
         /* Also hoisted for the same reason: the status page shows the triage
          * the device actually produced, not a re-derivation of it. */
         unsigned clin_news2 = 0;
@@ -1989,13 +1989,6 @@ static float s_last_pm10 = 0.0f;   /* coarse-particle proxy for dust detection *
              * NEWS2. RR is only trusted once the estimator reports it reliable;
              * SQI gates the whole score. */
             clinical_assessment_t clin_assess;
-            if (xSemaphoreTake(s_data_mutex, pdMS_TO_TICKS(10)) == pdTRUE) {
-                rr_for_news2  = g_state.respiratory_rate_bpm;
-                sqi_for_news2 = g_state.ppg_sqi;
-                rr_conf_dbg   = g_state.rr_confidence;
-                rr_depth_dbg  = g_state.rr_rsa_depth_ms;
-                xSemaphoreGive(s_data_mutex);
-            }
             /* Body temperature for mNEWS2: uses estimated core temperature from settled
              * TMP117 reading (or 0.0f uninstrumented if not fitted / still settling). */
             /* Die-temp skin estimate is uninstrumented for NEWS2 triage (never claim core) */
@@ -2249,6 +2242,7 @@ static float s_last_pm10 = 0.0f;   /* coarse-particle proxy for dust detection *
             st.rr       = rr_for_news2;
             st.sqi      = sqi_for_news2;
             st.rmssd    = hrv_snapshot.rmssd;
+            st.hrv_n    = hrv_snapshot.count;
             st.temp     = env.ambient_temp_c;
              
             st.hum      = env.humidity_pct;
