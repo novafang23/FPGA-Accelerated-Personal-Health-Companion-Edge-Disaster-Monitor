@@ -38,6 +38,7 @@ extern "C" {
  *                      at least 20 s of contact so RSA phase bias is stabilized.
  *                      Used by the publish paths that write g_state.hrv_rmssd. */
 #define HRV_SETTLE_MIN_SAMPLES 30
+#define HRV_SETTLE_MIN_VALID_PAIRS (HRV_SETTLE_MIN_SAMPLES / 2)
 /* Minimum time span the window must cover before RMSSD may be published.
  * Expressed in milliseconds of summed IBI, not wall-clock time: 20.0 s ensures
  * that even under extreme tachycardia (e.g. 120+ BPM where 20 beats take <10 s),

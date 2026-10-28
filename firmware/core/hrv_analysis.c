@@ -164,6 +164,7 @@ int hrv_is_settled(const hrv_state_t *state) {
      * it is testable without a timer. Rejected intervals break the sequence and
      * are not added to the window, so this counts contiguous beats only. */
     if (span_ms < HRV_SETTLE_MIN_SPAN_MS) return 0;
+    if (valid_pairs < HRV_SETTLE_MIN_VALID_PAIRS) return 0;
 
     return valid_pairs >= (HRV_MIN_SAMPLES - 1);
 }

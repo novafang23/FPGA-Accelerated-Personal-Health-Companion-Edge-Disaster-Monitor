@@ -155,6 +155,21 @@ static void test_hrv_settle_window_thresholds(void) {
     hrv_compute(&hrv);
     /* Now settled and ready for clinical publication */
     assert(hrv_is_settled(&hrv));
+    /* A 30-beat / 24 s window with only 10 valid contiguous pairs (and 19 broken transitions)
+     * is structurally ready (>= 9 pairs), but must NOT be considered settled (< 15 valid pairs). */
+    hrv_state_t frag;
+    hrv_init(&frag);
+    for (int i = 0; i < 11; i++) {
+        hrv_add_ibi(&frag, 800.0f);
+    }
+    for (int i = 11; i < 30; i++) {
+        hrv_break_sequence(&frag);
+        hrv_add_ibi(&frag, 800.0f);
+    }
+    hrv_compute(&frag);
+    assert(hrv_is_ready(&frag));
+    assert(!hrv_is_settled(&frag));
+
     printf("test_hrv_settle_window_thresholds: PASS\n");
 }
 
