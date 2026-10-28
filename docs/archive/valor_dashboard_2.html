@@ -1,0 +1,2601 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'sha256-oSOToN4ezP26Tiv9FdJfrTUftX4J072MVJ5A5AgnJso='; style-src 'unsafe-inline'; connect-src 'self'; form-action 'self'; base-uri 'none'; object-src 'none'">
+<title>VALOR — Edge Health &amp; Disaster Triage</title>
+<!--
+  VALOR dashboard — single self-contained file.
+
+  No CDN, no build step, no install. Open it in Chrome or Edge and press
+  Connect. Web Serial talks to the ESP32-S3 directly over USB; if the browser
+  has no Web Serial (Firefox/Safari) or no board is attached, it runs the six
+  clinical profiles instead so a demo never depends on hardware.
+
+  All styling is inline in this file on purpose: a hackathon demo may have no
+  internet, and a Google Fonts or Tailwind CDN reference would silently degrade
+  to unstyled HTML the moment the venue Wi-Fi dies. Font fallback goes
+  Inter -> system UI, and JetBrains Mono -> the platform monospace.
+
+  DATA HONESTY
+  ------------
+  This is a port of a Figma mock-up, and the mock-up contained several numbers
+  the device cannot produce. They are deliberately NOT here; each is listed in
+  firmware/shrikefi/dashboard/README.md with what replaced it. In short:
+  no blood-pressure estimate, no PTT, no faked NEWS2 sub-scores for parameters
+  that are not instrumented, and the AHA strain is shown on its real 0-1 scale
+  rather than the mock-up's 0-10.
+-->
+<style>
+  :root {
+    --bg:          #070b12;
+    --card:        #0d1424;
+    --card-solid:  #0d1424;
+    --inset:       #111b2e;
+    --border:      #27364f;
+    --border-soft: #1c2940;
+    --text:        #eef3f9;
+    --text-title:  #dbe4ef;
+    --text-mid:    #b9c6d8;
+    --text-dim:    #a3b1c6;
+    --text-faint:  #8492a6;
+    --emerald:     #00FFAA;
+    --cyan:        #00E5FF;
+    --amber:       #F59E0B;
+    --crimson:     #EF4444;
+    --purple:      #A855F7;
+    --sky:         #38bdf8;
+    --violet:      #a78bfa;
+    --orange:      #F97316;
+    --focus:       #7dd3fc;
+    --grid-line:   rgba(30,41,59,0.16);
+    --plot-bg:     #05080f;
+    --plot-border: #111c33;
+    --plot-grid:   rgba(30,41,59,0.50);
+    --plot-grid-soft: rgba(30,41,59,0.25);
+    --plot-muted:  rgba(100,116,139,0.85);
+    --plot-muted-soft: rgba(100,116,139,0.35);
+    --plot-text:   rgba(203,213,225,0.90);
+    --plot-warn:   rgba(245,158,11,0.90);
+    --plot-warn-soft: rgba(245,158,11,0.35);
+    --plot-bar:    rgba(245,158,11,0.16);
+    --plot-hover:  rgba(255,255,255,0.40);
+    --trace-area-good: rgba(0,229,255,0.14);
+    --trace-area-bad:  rgba(239,68,68,0.14);
+    --arc-track:   #131f35;
+    --trace-glow:  9;
+    --trace-glow-soft: 6;
+    --bar-track:   #16233a;
+    --live-bg:     rgba(0,255,170,0.07);
+    --live-line:   rgba(0,255,170,0.22);
+    --sim-bg:      rgba(245,158,11,0.07);
+    --sim-line:    rgba(245,158,11,0.22);
+    --err-bg:      rgba(239,68,68,0.07);
+    --err-line:    rgba(239,68,68,0.25);
+    --idle-bg:     rgba(100,116,139,0.07);
+    --idle-line:   rgba(100,116,139,0.25);
+    --btn-hover-border: #3b4f70;
+    --btn-active-border: #334b70;
+    --btn-active-bg: #0f1e38;
+    --btn-active-text: #93c5fd;
+    --primary-line: rgba(0,255,170,0.35);
+    --primary-hover: rgba(0,255,170,0.08);
+    --chip-hover-border: #26375a;
+    --hot-bg:      rgba(245,158,11,0.10);
+    --hot-line:    #4a3010;
+    --hot-text:    #fbbf24;
+    --bad-bg:      rgba(239,68,68,0.10);
+    --bad-line:    #5a1d1d;
+    --tooltip-bg:  rgba(13,20,36,0.97);
+    --tooltip-border: #2d3f5c;
+    --tooltip-shadow: rgba(0,0,0,0.50);
+    --gate-bg:     rgba(7,11,18,0.96);
+    --radius:      10px;
+    --radius-ctl:  8px;
+    --radius-chip: 6px;
+    --mono: ui-monospace, "JetBrains Mono", "Cascadia Mono", Consolas, monospace;
+    --sans: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    color-scheme: dark;
+  }
+
+  * { box-sizing: border-box; }
+
+  html, body {
+    margin: 0; padding: 0;
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--sans);
+    -webkit-font-smoothing: antialiased;
+  }
+
+  body {
+    padding: 16px 20px 24px;
+    min-height: 100vh;
+  }
+
+  /* Faint 24px engineering grid, matching the design's background texture. */
+  body::before {
+    content: "";
+    position: fixed; inset: 0; pointer-events: none; z-index: 0;
+    background-image:
+      linear-gradient(var(--grid-line) 1px, transparent 1px),
+      linear-gradient(90deg, var(--grid-line) 1px, transparent 1px);
+    background-size: 24px 24px;
+  }
+  body > * { position: relative; z-index: 1; }
+
+  .card {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+  }
+
+  .mono { font-family: var(--mono); }
+  .dim  { font-size: 13px; color: var(--text-dim); }
+  .faint{ font-size: 12px; color: var(--text-faint); font-family: var(--mono); }
+
+  /* â”€â”€ Header â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
+  header {
+    display: flex; align-items: center; justify-content: space-between;
+    flex-wrap: wrap; gap: 10px; margin-bottom: 14px;
+  }
+  .brand { display: flex; align-items: center; gap: 10px; }
+  .brand-name {
+    margin: 0; font-weight: 800; font-size: 22px; letter-spacing: -0.03em; color: var(--text);
+  }
+  .brand-sub { font-size: 14px; color: var(--text-mid); }
+  .board-sub {
+    margin-top: 3px; font-size: 12px; color: var(--text-dim); font-family: var(--mono);
+  }
+
+  .status-pill {
+    display: flex; align-items: center; gap: 6px; margin-left: 6px;
+    padding: 4px 10px; border-radius: 20px;
+  }
+  .status-pill.live   { background: var(--live-bg); border: 1px solid var(--live-line); }
+  .status-pill.sim    { background: var(--sim-bg); border: 1px solid var(--sim-line); }
+  .status-pill.err    { background: var(--err-bg); border: 1px solid var(--err-line); }
+  .status-pill.idle   { background: var(--idle-bg); border: 1px solid var(--idle-line); }
+  .status-dot { width: 6px; height: 6px; border-radius: 50%; }
+  .status-pill.live .status-dot { background: var(--emerald); box-shadow: 0 0 7px var(--emerald); animation: pulse-dot 1.4s ease-in-out infinite; }
+  .status-pill.sim  .status-dot { background: var(--amber);   box-shadow: 0 0 7px var(--amber); }
+  .status-pill.err  .status-dot { background: var(--crimson); box-shadow: 0 0 7px var(--crimson); }
+  .status-pill.idle .status-dot { background: var(--text-mid); }
+  .status-pill span { font-family: var(--mono); font-size: 12px; }
+  .status-pill.live span { color: var(--emerald); }
+  .status-pill.sim  span { color: var(--amber); }
+  .status-pill.err  span { color: var(--crimson); }
+  .status-pill.idle span { color: var(--text-mid); }
+
+  @keyframes pulse-dot {
+    0%, 100% { opacity: 1;   transform: scale(1); }
+    50%      { opacity: 0.4; transform: scale(0.75); }
+  }
+
+  .controls { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+
+  button {
+    font-family: var(--sans); font-size: 13px; font-weight: 400;
+    min-height: 38px;
+    padding: 8px 14px; border-radius: var(--radius-ctl); border: 1px solid var(--border);
+    background: transparent; color: var(--text-dim);
+    cursor: pointer; transition: color 0.15s, border-color 0.15s, background 0.15s;
+  }
+  button:hover { color: var(--text); border-color: var(--btn-hover-border); }
+  button.active {
+    font-weight: 600; border-color: var(--btn-active-border);
+    background: var(--btn-active-bg); color: var(--btn-active-text);
+  }
+  button.primary { border-color: var(--primary-line); color: var(--emerald); }
+  button.primary:hover { background: var(--primary-hover); }
+  button:disabled { opacity: 0.45; cursor: default; }
+  button:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+
+  /* â”€â”€ Rows â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
+  .row { display: grid; gap: 14px; margin-bottom: 14px; }
+  .row-1 { grid-template-columns: 1fr 340px; }
+  .row-2 { grid-template-columns: 1fr 1fr 1fr 1fr 180px; }
+  .row-3 { grid-template-columns: repeat(5, 1fr); }
+  .row-4 { grid-template-columns: repeat(4, 1fr); gap: 20px; }
+
+  .card-pad { padding: 20px 22px; }
+
+  .card-head { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 16px; }
+  .card-title { font-size: 14px; font-weight: 600; color: var(--text-title); margin-bottom: 2px; }
+
+  .chip {
+    font-size: 11px; color: var(--text-dim); background: var(--inset);
+    border: 1px solid var(--border); border-radius: var(--radius-chip); padding: 3px 8px;
+    font-family: var(--mono);
+  }
+  #hist-export { min-height: 36px; padding-left: 12px; padding-right: 12px; }
+  #profile-buttons { gap: 6px; flex-wrap: wrap; }
+  #profile-buttons button { font-size: 12px; padding-left: 10px; padding-right: 10px; }
+  button.chip:hover { color: var(--text-mid); border-color: var(--chip-hover-border); }
+
+  .scope-frame {
+    height: 200px; border-radius: 8px; overflow: hidden;
+    border: 1px solid var(--plot-border); background: var(--plot-bg); position: relative;
+  }
+  canvas { display: block; width: 100%; height: 100%; }
+  #hist-tooltip {
+    background: var(--tooltip-bg);
+    border: 1px solid var(--tooltip-border);
+    box-shadow: 0 4px 12px var(--tooltip-shadow);
+  }
+
+  .metric-row { display: flex; gap: 20px 28px; margin-top: 12px; flex-wrap: wrap; }
+  .metric { }
+  .metric .k { font-size: 12px; color: var(--text-faint); margin-bottom: 2px; font-family: var(--mono); }
+  .metric .v { font-size: 15px; color: var(--text-mid); font-family: var(--mono); font-weight: 500; }
+
+  .ppg-card { display: flex; flex-direction: column; }
+  .ppg-card .scope-frame { flex: 1 1 auto; min-height: 200px; }
+  .trace-wrap { position: relative; }
+  .trace-tag {
+    display: block; margin: 3px 2px 0 0; text-align: right;
+    font: 10px/1 var(--mono); letter-spacing: 0.04em;
+    color: var(--text-faint); pointer-events: none;
+  }
+  .device-verdict {
+    margin-top: 10px; padding: 6px 10px; border: 1px solid var(--border);
+    border-radius: var(--radius-ctl); font: 11px var(--mono); color: var(--text-dim);
+    text-align: center; letter-spacing: 0.02em;
+  }
+  .sr-only {
+    position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
+    overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0;
+  }
+
+  .big { font-family: var(--mono); font-weight: 800; line-height: 1; font-variant-numeric: tabular-nums; }
+  .unit { font-size: 14px; color: var(--text-dim); margin-left: 4px; }
+  .vital-xl { font-size: clamp(38px, 4.2vw, 48px); }
+  .vital-lg { font-size: clamp(32px, 3.6vw, 40px); }
+  /* An absent reading should whisper, not look like a redaction bar. */
+  .big.is-absent { font-size: 28px; font-weight: 500; letter-spacing: 0.04em; }
+  /* A source is a status, not part of the measurement name. Keeping it in a
+     small pill stops "Heart Rate awaiting IBI" from reading as one label. */
+  .vital-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 10px; }
+  .vital-head .label { font-size: 13px; color: var(--text-dim); }
+  .vital-source {
+    flex: none; padding: 4px 7px; border: 1px solid var(--border-soft);
+    border-radius: 999px; background: var(--inset);
+    font: 500 10px/1 var(--mono); letter-spacing: 0.04em;
+    color: var(--text-faint); white-space: nowrap;
+  }
+
+  /* â”€â”€ NEWS2 â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
+  .news2-card { padding: 20px; display: flex; flex-direction: column; gap: 16px; }
+  .news2-hero { text-align: center; padding: 20px 0 16px; }
+  .news2-score { font-family: var(--mono); font-size: clamp(56px, 6vw, 72px); font-weight: 900; line-height: 1; font-variant-numeric: tabular-nums; }
+  .news2-label { margin-top: 8px; font-size: 15px; font-weight: 700; letter-spacing: 0.02em; }
+  .news2-sub   { margin-top: 6px; font-size: 12px; color: var(--text-mid); line-height: 1.6; padding: 0 8px; }
+  .divider     { border-top: 1px solid var(--border); padding-top: 14px; }
+
+  .subscore-grid { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px; }
+  .subscore {
+    text-align: center; padding: 10px 6px; border-radius: var(--radius-ctl); min-height: 56px;
+    background: var(--inset); border: 1px solid var(--border-soft);
+  }
+  .subscore.hot { background: var(--hot-bg); border-color: var(--hot-line); box-shadow: inset 3px 0 0 var(--amber); }
+  .subscore.na  { border-color: var(--border-soft); }
+  .subscore .k { font-family: var(--mono); font-size: 12px; color: var(--text-faint); }
+  .subscore.hot .k { color: var(--amber); }
+  .subscore .v { font-family: var(--mono); font-size: 18px; font-weight: 700; color: var(--text-faint); margin-top: 2px; font-variant-numeric: tabular-nums; }
+  .subscore.hot .v { color: var(--hot-text); }
+
+  /* â”€â”€ Bars â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
+  .bar { height: 8px; border-radius: 4px; background: var(--bar-track); overflow: hidden; }
+  .bar > i { display: block; height: 100%; border-radius: 4px; transition: width 0.25s ease, background 0.4s; }
+
+  .band { display: flex; gap: 4px; height: 8px; align-items: stretch; }
+  .band > i { height: 100%; border-radius: 2px; opacity: 0.15; transition: opacity 0.5s; }
+  .band > i.on { opacity: 1; }
+
+  .gauge-label { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 8px; }
+  .gauge-label .name { font-size: 13px; font-weight: 600; color: var(--text-title); }
+  .gauge-label .val  { font-family: var(--mono); font-size: 24px; font-weight: 700; font-variant-numeric: tabular-nums; }
+
+  .pill {
+    padding: 5px 10px; border-radius: var(--radius-chip); margin-top: 4px;
+    background: var(--inset); border: 1px solid var(--border-soft);
+    font-size: 11px; font-family: var(--mono); color: var(--text-dim);
+  }
+  .pill.bad { background: var(--bad-bg); border-color: var(--bad-line); color: var(--crimson); }
+
+  /* â”€â”€ Splash / helper overlay â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
+  #gate {
+    position: fixed; inset: 0; z-index: 50;
+    background: var(--gate-bg);
+    display: flex; align-items: center; justify-content: center; padding: 24px;
+  }
+  #gate.hidden { display: none; }
+  .gate-box { max-width: 640px; text-align: center; }
+  .gate-box .gate-title { font-size: 36px; margin: 0 0 8px; letter-spacing: -0.03em; color: var(--text); }
+  .gate-box p  { color: var(--text-mid); font-size: 14px; line-height: 1.7; }
+  .gate-actions { display: flex; gap: 12px; justify-content: center; margin-top: 26px; flex-wrap: wrap; }
+  .gate-actions button { padding: 12px 20px; font-size: 15px; min-height: 48px; }
+  .gate-note { margin-top: 18px; font-size: 12px; color: var(--text-faint); font-family: var(--mono); }
+
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after {
+      animation-duration: 0.001ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.001ms !important;
+    }
+  }
+
+  /* Full light inversion. The script reads these custom properties into its
+     canvas palette at startup and on a system theme change, so traces, ticks,
+     tooltips and the inline signal colours invert together with the cards. */
+  @media (prefers-color-scheme: light) {
+    :root {
+      color-scheme: light;
+      --bg:          #eef3f9;
+      --card:        #ffffff;
+      --card-solid:  #ffffff;
+      --inset:       #f1f5f9;
+      --border:      #b8c5d6;
+      --border-soft: #d8e2ee;
+      --text:        #0b1220;
+      --text-title:  #0f172a;
+      --text-mid:    #334155;
+      --text-dim:    #3d4c60;
+      --text-faint:  #4b5b70;
+      --emerald:     #047857;
+      --cyan:        #0e7490;
+      --amber:       #b45309;
+      --crimson:     #b91c1c;
+      --purple:      #7e22ce;
+      --sky:         #0369a1;
+      --violet:      #6d28d9;
+      --orange:      #c2410c;
+      --focus:       #0369a1;
+      --grid-line:   rgba(71,85,105,0.06);
+      --plot-bg:     #f8fafc;
+      --plot-border: #cbd5e1;
+      --plot-grid:   rgba(100,116,139,0.30);
+      --plot-grid-soft: rgba(100,116,139,0.16);
+      --plot-muted:  #475569;
+      --plot-muted-soft: rgba(71,85,105,0.35);
+      --plot-text:   #334155;
+      --plot-warn:   #b45309;
+      --plot-warn-soft: rgba(180,83,9,0.35);
+      --plot-bar:    rgba(180,83,9,0.16);
+      --plot-hover:  rgba(51,65,85,0.50);
+      --trace-area-good: rgba(14,116,144,0.14);
+      --trace-area-bad:  rgba(185,28,28,0.12);
+      --arc-track:   #dbe4ef;
+      --trace-glow:  0;
+      --trace-glow-soft: 0;
+      --bar-track:   #e2e8f0;
+      --live-bg:     rgba(4,120,87,0.10);
+      --live-line:   rgba(4,120,87,0.35);
+      --sim-bg:      rgba(180,83,9,0.10);
+      --sim-line:    rgba(180,83,9,0.35);
+      --err-bg:      rgba(185,28,28,0.08);
+      --err-line:    rgba(185,28,28,0.30);
+      --idle-bg:     rgba(71,85,105,0.08);
+      --idle-line:   rgba(71,85,105,0.25);
+      --btn-hover-border: #94a3b8;
+      --btn-active-border: #7dd3fc;
+      --btn-active-bg: #e0f2fe;
+      --btn-active-text: #075985;
+      --primary-line: rgba(4,120,87,0.45);
+      --primary-hover: rgba(4,120,87,0.08);
+      --chip-hover-border: #94a3b8;
+      --hot-bg:      rgba(180,83,9,0.12);
+      --hot-line:    #d97706;
+      --hot-text:    #92400e;
+      --bad-bg:      rgba(185,28,28,0.08);
+      --bad-line:    #fca5a5;
+      --tooltip-bg:  rgba(255,255,255,0.98);
+      --tooltip-border: #cbd5e1;
+      --tooltip-shadow: rgba(15,23,42,0.18);
+      --gate-bg:     rgba(238,243,249,0.96);
+    }
+    header {
+      background: var(--card); border: 1px solid var(--border);
+      border-radius: var(--radius); padding: 12px 16px;
+    }
+  }
+
+  @media (max-height: 760px) {
+    body { padding-top: 10px; }
+    .row { gap: 8px; margin-bottom: 8px; }
+    .row-1 { align-items: start; }
+    .ppg-card .scope-frame { flex: 0 0 180px; min-height: 180px; }
+    .news2-card { padding: 14px; gap: 10px; }
+    .news2-hero { padding: 10px 0 8px; }
+    .news2-score { font-size: 52px; }
+    .news2-sub { font-size: 11px; }
+    #n2-note { font-size: 11px; line-height: 1.35; }
+    .device-verdict { margin-top: 6px; padding: 4px 8px; }
+    .subscore { padding: 6px 4px; min-height: 44px; }
+    .subscore-grid { gap: 4px; }
+  }
+
+  @media (max-width: 1180px) {
+    .row-1 { grid-template-columns: 1fr; }
+    .row-2 { grid-template-columns: 1fr 1fr 1fr; }
+    .row-3 { grid-template-columns: 1fr 1fr; }
+    .row-4 { grid-template-columns: 1fr 1fr; }
+  }
+</style>
+</head>
+<body>
+
+<!-- â”€â”€ Entry gate â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+     Not decoration: Web Serial requires a user gesture to grant port
+     access, and a judge opening the file cold needs to be told that the
+     simulation mode exists. -->
+<div id="gate" role="dialog" aria-modal="true" aria-labelledby="gate-title" aria-describedby="gate-desc">
+  <div class="gate-box">
+    <h2 class="gate-title" id="gate-title">VALOR</h2>
+    <p style="font-family:var(--mono);font-size:12px;color:var(--text-dim);margin:0 0 18px">
+      Vital &amp; Atmospheric Logic for Offline Rescue &middot; SIH26181
+    </p>
+    <p id="gate-desc">
+      Connect the ShrikeFi board over USB to stream live vitals, or run one of the
+      six clinical profiles with no hardware attached. Nothing is displayed until
+      you choose one &mdash; the panels stay empty rather than showing invented data.
+    </p>
+    <div class="gate-actions">
+      <button type="button" class="primary" id="gate-connect" autofocus>Connect to device</button>
+      <button type="button" id="gate-sim">Run simulation</button>
+      <button type="button" id="gate-empty">Open without data</button>
+    </div>
+    <div class="gate-note" id="gate-note"></div>
+  </div>
+</div>
+
+<!-- â”€â”€ Header â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ -->
+<header>
+  <div>
+    <div class="brand">
+      <h1 class="brand-name">VALOR</h1>
+      <span class="brand-sub">Edge Health &amp; Disaster Triage</span>
+      <div class="status-pill idle" id="status-pill" role="status" aria-live="polite">
+        <div class="status-dot"></div>
+        <span id="status-text">NOT CONNECTED &middot; no data</span>
+      </div>
+    </div>
+    <div class="board-sub">ShrikeFi ESP32-S3 + Renesas ForgeFPGA SLG47910</div>
+    <div class="board-sub" id="v-loc" style="margin-top:2px">LOC --</div>
+    <div class="board-sub" id="v-env" style="margin-top:2px">Ta -- · RH -- · PM2.5 --</div>
+  </div>
+  <div class="controls">
+    <button type="button" id="btn-connect" class="primary">Connect to device</button>
+    <button type="button" id="btn-sim">Simulation</button>
+    <div id="profile-buttons" style="display:none"></div>
+  </div>
+</header>
+
+<!-- â”€â”€ Row 1: PPG scope + NEWS2 â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ -->
+<main>
+<div class="row row-1">
+  <div class="card card-pad ppg-card">
+    <div class="card-head">
+      <div>
+        <div class="card-title">Optical PPG &middot; Real-Time</div>
+        <div class="dim" id="scope-sub">AC-coupled reflectance &middot; ring buffer &middot; auto-ranged</div>
+      </div>
+      <div style="display:flex;gap:8px;align-items:center">
+        <span class="mono" style="font-size:12px" id="scope-sqi">SQI --</span>
+        <span class="chip" id="scope-rate">-- Hz</span>
+        <span class="chip" id="scope-src">--</span>
+      </div>
+    </div>
+    <div class="scope-frame">
+      <canvas id="ppg" aria-label="Real-Time Photoplethysmogram Oscilloscope" role="img">
+        Your browser does not support the canvas element.
+      </canvas>
+    </div>
+    <!-- Real derived quantities only. The mock-up showed Systolic/Diastolic
+         estimates and PTT here; this build measures none of those, so they are
+         replaced with values the device actually produces. -->
+    <div class="metric-row">
+      <div class="metric"><div class="k">Perfusion index</div><div class="v" id="m-pi">--</div></div>
+      <div class="metric"><div class="k">Resp. rate</div><div class="v" id="m-rr">--</div></div>
+      <div class="metric"><div class="k">RMSSD</div><div class="v" id="m-hrv">--</div></div>
+      <div class="metric"><div class="k">Signal quality</div><div class="v" id="m-sqi">--</div></div>
+    </div>
+  </div>
+
+  <div class="card news2-card">
+    <div>
+      <div class="faint" style="margin-bottom:4px">mNEWS2 &middot; RCP Clinical Triage &middot; DEVICE</div>
+      <div style="font-size:15px;font-weight:700;color:var(--text);letter-spacing:-0.015em">Deterioration Score</div>
+    </div>
+    <div class="news2-hero">
+      <div class="news2-score" id="n2-score">0</div>
+      <div class="news2-label" id="n2-label">Normal</div>
+      <div class="news2-sub" id="n2-sub"></div>
+      <div class="device-verdict" id="device-verdict">Device verdict: --</div>
+    </div>
+    <div class="divider">
+      <div class="faint" style="margin-bottom:10px">sub-scores</div>
+      <div class="subscore-grid" id="n2-grid"></div>
+      <div class="dim" style="margin-top:10px;line-height:1.5" id="n2-note"></div>
+    </div>
+  </div>
+</div>
+
+<!-- â”€â”€ Row 2: Vitals â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ -->
+<div class="row row-2">
+  <div class="card card-pad">
+    <div class="vital-head">
+      <span class="label">Heart Rate</span>
+      <span class="vital-source" id="hr-source">--</span>
+    </div>
+    <div style="display:flex;align-items:flex-end;justify-content:space-between">
+      <div>
+        <span class="big vital-xl" id="v-hr">--</span>
+        <span class="unit" style="font-size:14px;margin-left:5px">bpm</span>
+      </div>
+    </div>
+    <div class="trace-wrap" style="margin:12px 0 0;height:38px">
+      <canvas id="ecg" aria-label="Decorative ECG sparkline (not a measured ECG)" role="img">
+        Decorative ECG trace
+      </canvas>
+    </div>
+    <span class="trace-tag">SCHEMATIC</span>
+    <div style="font-size:12px;color:var(--text-dim);margin-top:3px" id="hr-note">&nbsp;</div>
+  </div>
+
+  <div class="card card-pad">
+    <div class="dim" style="margin-bottom:10px">SpO&#8322;</div>
+    <div style="display:flex;align-items:center;gap:12px">
+      <canvas id="spo2-arc" width="112" height="112" style="width:56px;height:56px;flex:none" aria-label="Blood Oxygen Saturation Gauge" role="img">
+        SpO2 arc indicator
+      </canvas>
+      <div>
+        <span class="big vital-lg" id="v-spo2">--</span>
+        <span class="unit">%</span>
+        <div style="font-size:12px;color:var(--text-dim);margin-top:4px" id="spo2-note">&nbsp;</div>
+      </div>
+    </div>
+    <div style="margin-top:12px" class="dim" id="spo2-src">Plethysmographic &middot; red/IR ratio</div>
+  </div>
+
+  <div class="card card-pad">
+    <div class="dim" style="margin-bottom:10px">HRV &mdash; RMSSD</div>
+    <div style="margin-bottom:14px">
+      <span class="big vital-lg" id="v-hrv">--</span>
+      <span class="unit">ms</span>
+    </div>
+    <div class="bar"><i id="bar-hrv" style="width:0%"></i></div>
+    <div style="margin-top:8px;font-size:12px;color:var(--text-dim)" id="hrv-note">&nbsp;</div>
+  </div>
+
+  <div class="card card-pad">
+    <div class="dim" style="margin-bottom:10px">Resp. Rate</div>
+    <div style="margin-bottom:10px">
+      <span class="big vital-lg" id="v-rr">--</span>
+      <span class="unit">br/min</span>
+    </div>
+    <div class="trace-wrap" style="height:44px">
+      <canvas id="rr" aria-label="Respiratory sinus arrhythmia envelope (schematic)" role="img">
+        Respiratory rate modulation trace
+      </canvas>
+    </div>
+    <span class="trace-tag">SCHEMATIC</span>
+    <div style="margin-top:5px" class="dim" id="rr-note">PPG-derived &middot; RSA modulation</div>
+  </div>
+
+  <div class="card" style="padding:18px 16px">
+    <div class="dim" style="margin-bottom:10px">Signal Quality</div>
+    <div style="margin-bottom:8px">
+      <span class="big vital-lg" id="v-sqi">--</span>
+      <span class="unit">%</span>
+    </div>
+    <div class="pill" id="sqi-pill">--</div>
+    <div style="margin-top:10px" class="dim">Karlen SQI</div>
+  </div>
+</div>
+
+<!-- â”€â”€ Row 3: Environment â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ -->
+<div class="row row-3">
+  <div class="card card-pad">
+    <div class="dim" style="margin-bottom:10px">Ambient Temp</div>
+    <div style="margin-bottom:12px">
+      <span class="big vital-lg" id="v-temp">--</span>
+      <span class="unit" style="font-size:14px">&deg;C</span>
+    </div>
+    <div class="band" id="temp-band">
+      <i style="flex:1;background:var(--sky)"></i>
+      <i style="flex:3;background:var(--emerald)"></i>
+      <i style="flex:1;background:var(--amber)"></i>
+      <i style="flex:1;background:var(--crimson)"></i>
+    </div>
+    <div style="margin-top:6px" class="dim">BME280 &middot; ambient</div>
+  </div>
+
+  <div class="card card-pad">
+    <div class="dim" style="margin-bottom:10px">Humidity</div>
+    <div style="margin-bottom:12px">
+      <span class="big vital-lg" id="v-hum">--</span>
+      <span class="unit" style="font-size:14px">% RH</span>
+    </div>
+    <div class="bar"><i id="bar-hum" style="width:0%"></i></div>
+    <div style="margin-top:6px" class="dim">comfort 40&ndash;60%</div>
+  </div>
+
+  <div class="card card-pad">
+    <div class="dim" style="margin-bottom:10px">PM2.5</div>
+    <div style="display:flex;align-items:baseline;gap:10px;margin-bottom:8px">
+      <div>
+        <span class="big vital-lg" id="v-pm">--</span>
+        <span class="unit">&micro;g/m&sup3;</span>
+      </div>
+    </div>
+    <div style="display:flex;align-items:center;justify-content:space-between">
+      <div class="faint" id="pm-raw">raw --</div>
+      <div class="mono" style="font-size:12px;font-weight:600" id="pm-label">--</div>
+    </div>
+    <div style="margin-top:8px" class="dim">PMS5003 &middot; published humidity correction (EPA / AirGradient)</div>
+  </div>
+
+  <div class="card card-pad">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
+      <span class="dim">Storm &amp; Cyclone</span>
+      <span class="chip" id="storm-risk-badge" style="color:var(--text-faint)">--</span>
+    </div>
+    <div style="margin-bottom:12px">
+      <span class="big" id="storm-ptrend-val" style="font-size:32px;font-weight:700">--</span>
+      <span class="unit" style="font-size:13px">hPa/h</span>
+    </div>
+    <div class="bar" style="height:8px"><i id="bar-ptrend" style="width:0%;background:var(--violet)"></i></div>
+    <div style="margin-top:6px" class="dim" id="storm-sub">BME280 &middot; 3h barometric slope</div>
+  </div>
+
+  <div class="card card-pad">
+    <div class="dim" style="margin-bottom:14px">Physiological Stress</div>
+    <div style="margin-bottom:12px">
+      <div class="gauge-label">
+        <span style="font-size:12px;color:var(--text-dim)">Moran PSI</span>
+        <span class="mono" style="font-size:18px;font-weight:700" id="psi-val">--<span style="font-size:10px;color:var(--text-faint)">/10</span></span>
+      </div>
+      <div class="bar"><i id="bar-psi" style="width:0%"></i></div>
+    </div>
+    <div>
+      <div class="gauge-label">
+        <span style="font-size:12px;color:var(--text-dim)">AHA Autonomic</span>
+        <span class="mono" style="font-size:18px;font-weight:700" id="aha-val">--<span style="font-size:10px;color:var(--text-faint)">/1.0</span></span>
+      </div>
+      <div class="bar"><i id="bar-aha" style="width:0%"></i></div>
+    </div>
+  </div>
+</div>
+
+<!-- ── Row 4: TinyML ──────────────────────────────────────────────────────── -->
+<div class="card" style="padding:20px 24px">
+  <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:20px;flex-wrap:wrap;gap:8px">
+    <div>
+      <div class="card-title" style="margin-bottom:3px">Multi-Hazard Risk Inference</div>
+      <div class="dim">On-device TinyML &middot; INT8 &middot; 6&rarr;24&rarr;16&rarr;3, 619 B weights &middot; no cloud</div>
+    </div>
+    <div class="faint" id="ml-note">MIMIC-III triage 94.11% &middot; MIMIC INT8/FP32 agreement 99.95% &middot; synthetic teacher agreement 88.39% (INT8) &middot; INT8/FP32 97.32%</div>
+  </div>
+  <div class="row row-4" style="margin-bottom:0">
+    <div>
+      <div class="gauge-label">
+        <span class="name">Heat Stroke</span>
+        <span class="val" id="g-heat-val" style="color:var(--crimson)">--</span>
+      </div>
+      <div class="bar" style="height:8px"><i id="g-heat" style="width:0%;background:var(--crimson)"></i></div>
+      <div class="dim" style="margin-top:8px" id="g-heat-sub">heat index + physiological strain</div>
+    </div>
+    <div>
+      <div class="gauge-label">
+        <span class="name">Pollution / Smog</span>
+        <span class="val" id="g-poll-val" style="color:var(--amber)">--</span>
+      </div>
+      <div class="bar" style="height:8px"><i id="g-poll" style="width:0%;background:var(--amber)"></i></div>
+      <div class="dim" style="margin-top:8px" id="g-poll-sub">PM2.5 burden</div>
+    </div>
+    <div>
+      <div class="gauge-label">
+        <span class="name">Flood / Cold Shock</span>
+        <span class="val" id="g-flood-val" style="color:var(--sky)">--</span>
+      </div>
+      <div class="bar" style="height:8px"><i id="g-flood" style="width:0%;background:var(--sky)"></i></div>
+      <div class="dim" style="margin-top:8px" id="g-flood-sub">ambient cold-stress proxy</div>
+    </div>
+    <div>
+      <div class="gauge-label">
+        <span class="name">Cyclone / Storm</span>
+        <span class="val" id="g-storm-val" style="color:var(--violet)">--</span>
+      </div>
+      <div class="bar" style="height:8px"><i id="g-storm" style="width:0%;background:var(--violet)"></i></div>
+      <div class="dim" style="margin-top:8px" id="g-storm-sub">barometric tendency: --</div>
+    </div>
+  </div>
+</div>
+
+<!-- ── Row 5: 24-Hour Clinical & Environmental Trends ───────────────────── -->
+<div class="card card-pad" style="margin-top:12px">
+  <div class="card-head" style="margin-bottom:14px;flex-wrap:wrap;gap:10px">
+    <div>
+      <div class="card-title">24-Hour Clinical &amp; Environmental Trajectory</div>
+      <div class="dim" id="hist-sub">On-device hourly summaries &middot; 24-point circular buffer &middot; restored after reboot &middot; zero cloud</div>
+    </div>
+    <div style="display:flex;gap:14px;align-items:center;flex-wrap:wrap">
+      <div style="display:flex;gap:12px;align-items:center;font-size:12px;font-family:var(--mono)">
+        <span style="display:flex;align-items:center;gap:4px;color:var(--emerald)">
+          <i style="display:inline-block;width:8px;height:8px;border-radius:2px;background:var(--emerald)"></i>HR (bpm)
+        </span>
+        <span style="display:flex;align-items:center;gap:4px;color:var(--cyan)">
+          <i style="display:inline-block;width:8px;height:8px;border-radius:2px;background:var(--cyan)"></i>SpO&#8322; (%)
+        </span>
+        <span style="display:flex;align-items:center;gap:4px;color:var(--violet)">
+          <i style="display:inline-block;width:8px;height:8px;border-radius:2px;background:var(--violet)"></i>RMSSD (ms)
+        </span>
+        <span style="display:flex;align-items:center;gap:4px;color:var(--amber)">
+          <i style="display:inline-block;width:8px;height:8px;border-radius:2px;background:var(--amber)"></i>PM2.5 (&micro;g/m&sup3;)
+        </span>
+        <span style="display:flex;align-items:center;gap:4px;color:var(--crimson)">
+          <i style="display:inline-block;width:8px;height:8px;border-radius:2px;background:var(--crimson)"></i>NEWS2
+        </span>
+      </div>
+      <span class="chip" id="hist-span">DEVICE HOURS</span>
+      <button type="button" class="chip" id="hist-export" style="cursor:pointer" aria-label="Export 24-hour history as CSV">EXPORT CSV</button>
+    </div>
+  </div>
+
+  <div style="height:200px;position:relative;border-radius:8px;overflow:hidden;border:1px solid var(--plot-border);background:var(--plot-bg)">
+    <canvas id="hist-canvas" tabindex="0" aria-label="24-Hour Clinical Trends Chart" aria-describedby="hist-help" role="img">
+      24-hour health and hazard trend chart
+    </canvas>
+    <div id="hist-help" class="sr-only">Use the left and right arrow keys to inspect the hourly trend points.</div>
+    <div id="hist-tooltip" style="position:absolute;display:none;pointer-events:none;border-radius:8px;padding:8px 12px;font-family:var(--mono);font-size:12px;color:var(--text);z-index:10"></div>
+  </div>
+
+  <div class="faint" id="hist-scale" style="margin-top:8px;font-family:var(--mono);font-size:11px">
+    Display scales:
+    <span style="color:var(--emerald)">HR 40&ndash;160 bpm</span> &middot;
+    <span style="color:var(--cyan)">SpO&#8322; 80&ndash;100%</span> &middot;
+    <span style="color:var(--violet)">RMSSD 0&ndash;80 ms</span> &middot;
+    <span style="color:var(--amber)">PM2.5 0&ndash;350 &micro;g/m&sup3;</span> &middot;
+    <span style="color:var(--crimson)">NEWS2 0&ndash;9</span>
+  </div>
+
+  <div class="metric-row" style="margin-top:14px;justify-content:space-between">
+    <div class="metric"><div class="k">24h Mean HR</div><div class="v" id="h-mean-hr">--</div></div>
+    <div class="metric"><div class="k">24h SpO&#8322; Low (hourly avg)</div><div class="v" id="h-min-spo2">--</div></div>
+    <div class="metric"><div class="k">24h Mean RMSSD</div><div class="v" id="h-mean-rmssd">--</div></div>
+    <div class="metric"><div class="k">24h Peak NEWS2</div><div class="v" id="h-peak-news2">--</div></div>
+    <div class="metric"><div class="k">24h Peak PM2.5</div><div class="v" id="h-peak-pm25">--</div></div>
+    <div class="metric"><div class="k">Hours with data</div><div class="v" id="h-sample-count">--/24</div></div>
+  </div>
+</div>
+
+<div class="faint" style="margin-top:14px;line-height:1.7">
+  VALOR &middot; SIH26181 &middot; <span id="foot-note">simulation mode</span>
+</div>
+<div class="faint" style="margin-top:4px;color:var(--text-faint)">
+  Research prototype &mdash; not a medical device. SpO&#8322; awaits cradle recalibration; HRV is not clinically validated.
+</div>
+</main>
+
+<script>
+"use strict";
+
+/* ==========================================================================
+   1. Clinical profiles
+   ==========================================================================
+   Values and names are transcribed from g_scenarios[] in
+   firmware/shrikefi/shrikefi_dashboard.c, so the web simulation and the
+   on-device simulation present the same patient. The Figma mock-up had its own
+   set of numbers under different names, which would have meant two simulations
+   that disagreed.
+
+   psi / aha / heat / poll / flood are illustrative: in a real run they come
+   from the device (see the [TRIAGE] line). NEWS2 is not stored here - it is
+   computed from the vitals using the same tables as the on-device engine. */
+
+const PROFILES = {
+  'Normal Baseline':
+    { hr: 72,  spo2: 98.5, hrv: 38, rr: 15, sqi: 96, temp: 24.5, hum: 48, pmRaw: 12,  pmCal: 12,  psi: 1.2, aha: 0.00, heat: 4,  poll: 6,  flood: 2,  storm: 3,  cyclone: 'NORMAL',   ptrend: 0.10 },
+  'Heat Wave & Dehydration':
+    { hr: 138, spo2: 96.0, hrv: 12, rr: 24, sqi: 94, temp: 43.5, hum: 65, pmRaw: 45,  pmCal: 45,  psi: 9.5, aha: 0.74, heat: 94, poll: 22, flood: 2,  storm: 5,  cyclone: 'NORMAL',   ptrend: -0.20 },
+  'Severe Smog / PM2.5 Crisis':
+    { hr: 108, spo2: 92.5, hrv: 14, rr: 22, sqi: 91, temp: 29.0, hum: 82, pmRaw: 340, pmCal: 340, psi: 4.0, aha: 1.00, heat: 12, poll: 97, flood: 6,  storm: 8,  cyclone: 'NORMAL',   ptrend: -0.15 },
+  'Flash Flood / Hypothermia':
+    { hr: 42,  spo2: 93.0, hrv: 65, rr: 9,  sqi: 90, temp: 11.2, hum: 98, pmRaw: 8,   pmCal: 8,   psi: 2.4, aha: 0.00, heat: 3,  poll: 4,  flood: 91, storm: 88, cyclone: 'CRITICAL', ptrend: -3.80 },
+  'Cardiopulmonary ICU Emergency':
+    { hr: 146, spo2: 83.0, hrv: 7,  rr: 32, sqi: 88, temp: 38.8, hum: 50, pmRaw: 20,  pmCal: 20,  psi: 8.6, aha: 0.74, heat: 30, poll: 14, flood: 3,  storm: 4,  cyclone: 'NORMAL',   ptrend: 0.05 },
+  'Motion Artifact / Noise Test':
+    { hr: 95,  spo2: 96.0, hrv: 25, rr: 18, sqi: 32, temp: 26.0, hum: 55, pmRaw: 25,  pmCal: 25,  psi: 3.1, aha: 0.20, heat: 9,  poll: 11, flood: 4,  storm: 6,  cyclone: 'NORMAL',   ptrend: 0.00 },
+};
+
+const C = {
+  emerald: '#00FFAA', cyan: '#00E5FF', amber: '#F59E0B',
+  crimson: '#EF4444', purple: '#A855F7', sky: '#38bdf8',
+  violet: '#a78bfa', orange: '#F97316', mid: '#8492a6',
+  faint: '#7587a0', text: '#eef3f9',
+  plotBg: '#05080f', plotGrid: 'rgba(30,41,59,0.50)',
+  plotGridSoft: 'rgba(30,41,59,0.25)',
+  plotMuted: 'rgba(100,116,139,0.85)',
+  plotMutedSoft: 'rgba(100,116,139,0.35)',
+  plotText: 'rgba(203,213,225,0.90)',
+  plotWarn: 'rgba(245,158,11,0.90)',
+  plotWarnSoft: 'rgba(245,158,11,0.35)',
+  plotBar: 'rgba(245,158,11,0.16)',
+  plotHover: 'rgba(255,255,255,0.40)',
+  traceAreaGood: 'rgba(0,229,255,0.14)',
+  traceAreaBad: 'rgba(239,68,68,0.14)',
+  arcTrack: '#131f35',
+  glow: 9,
+  glowSoft: 6,
+};
+
+/* CSS owns the palette. Mirror it into the canvas/JS colours at startup and
+   again if the OS switches between dark and light while the page is open. */
+function refreshPalette() {
+  const cs = getComputedStyle(document.documentElement);
+  const read = (name, fallback) => cs.getPropertyValue(name).trim() || fallback;
+  C.emerald = read('--emerald', C.emerald);
+  C.cyan = read('--cyan', C.cyan);
+  C.amber = read('--amber', C.amber);
+  C.crimson = read('--crimson', C.crimson);
+  C.purple = read('--purple', C.purple);
+  C.sky = read('--sky', C.sky);
+  C.violet = read('--violet', C.violet);
+  C.orange = read('--orange', C.orange);
+  C.mid = read('--text-mid', C.mid);
+  C.faint = read('--text-faint', C.faint);
+  C.text = read('--text', C.text);
+  C.plotBg = read('--plot-bg', C.plotBg);
+  C.plotGrid = read('--plot-grid', C.plotGrid);
+  C.plotGridSoft = read('--plot-grid-soft', C.plotGridSoft);
+  C.plotMuted = read('--plot-muted', C.plotMuted);
+  C.plotMutedSoft = read('--plot-muted-soft', C.plotMutedSoft);
+  C.plotText = read('--plot-text', C.plotText);
+  C.plotWarn = read('--plot-warn', C.plotWarn);
+  C.plotWarnSoft = read('--plot-warn-soft', C.plotWarnSoft);
+  C.plotBar = read('--plot-bar', C.plotBar);
+  C.plotHover = read('--plot-hover', C.plotHover);
+  C.traceAreaGood = read('--trace-area-good', C.traceAreaGood);
+  C.traceAreaBad = read('--trace-area-bad', C.traceAreaBad);
+  C.arcTrack = read('--arc-track', C.arcTrack);
+  C.glow = parseFloat(read('--trace-glow', String(C.glow)));
+  C.glowSoft = parseFloat(read('--trace-glow-soft', String(C.glowSoft)));
+  if (!isFinite(C.glow)) C.glow = 0;
+  if (!isFinite(C.glowSoft)) C.glowSoft = 0;
+}
+refreshPalette();
+
+const schemeQuery = window.matchMedia
+  ? window.matchMedia('(prefers-color-scheme: light)') : null;
+if (schemeQuery) {
+  const onScheme = () => refreshPalette();
+  if (schemeQuery.addEventListener) schemeQuery.addEventListener('change', onScheme);
+  else if (schemeQuery.addListener) schemeQuery.addListener(onScheme);
+}
+
+/* Live state. In simulation it is driven by the profile; in live mode it is
+   overwritten by parsed serial lines. `connected` decides which. */
+/* Deliberately empty. An idle dashboard must not be able to show a plausible
+   looking number, so every field starts at zero and render() prints "--" for it
+   until a device connects or a simulation is explicitly started. */
+const V = {
+  hr: 0, spo2: 0, hrv: 0, rr: 0, rrConf: 0, rrDepth: 0, sqi: 0, contact: false,
+  temp: -100, hum: -1, skinTemp: 0, pmRaw: 0, pmCal: null, pmConf: '', loc: '',
+  psi: 0, aha: 0, heat: 0, poll: 0, flood: 0, storm: 0, news2: 0,
+  /* Device NEWS2 sub-scores from [TRIAGE] HRPTS/SPO2PTS/RRPTS/TEMPPTS. null means the
+     firmware did not send them (older build) or this is a simulation, in which
+     case the tiles fall back to the local RCP tables for display only. */
+  n2hrPts: null, n2spo2Pts: null, n2rrPts: null, n2tempPts: null,
+  /* Beats currently in the device's HRV window, from [TELEMETRY] HRVN. The
+     firmware withholds RMSSD until the window holds 240 of 300 beats and spans
+     120 s of contact, so this is the progress toward a publishable value.
+     null means the field was not reported (older build) or this is a sim. */
+  hrvN: null,
+  pi: 0, level: 0, flags: 0, risk: 'UNKNOWN',
+  rHeat: 'UNKNOWN', rPoll: 'UNKNOWN', rFlood: 'UNKNOWN',
+  cyclone: 'UNKNOWN', ptrend: null,
+  nnHeat: null, nnPoll: null, nnFlood: null, aiValid: null,
+};
+
+let mode = 'idle';         // 'idle' | 'sim' | 'live'
+let profile = 'Normal Baseline';
+let sampleRate = 0;
+let ppgSeen = false;      /* has any [PPG] sample arrived this connection? */
+let liveStart = 0;        /* when the current live session began */
+let lastSerialLine = 0;
+let lastTelemetryAt = 0;
+let liveNoData = false;
+
+/* ==========================================================================
+   2. Helpers
+   ========================================================================== */
+
+const $ = (id) => document.getElementById(id);
+const markAbsent = (id, on) => {
+  const el = $(id);
+  if (el) el.classList.toggle('is-absent', !!on);
+};
+const clamp = (x, a, b) => Math.min(b, Math.max(a, x));
+const pct = (x, max) => clamp((x / max) * 100, 0, 100);
+const esc = (s) => String(s).replace(/[&<>"]/g, (c) =>
+  ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+
+/* NEWS2 point tables, transcribed from firmware/core/clinical_vitals_engine.c
+   (news2_hr_score / news2_spo2_score / news2_rr_score). Kept identical to the
+   on-device engine on purpose: if these drift, the screen disagrees with the
+   device. The Figma mock-up had approximate versions of these that were wrong
+   at several boundaries. */
+const n2hr = (hr) =>
+  hr <= 40 ? 3 : hr <= 50 ? 1 : hr <= 90 ? 0 : hr <= 110 ? 1 : hr <= 130 ? 2 : 3;
+const n2spo2 = (s) =>
+  s >= 96 ? 0 : s >= 94 ? 1 : s >= 92 ? 2 : 3;
+const n2rr = (rr) =>
+  rr <= 8 ? 3 : rr <= 11 ? 1 : rr <= 20 ? 0 : rr <= 24 ? 2 : 3;
+
+/* Levels mirror clinical_vitals_engine.c: NORMAL 0, ELEVATED 1-3, HIGH 4-6, CRITICAL >= 7.
+ * (The device can also force CRITICAL from a single crisis vital; that shows in the
+ * "device verdict" line, not here, because this tile is driven by the score alone.) */
+const NEWS2_BANDS = [
+  { max: 0,  label: 'Normal',   key: 'emerald', sub: 'No early-warning points. Routine monitoring.' },
+  { max: 3,  label: 'Elevated', key: 'cyan',    sub: 'Some vitals outside the normal range. Re-check and keep monitoring.' },
+  { max: 6,  label: 'High',     key: 'amber',   sub: 'Several vitals abnormal. Seek medical help soon.' },
+  { max: 99, label: 'Critical', key: 'crimson', sub: 'Severe deviation. Seek emergency help now.' },
+];
+const news2Band = (s) => NEWS2_BANDS.find((b) => s <= b.max) || NEWS2_BANDS[NEWS2_BANDS.length - 1];
+
+/* US EPA PM2.5 AQI bands, 2024 revision (effective 2024-05-06). These are the
+ * same breakpoints the device uses in disaster_epa_pm25_aqi(), so the number on
+ * this page and the number on the OLED cannot disagree. */
+function aqiBand(pm) {
+  if (pm <= 9.0)   return { label: 'Good',                color: C.emerald };
+  if (pm <= 35.4)  return { label: 'Moderate',            color: C.amber };
+  if (pm <= 55.4)  return { label: 'Sensitive Groups',    color: C.orange };
+  if (pm <= 125.4) return { label: 'Unhealthy',           color: C.crimson };
+  if (pm <= 225.4) return { label: 'Very Unhealthy',      color: C.purple };
+  return { label: 'Hazardous', color: C.purple };
+}
+
+/* ==========================================================================
+   3. Canvases
+   ==========================================================================
+   All three share a device-pixel-ratio backing store so they stay crisp on
+   scaled displays, and a ResizeObserver so they survive a window resize. */
+
+function fitCanvas(cv) {
+  const dpr = window.devicePixelRatio || 1;
+  const r = cv.getBoundingClientRect();
+  const w = Math.max(1, Math.round(r.width)), h = Math.max(1, Math.round(r.height));
+  if (cv.width !== w * dpr || cv.height !== h * dpr) {
+    cv.width = w * dpr; cv.height = h * dpr;
+  }
+  const ctx = cv.getContext('2d');
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  return { ctx, w, h };
+}
+
+/* PPG: 700-sample ring buffer.
+   Live samples are raw IR counts with a large DC offset, so the trace is
+   AC-coupled against a slow running mean and auto-ranged. That shows the real
+   waveform shape without inventing an amplitude scale. */
+function makePPG() {
+  const N = 700;
+  const buf = new Float32Array(N);
+  let head = 0, dc = 0, dcInit = false, lo = -1, hi = 1;
+
+  function push(v) {
+    if (!dcInit) { dc = v; dcInit = true; }
+    dc = dc * 0.995 + v * 0.005;
+    buf[head % N] = v - dc;
+    head++;
+  }
+
+  function draw() {
+    const cv = $('ppg');
+    const { ctx, w, h } = fitCanvas(cv);
+
+    ctx.fillStyle = C.plotBg;
+    ctx.fillRect(0, 0, w, h);
+
+    ctx.strokeStyle = C.plotGrid;
+    ctx.lineWidth = 0.5;
+    for (let y = 0; y <= h; y += 24) { ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(w, y); ctx.stroke(); }
+    ctx.strokeStyle = C.plotGridSoft;
+    for (let x = 0; x <= w; x += 60) { ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, h); ctx.stroke(); }
+
+    /* Auto-range over valid samples only. Before the ring fills, the unused
+       slots are zero; including them made the first trace look like a large
+       step transient instead of the pulse that is actually arriving. */
+    const n = Math.min(head, N);
+    let mn = Infinity, mx = -Infinity;
+    for (let i = 0; i < n; i++) {
+      const v = buf[(head - n + i + N * 2) % N];
+      if (v < mn) mn = v;
+      if (v > mx) mx = v;
+    }
+    if (!isFinite(mn) || mx - mn < 1e-6) { mn = -1; mx = 1; }
+    const pad = (mx - mn) * 0.12;
+    lo = lo < 0 ? mn - pad : lo * 0.9 + (mn - pad) * 0.1;
+    hi = hi < 0 ? mx + pad : hi * 0.9 + (mx + pad) * 0.1;
+    const span = Math.max(1e-6, hi - lo);
+
+    if (mode === 'live' && liveNoData) {
+      ctx.strokeStyle = C.plotMutedSoft;
+      ctx.lineWidth = 1;
+      ctx.setLineDash([6, 6]);
+      ctx.beginPath(); ctx.moveTo(0, h / 2); ctx.lineTo(w, h / 2); ctx.stroke();
+      ctx.setLineDash([]);
+      ctx.fillStyle = C.plotMuted;
+      ctx.font = '12px ' + getComputedStyle(document.body).fontFamily;
+      ctx.textAlign = 'center';
+      ctx.fillText('NO LIVE TELEMETRY', w / 2, h / 2 - 12);
+      ctx.textAlign = 'left';
+      return;
+    }
+
+    if (mode === 'idle') {
+      /* Flat trace with a reason, rather than an unexplained dead line. */
+      ctx.strokeStyle = C.plotMutedSoft;
+      ctx.lineWidth = 1;
+      ctx.setLineDash([6, 6]);
+      ctx.beginPath(); ctx.moveTo(0, h / 2); ctx.lineTo(w, h / 2); ctx.stroke();
+      ctx.setLineDash([]);
+      ctx.fillStyle = C.plotMuted;
+      ctx.font = '12px ' + getComputedStyle(document.body).fontFamily;
+      ctx.textAlign = 'center';
+      ctx.fillText('NO SIGNAL \u2014 connect a device or start a simulation', w / 2, h / 2 - 12);
+      ctx.textAlign = 'left';
+      return;
+    }
+
+    if (mode === 'live' && !V.contact) {
+      const ta = (isFinite(V.temp) && V.temp >= -20 && V.temp <= 65)
+        ? V.temp.toFixed(1) + ' °C' : '--';
+      const rh = (isFinite(V.hum) && V.hum >= 0 && V.hum <= 100)
+        ? V.hum.toFixed(0) + ' %' : '--';
+      const pm = (isFinite(V.pmCal) && V.pmCal > 0)
+        ? V.pmCal.toFixed(1) + ' \u00b5g/m\u00b3' : '--';
+      ctx.strokeStyle = C.plotMutedSoft;
+      ctx.lineWidth = 1;
+      ctx.setLineDash([6, 6]);
+      ctx.beginPath(); ctx.moveTo(0, h / 2); ctx.lineTo(w, h / 2); ctx.stroke();
+      ctx.setLineDash([]);
+      ctx.fillStyle = C.plotWarn;
+      ctx.font = '12px ' + getComputedStyle(document.body).fontFamily;
+      ctx.textAlign = 'center';
+      ctx.fillText('NO CONTACT — ambient IR (not a pulse)', w / 2, h / 2 - 16);
+      ctx.fillStyle = C.plotText;
+      ctx.font = '11px ' + getComputedStyle(document.body).fontFamily;
+      ctx.fillText('Ta ' + ta + ' · RH ' + rh + ' · PM2.5 ' + pm, w / 2, h / 2 + 8);
+      ctx.textAlign = 'left';
+      return;
+    }
+
+    /* Contact is present but no [PPG] samples arrived. That is what
+       CONFIG_SHRIKEFI_STREAM_PPG=n looks like from here - every number still
+       arrives on [TELEMETRY]/[TRIAGE], only the waveform is missing. */
+    if (mode === 'live' && !ppgSeen && performance.now() - liveStart > 5000) {
+      ctx.strokeStyle = C.plotWarnSoft;
+      ctx.lineWidth = 1;
+      ctx.setLineDash([6, 6]);
+      ctx.beginPath(); ctx.moveTo(0, h / 2); ctx.lineTo(w, h / 2); ctx.stroke();
+      ctx.setLineDash([]);
+      ctx.fillStyle = C.plotWarn;
+      ctx.font = '12px ' + getComputedStyle(document.body).fontFamily;
+      ctx.textAlign = 'center';
+      ctx.fillText('NO PPG SAMPLES — check contact or stream config', w / 2, h / 2 - 12);
+      ctx.fillText('readings can still be live; only the waveform is missing', w / 2, h / 2 + 8);
+      ctx.textAlign = 'left';
+      return;
+    }
+
+    if (n < 2) return;
+
+    const bad = V.sqi < 50;
+    const color = bad ? C.crimson : C.cyan;
+    const xAt = (i) => (i / (n - 1)) * w;
+    const yAt = (i) => {
+      const idx = (head - n + i + N * 2) % N;
+      return h - ((buf[idx] - lo) / span) * h * 0.76 - h * 0.12;
+    };
+
+    /* area fill */
+    ctx.beginPath();
+    for (let i = 0; i < n; i++) { const x = xAt(i), y = yAt(i); i ? ctx.lineTo(x, y) : ctx.moveTo(x, y); }
+    ctx.lineTo(w, h); ctx.lineTo(0, h); ctx.closePath();
+    const g = ctx.createLinearGradient(0, 0, 0, h);
+    g.addColorStop(0, bad ? C.traceAreaBad : C.traceAreaGood);
+    g.addColorStop(1, 'transparent');
+    ctx.fillStyle = g; ctx.fill();
+
+    /* waveform, with glow */
+    ctx.beginPath();
+    ctx.strokeStyle = color; ctx.lineWidth = 1.6;
+    ctx.shadowColor = color; ctx.shadowBlur = C.glow;
+    for (let i = 0; i < n; i++) { const x = xAt(i), y = yAt(i); i ? ctx.lineTo(x, y) : ctx.moveTo(x, y); }
+    ctx.stroke();
+    ctx.shadowBlur = 0;
+
+    /* sweep */
+    const sx = (head < N) ? w : ((head % N) / N) * w;
+    const sg = ctx.createLinearGradient(sx - 32, 0, sx + 2, 0);
+    sg.addColorStop(0, 'transparent'); sg.addColorStop(1, color);
+    ctx.globalAlpha = 0.70;
+    ctx.fillStyle = sg; ctx.fillRect(sx - 32, 0, 34, h);
+    ctx.globalAlpha = 1;
+  }
+
+  function clear() {
+    buf.fill(0);
+    head = 0; dc = 0; dcInit = false; lo = -1; hi = 1;
+  }
+
+  return { push, draw, clear };
+}
+
+/* ECG sparkline — a stylised trace, not a measurement. It is decorative and
+   labelled as such; no clinical value is read from it. */
+function makeECG() {
+  const N = 320;
+  const buf = new Float32Array(N);
+  let head = 0, phase = 0;
+
+  function beat(p) {
+    if (p < 0.04) return p / 0.04 * 0.07;
+    if (p < 0.08) return 0.07 - (p - 0.04) / 0.04 * 0.05;
+    if (p < 0.10) return 0.02 - (p - 0.08) / 0.02 * 0.14;
+    if (p < 0.13) return -0.12 + (p - 0.10) / 0.03 * 1.09;
+    if (p < 0.16) return 0.97 - (p - 0.13) / 0.03 * 1.18;
+    if (p < 0.20) return -0.21 + (p - 0.16) / 0.04 * 0.29;
+    if (p < 0.35) return 0.08 + Math.sin(Math.PI * (p - 0.20) / 0.15) * 0.20;
+    return 0;
+  }
+
+  function tick(dt) {
+    const steps = Math.max(1, Math.round(dt * 0.30));
+    for (let i = 0; i < steps; i++) {
+      phase = (phase + (V.hr / 60) / N * 1.6) % 1;
+      buf[head % N] = beat(phase) + (Math.random() - 0.5) * 0.03;
+      head++;
+    }
+  }
+
+  function draw() {
+    const cv = $('ecg');
+    const { ctx, w, h } = fitCanvas(cv);
+    ctx.clearRect(0, 0, w, h);
+    const color = V.hr > 100 ? C.crimson : C.emerald;
+    ctx.beginPath();
+    ctx.strokeStyle = color; ctx.lineWidth = 1.4;
+    ctx.shadowColor = color; ctx.shadowBlur = C.glowSoft;
+    for (let i = 0; i < N; i++) {
+      const idx = (head - N + i + N * 2) % N;
+      const x = (i / N) * w;
+      const y = h * 0.78 - buf[idx] * h * 0.62;
+      i ? ctx.lineTo(x, y) : ctx.moveTo(x, y);
+    }
+    ctx.stroke(); ctx.shadowBlur = 0;
+  }
+
+  return { tick, draw };
+}
+
+/* Respiratory sinus arrhythmia trace — modulation envelope, not a raw signal. */
+function makeRR() {
+  const N = 240;
+  const buf = new Float32Array(N).fill(0.5);
+  let head = 0, phase = 0;
+
+  function tick(dt) {
+    const steps = Math.max(1, Math.round(dt * 0.25));
+    for (let i = 0; i < steps; i++) {
+      phase = (phase + (V.rr / 60) / N * 2.6) % 1;
+      buf[head % N] = 0.5 + Math.sin(phase * Math.PI * 2) * 0.34;
+      head++;
+    }
+  }
+
+  function draw() {
+    const cv = $('rr');
+    const { ctx, w, h } = fitCanvas(cv);
+    ctx.clearRect(0, 0, w, h);
+    const color = (V.rr > 24 || V.rr < 10) ? C.crimson : C.cyan;
+    ctx.beginPath();
+    ctx.strokeStyle = color; ctx.lineWidth = 1.4;
+    for (let i = 0; i < N; i++) {
+      const idx = (head - N + i + N * 2) % N;
+      const x = (i / N) * w;
+      const y = h - buf[idx] * h * 0.8 - h * 0.1;
+      i ? ctx.lineTo(x, y) : ctx.moveTo(x, y);
+    }
+    ctx.stroke();
+  }
+
+  return { tick, draw };
+}
+
+/* SpO2 radial arc */
+function drawArc() {
+  const cv = $('spo2-arc');
+  const dpr = window.devicePixelRatio || 1;
+  const s = 56;
+  if (cv.width !== s * dpr) { cv.width = s * dpr; cv.height = s * dpr; }
+  const ctx = cv.getContext('2d');
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  ctx.clearRect(0, 0, s, s);
+
+  const cx = s / 2, cy = s / 2, r = s / 2 - 6;
+  const color = V.spo2 < 90 ? C.crimson : V.spo2 < 95 ? C.amber : C.cyan;
+
+  ctx.beginPath();
+  ctx.arc(cx, cy, r, -Math.PI * 0.5, Math.PI * 1.5);
+  ctx.strokeStyle = C.arcTrack; ctx.lineWidth = 4; ctx.stroke();
+
+  /* An unmeasured SpO2 is not a low SpO2. With V.spo2 at 0 the threshold chain
+     above picks crimson and the fraction below picks zero, so the arc would
+     render as a red ring around an empty value - a hypoxia alarm for a number
+     that was never taken. While the reading is absent, leave the empty track. */
+  if (V.spo2 <= 0) return;
+
+  const frac = clamp(V.spo2 / 100, 0, 1);
+  ctx.beginPath();
+  ctx.arc(cx, cy, r, -Math.PI * 0.5, -Math.PI * 0.5 + Math.PI * 2 * frac);
+  ctx.strokeStyle = color; ctx.lineWidth = 4; ctx.lineCap = 'round';
+  ctx.shadowColor = color; ctx.shadowBlur = C.glowSoft;
+  ctx.stroke();
+  ctx.shadowBlur = 0;
+}
+
+/* ==========================================================================
+   3b. 24-Hour History Chart (Requirement 7)
+   ========================================================================== */
+function makeHistory() {
+  const N = 24;
+  const H = Array.from({ length: N }, (_, i) => ({
+    hour: i, hr: 0, spo2: 0, rmssd: 0, pm25: 0, news2: 0, valid: false
+  }));
+  let hoverHour = -1;
+
+  function reset() {
+    for (let i = 0; i < N; i++) {
+      H[i].valid = false;
+      H[i].hr = 0; H[i].spo2 = 0; H[i].rmssd = 0; H[i].pm25 = 0; H[i].news2 = 0;
+    }
+    hoverHour = -1;
+    updateSummary();
+  }
+
+  function setPoint(h, pt) {
+    if (h >= 0 && h < N) {
+      H[h].hr = pt.hr;
+      H[h].spo2 = pt.spo2;
+      H[h].rmssd = pt.rmssd;
+      H[h].pm25 = pt.pm25;
+      H[h].news2 = pt.news2;
+      H[h].valid = pt.valid !== undefined ? pt.valid : true;
+      updateSummary();
+    }
+  }
+
+  function generateSim(name) {
+    const b = PROFILES[name] || PROFILES['Normal Baseline'];
+    for (let i = 0; i < N; i++) {
+      const hAgo = i; // 0 = Now, 23 = 23h ago
+      let hr = b.hr, spo2 = b.spo2, rmssd = b.hrv, pm25 = b.pmCal, news2 = b.news2;
+      if (name === 'Normal Baseline') {
+        const circ = Math.sin((hAgo - 6) / 24 * Math.PI * 2);
+        hr = Math.round(b.hr + circ * 6);
+        rmssd = Math.round(b.hrv - circ * 7);
+        spo2 = Number((b.spo2 + (Math.sin(hAgo) * 0.4)).toFixed(1));
+        pm25 = Number((b.pmCal + (Math.cos(hAgo) * 3)).toFixed(1));
+        news2 = 0;
+      } else if (name === 'Heat Wave & Dehydration') {
+        const prog = clamp((23 - hAgo) / 23, 0, 1);
+        hr = Math.round(78 + prog * (b.hr - 78));
+        spo2 = Number((98.0 - prog * 2.0).toFixed(1));
+        rmssd = Math.round(42 - prog * (42 - b.hrv));
+        pm25 = Number((20 + prog * (b.pmCal - 20)).toFixed(1));
+        news2 = prog > 0.7 ? 4 : prog > 0.4 ? 2 : 0;
+      } else if (name === 'Severe Smog / PM2.5 Crisis') {
+        const prog = clamp((23 - hAgo) / 23, 0, 1);
+        pm25 = Number((35 + prog * (b.pmCal - 35)).toFixed(1));
+        spo2 = Number((98.0 - prog * (98.0 - b.spo2)).toFixed(1));
+        hr = Math.round(74 + prog * (b.hr - 74));
+        rmssd = Math.round(38 - prog * (38 - b.hrv));
+        news2 = prog > 0.6 ? 3 : prog > 0.3 ? 1 : 0;
+      } else if (name === 'Flash Flood / Hypothermia') {
+        if (hAgo <= 6) {
+          const prog = (6 - hAgo) / 6;
+          hr = Math.round(72 - prog * (72 - b.hr));
+          spo2 = Number((98.0 - prog * (98.0 - b.spo2)).toFixed(1));
+          rmssd = Math.round(40 + prog * (b.hrv - 40));
+          news2 = Math.round(prog * 5);
+        } else {
+          hr = 72; spo2 = 98.0; rmssd = 40; news2 = 0;
+        }
+        pm25 = b.pmCal;
+      } else if (name === 'Cardiopulmonary ICU Emergency') {
+        const jitter = Math.sin(hAgo * 1.5);
+        hr = Math.round(b.hr + jitter * 6);
+        spo2 = Number((b.spo2 + jitter * 1.2).toFixed(1));
+        rmssd = Math.round(b.hrv + Math.abs(jitter) * 2);
+        news2 = Math.min(9, Math.max(5, Math.round(b.news2 + jitter)));
+        pm25 = b.pmCal;
+      } else {
+        hr = b.hr; spo2 = b.spo2; rmssd = b.hrv; pm25 = b.pmCal; news2 = b.news2;
+      }
+      H[i] = { hour: i, hr, spo2, rmssd, pm25, news2, valid: true };
+    }
+    updateSummary();
+  }
+
+  function updateSummary() {
+    const validPts = H.filter((p) => p.valid);
+    const n = validPts.length;
+    if (n === 0) {
+      ['h-mean-hr', 'h-min-spo2', 'h-mean-rmssd', 'h-peak-news2', 'h-peak-pm25'].forEach((id) => {
+        const el = $(id); if (el) el.textContent = '--';
+      });
+      const cnt = $('h-sample-count');
+      if (cnt) cnt.textContent = '0/24';
+      if (mode === 'live') {
+        const sub0 = $('hist-sub'); const chip0 = $('hist-span');
+        if (sub0) sub0.textContent = 'Waiting for device history \u00b7 the device sends it every 30 s';
+        if (chip0) chip0.textContent = 'WAITING';
+      }
+      return;
+    }
+
+    let sumHr = 0, nHr = 0, minSpo2 = 100, nSpo2 = 0;
+    let sumRmssd = 0, nRmssd = 0, peakN2 = 0, nN2 = 0, peakPm = 0, nPm = 0;
+    validPts.forEach((p) => {
+      /* An environmental-only hour has valid=true but no clinical values.
+         Do not average its zeros into HR/SpO2/RMSSD. */
+      if (p.hr > 0) { sumHr += p.hr; nHr++; }
+      if (p.spo2 > 0) { if (p.spo2 < minSpo2) minSpo2 = p.spo2; nSpo2++; }
+      if (p.rmssd > 0) { sumRmssd += p.rmssd; nRmssd++; }
+      if (typeof p.news2 === 'number' && isFinite(p.news2)) {
+        nN2++;
+        if (p.news2 > peakN2) peakN2 = p.news2;
+      }
+      /* A null PM2.5 is an hour without a reading, not an hour of clean air. */
+      if (typeof p.pm25 === 'number' && isFinite(p.pm25) && p.pm25 >= 0) {
+        nPm++;
+        if (p.pm25 > peakPm) peakPm = p.pm25;
+      }
+    });
+
+    const mHr = $('h-mean-hr'); if (mHr) mHr.textContent = nHr ? Math.round(sumHr / nHr) + ' bpm' : '--';
+    const mSp = $('h-min-spo2'); if (mSp) mSp.textContent = nSpo2 ? minSpo2.toFixed(1) + ' %' : '--';
+    const mRm = $('h-mean-rmssd'); if (mRm) mRm.textContent = nRmssd ? (sumRmssd / nRmssd).toFixed(1) + ' ms' : '--';
+    const pN2 = $('h-peak-news2'); if (pN2) pN2.textContent = nN2 ? peakN2 + (peakN2 >= 7 ? ' (CRITICAL)' : peakN2 >= 4 ? ' (HIGH)' : ' pts') : '--';
+    const pPm = $('h-peak-pm25'); if (pPm) pPm.textContent = nPm ? peakPm.toFixed(0) + ' \u00b5g/m\u00b3' : '--';
+    const cnt = $('h-sample-count'); if (cnt) cnt.textContent = n + '/24';
+    const sub = $('hist-sub');
+    if (sub) {
+      sub.textContent = (mode === 'sim')
+        ? 'Synthetic 24-point demo history \u2014 not device data'
+        : 'Device hourly summaries \u00b7 device hours, restored after reboot \u00b7 ' + n + '/24 populated';
+    }
+    const chip = $('hist-span');
+    if (chip) chip.textContent = (mode === 'sim') ? 'SYNTHETIC' : 'DEVICE HOURS';
+  }
+
+  function draw() {
+    const cv = $('hist-canvas');
+    if (!cv) return;
+    const { ctx, w, h } = fitCanvas(cv);
+
+    ctx.fillStyle = C.plotBg;
+    ctx.fillRect(0, 0, w, h);
+
+    const padL = 36, padR = 24, padT = 20, padB = 26;
+    const plotW = Math.max(1, w - padL - padR);
+    const plotH = Math.max(1, h - padT - padB);
+
+    // Grid lines
+    ctx.strokeStyle = C.plotGrid;
+    ctx.lineWidth = 0.5;
+    for (let r = 0; r <= 3; r++) {
+      const y = padT + (r / 3) * plotH;
+      ctx.beginPath(); ctx.moveTo(padL, y); ctx.lineTo(w - padR, y); ctx.stroke();
+    }
+    const gridHours = [23, 18, 12, 6, 0];
+    const gridLabels = ['-23h', '-18h', '-12h', '-6h', 'Now'];
+    ctx.fillStyle = C.plotMuted;
+    ctx.font = '10px ' + getComputedStyle(document.body).fontFamily;
+    ctx.textAlign = 'center';
+
+    gridHours.forEach((gh, i) => {
+      const x = padL + ((23 - gh) / 23) * plotW;
+      ctx.beginPath();
+      ctx.moveTo(x, padT);
+      ctx.lineTo(x, padT + plotH);
+      ctx.stroke();
+      ctx.fillText(gridLabels[i], x, padT + plotH + 16);
+    });
+    ctx.textAlign = 'left';
+
+    if (mode === 'idle') {
+      ctx.strokeStyle = C.plotMutedSoft;
+      ctx.lineWidth = 1;
+      ctx.setLineDash([6, 6]);
+      ctx.beginPath(); ctx.moveTo(padL, h / 2); ctx.lineTo(w - padR, h / 2); ctx.stroke();
+      ctx.setLineDash([]);
+      ctx.fillStyle = C.plotMuted;
+      ctx.font = '12px ' + getComputedStyle(document.body).fontFamily;
+      ctx.textAlign = 'center';
+      ctx.fillText('NO HISTORICAL DATA \u2014 connect a device or start a simulation', w / 2, h / 2 - 8);
+      ctx.textAlign = 'left';
+      return;
+    }
+
+    const xAt = (hIdx) => padL + ((23 - hIdx) / 23) * plotW;
+
+    // PM2.5 bars in background
+    for (let i = 0; i < N; i++) {
+      const pt = H[i];
+      if (!pt.valid || typeof pt.pm25 !== 'number' || !isFinite(pt.pm25) || pt.pm25 < 0) continue;
+      const x = xAt(i);
+      const barW = Math.max(2, plotW / N * 0.7);
+      const barH = clamp(pt.pm25 / 350, 0, 1) * plotH;
+      ctx.fillStyle = C.plotBar;
+      ctx.fillRect(x - barW / 2, padT + plotH - barH, barW, barH);
+    }
+
+    function plotTrace(getter, minVal, maxVal, strokeCol, glow) {
+      ctx.beginPath();
+      let started = false;
+      for (let i = N - 1; i >= 0; i--) {
+        const pt = H[i];
+        if (!pt.valid) { started = false; continue; }
+        const val = getter(pt);
+        if (!(val > 0)) { started = false; continue; }
+        const norm = clamp((val - minVal) / (maxVal - minVal), 0, 1);
+        const x = xAt(i);
+        const y = padT + (1 - norm) * plotH;
+        if (!started) { ctx.moveTo(x, y); started = true; }
+        else ctx.lineTo(x, y);
+      }
+      if (started) {
+        ctx.strokeStyle = strokeCol;
+        ctx.lineWidth = 1.6;
+        if (glow) { ctx.shadowColor = strokeCol; ctx.shadowBlur = C.glowSoft; }
+        ctx.stroke();
+        ctx.shadowBlur = 0;
+      }
+    }
+
+    // Traces
+    plotTrace((p) => p.spo2, 80, 100, C.cyan, false);
+    plotTrace((p) => p.rmssd, 0, 80, C.violet, false);
+    plotTrace((p) => p.hr, 40, 160, C.emerald, true);
+
+    // NEWS2 dots
+    for (let i = 0; i < N; i++) {
+      const pt = H[i];
+      if (!pt.valid || typeof pt.news2 !== 'number' || !isFinite(pt.news2) || pt.news2 === 0) continue;
+      const x = xAt(i);
+      const normN2 = clamp(pt.news2 / 9, 0, 1);
+      const y = padT + (1 - normN2) * plotH;
+      ctx.fillStyle = C[news2Band(pt.news2).key] || C.amber;
+      ctx.beginPath();
+      ctx.arc(x, y, 3.5, 0, Math.PI * 2);
+      ctx.fill();
+    }
+
+    // Hover vertical guideline
+    if (hoverHour >= 0 && hoverHour < N && H[hoverHour].valid) {
+      const x = xAt(hoverHour);
+      ctx.strokeStyle = C.plotHover;
+      ctx.lineWidth = 1;
+      ctx.setLineDash([3, 3]);
+      ctx.beginPath(); ctx.moveTo(x, padT); ctx.lineTo(x, padT + plotH); ctx.stroke();
+      ctx.setLineDash([]);
+    }
+  }
+
+  function initEvents() {
+    const cv = $('hist-canvas');
+    const tt = $('hist-tooltip');
+    if (!cv || !tt) return;
+
+    function showTooltip(hIdx, leftPx) {
+      const pt = H[hIdx];
+      if (!pt || !pt.valid) {
+        tt.style.display = 'none';
+        return;
+      }
+      const rect = cv.getBoundingClientRect();
+      tt.style.display = 'block';
+      tt.style.left = clamp(leftPx, 10, rect.width - 170) + 'px';
+      tt.style.top = '14px';
+      /* Each value is nullable: an environmental-only device hour has PM2.5
+         and no clinical readings. Never call toFixed() on null, and never
+         print 0 as if it were a measured pulse or saturation. */
+      const hasHr = typeof pt.hr === 'number' && isFinite(pt.hr) && pt.hr > 0;
+      const hasSpo2 = typeof pt.spo2 === 'number' && isFinite(pt.spo2) && pt.spo2 > 0;
+      const hasRmssd = typeof pt.rmssd === 'number' && isFinite(pt.rmssd) && pt.rmssd > 0;
+      const hasN2 = typeof pt.news2 === 'number' && isFinite(pt.news2);
+      const hasPm = typeof pt.pm25 === 'number' && isFinite(pt.pm25) && pt.pm25 >= 0;
+      const dash = '<span style="color:var(--text-faint)">--</span>';
+      tt.innerHTML =
+        '<b>T' + (hIdx === 0 ? '0 (this hour, avg)' : ' -' + hIdx + 'h') + '</b><br>' +
+        'HR: ' + (hasHr ? '<span style="color:' + C.emerald + '">' + Math.round(pt.hr) + ' bpm</span>' : dash) + '<br>' +
+        'SpO2: ' + (hasSpo2 ? '<span style="color:' + C.cyan + '">' + pt.spo2.toFixed(1) + '%</span>' : dash) + '<br>' +
+        'RMSSD: ' + (hasRmssd ? '<span style="color:' + C.violet + '">' + pt.rmssd.toFixed(1) + ' ms</span>' : dash) + '<br>' +
+        'NEWS2: ' + (hasN2 ? '<span style="color:' + (C[news2Band(pt.news2).key] || C.amber) + '">' + pt.news2 + '</span>' : dash) + '<br>' +
+        'PM2.5: ' + (hasPm ? '<span style="color:' + C.amber + '">' + pt.pm25.toFixed(0) + ' &micro;g/m&sup3;</span>' : dash);
+    }
+
+    cv.addEventListener('mousemove', (e) => {
+      if (mode === 'idle') return;
+      const rect = cv.getBoundingClientRect();
+      const padL = 36, padR = 24;
+      const plotW = Math.max(1, rect.width - padL - padR);
+      const mx = e.clientX - rect.left - padL;
+      const frac = clamp(mx / plotW, 0, 1);
+      const hIdx = clamp(Math.round(23 - frac * 23), 0, 23);
+      hoverHour = hIdx;
+      showTooltip(hIdx, e.clientX - rect.left + 12);
+    });
+
+    cv.addEventListener('keydown', (e) => {
+      if (mode === 'idle' || (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight')) return;
+      e.preventDefault();
+      if (hoverHour < 0) hoverHour = 0;
+      else hoverHour = clamp(hoverHour + (e.key === 'ArrowRight' ? 1 : -1), 0, 23);
+      showTooltip(hoverHour, 12 + (23 - hoverHour) * 24);
+    });
+
+    cv.addEventListener('mouseleave', () => {
+      hoverHour = -1;
+      if (tt) tt.style.display = 'none';
+    });
+  }
+
+  return { reset, setPoint, generateSim, draw, initEvents, getPoints: () => H };
+}
+
+/* ==========================================================================
+   4. UI update
+   ========================================================================== */
+
+const PPG = makePPG(), ECG = makeECG(), RRC = makeRR(), HIST = makeHistory();
+
+function exportHistoryCsv() {
+  const pts = HIST.getPoints();
+  const rows = [[
+    'source', 'hour_offset', 'hr_bpm', 'spo2_pct', 'rmssd_ms',
+    'pm25_ugm3', 'news2', 'valid'
+  ]];
+  pts.forEach((p, i) => {
+    rows.push([
+      mode === 'sim' ? 'simulation' : 'device',
+      i,
+      p.valid && p.hr > 0 ? p.hr.toFixed(1) : '',
+      p.valid && p.spo2 > 0 ? p.spo2.toFixed(1) : '',
+      p.valid && p.rmssd > 0 ? p.rmssd.toFixed(1) : '',
+      p.valid && typeof p.pm25 === 'number' && isFinite(p.pm25) ? p.pm25.toFixed(1) : '',
+      p.valid && typeof p.news2 === 'number' && isFinite(p.news2) ? String(p.news2) : '',
+      p.valid ? '1' : '0',
+    ]);
+  });
+  const csv = rows.map((r) => r.join(',')).join('\r\n') + '\r\n';
+  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  const stamp = new Date().toISOString().replace(/[:.]/g, '-');
+  a.href = url;
+  a.download = 'valor_24h_history_' + (mode === 'sim' ? 'simulation' : 'device') + '_' + stamp + '.csv';
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
+function setStatus(kind, text) {
+  const pill = $('status-pill');
+  pill.className = 'status-pill ' + kind;
+  $('status-text').textContent = text;
+}
+
+function clearLiveReadings() {
+  Object.assign(V, {
+    hr: 0, spo2: 0, hrv: 0, rr: 0, rrConf: 0, rrDepth: 0, sqi: 0, contact: false, pi: 0,
+    temp: -100, hum: -1, pmRaw: 0, pmCal: null, pmConf: '', loc: '',
+    skinTemp: 0, n2tempPts: null,
+    psi: 0, aha: 0, heat: 0, poll: 0, flood: 0, storm: 0, news2: 0,
+    n2hrPts: null, n2spo2Pts: null, n2rrPts: null,
+    hrvN: null,
+    level: 0, flags: 0, risk: 'UNKNOWN', rHeat: 'UNKNOWN',
+    rPoll: 'UNKNOWN', rFlood: 'UNKNOWN', cyclone: 'UNKNOWN', ptrend: null,
+    nnHeat: null, nnPoll: null, nnFlood: null, aiValid: null,
+  });
+  ppgSeen = false;
+  PPG.clear();
+  const locEl = document.getElementById('v-loc');
+  if (locEl) locEl.textContent = 'LOC --';
+}
+
+/* Everything the dashboard knows how to show, blanked. */
+function renderIdle() {
+  const D = '\u2014';
+  $('scope-sqi').textContent = 'SQI --';
+  $('scope-sqi').style.color = '';
+  $('scope-rate').textContent = '-- Hz';
+  $('scope-src').textContent = 'NONE';
+  $('scope-sub').textContent = 'no device connected';
+
+  ['m-pi', 'm-rr', 'm-hrv', 'm-sqi'].forEach((id) => { $(id).textContent = '--'; });
+
+  const sc = $('n2-score');
+  sc.textContent = D;
+  sc.style.color = 'var(--text-faint)';
+  sc.style.textShadow = 'none';
+  $('n2-label').textContent = 'No data';
+  $('n2-label').style.color = 'var(--text-faint)';
+  $('n2-sub').textContent = 'Connect a device or start a simulation to score.';
+  $('n2-grid').innerHTML = ['RR', 'SpO2', 'HR', 'SBP', 'Temp', 'Consc']
+    .map((k) => '<div class="subscore na"><div class="k">' + k + '</div><div class="v">--</div></div>')
+    .join('');
+  $('n2-note').textContent = '';
+  $('device-verdict').textContent = 'Device verdict: --';
+  $('device-verdict').style.color = 'var(--text-faint)';
+
+  $('v-hr').textContent = D;   $('v-hr').style.color = 'var(--text-faint)'; $('v-hr').style.textShadow = 'none';
+  $('hr-source').textContent = '--'; $('hr-source').style.color = '';
+  ['v-hr', 'v-spo2', 'v-hrv', 'v-rr', 'v-sqi', 'v-temp', 'v-hum', 'v-pm']
+    .forEach((id) => markAbsent(id, true));
+  $('hr-note').textContent = '';
+  $('v-spo2').textContent = D; $('v-spo2').style.color = 'var(--text-faint)';
+  $('spo2-note').textContent = '';
+  $('v-hrv').textContent = D;  $('v-hrv').style.color = 'var(--text-faint)';
+  $('bar-hrv').style.width = '0%';
+  $('hrv-note').textContent = '';
+  $('v-rr').textContent = D;   $('v-rr').style.color = 'var(--text-faint)';
+  if ($('rr-note')) $('rr-note').textContent = 'PPG-derived \u00b7 RSA modulation';
+  $('v-sqi').textContent = D;  $('v-sqi').style.color = 'var(--text-faint)';
+  const sp = $('sqi-pill');
+  sp.textContent = 'waiting for signal';
+  sp.className = 'pill';
+
+  $('v-env').textContent = 'Ta -- · RH -- · PM2.5 --';
+  $('v-temp').textContent = D; $('v-temp').style.color = 'var(--text-faint)';
+  [...$('temp-band').children].forEach((b) => { b.className = ''; });
+  $('v-hum').textContent = D;  $('v-hum').style.color = 'var(--text-faint)';
+  $('bar-hum').style.width = '0%';
+  $('v-pm').textContent = D;   $('v-pm').style.color = 'var(--text-faint)';
+  $('pm-raw').textContent = 'no reading';
+  $('pm-label').textContent = 'Not assessed';
+  $('pm-label').style.color = 'var(--text-faint)';
+
+  $('psi-val').textContent = D;
+  $('psi-val').style.color = 'var(--text-faint)';
+  $('bar-psi').style.width = '0%';
+  $('aha-val').textContent = D;
+  $('aha-val').style.color = 'var(--text-faint)';
+  $('bar-aha').style.width = '0%';
+
+  $('storm-ptrend-val').textContent = D;
+  $('storm-ptrend-val').style.color = 'var(--text-faint)';
+  $('storm-risk-badge').textContent = '--';
+  $('storm-risk-badge').style.color = 'var(--text-faint)';
+  $('bar-ptrend').style.width = '0%';
+  $('storm-sub').textContent = 'BME280 \u00b7 3h barometric slope';
+
+  const gv = { heat: 'var(--crimson)', poll: 'var(--amber)', flood: 'var(--sky)', storm: 'var(--violet)' };
+  for (const k of ['heat', 'poll', 'flood', 'storm']) {
+    $('g-' + k + '-val').textContent = D;
+    $('g-' + k + '-val').style.color = 'var(--text-faint)';
+    $('g-' + k).style.width = '0%';
+    $('g-' + k + '-sub').textContent = '';
+  }
+  if (mode === 'idle') {  /* a telemetry stall in live mode keeps the hours already received */
+  if (typeof HIST !== 'undefined') HIST.reset();
+  $('hist-sub').textContent = 'No history yet \u2014 connect a device or start a simulation';
+  $('hist-span').textContent = 'NO DATA';
+  $('hist-export').disabled = true;
+  }
+}
+
+function render() {
+  /* Idle draws placeholders and returns. Nothing here should ever invent a
+     number: an unconnected dashboard showing a plausible heart rate is worse
+     than one showing nothing. */
+  if (mode === 'idle') { renderIdle(); return; }
+  $('hist-export').disabled = !HIST.getPoints().some((p) => p.valid);
+  /* â”€â”€ PPG card header + derived metrics â”€â”€ */
+  const sqiOn = (V.hr > 0 && V.sqi > 0);
+  const sqiPct = Math.round(V.sqi);
+  $('scope-sqi').textContent = sqiOn ? 'SQI ' + sqiPct + '%' : 'SQI --';
+  $('scope-sqi').style.color = !sqiOn ? '' : (V.sqi < 50 ? C.crimson : C.mid);
+  $('scope-rate').textContent = (mode === 'live' ? (sampleRate || '--') : '50') + ' Hz';
+  $('scope-src').textContent = (mode === 'live')
+    ? (!V.contact ? 'AMBIENT' : (ppgSeen ? 'LIVE IR' : 'GATED'))
+    : (mode === 'sim' ? 'SIM PPG' : 'NONE');
+  $('scope-sub').textContent = (mode === 'live')
+    ? (!V.contact
+        ? 'No finger · raw ambient IR, not a pulse'
+        : 'Raw 18-bit IR · 100 Hz FIFO · 1:4 stream · auto-ranged')
+    : 'Synthetic PPG · demo waveform · auto-ranged';
+
+  $('m-pi').textContent  = (V.pi > 0 && V.sqi >= 70) ? V.pi.toFixed(2) + ' %' : '--';
+  $('m-rr').textContent  = V.rr > 0 ? V.rr.toFixed(1) + ' br/min' : '--';
+  /* RMSSD is withheld by the firmware until its beat window has settled, so
+     while it fills show the progress instead of an indistinguishable "--". The
+     240 matches HRV_SETTLE_MIN_SAMPLES in firmware/core/hrv_analysis.h. When
+     the window is full but the value is still withheld (span or signal), the
+     tile falls back to "--" like any other absent reading. */
+  if (V.hrv > 0) {
+    $('m-hrv').textContent = V.hrv.toFixed(1) + ' ms';
+    $('m-hrv').title = '';
+  } else if (V.contact && V.hrvN !== null && V.hrvN < 240) {
+    $('m-hrv').textContent = V.hrvN + '/240';
+    $('m-hrv').title = 'RMSSD settling: ' + V.hrvN + ' of 240 beats (' +
+                       '120 s of contact required)';
+  } else {
+    $('m-hrv').textContent = '--';
+    $('m-hrv').title = '';
+  }
+  $('m-sqi').textContent = sqiOn ? sqiPct + ' %' : '--';
+
+  /* â”€â”€ NEWS2 â”€â”€ */
+  const band = news2Band(V.news2);
+  const bandColor = C[band.key] || C.mid;
+  const sc = $('n2-score');
+  sc.textContent = V.news2;
+  sc.style.color = bandColor;
+  sc.style.textShadow = C.glow ? '0 0 40px ' + bandColor + '44' : 'none';
+  $('n2-label').textContent = band.label;
+  $('n2-label').style.color = bandColor;
+  $('n2-sub').textContent = band.sub;
+
+  const devRisk = String(V.risk || 'UNKNOWN').toUpperCase();
+  const devColor = devRisk === 'CRITICAL' ? C.crimson
+    : devRisk === 'HIGH' ? C.amber
+    : devRisk === 'MODERATE' ? C.amber
+    : devRisk === 'NORMAL' ? C.emerald
+    : C.faint;
+  if (mode === 'live') {
+    const flagText = V.flags ? ' · flags 0x' + V.flags.toString(16).padStart(2, '0') : '';
+    $('device-verdict').textContent = 'Device verdict: ' + devRisk + flagText;
+    $('device-verdict').style.color = devColor;
+  } else {
+    $('device-verdict').textContent = 'Device verdict: simulation profile';
+    $('device-verdict').style.color = C.mid;
+  }
+
+  /* Only RR, SpO2 and HR feed the on-device NEWS2 score. The other three
+     parameters in the RCP table are simply not instrumented on this build, so
+     they are shown as n/a rather than as a plausible-looking "+0". */
+  const haveDevPts = (V.n2hrPts !== null && V.n2spo2Pts !== null && V.n2rrPts !== null);
+  const haveDevTemp = (V.n2tempPts !== null && V.n2tempPts !== undefined);
+  const showTemp = haveDevTemp || (V.skinTemp > 0);
+  const tiles = [
+    { k: 'RR',   v: V.rr,   pts: haveDevPts ? V.n2rrPts   : n2rr(V.rr),   dev: haveDevPts },
+    { k: 'SpO2', v: V.spo2, pts: haveDevPts ? V.n2spo2Pts : n2spo2(V.spo2), dev: haveDevPts },
+    { k: 'HR',   v: V.hr,   pts: haveDevPts ? V.n2hrPts   : n2hr(V.hr),   dev: haveDevPts },
+    { k: 'SBP',  pts: null, na: true },
+    { k: 'Temp', v: V.skinTemp, pts: haveDevTemp ? V.n2tempPts : (V.skinTemp <= 35 ? 3 : V.skinTemp <= 36 ? 1 : V.skinTemp <= 38 ? 0 : 1), dev: haveDevTemp, na: !showTemp },
+    { k: 'Consc',pts: null, na: true },
+  ];
+  /* A third state exists between "measured" and "not on this build": the
+     parameter is instrumented but has not yielded a reading yet. The point
+     tables treat 0 as the worst category (n2rr(0) = n2spo2(0) = n2hr(0) = 3),
+     so passing an absent reading through would light all three tiles "+3 hot"
+     during acquisition while the device's own NEWS2 total is still 0 - the
+     screen contradicting the board. Show it as awaiting instead.
+
+     In live mode a missing device breakdown is also "not published yet":
+     re-deriving the points on the PC would put a score on screen that the
+     device did not calculate. Simulation has no device, so it keeps the local
+     RCP tables for the demo only. */
+  $('n2-grid').innerHTML = tiles.map((t) => {
+    if (t.na) return '<div class="subscore na"><div class="k">' + t.k +
+      '</div><div class="v">n/a</div></div>';
+    if (!(t.v > 0) || (mode === 'live' && !t.dev)) return '<div class="subscore na"><div class="k">' + t.k +
+      '</div><div class="v">--</div></div>';
+    const hot = t.pts > 0 ? ' hot' : '';
+    return '<div class="subscore' + hot + '"><div class="k">' + t.k +
+      '</div><div class="v">+' + t.pts + '</div></div>';
+  }).join('');
+  $('n2-note').textContent =
+    'Score is HR + SpO₂ + RR only. SBP and consciousness need inputs this build ' +
+    'does not have (no cuff, no GCS entry), so they are excluded rather than assumed normal. ' +
+    (mode === 'live'
+      ? 'Tiles are the device\'s own NEWS2 sub-scores; -- means the device has not published them yet.'
+      : 'Tiles are reconstructed for the simulation from the same RCP tables; the total is computed on the device.');
+
+  /* â”€â”€ Vitals â”€â”€ */
+  const hrOn = V.hr > 0;
+  /* An absent reading is not a dangerous one. With V.hr at 0 every one of
+     these threshold chains picks its lowest bucket and paints the card
+     crimson with a clinical-sounding note, so the first seconds of every
+     contact - and every genuine dropout - showed a false alarm. Guard on
+     presence first and let the note say the reading is still coming. */
+  const hrColor = !hrOn ? C.faint : (V.hr > 100 || V.hr < 50) ? C.crimson : C.emerald;
+  $('v-hr').textContent = V.hr > 0 ? V.hr.toFixed(0) : '\u2014';
+  $('v-hr').style.color = hrColor;
+  $('v-hr').style.textShadow = hrOn ? '0 0 24px ' + hrColor + '44' : 'none';
+  markAbsent('v-hr', !hrOn);
+  /* In live mode the IBI source label is only true once an interval has
+     actually produced a rate. Before that the card says so instead of
+     claiming a device IBI that does not exist yet. */
+  $('hr-source').textContent = mode === 'live'
+    ? (hrOn ? 'device IBI' : 'awaiting IBI')
+    : (mode === 'sim' ? 'profile' : '--');
+  $('hr-source').style.color = (mode === 'live' && hrOn) ? C.emerald : 'var(--text-faint)';
+  $('hr-note').textContent = !hrOn ? 'acquiring'
+    : V.hr > 100 ? '↑ tachycardia' : V.hr < 60 ? '↓ bradycardia' : 'normal rate';
+  $('hr-note').style.color = (hrOn && V.hr > 100) ? C.crimson : 'var(--text-dim)';
+
+  const spo2On = V.spo2 > 0;
+  const spo2Color = !spo2On ? C.faint
+    : V.spo2 < 90 ? C.crimson : V.spo2 < 95 ? C.amber : C.cyan;
+  $('v-spo2').textContent = V.spo2 > 0 ? V.spo2.toFixed(1) : '\u2014';
+  $('v-spo2').style.color = spo2Color;
+  markAbsent('v-spo2', !spo2On);
+  $('spo2-note').textContent = !spo2On ? 'calibrating'
+    : V.spo2 < 90 ? '⚠  hypoxia' : V.spo2 < 95 ? 'borderline' : 'normal';
+  $('spo2-note').style.color = (spo2On && V.spo2 < 90) ? C.crimson : 'var(--text-dim)';
+
+  const hrvOn = V.hrv > 0;
+  const hrvColor = !hrvOn ? C.faint : V.hrv < 20 ? C.crimson : V.hrv < 30 ? C.amber : C.violet;
+  /* While the device's beat window is still filling it withholds RMSSD
+     entirely, so the card shows the fill progress instead of "--" beside a
+     note that would suggest nothing is happening. 240 beats and 120 s of
+     contact is the publish gate (HRV_SETTLE_MIN_SAMPLES / HRV_SETTLE_MIN_SPAN_MS
+     in firmware/core/hrv_analysis.h). */
+  const hrvSettling = (!hrvOn && V.contact && V.hrvN !== null && V.hrvN < 240);
+  $('v-hrv').textContent = hrvOn ? V.hrv.toFixed(1) : hrvSettling ? V.hrvN : '\u2014';
+  $('v-hrv').style.color = hrvSettling ? C.text : hrvColor;
+  markAbsent('v-hrv', !hrvOn && !hrvSettling);
+  const bHrv = $('bar-hrv');
+  bHrv.style.width = (hrvOn ? pct(V.hrv, 60) : hrvSettling ? pct(V.hrvN, 240) : 0) + '%';
+  bHrv.style.background = hrvOn ? hrvColor : 'var(--text-faint)';
+  $('hrv-note').textContent = hrvOn
+    ? (V.hrv < 20 ? 'Low vagal reserve' : V.hrv < 30 ? 'Reduced' : 'Adequate reserve')
+    : hrvSettling ? 'settling \u00b7 ' + V.hrvN + ' of 240 beats'
+    : 'needs 240 beats \u00b7 120 s';
+
+  const rrOn = V.rr > 0;
+  $('v-rr').textContent = rrOn ? V.rr.toFixed(0) : '\u2014';
+  $('v-rr').style.color = !rrOn ? C.faint
+    : (V.rr > 24 || V.rr < 10) ? C.crimson : C.text;
+  markAbsent('v-rr', !rrOn);
+
+  if ($('rr-note')) {
+    if (!hrOn) {
+      $('rr-note').textContent = 'acquiring';
+      $('rr-note').style.color = '';
+    } else if (!rrOn) {
+      $('rr-note').textContent = (V.rrConf > 0) ? 'low confidence (wait)' : 'RSA not resolved';
+      $('rr-note').style.color = (V.rrConf > 0) ? C.amber : '';
+    } else if (mode === 'live') {
+      const depth = V.rrDepth > 0 ? V.rrDepth.toFixed(0) + ' ms RSA depth' : 'RSA depth unavailable';
+      const conf = V.rrConf > 0 ? ' · conf ' + Math.round(V.rrConf * 100) + '%' : '';
+      $('rr-note').textContent = depth + conf;
+      $('rr-note').style.color = '';
+    } else {
+      $('rr-note').textContent = 'Synthetic envelope · profile';
+      $('rr-note').style.color = '';
+    }
+  }
+
+  const sqiColor = !sqiOn ? C.faint : V.sqi < 50 ? C.crimson : V.sqi < 75 ? C.amber : C.mid;
+  $('v-sqi').textContent = sqiOn ? sqiPct : '\u2014';
+  $('v-sqi').style.color = sqiColor;
+  markAbsent('v-sqi', !sqiOn);
+  const pill = $('sqi-pill');
+  pill.textContent = !hrOn ? 'waiting for contact'
+    : !sqiOn ? 'calibrating baseline'
+    : (V.sqi < 50 ? 'artifact detected \u2014 triage held' : 'clean signal');
+  pill.className = 'pill' + ((sqiOn && V.sqi < 50) ? ' bad' : '');
+
+  /* â”€â”€ Environment â”€â”€ */
+  const ambientValid = isFinite(V.temp) && V.temp >= -20 && V.temp <= 65;
+  const humidityValid = ambientValid && isFinite(V.hum) && V.hum >= 0 && V.hum <= 100;
+  /* A published PM2.5 of 0 is a real reading ("no particles detected"); only a
+     null (no reading at all) makes the tile say "not assessed". */
+  const pmValid = V.pmCal !== null && V.pmCal !== undefined && isFinite(V.pmCal);
+  const tempColor = !ambientValid ? 'var(--text-faint)' : V.temp > 38 ? C.crimson : V.temp > 35 ? C.amber : 'var(--text)';
+  $('v-temp').textContent = ambientValid ? V.temp.toFixed(1) : '\u2014';
+  $('v-temp').style.color = tempColor;
+  markAbsent('v-temp', !ambientValid);
+  const bands = $('temp-band').children;
+  bands[0].className = ambientValid && V.temp < 10 ? 'on' : '';
+  bands[1].className = ambientValid && V.temp >= 10 && V.temp <= 35 ? 'on' : '';
+  bands[2].className = ambientValid && V.temp > 35 && V.temp <= 40 ? 'on' : '';
+  bands[3].className = ambientValid && V.temp > 40 ? 'on' : '';
+
+  $('v-hum').textContent = humidityValid ? V.hum.toFixed(0) : '\u2014';
+  $('v-hum').style.color = !humidityValid ? 'var(--text-faint)' : V.hum > 90 ? C.crimson : 'var(--text)';
+  markAbsent('v-hum', !humidityValid);
+  const bHum = $('bar-hum');
+  bHum.style.width = humidityValid ? pct(V.hum, 100) + '%' : '0%';
+  bHum.style.background = V.hum > 90 ? C.crimson : V.hum > 70 ? C.amber : C.cyan;
+
+  const aqi = pmValid ? aqiBand(V.pmCal) : { label: '--', color: C.faint };
+  $('v-pm').textContent = pmValid ? V.pmCal.toFixed(1) : '\u2014';
+  $('v-pm').style.color = pmValid ? aqi.color : 'var(--text-faint)';
+  markAbsent('v-pm', !pmValid);
+  /* The raw sensor value and the confidence code of the published estimate.
+     A caveat is shown next to the number, not hidden in a tooltip: a reader
+     has to be able to tell "the air is clean" from "we are not sure". */
+  const pmCaveat = {
+    SETTLING: 'window still filling',
+    HUMID: 'humidity-corrected, RH high',
+    DUST: 'dust aerosol, correction suppressed',
+    RANGE: 'above sensor range',
+    NODATA: 'no reading'
+  }[V.pmConf] || '';
+  $('pm-raw').textContent = pmValid
+    ? 'raw ' + V.pmRaw.toFixed(1) + (pmCaveat ? ' · ' + pmCaveat : '')
+    : (V.pmConf === 'NODATA' ? 'no reading' : 'raw --');
+  $('pm-label').textContent = pmValid ? aqi.label : 'Not assessed';
+  $('pm-label').style.color = pmValid ? aqi.color : 'var(--text-faint)';
+
+  /* Compact always-visible environment strip. The full cards are below the
+     fold on short screens; this keeps temperature/RH/PM2.5 visible even when
+     the finger is absent. */
+  const envTa = ambientValid ? V.temp.toFixed(1) + ' °C' : '--';
+  const envTs = (V.skinTemp !== undefined && V.skinTemp > 0) ? ' · Ts ' + V.skinTemp.toFixed(1) + ' °C' : '';
+  const envRh = humidityValid ? V.hum.toFixed(0) + ' %' : '--';
+  const envPm = pmValid ? V.pmCal.toFixed(1) + ' µg/m³' : '--';
+  $('v-env').textContent = 'Ta ' + envTa + envTs + ' · RH ' + envRh + ' · PM2.5 ' + envPm;
+
+  /* PSI and AHA are device-derived vitals. With no finger the board still
+     emits zeros in these fields; "0.0/10" would be a physiological claim that
+     was never measured. Gate on the HR both require. AHA also needs a
+     published HRV window - until then its 0.00 is absence, not calm. */
+  const psiOn = hrOn;
+  const psiColor = V.psi > 7 ? C.crimson : V.psi > 4 ? C.amber : C.mid;
+  $('psi-val').innerHTML = psiOn
+    ? V.psi.toFixed(1) + '<span style="font-size:10px;color:var(--text-faint)">/10</span>'
+    : '--';
+  $('psi-val').style.color = psiOn ? psiColor : 'var(--text-faint)';
+  const bPsi = $('bar-psi');
+  bPsi.style.width = psiOn ? pct(V.psi, 10) + '%' : '0%';
+  bPsi.style.background = V.psi > 7 ? C.crimson : V.psi > 4 ? C.amber : C.cyan;
+
+  /* AHA strain is defined by the engine as [0.0, 1.0] - the mock-up showed it
+     on a 0-10 scale, which would have overstated it tenfold. */
+  const ahaOn = hrOn && (mode === 'sim' || hrvOn);
+  const ahaColor = V.aha > 0.7 ? C.crimson : V.aha > 0.4 ? C.amber : C.mid;
+  $('aha-val').innerHTML = ahaOn
+    ? V.aha.toFixed(2) + '<span style="font-size:10px;color:var(--text-faint)">/1.0</span>'
+    : '--';
+  $('aha-val').style.color = ahaOn ? ahaColor : 'var(--text-faint)';
+  const bAha = $('bar-aha');
+  bAha.style.width = ahaOn ? pct(V.aha, 1) + '%' : '0%';
+  bAha.style.background = V.aha > 0.7 ? C.crimson : V.aha > 0.4 ? C.amber : C.violet;
+
+  /* ── Atmospheric storm risk card & barometric slope gauge ── */
+  if (V.ptrend != null) {
+    const sign = V.ptrend > 0 ? '+' : '';
+    $('storm-ptrend-val').textContent = sign + V.ptrend.toFixed(2);
+    const ptrendColor = V.ptrend < -2.0 ? C.crimson : V.ptrend < -1.0 ? C.amber : C.violet;
+    $('storm-ptrend-val').style.color = ptrendColor;
+
+    const dropMag = Math.max(0, -V.ptrend);
+    const dropPct = clamp((dropMag / 4.0) * 100, 0, 100);
+    $('bar-ptrend').style.width = dropPct + '%';
+    $('bar-ptrend').style.background = ptrendColor;
+
+    const stormRisk = V.cyclone || 'UNKNOWN';
+    $('storm-risk-badge').textContent = stormRisk;
+    $('storm-risk-badge').style.color =
+      stormRisk === 'CRITICAL' ? C.crimson :
+      stormRisk === 'HIGH' ? C.amber :
+      stormRisk === 'ELEVATED' ? C.sky :
+      stormRisk === 'NORMAL' ? C.emerald : 'var(--text-faint)';
+
+    $('storm-sub').textContent =
+      V.ptrend <= -2.0 ? 'Rapid pressure drop (cyclonic/gale risk)' :
+      V.ptrend < -0.5 ? 'Falling pressure (unsettled weather)' :
+      'Stable / steady atmospheric pressure';
+  } else {
+    $('storm-ptrend-val').textContent = '--';
+    $('storm-ptrend-val').style.color = 'var(--text-faint)';
+    $('storm-risk-badge').textContent = '--';
+    $('storm-risk-badge').style.color = 'var(--text-faint)';
+    $('bar-ptrend').style.width = '0%';
+    $('storm-sub').textContent = 'BME280 \u00b7 calculating slope (needs 3h window)';
+  }
+
+  /* ── TinyML / Multi-hazard gauges ──
+     Live mode uses the NN outputs the device streams. Simulation uses the
+     profile values. Either way the number shown is a risk in 0-100%. */
+  /* When the device reports AIVALID=0 the model declined to score (no
+     published RMSSD, no environment) and its three outputs are zeros. Showing
+     0.0 % would claim an all-clear for a hazard nobody assessed, so the gauges
+     render the absence instead. Simulation has no AIVALID and keeps using the
+     profile values. */
+  const aiAbsent = V.aiValid === 0;
+  const heat  = aiAbsent ? null : (V.nnHeat  != null ? V.nnHeat  * 100 : V.heat);
+  const poll  = aiAbsent ? null : (V.nnPoll  != null ? V.nnPoll  * 100 : V.poll);
+  const flood = aiAbsent ? null : (V.nnFlood != null ? V.nnFlood * 100 : V.flood);
+  const storm = V.cyclone === 'CRITICAL' ? 95 :
+                V.cyclone === 'HIGH' ? 70 :
+                V.cyclone === 'ELEVATED' ? 40 :
+                V.cyclone === 'NORMAL' ? 5 :
+                (V.ptrend != null ? clamp(Math.max(0, -V.ptrend) / 3.0 * 100, 0, 100) : (V.storm || 0));
+
+  setGauge('heat', heat, C.crimson, V.rHeat);
+  setGauge('poll', poll, C.amber, V.rPoll);
+  setGauge('flood', flood, C.sky, V.rFlood);
+  setGauge('storm', storm, C.violet, V.cyclone);
+
+  /* The current-hour point comes from the device's [HISTORY] hourly summary,
+     not from the instantaneous vital cards. Mixing the two would put a live
+     reading beside 23 hourly averages and call the whole trace "24-hour". */
+}
+
+function setGauge(id, value, color, ruleRisk) {
+  /* null means "the AI declined to score", which is not the same as 0 %. */
+  if (value === null) {
+    $('g-' + id + '-val').textContent = '--';
+    $('g-' + id + '-val').style.color = 'var(--text-faint)';
+    $('g-' + id).style.width = '0%';
+    $('g-' + id + '-sub').textContent = 'AI declined \u00b7 no verdict this cycle \u00b7 rule engine: ' +
+      (ruleRisk && ruleRisk !== 'UNKNOWN' ? ruleRisk.toLowerCase() : 'unknown');
+    return;
+  }
+  const pctVal = clamp(value, 0, 100);
+  $('g-' + id + '-val').textContent = pctVal.toFixed(1) + '%';
+  $('g-' + id + '-val').style.color = color;
+  const bar = $('g-' + id);
+  bar.style.width = pctVal + '%';
+  bar.style.background = color;
+  if (ruleRisk && ruleRisk !== 'UNKNOWN') {
+    $('g-' + id + '-sub').textContent = 'rule engine: ' + ruleRisk.toLowerCase();
+  }
+}
+
+/* ==========================================================================
+   5. Simulation
+   ========================================================================== */
+
+function applyProfile(name) {
+  profile = name;
+  simPhase = 0;
+  const base = PROFILES[name];
+  Object.assign(V, {
+    hr: base.hr, spo2: base.spo2, hrv: base.hrv, rr: base.rr, sqi: base.sqi,
+    temp: base.temp, hum: base.hum, pmRaw: base.pmRaw, pmCal: base.pmCal,
+    psi: base.psi, aha: base.aha, heat: base.heat, poll: base.poll,
+    flood: base.flood, storm: base.storm || 0,
+    cyclone: base.cyclone || 'NORMAL', ptrend: base.ptrend !== undefined ? base.ptrend : 0.0,
+    news2: n2hr(base.hr) + n2spo2(base.spo2) + n2rr(base.rr),
+    n2hrPts: null, n2spo2Pts: null, n2rrPts: null,
+    hrvN: null,
+    nnHeat: null, nnPoll: null, nnFlood: null, aiValid: null,
+    rHeat: 'NORMAL', rPoll: 'NORMAL', rFlood: 'UNKNOWN',
+  });
+  if (typeof HIST !== 'undefined') HIST.generateSim(name);
+  /* Pre-fill the simulated scope so a profile switch never opens on an empty
+     700-sample ring. Live mode is deliberately not pre-filled: its waveform
+     must be device data only. */
+  if (mode === 'sim' && typeof simPPG === 'function') simPPG(14000);
+  [...$('profile-buttons').children].forEach((b) => {
+    b.classList.toggle('active', b.dataset.p === name);
+    b.setAttribute('aria-pressed', b.dataset.p === name ? 'true' : 'false');
+  });
+}
+
+let simTick = 0;
+let simPhase = 0;
+function simStep() {
+  if (mode !== 'sim') return;
+  simTick++;
+  const b = PROFILES[profile];
+  const j = (a) => (Math.random() - 0.5) * a;
+  V.hr   = b.hr   + j(2.8);
+  V.spo2 = Math.min(100, b.spo2 + j(0.35));
+  V.hrv  = Math.max(0, b.hrv + j(1.4));
+  V.rr   = Math.max(0, b.rr + j(0.5));
+  V.temp = b.temp + j(0.12);
+  V.hum  = b.hum + j(0.4);
+  /* The mock profile carries the *published* PM2.5. The raw PMS5003 value sits
+     above it by roughly the size of the published correction, so the demo
+     shows the same raw-vs-published relationship the device reports instead of
+     pretending no correction happens. */
+  V.pmCal = Math.max(0, b.pmCal + j(0.55));
+  V.pmRaw = V.pmCal / 0.72 + j(0.7);
+  V.pmConf = '';
+  V.psi  = Math.max(0, b.psi + j(0.12));
+  V.aha  = clamp(b.aha + j(0.10), 0, 1);
+  V.heat = clamp(b.heat + j(1.2), 0, 100);
+  V.poll = clamp(b.poll + j(1.2), 0, 100);
+  V.flood = clamp(b.flood + j(1.2), 0, 100);
+  V.storm = clamp((b.storm || 0) + j(1.0), 0, 100);
+  if (b.ptrend !== undefined) {
+    V.ptrend = b.ptrend + j(0.04);
+    V.cyclone = b.cyclone;
+  }
+  /* In simulation the score is computed from the jittered vitals, so it moves
+     the way the real one does. In live mode it is whatever the device sent -
+     the device also applies its own SQI gating, which this does not. */
+  V.news2 = n2hr(V.hr) + n2spo2(V.spo2) + n2rr(V.rr);
+}
+
+/* Synthetic PPG for simulation. In live mode real samples arrive from the
+   device instead, so this is skipped entirely. */
+function simPPG(dt) {
+  if (mode !== 'sim') return;
+  /* Advance the simulated phase per sample, not per frame. performance.now()
+     barely changes inside this loop, so the old code pushed the same phase
+     many times and drew a nearly flat line. */
+  const dtSec = (dt > 0 ? dt : 16) / 1000;   /* headless/background tabs can report dt=0 */
+  const steps = Math.max(1, Math.round(dtSec * 50));
+  for (let i = 0; i < steps; i++) {
+    simPhase = (simPhase + (V.hr / 60) * dtSec / steps) % 1;
+    const p = simPhase;
+    /* systolic upstroke, dicrotic notch, exponential decay */
+    let v;
+    if (p < 0.12) v = Math.sin(Math.PI * p / 0.12);
+    else if (p < 0.22) v = 1 - (p - 0.12) / 0.10 * 0.52;
+    else if (p < 0.32) v = 0.48 + Math.sin(Math.PI * (p - 0.22) / 0.10) * 0.20;
+    else v = Math.max(0, 0.48 * Math.exp(-(p - 0.32) * 7));
+    v += (Math.random() - 0.5) * (1 - V.sqi / 100) * 0.12;
+    PPG.push(v * 1000);
+  }
+  /* perfusion index follows SQI plausibly in simulation */
+  V.pi = clamp(2.4 * (V.sqi / 96), 0.2, 12);
+}
+
+/* ==========================================================================
+   6. Web Serial
+   ==========================================================================
+   The device prints:
+     [TELEMETRY] HR=..,SPO2=..,RMSSD=..,TEMP=..,HUM=..,PM25=..,RR=..,SQI=..
+     [TELEMETRY] NO_FINGER,TEMP=..,HUM=..,PM25=..
+     [TELEMETRY] ACQUIRING,HR=..,...
+     [TRIAGE]    NEWS2=..,LEVEL=..,FLAGS=0x..,RISK=..,NNHEAT=..,...
+     [PPG] <raw IR counts>
+   The TRIAGE line is what makes this page a pure view: NEWS2, the hazard risks
+   and the TinyML scores are computed on the ESP32 and merely displayed here. */
+
+const num = (s) => { const v = parseFloat(s); return isFinite(v) ? v : 0; };
+/* Integer sub-score parser. Returns null for an absent/malformed field so a
+   missing value is not confused with a real 0-point score. */
+const pts = (s) => { const n = parseInt(s, 10); return Number.isFinite(n) ? n : null; };
+
+/* PM2.5 from the device.
+ *
+ * PM25 is the published estimate - the PMS5003 reading after the published
+ * humidity correction. PMRAW is the uncorrected sensor value behind it and
+ * PMCONF is the confidence code of the estimate (OK, SETTLING, HUMID, DUST,
+ * RANGE, NODATA).
+ *
+ * A negative PM25 means "no reading" (the sensor is absent or silent). It is
+ * kept as null, never as 0: a missing measurement is not a clean atmosphere,
+ * and the tile has to say "not assessed" rather than 0 ug/m3. Older firmware
+ * published no PMRAW, in which case the published value is also the raw one. */
+function applyPm(k) {
+  if (k.PM25 === undefined) return;
+  const pub = num(k.PM25);
+  V.pmCal = (pub >= 0) ? pub : null;
+  V.pmRaw = (k.PMRAW !== undefined) ? num(k.PMRAW) : pub;
+  V.pmConf = k.PMCONF || '';
+}
+
+function parseKV(line) {
+  const out = {};
+  for (const part of line.split(',')) {
+    const i = part.indexOf('=');
+    if (i > 0) out[part.slice(0, i).trim()] = part.slice(i + 1).trim();
+  }
+  return out;
+}
+
+function handleLine(line) {
+  lastSerialLine = performance.now();
+
+  if (line.startsWith('[LOC]')) {
+    V.loc = line.slice(5).trim();
+    const el = document.getElementById('v-loc');
+    if (el) el.textContent = 'LOC ' + (V.loc && V.loc !== 'UNSET' ? V.loc : '--');
+    return;
+  }
+
+  if (line.startsWith('[TELEMETRY]')) {
+    lastTelemetryAt = lastSerialLine;
+    if (liveNoData) {
+      liveNoData = false;
+      setStatus('live', 'LIVE · USB SERIAL · 115200');
+    }
+  }
+
+  if (line.startsWith('[PPG]')) {
+    const v = parseFloat(line.slice(5));
+    if (isFinite(v)) { PPG.push(v); ppgCount++; ppgSeen = true; }
+    return;
+  }
+
+  if (line.startsWith('[TELEMETRY]')) {
+    if (line.indexOf('NO_FINGER') >= 0) {
+      V.hr = 0; V.spo2 = 0; V.hrv = 0; V.rr = 0; V.rrConf = 0; V.rrDepth = 0;
+      V.sqi = 0; V.pi = 0; V.contact = false;
+      V.level = 0; V.flags = 0; V.risk = 'UNKNOWN';
+      V.n2hrPts = null; V.n2spo2Pts = null; V.n2rrPts = null;
+      V.hrvN = null;
+      const k = parseKV(line.replace('[TELEMETRY]', ''));
+      if (k.TEMP) V.temp = num(k.TEMP);
+      if (k.HUM)  V.hum  = num(k.HUM);
+      if (k.SKINTEMP) V.skinTemp = num(k.SKINTEMP);
+      applyPm(k);
+      return;
+    }
+    const k = parseKV(line.replace('[TELEMETRY]', ''));
+    /* The device prints ACQUIRING while the HRV window fills and has not
+       scored this contact yet. Drop the previous contact's sub-scores so the
+       tiles show "--" rather than a stale breakdown beside a new heart rate. */
+    if (line.indexOf('ACQUIRING') >= 0) {
+      V.n2hrPts = null; V.n2spo2Pts = null; V.n2rrPts = null; V.n2tempPts = null;
+    }
+    if (k.HR)    V.hr   = num(k.HR);
+    if (k.SPO2)  V.spo2 = num(k.SPO2);
+    if (k.RMSSD) V.hrv  = num(k.RMSSD);
+    /* Beats in the device's HRV window. Absent on older firmware, so it is
+       null rather than 0 and the tile stays "--" instead of claiming progress
+       the device never reported. */
+    if (k.HRVN !== undefined) V.hrvN = pts(k.HRVN);
+    if (k.RR)    V.rr   = num(k.RR);
+    if (k.RRCONF) V.rrConf = num(k.RRCONF);
+    if (k.RRDEPTH) V.rrDepth = num(k.RRDEPTH);
+    if (k.PI)    V.pi   = num(k.PI);
+    if (k.SQI)   V.sqi  = num(k.SQI) * 100;
+    /* The firmware sends a normal telemetry line even with no finger when
+       ambient sensors are valid. Infer tissue contact from a real pulse/signal,
+       not from the mere presence of a packet. */
+    V.contact = (V.hr > 0 || V.sqi > 0);
+    if (k.TEMP)  V.temp = num(k.TEMP);
+    if (k.HUM)   V.hum  = num(k.HUM);
+    if (k.SKINTEMP) V.skinTemp = num(k.SKINTEMP);
+    applyPm(k);
+    return;
+  }
+
+  if (line.startsWith('[TRIAGE]')) {
+    const k = parseKV(line.replace('[TRIAGE]', ''));
+    if (k.NEWS2)  V.news2  = parseInt(k.NEWS2, 10) || 0;
+    if (k.LEVEL)  V.level  = parseInt(k.LEVEL, 10) || 0;
+    if (k.FLAGS)  V.flags  = parseInt(k.FLAGS, 16) || 0;
+    /* Device NEWS2 breakdown. Absent in older firmware; null keeps the tiles
+       in the "not published yet" state instead of showing invented points. */
+    if (k.HRPTS !== undefined)   V.n2hrPts   = pts(k.HRPTS);
+    if (k.SPO2PTS !== undefined) V.n2spo2Pts = pts(k.SPO2PTS);
+    if (k.RRPTS !== undefined)   V.n2rrPts   = pts(k.RRPTS);
+    if (k.TEMPPTS !== undefined) V.n2tempPts = pts(k.TEMPPTS);
+    if (k.RISK)   V.risk   = k.RISK;
+    if (k.NNHEAT)  V.nnHeat  = num(k.NNHEAT);
+    /* AIVALID = 1 only when the device's INT8 model actually scored. NNHEAT
+       reads 0.000 both when the model ran and found nothing and when it
+       declined, so this flag is what separates "0 % risk" from "no verdict". */
+    if (k.AIVALID !== undefined) V.aiValid = pts(k.AIVALID);
+    if (k.NNPOLL)  V.nnPoll  = num(k.NNPOLL);
+    if (k.NNFLOOD) V.nnFlood = num(k.NNFLOOD);
+    if (k.RHEAT)  V.rHeat  = k.RHEAT;
+    if (k.RPOLL)  V.rPoll  = k.RPOLL;
+    if (k.RFLOOD) V.rFlood = k.RFLOOD;
+    if (k.PSI)    V.psi    = num(k.PSI);
+    if (k.AHA)    V.aha    = num(k.AHA);
+    if (k.CYCLONE) V.cyclone = k.CYCLONE;
+    if (k.PTREND) V.ptrend = num(k.PTREND);
+    return;
+  }
+
+  if (line.startsWith('[HISTORY]')) {
+    const raw = line.replace('[HISTORY]', '').trim();
+    const comma = raw.indexOf(',');
+    if (comma > 0) {
+      const hStr = raw.slice(0, comma).trim();
+      const hIdx = parseInt(hStr.replace(/^H/, ''), 10);
+      if (hIdx >= 0 && hIdx < 24 && typeof HIST !== 'undefined') {
+        const k = parseKV(raw.slice(comma + 1));
+        const hPm = k.PM25 !== undefined ? num(k.PM25) : null;
+        const hHr = k.HR !== undefined ? num(k.HR) : null;
+        const hSpo2 = k.SPO2 !== undefined ? num(k.SPO2) : null;
+        const hRmssd = k.RMSSD !== undefined ? num(k.RMSSD) : null;
+        HIST.setPoint(hIdx, {
+          /* Omitted or impossible clinical values stay null so the chart,
+             summary and tooltip can say "not measured" instead of 0. */
+          hr: (hHr !== null && hHr > 0) ? hHr : null,
+          spo2: (hSpo2 !== null && hSpo2 > 0) ? hSpo2 : null,
+          rmssd: (hRmssd !== null && hRmssd > 0) ? hRmssd : null,
+          news2: k.NEWS2 !== undefined ? (parseInt(k.NEWS2, 10) || 0) : null,
+          /* A negative PM25 means the device had no reading in that hour:
+             null, not 0 - a missing measurement is not a clean atmosphere. */
+          pm25: (hPm !== null && hPm >= 0) ? hPm : null,
+          valid: true,
+        });
+      }
+    }
+    return;
+  }
+}
+
+let port = null, reader = null, keepReading = false;
+
+async function connect() {
+  if (!('serial' in navigator)) {
+    setStatus('err', 'NO WEB SERIAL — use Chrome or Edge');
+    $('gate-note').textContent =
+      'This browser has no Web Serial API. Chrome or Edge 89+ required. Running simulation instead.';
+    return false;
+  }
+  try {
+    port = await navigator.serial.requestPort();
+    await port.open({ baudRate: 115200 });
+mode = 'live';
+if (typeof HIST !== 'undefined') HIST.reset(); /* never keep simulated points under a DEVICE label */
+    lastTelemetryAt = performance.now();
+    liveNoData = false;
+    keepReading = true;
+    ppgSeen = false;
+    liveStart = performance.now();
+    $('gate').classList.add('hidden');
+    $('foot-note').textContent = 'live device stream over USB serial';
+    [...$('profile-buttons').children].forEach((b) => b.classList.remove('active'));
+    setStatus('live', 'LIVE · USB SERIAL · 115200');
+    readLoop();
+    return true;
+  } catch (e) {
+    if (e && e.name === 'NotFoundError') {
+      setStatus('err', 'CONNECT CANCELLED');
+      if ($('gate-note')) $('gate-note').textContent = 'No serial port selected.';
+    } else {
+      setStatus('err', 'CONNECT FAILED — close monitor/PuTTY and retry');
+      if ($('gate-note')) {
+        $('gate-note').textContent =
+          'Could not open the serial port. Close idf.py monitor, PuTTY, or another dashboard first.';
+      }
+      console.error(e);
+    }
+    return false;
+  }
+}
+
+async function readLoop() {
+  const decoder = new TextDecoder();
+  let buffered = '';
+  try {
+    while (port.readable && keepReading) {
+      reader = port.readable.getReader();
+      try {
+        for (;;) {
+          const { value, done } = await reader.read();
+          if (done) break;
+          buffered += decoder.decode(value, { stream: true });
+          let nl;
+          while ((nl = buffered.indexOf('\n')) >= 0) {
+            const line = buffered.slice(0, nl).replace(/\r$/, '');
+            buffered = buffered.slice(nl + 1);
+            if (line) handleLine(line);
+          }
+          if (buffered.length > 4096) buffered = '';
+        }
+      } finally {
+        reader.releaseLock();
+      }
+    }
+  } catch (e) {
+    if (!keepReading) return;
+    clearLiveReadings();
+    liveNoData = true;
+    renderIdle();
+    setStatus('err', 'SERIAL ERROR — check the cable');
+  }
+}
+
+async function disconnect() {
+  keepReading = false;
+  try { if (reader) await reader.cancel(); } catch (e) {}
+  try { if (port) await port.close(); } catch (e) {}
+  port = null; reader = null;
+}
+
+/* ==========================================================================
+   7. Boot
+   ========================================================================== */
+
+/* Three explicit states, and the dashboard shows nothing until one is picked.
+ *
+ *   idle  - the default. Every readout is "--"; no invented data on screen.
+ *   live  - serial port open, values come from the device.
+ *   sim   - one of the six profiles, clearly labelled as a simulation.
+ *
+ * Connect lives OUTSIDE #profile-buttons on purpose. It used to be inside, and
+ * the ?full=1 kiosk flag hid that whole container - so launching the demo hid
+ * the only way to connect to the board. */
+function buildControls() {
+  const wrap = $('profile-buttons');
+  wrap.innerHTML = '';
+  Object.keys(PROFILES).forEach((name) => {
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.textContent = name;
+    b.dataset.p = name;
+    b.onclick = () => { mode = 'sim'; applyProfile(name); refreshChrome(); };
+    wrap.appendChild(b);
+  });
+
+  $('btn-connect').onclick = async () => {
+    if (mode === 'live') { await disconnect(); enterIdle(); return; }
+    const ok = await connect();
+    refreshChrome();
+    if (!ok) enterIdle();
+  };
+
+  $('btn-sim').onclick = () => {
+    if (mode === 'sim') { enterIdle(); return; }
+    mode = 'sim';
+    applyProfile(profile);
+    refreshChrome();
+  };
+}
+
+/* Idle: no data, nothing claimed. */
+function enterIdle() {
+  if (port) disconnect();
+  mode = 'idle';
+  Object.assign(V, {
+    hr: 0, spo2: 0, hrv: 0, rr: 0, rrConf: 0, rrDepth: 0, sqi: 0, contact: false,
+    temp: -100, hum: -1, pmRaw: 0, pmCal: null, pmConf: '', loc: '',
+    psi: 0, aha: 0, heat: 0, poll: 0, flood: 0, news2: 0,
+    pi: 0, level: 0, flags: 0, risk: 'UNKNOWN',
+    rHeat: 'UNKNOWN', rPoll: 'UNKNOWN', rFlood: 'UNKNOWN',
+    nnHeat: null, nnPoll: null, nnFlood: null, aiValid: null,
+  });
+  lastTelemetryAt = 0;
+  liveNoData = false;
+  simPhase = 0;
+  if (typeof HIST !== 'undefined') HIST.reset();
+  setStatus('idle', 'NOT CONNECTED \u00b7 no data');
+  $('foot-note').textContent = 'no data \u2014 connect a device or start a simulation';
+}
+
+/* Keep the buttons and the status pill consistent with `mode`. */
+function refreshChrome() {
+  const sim = (mode === 'sim');
+  $('profile-buttons').style.display = sim ? 'flex' : 'none';
+  $('btn-sim').classList.toggle('active', sim);
+  $('btn-sim').setAttribute('aria-pressed', sim ? 'true' : 'false');
+  $('btn-connect').textContent = (mode === 'live') ? 'Disconnect' : 'Connect to device';
+  $('btn-connect').classList.toggle('active', mode === 'live');
+  $('btn-connect').setAttribute('aria-pressed', mode === 'live' ? 'true' : 'false');
+
+  if (mode === 'live') {
+    setStatus('live', 'LIVE \u00b7 USB SERIAL \u00b7 115200');
+    $('foot-note').textContent = 'live device stream over USB serial';
+  } else if (mode === 'sim') {
+    setStatus('sim', 'SIMULATION \u00b7 profile data');
+    $('foot-note').textContent = 'simulation mode \u2014 profile data, no device';
+  } else {
+    setStatus('idle', 'NOT CONNECTED \u00b7 no data');
+    $('foot-note').textContent = 'no data \u2014 connect a device or start a simulation';
+  }
+}
+
+$('gate-connect').onclick = async () => {
+  const ok = await connect();
+  if (ok) {
+    $('gate').classList.add('hidden');
+    refreshChrome();
+    $('btn-connect').focus();
+  }
+  /* On cancel/failure keep the gate visible so the note stays readable. */
+};
+$('gate-sim').onclick = () => {
+  mode = 'sim';
+  applyProfile('Normal Baseline');
+  $('gate').classList.add('hidden');
+  refreshChrome();
+  $('btn-connect').focus();
+};
+$('gate-empty').onclick = () => {
+  enterIdle();
+  $('gate').classList.add('hidden');
+  $('btn-connect').focus();
+};
+
+/* No Web Serial (Firefox/Safari): say so plainly. */
+if (!('serial' in navigator)) {
+  $('gate-note').textContent =
+    'This browser has no Web Serial API, so live mode is unavailable here. ' +
+    'Chrome or Edge 89+ is required. The simulation works everywhere.';
+}
+
+buildControls();
+HIST.initEvents();
+$('hist-export').onclick = exportHistoryCsv;
+enterIdle();
+
+/* Kiosk / automated start.
+ *
+ *   ?sim=1     skip the gate and run the simulation
+ *   ?full=1    imply ?sim=1 and hide the six profile buttons for an unattended display
+ *   ?profile=X start on a named profile (URL-encode spaces and '&')
+ *
+ * ?full=1 deliberately does NOT hide Connect any more: only the profile buttons
+ * are hidden, so a display left running can still be brought online by hand.
+ * With no parameters the page opens idle and shows no data. */
+const qs = new URLSearchParams(location.search);
+if (qs.has('sim') || qs.has('full')) {
+  mode = 'sim';
+  applyProfile(qs.get('profile') && PROFILES[qs.get('profile')] ? qs.get('profile') : 'Normal Baseline');
+  $('gate').classList.add('hidden');
+  $('btn-sim').style.display = qs.has('full') ? 'none' : '';
+  refreshChrome();
+  if (qs.has('full')) $('profile-buttons').style.display = 'none';
+}
+
+/* Render once synchronously before starting the animation loop.
+ *
+ * Two reasons. It removes the frame of "--" placeholders on load, and it makes
+ * the page's first paint deterministic: requestAnimationFrame is not guaranteed
+ * to have fired by the time an automated capture (Chrome --dump-dom, a
+ * screenshot at a virtual-time budget) snapshots the DOM, which made headless
+ * verification flaky. */
+simStep();
+simPPG(16);
+ECG.tick(16); RRC.tick(16);
+PPG.draw(); ECG.draw(); RRC.draw(); drawArc(); HIST.draw();
+render();
+
+let last = performance.now();
+let lastUi = 0;            /* DOM/history text is updated at ~5 Hz, canvases at 60 fps */
+let simAccum = 0;          /* simulated vitals update accumulator */
+let ppgCount = 0;          /* live PPG samples seen this second */
+let ppgWindow = last;
+
+function frame(ts) {
+  const dt = Math.min(ts - last, 60);
+  last = ts;
+
+  if (mode === 'sim') {
+    simAccum += dt;
+    while (simAccum >= 1000) { simAccum -= 1000; simStep(); }
+    simPPG(dt);
+  }
+
+  if (mode === 'live' && lastSerialLine && ts - ppgWindow >= 1000) {
+    sampleRate = ppgCount;
+    ppgCount = 0;
+    ppgWindow = ts;
+  }
+
+  if (mode === 'live' && !liveNoData && ts - lastTelemetryAt > 3000) {
+    liveNoData = true;
+    clearLiveReadings();
+    renderIdle();
+    setStatus('err', 'NO DATA — board connected, no telemetry');
+  }
+
+  ECG.tick(dt);
+  RRC.tick(dt);
+  PPG.draw();
+  ECG.draw();
+  RRC.draw();
+  drawArc();
+  HIST.draw();
+  if (mode === 'live' && liveNoData) {
+    requestAnimationFrame(frame);
+    return;
+  }
+  if (ts - lastUi >= 200) {
+    lastUi = ts;
+    render();
+  }
+
+  requestAnimationFrame(frame);
+}
+requestAnimationFrame(frame);
+
+window.addEventListener('resize', () => { /* canvases re-fit each frame */ });
+</script>
+</body>
+</html>
