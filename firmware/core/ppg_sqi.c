@@ -76,14 +76,14 @@ void ppg_calculate_sqi_with_motion(
         result->perfusion_index = pi;
 
         /* Score Perfusion Index calibrated for 18-bit MAX30102 DC levels (~100k-185k) */
-        if (pi < 0.02f) {
+        if (pi < 0.015f) {
             pi_score = 0.1f; /* Sensor off-finger or negligible pulsatile signal */
         } else if (pi > 15.0f) {
             pi_score = 0.2f; /* Ambient light saturation / severe clip */
-        } else if (pi >= 0.08f && pi <= 7.0f) {
-            pi_score = 1.0f; /* Optimal clinical pulsatile amplitude */
+        } else if (pi >= 0.03f && pi <= 10.0f) {
+            pi_score = 1.0f; /* Optimal clinical pulsatile amplitude (light to firm contact) */
         } else {
-            pi_score = 0.75f;
+            pi_score = 0.80f;
         }
 
         /* Compute skewness m3 / sigma^3 after clipping extreme samples.
@@ -101,12 +101,16 @@ void ppg_calculate_sqi_with_motion(
             float skewness = (m3_sum / (float)sample_count) / (std_dev * std_dev * std_dev);
             result->waveform_skewness = skewness;
 
-            /* Clean PPG has steep systolic rise and gentle runoff: positive skewness */
-            if (skewness > 0.1f) {
-                skew_score = clamp01(0.5f + 0.4f * skewness);
+            /* In reflection-mode PPG (MAX30102), systolic absorption troughs produce
+             * negative skewness while inverted/filtered pulses produce positive skewness.
+             * Both exhibit clear pulse asymmetry (|skewness| >= 0.15) compared to flat noise. */
+            float abs_skew = fabsf(skewness);
+            if (skewness > 0.10f) {
+                skew_score = clamp01(0.65f + 0.35f * skewness);
+            } else if (abs_skew >= 0.15f) {
+                skew_score = clamp01(0.60f + 0.30f * abs_skew);
             } else {
-                /* Negative or zero skewness indicates motion baseline wandering or noise */
-                skew_score = clamp01(0.5f + 0.5f * skewness);
+                skew_score = 0.55f;
             }
         }
     }
@@ -134,14 +138,14 @@ void ppg_calculate_sqi_with_motion(
             float ibi_std = sqrtf(ibi_var_sum / (float)ibi_count);
             float cv = ibi_std / ibi_mean; /* Coefficient of variation */
 
-            /* Healthy physiological rhythm CV is typically 0.03 - 0.15 */
-            if (cv <= 0.12f) {
+            /* Healthy physiological rhythm CV (including normal RSA breathing) is 0.02 - 0.15 */
+            if (cv <= 0.15f) {
                 reg_score = 1.0f;
-            } else if (cv <= 0.25f) {
-                reg_score = 1.0f - (cv - 0.12f) * 3.0f;
+            } else if (cv <= 0.28f) {
+                reg_score = 1.0f - (cv - 0.15f) * 3.0f;
             } else {
-                /* Excessive jitter > 0.25 strongly indicates motion artifact */
-                reg_score = clamp01(0.6f - (cv - 0.25f) * 2.0f);
+                /* Excessive jitter > 0.28 strongly indicates motion artifact */
+                reg_score = clamp01(0.6f - (cv - 0.28f) * 2.0f);
             }
             result->interval_regularity = reg_score;
             reg_measured = true;
@@ -174,10 +178,10 @@ void ppg_calculate_sqi_with_motion(
     /* 4. IMU Motion Artifact Rejection & Gating
      * Optical photoplethysmography is highly susceptible to sensor-tissue displacement
      * and venous pool movement during physical motion. If the IMU reports dynamic motion:
-     * - motion_energy_g > 0.08g: penalizes composite SQI proportionally
+     * - motion_energy_g > 0.10g: penalizes composite SQI proportionally
      * - motion_energy_g >= 0.35g: gates signal as corrupted (SQI < 0.70) */
-    if (motion_energy_g > 0.08f) {
-        float penalty = (motion_energy_g - 0.08f) * 1.5f;
+    if (motion_energy_g > 0.10f) {
+        float penalty = (motion_energy_g - 0.10f) * 1.5f;
         if (penalty > 0.45f) penalty = 0.45f;
         composite -= penalty;
     }

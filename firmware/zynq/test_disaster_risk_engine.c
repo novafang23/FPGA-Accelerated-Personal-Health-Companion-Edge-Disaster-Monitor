@@ -2611,6 +2611,43 @@ static void test_skin_estimate_monotonic_and_bounded(void) {
            st_neutral.estimated_skin_c, warm_final, prev_est, st_cold_fgr.estimated_skin_c);
 }
 
+static void test_ppg_sqi_live_reflection_and_motion_gate(void) {
+    /* 1. Gentle reflection-mode MAX30102 pulse:
+     * DC ~ 125,000, AC ~ 55 counts (PI ~ 0.045%), downward systolic absorption trough
+     * (negative skewness ~ -0.55), and 8 beats with healthy RSA variation (CV ~ 0.135). */
+    uint32_t raw_ir[80];
+    for (int i = 0; i < 80; i++) {
+        int phase = i % 10;
+        /* Sharp systolic absorption trough (phase 0-1 drops by 45 counts), slow diastolic plateau (+10 counts) */
+        int offset = (phase == 0) ? -45 : (phase == 1) ? -30 : 10;
+        raw_ir[i] = (uint32_t)(125000 + offset);
+    }
+    const float rsa_ibis[8] = {
+        700.0f, 760.0f, 890.0f, 920.0f, 880.0f, 720.0f, 690.0f, 840.0f
+    };
+
+    ppg_sqi_result_t res;
+    ppg_calculate_sqi_with_motion(raw_ir, 80, rsa_ibis, 8, 0.05f, &res);
+    assert(res.waveform_skewness < -0.20f);
+    assert(res.perfusion_index >= 0.03f && res.perfusion_index < 0.08f);
+    assert(res.overall_sqi >= PPG_SQI_THRESHOLD_VALID);
+    assert(!res.is_motion_artifact);
+
+    /* 2. High IMU motion (0.40g) on the exact same optical signal must hard-gate SQI < 0.70 */
+    ppg_sqi_result_t res_mot;
+    ppg_calculate_sqi_with_motion(raw_ir, 80, rsa_ibis, 8, 0.40f, &res_mot);
+    assert(res_mot.overall_sqi < PPG_SQI_THRESHOLD_VALID);
+    assert(res_mot.is_motion_artifact);
+
+    /* 3. Zero-beat waveform must never pass the 0.70 clinical validity gate */
+    ppg_sqi_result_t res_nobeat;
+    ppg_calculate_sqi_with_motion(raw_ir, 80, NULL, 0, 0.0f, &res_nobeat);
+    assert(res_nobeat.overall_sqi < PPG_SQI_THRESHOLD_VALID);
+
+    printf("test_ppg_sqi_live_reflection_and_motion_gate: PASS (sqi=%.2f, pi=%.3f%%, skew=%.2f)\n",
+           res.overall_sqi, res.perfusion_index, res.waveform_skewness);
+}
+
 int main() {
     /* Unbuffered, because a failing assert calls abort() and abort() does not
      * flush stdio. With the default block buffering the diagnostic printed
@@ -2663,6 +2700,7 @@ int main() {
     test_news2_temperature_scoring();
     test_max30102_temperature_conversion();
     test_skin_estimate_monotonic_and_bounded();
+    test_ppg_sqi_live_reflection_and_motion_gate();
     printf("ALL TESTS PASSED.\n");
     return 0;
 }
