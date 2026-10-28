@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'sha256-Cj0j6WozfllCde4GyecsGwet/OPqT28+wHw9nSIcjnI='; style-src 'unsafe-inline'; connect-src 'self'; form-action 'self'; base-uri 'none'; object-src 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'sha256-tm853AAvwEhEpcdftR/Agl3jmBbpg6AGRHqG1uw9fY4='; style-src 'unsafe-inline'; connect-src 'self'; form-action 'self'; base-uri 'none'; object-src 'none'">
 <title>VALOR — Edge Health &amp; Disaster Triage</title>
 <!--
   VALOR dashboard — single self-contained file.
@@ -510,7 +510,7 @@
     </div>
     <div class="news2-hero">
       <div class="news2-score" id="n2-score">0</div>
-      <div class="news2-label" id="n2-label">Stable</div>
+      <div class="news2-label" id="n2-label">Normal</div>
       <div class="news2-sub" id="n2-sub"></div>
       <div class="device-verdict" id="device-verdict">Device verdict: --</div>
     </div>
@@ -1336,6 +1336,11 @@ function makeHistory() {
       });
       const cnt = $('h-sample-count');
       if (cnt) cnt.textContent = '0/24';
+      if (mode === 'live') {
+        const sub0 = $('hist-sub'); const chip0 = $('hist-span');
+        if (sub0) sub0.textContent = 'Waiting for device history \u00b7 the device sends it every 30 s';
+        if (chip0) chip0.textContent = 'WAITING';
+      }
       return;
     }
 
@@ -1685,12 +1690,12 @@ function renderIdle() {
     $('g-' + k).style.width = '0%';
     $('g-' + k + '-sub').textContent = '';
   }
-  if (mode === 'idle') {
+  if (mode === 'idle') {  /* a telemetry stall in live mode keeps the hours already received */
     if (typeof HIST !== 'undefined') HIST.reset();
+    $('hist-sub').textContent = 'No history yet \u2014 connect a device or start a simulation';
+    $('hist-span').textContent = 'NO DATA';
+    $('hist-export').disabled = true;
   }
-  $('hist-sub').textContent = 'No history yet \u2014 connect a device or start a simulation';
-  $('hist-span').textContent = 'NO DATA';
-  $('hist-export').disabled = true;
 }
 
 function render() {
