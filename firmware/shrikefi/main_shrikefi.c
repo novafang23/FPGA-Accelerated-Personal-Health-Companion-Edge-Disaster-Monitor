@@ -687,6 +687,8 @@ static void task_ppg_accelerator(void *pvParameters) {
     static uint8_t  sw_fall_count        = 0;
     static uint32_t sw_refractory_end_ms = 0;
     static uint64_t sw_last_peak_sample  = 0;
+    static uint64_t sw_peak_sample       = 0;
+    static uint64_t s_last_fpga_peak_sample = 0;
     static uint64_t s_total_samples      = 0;
     static uint32_t sw_last_valid_ibi_ms = 0;
     static int      sw_beat_streak       = 0;
@@ -759,6 +761,9 @@ static void task_ppg_accelerator(void *pvParameters) {
 
         if (saturated) {
             s_total_samples = 0;
+            s_last_fpga_peak_sample = 0;
+            sw_last_peak_sample = 0;
+            sw_peak_sample = 0;
         } else if (dropped > 0) {
             s_total_samples += dropped;
         }
@@ -1031,7 +1036,15 @@ static void task_ppg_accelerator(void *pvParameters) {
                  * spurious beat flag is the far lesser risk. */
                 s_last_fpga_beat_ms = now_ms;
 
-                float ibi_ms = (float)ibi_cycles * (20.0f / 1000000.0f); // 50 MHz clock
+                float cycle_ibi_ms = (float)ibi_cycles * (20.0f / 1000000.0f); // 50 MHz clock
+                /* Use crystal-locked MAX30102 FIFO sample counter (10.0 ms/sample at 100 Hz)
+                 * to eliminate +/-10-30 ms FreeRTOS/I2C multi-sample FIFO burst jitter. */
+                float sample_ibi_ms = (s_last_fpga_peak_sample > 0 && s_total_samples > s_last_fpga_peak_sample)
+                                      ? ((float)(s_total_samples - s_last_fpga_peak_sample) * (1000.0f / PPG_FIFO_RATE_HZ))
+                                      : 0.0f;
+                s_last_fpga_peak_sample = s_total_samples;
+                float ibi_ms = (sample_ibi_ms >= IBI_MIN_MS && sample_ibi_ms <= IBI_MAX_MS)
+                               ? sample_ibi_ms : cycle_ibi_ms;
 
                 /* Split-beat guard - CAUSE NOW ESTABLISHED.
                  * The detector fires twice on roughly one beat in six. The
@@ -1144,18 +1157,26 @@ static void task_ppg_accelerator(void *pvParameters) {
                     if (ppg_sample.ir >= threshold) {
                         sw_state = SW_RISING;
                         sw_peak_val = ppg_sample.ir;
+                        sw_peak_sample = s_total_samples;
                         sw_fall_count = 0;
                     }
                 } else if (sw_state == SW_RISING) {
                     if (ppg_sample.ir > sw_peak_val) {
                         sw_peak_val = ppg_sample.ir;
+                        sw_peak_sample = s_total_samples;
+                    }
+                    if (ppg_sample.ir >= sw_prev_sample) {
+                        sw_fall_count = 0;
                     }
                     if (ppg_sample.ir < sw_prev_sample) {
                         if (++sw_fall_count >= 2) {
                             /* Crest confirmed: check peak prominence over baseline */
                             if (sw_peak_val > (sw_running_mean + 10)) {
-                                float ibi_ms = (float)(s_total_samples - sw_last_peak_sample) * (1000.0f / PPG_FIFO_RATE_HZ);
-                                sw_last_peak_sample = s_total_samples;
+                                uint64_t pk_s = (sw_peak_sample > 0) ? sw_peak_sample : s_total_samples;
+                                float ibi_ms = (sw_last_peak_sample > 0 && pk_s > sw_last_peak_sample)
+                                               ? ((float)(pk_s - sw_last_peak_sample) * (1000.0f / PPG_FIFO_RATE_HZ))
+                                               : 0.0f;
+                                sw_last_peak_sample = pk_s;
                                 sw_state = SW_REFRACTORY;
                                 sw_refractory_end_ms = now_ms + 400; /* 400ms refractory blanking */
 
@@ -1253,6 +1274,8 @@ static void task_ppg_accelerator(void *pvParameters) {
                 s_last_fpga_beat_ms  = 0;   /* FPGA beat history is scoped to this contact session */
                 sw_finger_start_ms   = 0;
                 sw_last_peak_sample  = 0;
+                sw_peak_sample       = 0;
+                s_last_fpga_peak_sample = 0;
                 sw_last_valid_ibi_ms = 0;
                 sw_beat_streak       = 0;
                 sw_peak_val          = 0;
@@ -1324,6 +1347,8 @@ static void task_ppg_accelerator(void *pvParameters) {
                     sw_prev_sample = 0;
                     sw_peak_val = 0;
                     sw_last_peak_sample = 0;
+                    sw_peak_sample = 0;
+                    s_last_fpga_peak_sample = 0;
                     sw_last_valid_ibi_ms = 0;
                     sw_beat_streak = 0;
                     sw_finger_start_ms = 0;
