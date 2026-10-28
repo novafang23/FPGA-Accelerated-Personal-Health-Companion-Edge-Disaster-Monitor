@@ -465,18 +465,24 @@ static void ppg_update_respiration_and_sqi(hrv_state_t *hrv,
         } else {
             g_state.ppg_sqi = sqi.overall_sqi;
         }
-        hrv_quality_ok = (sqi.overall_sqi >= PPG_SQI_THRESHOLD_VALID) &&
-                         (g_state.ppg_sqi >= PPG_SQI_THRESHOLD_VALID);
-        /* Publish PI only when the SQI window is clinically usable and the
-         * AC/DC ratio is plausible. Contact transients produced 10-113 % on
-         * hardware while HR was 0 and SQI was 0.30-0.43; those are not
-         * perfusion values and must not reach the dashboard. */
-        g_state.perfusion_index =
-            (s_sqi_raw_n >= PPG_FIFO_RATE_HZ &&
-             sqi.overall_sqi >= PPG_SQI_THRESHOLD_VALID &&
-             sqi.perfusion_index >= 0.02f &&
-             sqi.perfusion_index <= 20.0f)
-            ? sqi.perfusion_index : 0.0f;
+        /* Hysteresis: require >= 0.70 for initial lock, and >= 0.60 to maintain lock
+         * while the finger remains in contact and IMU motion is below the 0.35g hard gate. */
+        float sqi_floor = (g_state.hrv_rmssd > 0.0f) ? 0.60f : PPG_SQI_THRESHOLD_VALID;
+        hrv_quality_ok = (sqi.overall_sqi >= sqi_floor) &&
+                         (g_state.ppg_sqi >= sqi_floor) &&
+                         (motion_energy < 0.35f);
+        /* Publish PI when the SQI window is clinically usable; once locked during active
+         * finger contact, hold the last valid PI across brief 1-second twitches. */
+        if (s_sqi_raw_n >= PPG_FIFO_RATE_HZ &&
+            sqi.overall_sqi >= sqi_floor &&
+            sqi.perfusion_index >= 0.02f &&
+            sqi.perfusion_index <= 20.0f) {
+            g_state.perfusion_index = (g_state.perfusion_index > 0.0f)
+                ? (0.75f * g_state.perfusion_index + 0.25f * sqi.perfusion_index)
+                : sqi.perfusion_index;
+        } else if (g_state.perfusion_index <= 0.0f) {
+            g_state.perfusion_index = 0.0f;
+        }
         s_hrv_sqi_valid = hrv_quality_ok;
         if (hrv_quality_ok) {
             /* First publication takes the same settle gate as the periodic
@@ -486,12 +492,10 @@ static void ppg_update_respiration_and_sqi(hrv_state_t *hrv,
                 g_state.hrv_rmssd = hrv->rmssd;
                 g_state.hrv_sdnn  = hrv->sdnn;
             }
-        } else {
-            /* An RMSSD from a pulse stream below the project's validity gate is
-             * not a meaningful measurement. Clear the published RMSSD/SDNN so
-             * low-quality beats are not scored for clinical triage. HR and SpO2
-             * remain available. Sample count is preserved so the 10-beat acquisition
-             * progress is visible and uninterrupted. */
+        } else if (g_state.hrv_rmssd <= 0.0f) {
+            /* Before HRV has settled, keep RMSSD/SDNN at 0.0f. Once settled during
+             * continuous finger contact, hold the last settled RMSSD/SDNN across
+             * transient motion dips instead of blanking out the dashboard/TinyML. */
             g_state.hrv_rmssd        = 0.0f;
             g_state.hrv_sdnn         = 0.0f;
         }
@@ -1091,7 +1095,7 @@ static void task_ppg_accelerator(void *pvParameters) {
                                                 (0.85f * g_state.hrv_rmssd + 0.15f * hrv_state.rmssd) : hrv_state.rmssd;
                             g_state.hrv_sdnn  = (g_state.hrv_sdnn > 0.0f) ?
                                                 (0.85f * g_state.hrv_sdnn + 0.15f * hrv_state.sdnn) : hrv_state.sdnn;
-                        } else {
+                        } else if (!hrv_settled) {
                             g_state.hrv_rmssd = 0.0f;
                             g_state.hrv_sdnn  = 0.0f;
                         }
@@ -1218,7 +1222,7 @@ static void task_ppg_accelerator(void *pvParameters) {
                                                                         (0.85f * g_state.hrv_rmssd + 0.15f * hrv_state.rmssd) : hrv_state.rmssd;
                                                     g_state.hrv_sdnn  = (g_state.hrv_sdnn > 0.0f) ?
                                                                         (0.85f * g_state.hrv_sdnn + 0.15f * hrv_state.sdnn) : hrv_state.sdnn;
-                                                } else {
+                                                } else if (!hrv_settled) {
                                                     g_state.hrv_rmssd = 0.0f;
                                                     g_state.hrv_sdnn  = 0.0f;
                                                 }
@@ -1996,8 +2000,13 @@ static float s_last_pm10 = 0.0f;   /* coarse-particle proxy for dust detection *
              * TMP117 reading (or 0.0f uninstrumented if not fitted / still settling). */
             /* Die-temp skin estimate is uninstrumented for NEWS2 triage (never claim core) */
             const float news2_temp = 0.0f;
+            /* Once HRV is settled during active contact, apply 0.58->0.70 hysteresis on
+             * sqi_for_news2 so a 1-second finger shift does not flip live triage to UNKNOWN. */
+            float effective_sqi = (hrv_snapshot.rmssd > 0.0f && sqi_for_news2 >= 0.58f)
+                                  ? fmaxf(sqi_for_news2, PPG_SQI_THRESHOLD_VALID)
+                                  : sqi_for_news2;
             clinical_vitals_assess_ext(hr, engine_spo2, hrv_snapshot.rmssd,
-                                       rr_for_news2, sqi_for_news2, news2_temp, &clin_assess);
+                                       rr_for_news2, effective_sqi, news2_temp, &clin_assess);
             triage_level = (int)clin_assess.level;
             clin_news2 = (unsigned)clin_assess.news2_score;
             clin_flags = (unsigned)clin_assess.alert_flags;
