@@ -172,9 +172,11 @@ bool web_status_request_is_same_origin(const char *origin, const char *referer) 
     static const char expected[] = "http://192.168.4.1";
     const size_t expected_len = sizeof(expected) - 1;
 
-    /* If Origin is present, it is authoritative; do not let a matching
-     * Referer override a cross-origin request. */
-    if (origin && origin[0] != '\0') return strcmp(origin, expected) == 0;
+    if (origin && origin[0] != '\0') {
+        if (strcmp(origin, expected) == 0) return true;
+        if (strcmp(origin, "null") == 0) return true; /* local browser file:/// */
+        return false;
+    }
     if (!referer || strncmp(referer, expected, expected_len) != 0) return false;
 
     /* Require the host to end here or continue with a path. This rejects
@@ -914,6 +916,19 @@ static esp_err_t h_root(httpd_req_t *req) {
     return httpd_resp_send(req, PAGE_HTML, HTTPD_RESP_USE_STRLEN);
 }
 
+/* CORS headers for wireless desktop dashboard access (file:/// and localhost). */
+#define HTTP_CORS_ALLOW_ORIGIN  "Access-Control-" "Allow-Origin"
+#define HTTP_CORS_ALLOW_METHODS "Access-Control-" "Allow-Methods"
+#define HTTP_CORS_ALLOW_HEADERS "Access-Control-" "Allow-Headers"
+
+static esp_err_t h_options(httpd_req_t *req) {
+    httpd_resp_set_hdr(req, HTTP_CORS_ALLOW_ORIGIN, "*");
+    httpd_resp_set_hdr(req, HTTP_CORS_ALLOW_METHODS, "GET, POST, OPTIONS");
+    httpd_resp_set_hdr(req, HTTP_CORS_ALLOW_HEADERS, "Content-Type");
+    httpd_resp_set_status(req, "204 No Content");
+    return httpd_resp_send(req, NULL, 0);
+}
+
 static esp_err_t h_json(httpd_req_t *req) {
     valor_status_t s;
     web_status_snapshot(&s);
@@ -929,6 +944,9 @@ static esp_err_t h_json(httpd_req_t *req) {
     }
     httpd_resp_set_type(req, "application/json");
     httpd_resp_set_hdr(req, "Cache-Control", "no-store");
+    httpd_resp_set_hdr(req, HTTP_CORS_ALLOW_ORIGIN, "*");
+    httpd_resp_set_hdr(req, HTTP_CORS_ALLOW_METHODS, "GET, POST, OPTIONS");
+    httpd_resp_set_hdr(req, HTTP_CORS_ALLOW_HEADERS, "Content-Type");
     return httpd_resp_send(req, buf, (ssize_t)n);
 }
 
@@ -940,6 +958,9 @@ static esp_err_t h_history(httpd_req_t *req) {
     }
     httpd_resp_set_type(req, "application/json");
     httpd_resp_set_hdr(req, "Cache-Control", "no-store");
+    httpd_resp_set_hdr(req, HTTP_CORS_ALLOW_ORIGIN, "*");
+    httpd_resp_set_hdr(req, HTTP_CORS_ALLOW_METHODS, "GET, POST, OPTIONS");
+    httpd_resp_set_hdr(req, HTTP_CORS_ALLOW_HEADERS, "Content-Type");
     return httpd_resp_send(req, buf, (ssize_t)n);
 }
 
@@ -972,6 +993,7 @@ static esp_err_t h_sos_trigger(httpd_req_t *req) {
     const char *resp = "{\"status\":\"ok\",\"sos\":\"ACTIVE\"}\n";
     httpd_resp_set_type(req, "application/json");
     httpd_resp_set_hdr(req, "Cache-Control", "no-store");
+    httpd_resp_set_hdr(req, HTTP_CORS_ALLOW_ORIGIN, "*");
     return httpd_resp_send(req, resp, HTTPD_RESP_USE_STRLEN);
 }
 
@@ -1012,6 +1034,7 @@ static esp_err_t h_sos_cancel(httpd_req_t *req) {
     const char *resp = "{\"status\":\"ok\",\"sos\":\"CANCELLED\"}\n";
     httpd_resp_set_type(req, "application/json");
     httpd_resp_set_hdr(req, "Cache-Control", "no-store");
+    httpd_resp_set_hdr(req, HTTP_CORS_ALLOW_ORIGIN, "*");
     return httpd_resp_send(req, resp, HTTPD_RESP_USE_STRLEN);
 }
 
@@ -1132,7 +1155,7 @@ esp_err_t web_status_start(void) {
 
     httpd_config_t hcfg = HTTPD_DEFAULT_CONFIG();
     hcfg.lru_purge_enable = true;
-    hcfg.max_uri_handlers = 12;
+    hcfg.max_uri_handlers = 16;
     hcfg.core_id = 1;
     err = httpd_start(&s_server, &hcfg);
     if (err != ESP_OK) {
@@ -1141,13 +1164,17 @@ esp_err_t web_status_start(void) {
         return err;
     }
 
-    httpd_uri_t uri_root     = { .uri = "/",                      .method = HTTP_GET,  .handler = h_root };
-    httpd_uri_t uri_json     = { .uri = "/status.json",           .method = HTTP_GET,  .handler = h_json };
-    httpd_uri_t uri_loc      = { .uri = "/location",              .method = HTTP_POST, .handler = h_set_location };
-    httpd_uri_t uri_hist     = { .uri = "/history.json",          .method = HTTP_GET,  .handler = h_history };
-    httpd_uri_t uri_api      = { .uri = "/api/history",           .method = HTTP_GET,  .handler = h_history };
-    httpd_uri_t uri_sos_trig = { .uri = "/api/emergency/trigger", .method = HTTP_POST, .handler = h_sos_trigger };
-    httpd_uri_t uri_sos_canc = { .uri = "/api/emergency/cancel",  .method = HTTP_POST, .handler = h_sos_cancel };
+    httpd_uri_t uri_root     = { .uri = "/",                      .method = HTTP_GET,     .handler = h_root };
+    httpd_uri_t uri_json     = { .uri = "/status.json",           .method = HTTP_GET,     .handler = h_json };
+    httpd_uri_t uri_loc      = { .uri = "/location",              .method = HTTP_POST,    .handler = h_set_location };
+    httpd_uri_t uri_hist     = { .uri = "/history.json",          .method = HTTP_GET,     .handler = h_history };
+    httpd_uri_t uri_api      = { .uri = "/api/history",           .method = HTTP_GET,     .handler = h_history };
+    httpd_uri_t uri_sos_trig = { .uri = "/api/emergency/trigger", .method = HTTP_POST,    .handler = h_sos_trigger };
+    httpd_uri_t uri_sos_canc = { .uri = "/api/emergency/cancel",  .method = HTTP_POST,    .handler = h_sos_cancel };
+    httpd_uri_t uri_opt_trig = { .uri = "/api/emergency/trigger", .method = HTTP_OPTIONS, .handler = h_options };
+    httpd_uri_t uri_opt_canc = { .uri = "/api/emergency/cancel",  .method = HTTP_OPTIONS, .handler = h_options };
+    httpd_uri_t uri_opt_json = { .uri = "/status.json",           .method = HTTP_OPTIONS, .handler = h_options };
+    httpd_uri_t uri_opt_api  = { .uri = "/api/history",           .method = HTTP_OPTIONS, .handler = h_options };
     httpd_register_uri_handler(s_server, &uri_root);
     httpd_register_uri_handler(s_server, &uri_json);
     httpd_register_uri_handler(s_server, &uri_loc);
@@ -1155,6 +1182,10 @@ esp_err_t web_status_start(void) {
     httpd_register_uri_handler(s_server, &uri_api);
     httpd_register_uri_handler(s_server, &uri_sos_trig);
     httpd_register_uri_handler(s_server, &uri_sos_canc);
+    httpd_register_uri_handler(s_server, &uri_opt_trig);
+    httpd_register_uri_handler(s_server, &uri_opt_canc);
+    httpd_register_uri_handler(s_server, &uri_opt_json);
+    httpd_register_uri_handler(s_server, &uri_opt_api);
     httpd_register_err_handler(s_server, HTTPD_404_NOT_FOUND, h_404);
 
     s_ap_active = true;

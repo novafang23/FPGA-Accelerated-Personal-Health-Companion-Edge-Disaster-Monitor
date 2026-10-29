@@ -108,7 +108,8 @@ void web_status_snapshot(valor_status_t *out);
  *   {"hr":72.1,...,"sos":"IDLE","trigger":"none","loc":"UNSET","contact":true} */
 size_t web_status_json(const valor_status_t *s, char *buf, size_t cap);
 
-/* Pure origin check shared by SoftAP handlers and host regression tests. */
+/* Pure origin check shared by SoftAP handlers and host regression tests.
+ * Accepts same-origin http://192.168.4.1 and local browser file:/// origin ("null"). */
 bool web_status_request_is_same_origin(const char *origin, const char *referer);
 
 #define VALOR_HISTORY_HOURS 24

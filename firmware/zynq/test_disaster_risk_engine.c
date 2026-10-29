@@ -1751,6 +1751,7 @@ static void test_web_status_origin_check(void) {
     assert(!web_status_request_is_same_origin(NULL, "http://192.168.4.10/"));
     assert(!web_status_request_is_same_origin(NULL, "https://192.168.4.1/"));
     assert(!web_status_request_is_same_origin(NULL, NULL));
+    assert(web_status_request_is_same_origin("null", NULL));
     puts("test_web_status_origin_check: PASS");
 }
 
