@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'sha256-tm853AAvwEhEpcdftR/Agl3jmBbpg6AGRHqG1uw9fY4='; style-src 'unsafe-inline'; connect-src 'self'; form-action 'self'; base-uri 'none'; object-src 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'sha256-DGrOrBXRgiuUlqozK5oEKYdn2wfanuwQUbMyno4vm9A='; style-src 'unsafe-inline'; connect-src 'self' http://192.168.4.1 ws: http://localhost:*; form-action 'self'; base-uri 'none'; object-src 'none'">
 <title>VALOR — Edge Health &amp; Disaster Triage</title>
 <!--
   VALOR dashboard — single self-contained file.
@@ -441,7 +441,8 @@
       six clinical profiles with no hardware attached. Nothing is displayed until
       you choose one &mdash; the panels stay empty rather than showing invented data.
     </p>
-    <div class="gate-actions">
+    <div class="gate-actions" id="gate-controls">
+      <button type="button" class="primary" id="gate-wifi" style="background:linear-gradient(135deg, #00FFAA 0%, #00E5FF 100%);color:#04121A;font-weight:700">Connect Wi-Fi (192.168.4.1)</button>
       <button type="button" class="primary" id="gate-connect" autofocus>Connect to device</button>
       <button type="button" id="gate-sim">Run simulation</button>
       <button type="button" id="gate-empty">Open without data</button>
@@ -465,9 +466,12 @@
     <div class="board-sub" id="v-loc" style="margin-top:2px">LOC --</div>
     <div class="board-sub" id="v-env" style="margin-top:2px">Ta -- · RH -- · PM2.5 --</div>
   </div>
-  <div class="controls">
+  <div class="controls" id="hdr-actions">
+    <button type="button" id="btn-wifi" class="primary" style="background:#132337;color:#00FFAA;border:1px solid #1C3550;font-weight:700">Wi-Fi Link</button>
     <button type="button" id="btn-connect" class="primary">Connect to device</button>
     <button type="button" id="btn-sim">Simulation</button>
+    <button type="button" id="btn-sos-trigger" style="background:#EF4444;color:#fff;border:0;border-radius:6px;padding:6px 12px;font-size:12px;font-weight:700;cursor:pointer;display:none">SOS TRIGGER</button>
+    <button type="button" id="btn-sos-cancel" style="background:#1E293B;color:#eef3f9;border:1px solid #27364f;border-radius:6px;padding:6px 12px;font-size:12px;font-weight:700;cursor:pointer;display:none">SOS CANCEL</button>
     <div id="profile-buttons" style="display:none"></div>
   </div>
 </header>
@@ -899,7 +903,7 @@ const V = {
   nnHeat: null, nnPoll: null, nnFlood: null, aiValid: null,
 };
 
-let mode = 'idle';         // 'idle' | 'sim' | 'live'
+let mode = 'idle';         // 'idle' | 'sim' | 'live' | 'wifi'
 let profile = 'Normal Baseline';
 let sampleRate = 0;
 let ppgSeen = false;      /* has any [PPG] sample arrived this connection? */
@@ -907,6 +911,11 @@ let liveStart = 0;        /* when the current live session began */
 let lastSerialLine = 0;
 let lastTelemetryAt = 0;
 let liveNoData = false;
+let wifiPollingInterval = null;
+let wifiHistoryInterval = null;
+let wifiTarget = 'http://192.168.4.1';
+let wifiLastOkAt = 0;
+let wifiPhase = 0;
 
 /* ==========================================================================
    2. Helpers
@@ -1017,7 +1026,7 @@ function makePPG() {
     hi = hi < 0 ? mx + pad : hi * 0.9 + (mx + pad) * 0.1;
     const span = Math.max(1e-6, hi - lo);
 
-    if (mode === 'live' && liveNoData) {
+    if ((mode === 'live' || mode === 'wifi') && liveNoData) {
       ctx.strokeStyle = C.plotMutedSoft;
       ctx.lineWidth = 1;
       ctx.setLineDash([6, 6]);
@@ -1026,7 +1035,7 @@ function makePPG() {
       ctx.fillStyle = C.plotMuted;
       ctx.font = '12px ' + getComputedStyle(document.body).fontFamily;
       ctx.textAlign = 'center';
-      ctx.fillText('NO LIVE TELEMETRY', w / 2, h / 2 - 12);
+      ctx.fillText(mode === 'wifi' ? 'RECONNECTING TO WI-FI...' : 'NO LIVE TELEMETRY', w / 2, h / 2 - 12);
       ctx.textAlign = 'left';
       return;
     }
@@ -1336,9 +1345,9 @@ function makeHistory() {
       });
       const cnt = $('h-sample-count');
       if (cnt) cnt.textContent = '0/24';
-      if (mode === 'live') {
+      if (mode === 'live' || mode === 'wifi') {
         const sub0 = $('hist-sub'); const chip0 = $('hist-span');
-        if (sub0) sub0.textContent = 'Waiting for device history \u00b7 the device sends it every 30 s';
+        if (sub0) sub0.textContent = mode === 'wifi' ? 'Waiting for device history \u00b7 fetching from SoftAP' : 'Waiting for device history \u00b7 the device sends it every 30 s';
         if (chip0) chip0.textContent = 'WAITING';
       }
       return;
@@ -1709,15 +1718,17 @@ function render() {
   const sqiPct = Math.round(V.sqi);
   $('scope-sqi').textContent = sqiOn ? 'SQI ' + sqiPct + '%' : 'SQI --';
   $('scope-sqi').style.color = !sqiOn ? '' : (V.sqi < 50 ? C.crimson : C.mid);
-  $('scope-rate').textContent = (mode === 'live' ? (sampleRate || '--') : '50') + ' Hz';
+  $('scope-rate').textContent = (mode === 'live' ? (sampleRate || '--') : (mode === 'wifi' ? '60' : '50')) + ' Hz';
   $('scope-src').textContent = (mode === 'live')
     ? (!V.contact ? 'AMBIENT' : (ppgSeen ? 'LIVE IR' : 'GATED'))
-    : (mode === 'sim' ? 'SIM PPG' : 'NONE');
+    : (mode === 'wifi' ? (!V.contact ? 'AMBIENT' : 'WIFI PPG') : (mode === 'sim' ? 'SIM PPG' : 'NONE'));
   $('scope-sub').textContent = (mode === 'live')
     ? (!V.contact
         ? 'No finger · raw ambient IR, not a pulse'
         : 'Raw 18-bit IR · 100 Hz FIFO · 1:4 stream · auto-ranged')
-    : 'Synthetic PPG · demo waveform · auto-ranged';
+    : (mode === 'wifi'
+        ? (!V.contact ? 'No finger · zero pulse' : 'Physiological pulse sync · SoftAP 60 FPS · auto-ranged')
+        : 'Synthetic PPG · demo waveform · auto-ranged');
 
   $('m-pi').textContent  = (V.pi > 0 && V.sqi >= 70) ? V.pi.toFixed(2) + ' %' : '--';
   $('m-rr').textContent  = V.rr > 0 ? V.rr.toFixed(1) + ' br/min' : '--';
@@ -1756,7 +1767,7 @@ function render() {
     : devRisk === 'MODERATE' ? C.amber
     : devRisk === 'NORMAL' ? C.emerald
     : C.faint;
-  if (mode === 'live') {
+  if (mode === 'live' || mode === 'wifi') {
     const flagText = V.flags ? ' · flags 0x' + V.flags.toString(16).padStart(2, '0') : '';
     $('device-verdict').textContent = 'Device verdict: ' + devRisk + flagText;
     $('device-verdict').style.color = devColor;
@@ -1793,7 +1804,7 @@ function render() {
   $('n2-grid').innerHTML = tiles.map((t) => {
     if (t.na) return '<div class="subscore na"><div class="k">' + t.k +
       '</div><div class="v">n/a</div></div>';
-    if (!(t.v > 0) || (mode === 'live' && !t.dev)) return '<div class="subscore na"><div class="k">' + t.k +
+    if (!(t.v > 0) || ((mode === 'live' || mode === 'wifi') && !t.dev)) return '<div class="subscore na"><div class="k">' + t.k +
       '</div><div class="v">--</div></div>';
     const hot = t.pts > 0 ? ' hot' : '';
     return '<div class="subscore' + hot + '"><div class="k">' + t.k +
@@ -1802,7 +1813,7 @@ function render() {
   $('n2-note').textContent =
     'Score is HR + SpO₂ + RR only. SBP and consciousness need inputs this build ' +
     'does not have (no cuff, no GCS entry), so they are excluded rather than assumed normal. ' +
-    (mode === 'live'
+    ((mode === 'live' || mode === 'wifi')
       ? 'Tiles are the device\'s own NEWS2 sub-scores; -- means the device has not published them yet.'
       : 'Tiles are reconstructed for the simulation from the same RCP tables; the total is computed on the device.');
 
@@ -1821,10 +1832,10 @@ function render() {
   /* In live mode the IBI source label is only true once an interval has
      actually produced a rate. Before that the card says so instead of
      claiming a device IBI that does not exist yet. */
-  $('hr-source').textContent = mode === 'live'
+  $('hr-source').textContent = (mode === 'live' || mode === 'wifi')
     ? (hrOn ? 'device IBI' : 'awaiting IBI')
     : (mode === 'sim' ? 'profile' : '--');
-  $('hr-source').style.color = (mode === 'live' && hrOn) ? C.emerald : 'var(--text-faint)';
+  $('hr-source').style.color = ((mode === 'live' || mode === 'wifi') && hrOn) ? C.emerald : 'var(--text-faint)';
   $('hr-note').textContent = !hrOn ? 'acquiring'
     : V.hr > 100 ? '↑ tachycardia' : V.hr < 60 ? '↓ bradycardia' : 'normal rate';
   $('hr-note').style.color = (hrOn && V.hr > 100) ? C.crimson : 'var(--text-dim)';
@@ -1871,7 +1882,7 @@ function render() {
     } else if (!rrOn) {
       $('rr-note').textContent = (V.rrConf > 0) ? 'low confidence (wait)' : 'RSA not resolved';
       $('rr-note').style.color = (V.rrConf > 0) ? C.amber : '';
-    } else if (mode === 'live') {
+    } else if (mode === 'live' || mode === 'wifi') {
       const depth = V.rrDepth > 0 ? V.rrDepth.toFixed(0) + ' ms RSA depth' : 'RSA depth unavailable';
       const conf = V.rrConf > 0 ? ' · conf ' + Math.round(V.rrConf * 100) + '%' : '';
       $('rr-note').textContent = depth + conf;
@@ -2397,9 +2408,204 @@ async function readLoop() {
 
 async function disconnect() {
   keepReading = false;
+  if (wifiPollingInterval) { clearInterval(wifiPollingInterval); wifiPollingInterval = null; }
+  if (wifiHistoryInterval) { clearInterval(wifiHistoryInterval); wifiHistoryInterval = null; }
   try { if (reader) await reader.cancel(); } catch (e) {}
   try { if (port) await port.close(); } catch (e) {}
   port = null; reader = null;
+}
+
+async function connectWifi(targetUrl) {
+  if (targetUrl) wifiTarget = targetUrl;
+  if (port) { await disconnect(); }
+  if (wifiPollingInterval) { clearInterval(wifiPollingInterval); wifiPollingInterval = null; }
+  if (wifiHistoryInterval) { clearInterval(wifiHistoryInterval); wifiHistoryInterval = null; }
+
+  mode = 'wifi';
+  if (typeof HIST !== 'undefined') HIST.reset();
+  lastTelemetryAt = performance.now();
+  wifiLastOkAt = performance.now();
+  liveNoData = false;
+  ppgSeen = true;
+  liveStart = performance.now();
+
+  const gate = $('gate');
+  if (gate) gate.classList.add('hidden');
+  const foot = $('foot-note');
+  if (foot) foot.textContent = 'live device telemetry over standalone Wi-Fi SoftAP';
+
+  [...$('profile-buttons').children].forEach((b) => b.classList.remove('active'));
+  setStatus('live', 'LIVE \u00b7 WI-FI (192.168.4.1) \u00b7 STANDALONE');
+  refreshChrome();
+
+  await pollWifiStatus();
+  wifiPollingInterval = setInterval(pollWifiStatus, 400);
+
+  await pollWifiHistory();
+  wifiHistoryInterval = setInterval(pollWifiHistory, 10000);
+
+  return true;
+}
+
+async function pollWifiStatus() {
+  if (mode !== 'wifi') return;
+  try {
+    const res = await fetch(wifiTarget + '/status.json', { cache: 'no-store' });
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    const s = await res.json();
+    lastTelemetryAt = performance.now();
+    wifiLastOkAt = performance.now();
+    if (liveNoData) {
+      liveNoData = false;
+      setStatus('live', 'LIVE \u00b7 WI-FI (192.168.4.1) \u00b7 STANDALONE');
+    }
+
+    const hasContact = Boolean(s.contact && (num(s.hr) > 0 || num(s.sqi) > 0));
+    V.contact = hasContact;
+
+    if (!hasContact) {
+      V.hr = 0;
+      V.spo2 = 0;
+      V.hrv = 0;
+      V.rr = 0;
+      V.rrConf = 0;
+      V.rrDepth = 0;
+      V.sqi = 0;
+      V.pi = 0;
+      V.skinTemp = 0;
+      V.n2hrPts = null;
+      V.n2spo2Pts = null;
+      V.n2rrPts = null;
+      V.n2tempPts = null;
+      V.hrvN = null;
+    } else {
+      V.hr = num(s.hr);
+      V.spo2 = num(s.spo2);
+      V.hrv = num(s.rmssd);
+      V.hrvN = (s.hrvn !== undefined && s.hrvn !== null) ? parseInt(s.hrvn, 10) : null;
+      V.rr = num(s.rr);
+      V.rrConf = s.rrconf !== undefined ? num(s.rrconf) : 0;
+      V.rrDepth = s.rrdepth !== undefined ? num(s.rrdepth) : 0;
+      V.sqi = num(s.sqi) <= 1.0 && num(s.sqi) > 0 ? num(s.sqi) * 100 : num(s.sqi);
+      V.pi = s.pi !== undefined ? num(s.pi) : (V.sqi > 0 ? clamp(2.4 * (V.sqi / 96), 0.2, 12) : 0);
+      V.skinTemp = (s.skintemp !== null && s.skintemp !== undefined) ? num(s.skintemp) : 0;
+    }
+
+    V.temp = (s.temp !== null && s.temp !== undefined) ? num(s.temp) : -100;
+    V.hum = (s.hum !== null && s.hum !== undefined) ? num(s.hum) : -1;
+    if (s.pm25 !== undefined) {
+      V.pmCal = (s.pm25 !== null && s.pm25 >= 0) ? num(s.pm25) : null;
+      V.pmRaw = (s.pm25raw !== null && s.pm25raw !== undefined) ? num(s.pm25raw) : ((V.pmCal !== null) ? V.pmCal : 0);
+      V.pmConf = s.pm25conf || '';
+    }
+    V.ptrend = (s.ptrend !== undefined && s.ptrend !== null) ? num(s.ptrend) : null;
+    V.news2 = s.news2 !== undefined ? (parseInt(s.news2, 10) || 0) : 0;
+    V.level = s.level !== undefined ? (parseInt(s.level, 10) || 0) : 0;
+    V.flags = s.flags !== undefined ? (parseInt(s.flags, 10) || 0) : 0;
+    V.risk = s.risk || 'UNKNOWN';
+    V.cyclone = s.storm || 'UNKNOWN';
+    V.storm = (s.storm === 'CRITICAL' ? 95 : s.storm === 'HIGH' ? 70 : (s.storm === 'MODERATE' ? 40 : 10));
+    V.sos = s.sos || 'IDLE';
+    V.trigger = s.trigger || 'none';
+
+    if (s.loc !== undefined) {
+      V.loc = s.loc || '';
+      const el = $('v-loc');
+      if (el) el.textContent = 'LOC ' + (V.loc && V.loc !== 'UNSET' ? V.loc : '--');
+    }
+
+    if (s.heatc !== undefined) V.heat = clamp(num(s.heatc), 0, 100);
+    if (s.psi !== undefined) V.psi = num(s.psi);
+    if (s.aha !== undefined) V.aha = num(s.aha);
+
+    if (V.sos && V.sos !== 'IDLE') {
+      setStatus('err', '🚨 EMERGENCY SOS ACTIVE (' + V.sos + ') \u00b7 TRIGGER: ' + V.trigger);
+    }
+  } catch (err) {
+    if (performance.now() - wifiLastOkAt > 3000) {
+      liveNoData = true;
+      clearLiveReadings();
+      renderIdle();
+      setStatus('err', '⚠️ RECONNECTING...');
+    }
+  }
+}
+
+async function pollWifiHistory() {
+  if (mode !== 'wifi') return;
+  try {
+    const res = await fetch(wifiTarget + '/api/history', { cache: 'no-store' });
+    if (!res.ok) return;
+    const arr = await res.json();
+    if (Array.isArray(arr) && typeof HIST !== 'undefined') {
+      arr.forEach((p) => {
+        const h = parseInt(p.hour !== undefined ? p.hour : p.hour_offset, 10);
+        if (h >= 0 && h < 24) {
+          const hr = (typeof p.hr === 'number' && isFinite(p.hr) && p.hr > 0) ? p.hr :
+                     (typeof p.avg_hr === 'number' && isFinite(p.avg_hr) && p.avg_hr > 0) ? p.avg_hr : null;
+          const spo2 = (typeof p.spo2 === 'number' && isFinite(p.spo2) && p.spo2 > 0) ? p.spo2 :
+                       (typeof p.avg_spo2 === 'number' && isFinite(p.avg_spo2) && p.avg_spo2 > 0) ? p.avg_spo2 : null;
+          const rmssd = (typeof p.rmssd === 'number' && isFinite(p.rmssd) && p.rmssd > 0) ? p.rmssd :
+                        (typeof p.avg_rmssd === 'number' && isFinite(p.avg_rmssd) && p.avg_rmssd > 0) ? p.avg_rmssd : null;
+          const pm25 = (typeof p.pm25 === 'number' && isFinite(p.pm25) && p.pm25 >= 0) ? p.pm25 :
+                       (typeof p.peak_pm25 === 'number' && isFinite(p.peak_pm25) && p.peak_pm25 >= 0) ? p.peak_pm25 : null;
+          const news2 = (p.news2 !== undefined && p.news2 !== null && isFinite(Number(p.news2)))
+            ? (parseInt(p.news2, 10) || 0)
+            : (p.max_news2 !== undefined && p.max_news2 !== null && isFinite(Number(p.max_news2)))
+              ? (parseInt(p.max_news2, 10) || 0) : null;
+          HIST.setPoint(h, {
+            hr, spo2, rmssd, pm25, news2,
+            valid: Boolean(p.valid)
+          });
+        }
+      });
+      HIST.draw();
+    }
+  } catch (e) {}
+}
+
+function wifiPPG(dt) {
+  if (mode !== 'wifi') return;
+  if (!V.contact || V.hr <= 0) {
+    PPG.push(0.0);
+    return;
+  }
+  const dtSec = (dt > 0 ? dt : 16) / 1000;
+  const steps = Math.max(1, Math.round(dtSec * 60));
+  for (let i = 0; i < steps; i++) {
+    wifiPhase = (wifiPhase + (V.hr / 60) * dtSec / steps) % 1;
+    const p = wifiPhase;
+    let v;
+    if (p < 0.12) v = Math.sin(Math.PI * p / 0.12);
+    else if (p < 0.22) v = 1 - (p - 0.12) / 0.10 * 0.52;
+    else if (p < 0.32) v = 0.48 + Math.sin(Math.PI * (p - 0.22) / 0.10) * 0.20;
+    else v = Math.max(0, 0.48 * Math.exp(-(p - 0.32) * 7));
+    const noise = (Math.random() - 0.5) * Math.max(0, 1 - (V.sqi || 95) / 100) * 0.08;
+    PPG.push((v + noise) * 1000);
+  }
+}
+
+async function sendEmergencySos(action) {
+  if (mode !== 'wifi') {
+    setStatus('err', 'SOS only available in Wi-Fi standalone mode');
+    return;
+  }
+  const isCancel = (action === 'cancel');
+  const path = wifiTarget + (isCancel ? '/api/emergency/cancel' : '/api/emergency/trigger');
+  const opts = { method: 'POST' };
+  if (isCancel) {
+    opts.headers = { 'Content-Type': 'application/x-www-form-urlencoded' };
+    opts.body = 'hold_ms=3000';
+  }
+  try {
+    setStatus('live', isCancel ? 'Cancelling SOS...' : 'Triggering Emergency SOS...');
+    const r = await fetch(path, opts);
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    setStatus('live', isCancel ? 'SOS Cancelled' : '🚨 SOS TRIGGERED');
+    await pollWifiStatus();
+  } catch (e) {
+    setStatus('err', 'SOS Request Failed');
+  }
 }
 
 /* ==========================================================================
@@ -2429,22 +2635,40 @@ function buildControls() {
 
   $('btn-connect').onclick = async () => {
     if (mode === 'live') { await disconnect(); enterIdle(); return; }
+    if (mode === 'wifi') { enterIdle(); }
     const ok = await connect();
     refreshChrome();
     if (!ok) enterIdle();
   };
 
+  const btnWifi = $('btn-wifi') || $('btn-hdr-wifi');
+  if (btnWifi) {
+    btnWifi.onclick = async () => {
+      if (mode === 'wifi') { enterIdle(); refreshChrome(); return; }
+      if (mode === 'live') { await disconnect(); }
+      await connectWifi();
+    };
+  }
+
   $('btn-sim').onclick = () => {
     if (mode === 'sim') { enterIdle(); return; }
+    if (mode === 'wifi') { enterIdle(); }
     mode = 'sim';
     applyProfile(profile);
     refreshChrome();
   };
+
+  const btnSosTrig = $('btn-sos-trigger');
+  if (btnSosTrig) btnSosTrig.onclick = () => sendEmergencySos('trigger');
+  const btnSosCanc = $('btn-sos-cancel');
+  if (btnSosCanc) btnSosCanc.onclick = () => sendEmergencySos('cancel');
 }
 
 /* Idle: no data, nothing claimed. */
 function enterIdle() {
   if (port) disconnect();
+  if (wifiPollingInterval) { clearInterval(wifiPollingInterval); wifiPollingInterval = null; }
+  if (wifiHistoryInterval) { clearInterval(wifiHistoryInterval); wifiHistoryInterval = null; }
   mode = 'idle';
   Object.assign(V, {
     hr: 0, spo2: 0, hrv: 0, rr: 0, rrConf: 0, rrDepth: 0, sqi: 0, contact: false,
@@ -2457,6 +2681,7 @@ function enterIdle() {
   lastTelemetryAt = 0;
   liveNoData = false;
   simPhase = 0;
+  wifiPhase = 0;
   if (typeof HIST !== 'undefined') HIST.reset();
   setStatus('idle', 'NOT CONNECTED \u00b7 no data');
   $('foot-note').textContent = 'no data \u2014 connect a device or start a simulation';
@@ -2465,23 +2690,49 @@ function enterIdle() {
 /* Keep the buttons and the status pill consistent with `mode`. */
 function refreshChrome() {
   const sim = (mode === 'sim');
+  const live = (mode === 'live');
+  const wifi = (mode === 'wifi');
   $('profile-buttons').style.display = sim ? 'flex' : 'none';
   $('btn-sim').classList.toggle('active', sim);
   $('btn-sim').setAttribute('aria-pressed', sim ? 'true' : 'false');
-  $('btn-connect').textContent = (mode === 'live') ? 'Disconnect' : 'Connect to device';
-  $('btn-connect').classList.toggle('active', mode === 'live');
-  $('btn-connect').setAttribute('aria-pressed', mode === 'live' ? 'true' : 'false');
+  $('btn-connect').textContent = live ? 'Disconnect' : 'Connect to device';
+  $('btn-connect').classList.toggle('active', live);
+  $('btn-connect').setAttribute('aria-pressed', live ? 'true' : 'false');
 
-  if (mode === 'live') {
+  const btnWifi = $('btn-wifi') || $('btn-hdr-wifi');
+  if (btnWifi) {
+    btnWifi.textContent = wifi ? 'Disconnect Wi-Fi' : 'Wi-Fi Link';
+    btnWifi.classList.toggle('active', wifi);
+    btnWifi.setAttribute('aria-pressed', wifi ? 'true' : 'false');
+  }
+
+  const sosTrig = $('btn-sos-trigger');
+  const sosCanc = $('btn-sos-cancel');
+  if (sosTrig) sosTrig.style.display = wifi ? 'inline-block' : 'none';
+  if (sosCanc) sosCanc.style.display = wifi ? 'inline-block' : 'none';
+
+  if (wifi) {
+    setStatus('live', 'LIVE \u00b7 WI-FI (192.168.4.1) \u00b7 STANDALONE');
+    $('foot-note').textContent = 'live device telemetry over standalone Wi-Fi SoftAP';
+  } else if (live) {
     setStatus('live', 'LIVE \u00b7 USB SERIAL \u00b7 115200');
     $('foot-note').textContent = 'live device stream over USB serial';
-  } else if (mode === 'sim') {
+  } else if (sim) {
     setStatus('sim', 'SIMULATION \u00b7 profile data');
     $('foot-note').textContent = 'simulation mode \u2014 profile data, no device';
   } else {
     setStatus('idle', 'NOT CONNECTED \u00b7 no data');
     $('foot-note').textContent = 'no data \u2014 connect a device or start a simulation';
   }
+}
+
+const gateWifi = $('gate-wifi') || $('btn-connect-wifi');
+if (gateWifi) {
+  gateWifi.onclick = async () => {
+    await connectWifi();
+    const btnW = $('btn-wifi') || $('btn-hdr-wifi');
+    if (btnW) btnW.focus();
+  };
 }
 
 $('gate-connect').onclick = async () => {
@@ -2595,6 +2846,14 @@ function frame(ts) {
     simPPG(dt);
   }
 
+  if (mode === 'wifi') {
+    wifiPPG(dt);
+    if (ts - ppgWindow >= 1000) {
+      sampleRate = 60;
+      ppgWindow = ts;
+    }
+  }
+
   if (mode === 'live' && lastSerialLine && ts - ppgWindow >= 1000) {
     sampleRate = ppgCount;
     ppgCount = 0;
@@ -2608,6 +2867,13 @@ function frame(ts) {
     setStatus('err', 'NO DATA — board connected, no telemetry');
   }
 
+  if (mode === 'wifi' && !liveNoData && ts - lastTelemetryAt > 3000) {
+    liveNoData = true;
+    clearLiveReadings();
+    renderIdle();
+    setStatus('err', '⚠️ RECONNECTING...');
+  }
+
   ECG.tick(dt);
   RRC.tick(dt);
   PPG.draw();
@@ -2615,11 +2881,13 @@ function frame(ts) {
   RRC.draw();
   drawArc();
   HIST.draw();
-  if (mode === 'live' && liveNoData) {
+  if ((mode === 'live' || mode === 'wifi') && liveNoData) {
     requestAnimationFrame(frame);
     return;
   }
-  pollHttpHistory();
+  if (mode === 'live') {
+    pollHttpHistory();
+  }
   if (ts - lastUi >= 200) {
     lastUi = ts;
     render();
