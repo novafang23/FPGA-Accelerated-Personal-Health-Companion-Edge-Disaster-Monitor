@@ -608,6 +608,8 @@ size_t web_status_history_json(char *buf, size_t cap) {
 
 #ifdef ESP_PLATFORM
 
+#include "valor_dashboard_gz.h"
+
 /* ------------------------------------------------------------------------- */
 /* The page                                                                   */
 /* ------------------------------------------------------------------------- */
@@ -668,7 +670,7 @@ static const char PAGE_HTML[] =
 "padding:9px 13px;font-weight:700;font-size:13px}"
 "#locnote{font-size:11.5px;color:var(--dim);margin-top:6px}"
 "</style></head><body>"
-"<h1>VALOR</h1>"
+"<div style='display:flex;justify-content:space-between;align-items:center'><h1>VALOR</h1><a href='/desktop' style='display:inline-block;padding:6px 10px;background:#1E293B;color:#38BDF8;border:1px solid #334155;border-radius:6px;font-size:12px;font-weight:700;text-decoration:none'>🖥️ Desktop View</a></div>"
 "<div class='sub'>Vital and Atmospheric Logic for Offline Rescue</div>"
 "<div id='banner'><div class='lvl' id='risk'>waiting</div>"
 "<div class='msg' id='msg'>connecting to the device</div></div>"
@@ -921,6 +923,27 @@ static esp_err_t h_root(httpd_req_t *req) {
 #define HTTP_CORS_ALLOW_METHODS "Access-Control-" "Allow-Methods"
 #define HTTP_CORS_ALLOW_HEADERS "Access-Control-" "Allow-Headers"
 
+static esp_err_t h_desktop(httpd_req_t *req) {
+    httpd_resp_set_type(req, "text/html");
+    httpd_resp_set_hdr(req, "Content-Encoding", "gzip");
+    httpd_resp_set_hdr(req, "Cache-Control", "public, max-age=3600");
+    httpd_resp_set_hdr(req, HTTP_CORS_ALLOW_ORIGIN, "*");
+
+    size_t off = 0;
+    while (off < VALOR_DASHBOARD_GZ_LEN) {
+        size_t slice = VALOR_DASHBOARD_GZ_LEN - off;
+        if (slice > 4096) {
+            slice = 4096;
+        }
+        esp_err_t res = httpd_resp_send_chunk(req, (const char *)&VALOR_DASHBOARD_GZ[off], (ssize_t)slice);
+        if (res != ESP_OK) {
+            return res;
+        }
+        off += slice;
+    }
+    return httpd_resp_send_chunk(req, NULL, 0);
+}
+
 static esp_err_t h_options(httpd_req_t *req) {
     httpd_resp_set_hdr(req, HTTP_CORS_ALLOW_ORIGIN, "*");
     httpd_resp_set_hdr(req, HTTP_CORS_ALLOW_METHODS, "GET, POST, OPTIONS");
@@ -1155,7 +1178,7 @@ esp_err_t web_status_start(void) {
 
     httpd_config_t hcfg = HTTPD_DEFAULT_CONFIG();
     hcfg.lru_purge_enable = true;
-    hcfg.max_uri_handlers = 16;
+    hcfg.max_uri_handlers = 20;
     hcfg.core_id = 1;
     err = httpd_start(&s_server, &hcfg);
     if (err != ESP_OK) {
@@ -1165,6 +1188,8 @@ esp_err_t web_status_start(void) {
     }
 
     httpd_uri_t uri_root     = { .uri = "/",                      .method = HTTP_GET,     .handler = h_root };
+    httpd_uri_t uri_desktop  = { .uri = "/desktop",               .method = HTTP_GET,     .handler = h_desktop };
+    httpd_uri_t uri_dash     = { .uri = "/dashboard",             .method = HTTP_GET,     .handler = h_desktop };
     httpd_uri_t uri_json     = { .uri = "/status.json",           .method = HTTP_GET,     .handler = h_json };
     httpd_uri_t uri_loc      = { .uri = "/location",              .method = HTTP_POST,    .handler = h_set_location };
     httpd_uri_t uri_hist     = { .uri = "/history.json",          .method = HTTP_GET,     .handler = h_history };
@@ -1176,6 +1201,8 @@ esp_err_t web_status_start(void) {
     httpd_uri_t uri_opt_json = { .uri = "/status.json",           .method = HTTP_OPTIONS, .handler = h_options };
     httpd_uri_t uri_opt_api  = { .uri = "/api/history",           .method = HTTP_OPTIONS, .handler = h_options };
     httpd_register_uri_handler(s_server, &uri_root);
+    httpd_register_uri_handler(s_server, &uri_desktop);
+    httpd_register_uri_handler(s_server, &uri_dash);
     httpd_register_uri_handler(s_server, &uri_json);
     httpd_register_uri_handler(s_server, &uri_loc);
     httpd_register_uri_handler(s_server, &uri_hist);
