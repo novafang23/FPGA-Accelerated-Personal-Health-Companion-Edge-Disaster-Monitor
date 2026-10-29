@@ -1,0 +1,374 @@
+ESP-ROM:esp32s3-20210327
+Build:Mar 27 2021
+rst:0x1 (POWERON),boot:0xb (SPI_FAST_FLASH_BOOT)
+SPIWP:0xee
+mode:DIO, clock div:1
+load:0x3fce2820,len:0x14f0
+load:0x403c8700,len:0xd24
+load:0x403cb700,len:0x2eec
+entry 0x403c8924
+I (24) boot: ESP-IDF v5.5.5-dirty 2nd stage bootloader
+I (25) boot: compile time Oct 21 2026 14:25:30
+I (25) boot: Multicore bootloader
+I (25) boot: chip revision: v0.2
+I (28) boot: efuse block revision: v1.4
+I (32) boot.esp32s3: Boot SPI Speed : 80MHz
+I (36) boot.esp32s3: SPI Mode       : DIO
+I (39) boot.esp32s3: SPI Flash Size : 8MB
+I (43) boot: Enabling RNG early entropy source...
+I (48) boot: Partition Table:
+I (50) boot: ## Label            Usage          Type ST Offset   Length
+I (57) boot:  0 nvs              WiFi data        01 02 00009000 00006000
+I (63) boot:  1 phy_init         RF data          01 01 0000f000 00001000
+I (70) boot:  2 factory          factory app      00 00 00010000 00700000
+I (76) boot: End of partition table
+I (79) esp_image: segment 0: paddr=00010020 vaddr=3c0b0020 size=32920h (207136) map
+I (125) esp_image: segment 1: paddr=00042948 vaddr=3fc9e000 size=051dch ( 20956) load
+I (129) esp_image: segment 2: paddr=00047b2c vaddr=40374000 size=084ech ( 34028) load
+I (137) esp_image: segment 3: paddr=00050020 vaddr=42000020 size=a4c5ch (674908) map
+I (261) esp_image: segment 4: paddr=000f4c84 vaddr=4037c4ec size=11a14h ( 72212) load
+I (278) esp_image: segment 5: paddr=001066a0 vaddr=50000000 size=00020h (    32) load
+I (288) boot: Loaded app from partition at offset 0x10000
+I (288) boot: Disabling RNG early entropy source...
+I (298) cpu_start: Multicore app
+I (307) cpu_start: GPIO 44 and 43 are used as console UART I/O pins
+I (308) cpu_start: Pro cpu start user code
+I (308) cpu_start: cpu freq: 160000000 Hz
+I (309) app_init: Application information:
+I (313) app_init: Project name:     shrikefi_health_companion
+I (318) app_init: App version:      v1.0-zynq-SIH-316-g8b4cab5
+I (324) app_init: Compile time:     Oct 28 2026 21:17:16
+I (329) app_init: ELF file SHA256:  5065cf745...
+I (333) app_init: ESP-IDF:          v5.5.5-dirty
+I (338) efuse_init: Min chip rev:     v0.0
+I (341) efuse_init: Max chip rev:     v0.99 
+I (345) efuse_init: Chip rev:         v0.2
+I (349) heap_init: Initializing. RAM available for dynamic allocation:
+I (356) heap_init: At 3FCACC50 len 0003CAC0 (242 KiB): RAM
+I (361) heap_init: At 3FCE9710 len 00005724 (21 KiB): RAM
+I (366) heap_init: At 3FCF0000 len 00008000 (32 KiB): DRAM
+I (371) heap_init: At 600FE000 len 00001FE8 (7 KiB): RTCRAM
+I (378) spi_flash: detected chip: generic
+I (380) spi_flash: flash io: dio
+W (383) i2c: This driver is an old driver, please migrate your application code to adapt `driver/i2c_master.h`
+I (393) sleep_gpio: Configure to isolate all GPIO pins in sleep state
+I (399) sleep_gpio: Enable automatic switching of GPIO sleep configuration
+I (406) main_task: Started on CPU0
+I (411) main_task: Calling app_main()
+I (411) SHRIKEFI_MAIN: ================================================================
+I (421) SHRIKEFI_MAIN:   SIH26181 ShrikeFi Health Companion Firmware
+I (426) SHRIKEFI_MAIN:   ESP32-S3 + Renesas ForgeFPGA SPI-Linked System
+I (431) SHRIKEFI_MAIN:   Build: Oct 28 2026 21:17:21 | Commit: 8b4cab5
+I (436) SHRIKEFI_MAIN: ================================================================
+I (446) I2C_HAL: I2C init: port=0 SDA=GPIO1 SCL=GPIO2 speed=100000 Hz
+I (451) I2C_HAL: I2C idle levels after init: SDA=1 SCL=1
+I (456) SHRIKEFI_MAIN: I2C HAL ready: SDA=GPIO1 SCL=GPIO2 at 100000 Hz; probing sensors.
+I (466) I2C_SCAN: Scanning I2C bus (SDA=GPIO1, SCL=GPIO2)...
+I (481) I2C_SCAN:  -> Found device at 0x3C (SSD1306 OLED)
+I (486) I2C_SCAN:  -> Found device at 0x57 (MAX30100/MAX30102 PPG)
+I (491) I2C_SCAN:  -> Found device at 0x68 (MPU6050 IMU)
+I (491) I2C_SCAN:  -> Found device at 0x76 (BME280 Env)
+I (496) I2C_SCAN: Scan complete: 4 device(s) found.
+W (496) TMP117: TMP117: Device NOT responding at I2C address 0x48! (NO ACK - Hardware Defective/DOA)
+I (506) SHRIKEFI_LINK: =========================================================
+I (511) SHRIKEFI_LINK:   Programming Renesas ForgeFPGA SLG47910 via SPI2        
+I (521) SHRIKEFI_LINK:   Bitstream: FPGA_bitstream_MCU.bin (46408 bytes)          
+I (526) SHRIKEFI_LINK:   Internal Shrike-Fi Pins: PWR=9 EN=8 SS=10 MOSI=11 SCK=12 MISO=13
+I (536) SHRIKEFI_LINK: =========================================================
+I (641) SHRIKEFI_LINK: ForgeFPGA SLG47910 configuration COMPLETE! (46408 bytes loaded)
+I (641) SHRIKEFI_MAIN: ForgeFPGA SLG47910 bitstream programmed successfully over SPI!
+I (641) SHRIKEFI_LINK: ForgeFPGA runtime SPI link active on SPI2 (1 MHz, CS=GPIO10, MISO=GPIO13, MOSI=GPIO11, SCK=GPIO12)
+I (656) SHRIKEFI_LINK: ForgeFPGA runtime link handshake: probe sent 0x55, received 0x00
+I (661) SHRIKEFI_LINK: MISO Pin 13 weak-pull test: level stable; driven or externally held (does not prove FPGA liveness)
+I (671) SHRIKEFI_MAIN: ForgeFPGA runtime link ready (threshold 120)
+I (696) pp: pp rom version: e7ae62f
+I (696) net80211: net80211 rom version: e7ae62f
+I (701) wifi:wifi driver task: 3fcedb4c, prio:23, stack:6656, core=1
+I (706) wifi:wifi firmware version: b9f67df
+I (706) wifi:wifi certification version: v7.0
+I (706) wifi:config NVS flash: enabled
+I (711) wifi:config nano formatting: disabled
+I (716) wifi:Init data frame dynamic rx buffer num: 32
+I (721) wifi:Init static rx mgmt buffer num: 5
+I (721) wifi:Init management short buffer num: 32
+I (726) wifi:Init dynamic tx buffer num: 32
+I (731) wifi:Init static tx FG buffer num: 2
+I (736) wifi:Init static rx buffer size: 1600
+I (741) wifi:Init static rx buffer num: 10
+I (741) wifi:Init dynamic rx buffer num: 32
+I (746) wifi_init: rx ba win: 6
+I (751) wifi_init: accept mbox: 6
+I (751) wifi_init: tcpip mbox: 32
+I (756) wifi_init: udp mbox: 6
+I (761) wifi_init: tcp mbox: 6
+I (761) wifi_init: tcp tx win: 5760
+I (766) wifi_init: tcp rx win: 5760
+I (766) wifi_init: tcp mss: 1440
+I (771) wifi_init: WiFi IRAM OP enabled
+I (776) wifi_init: WiFi RX IRAM OP enabled
+I (786) phy_init: phy_version 712,87e8c20e,Apr 13 2026,18:51:10
+I (821) wifi:mode : softAP (ac:a7:04:04:00:81)
+I (826) wifi:Total power save buffer number: 16
+I (826) wifi:Init max length of beacon: 752/752
+I (826) wifi:Init max length of beacon: 752/752
+I (831) esp_netif_lwip: DHCP server started on interface WIFI_AP_DEF with IP: 192.168.4.1
+I (841) WEB_STATUS: Status page up: join WiFi 'VALOR-0081' (open), then open http://192.168.4.1
+I (846) WEB_STATUS: No stored history (ESP_ERR_NVS_NOT_FOUND); the chart starts empty
+I (956) SHRIKEFI_MAIN: SSD1306 OLED initialized OK at 0x3C
+I (1046) LOCATION: Stored location: 'KIET COLLEGE GHAZIABAD'
+I (1046) SHRIKEFI_MAIN: Emergency assist ready (state: IDLE), location 'KIET COLLEGE GHAZIABAD'
+I (1051) MAX30102: Detected MAX30102 sensor (Part ID: 0x15)
+I (1061) MAX30102: MAX3010x initialized successfully
+I (1061) SHRIKEFI_MAIN: MAX30102 initialized OK
+I (1066) SHRIKEFI_MAIN: Skin temperature estimator ready (T_skin = 34.10 + 0.55*T_die + 0.12*T_amb)
+I (1076) BME280: Detected BME280 at I2C 0x76 (Chip ID: 0x60)
+I (1096) BME280: BME280 initialized successfully (Continuous Normal Mode)
+I (1096) SHRIKEFI_MAIN: BME280 initialized OK
+I (1096) SHRIKEFI_MAIN: PMS5003 initialized OK
+I (1101) SHRIKEFI_MAIN: u-blox NEO-M8N GNSS (NMEA-0183) initialized OK
+I (1166) MPU6050: MPU6050 initialized OK at 0x68 (Accel: +/-8g, Gyro: +/-2000 dps, DLPF: 44Hz)
+I (1166) SHRIKEFI_MAIN: MPU6050 6-Axis IMU initialized OK (fall detection active)
+I (1171) I2C_SCAN: Scanning I2C bus (SDA=GPIO1, SCL=GPIO2)...
+I (1191) I2C_SCAN:  -> Found device at 0x3C (SSD1306 OLED)
+I (1196) I2C_SCAN:  -> Found device at 0x57 (MAX30100/MAX30102 PPG)
+I (1196) I2C_SCAN:  -> Found device at 0x68 (MPU6050 IMU)
+I (1201) I2C_SCAN:  -> Found device at 0x76 (BME280 Env)
+I (1201) I2C_SCAN: Scan complete: 4 device(s) found.
+I (1206) SHRIKEFI_MAIN: SOS hardware cancel button configured on GPIO5
+I (1211) SHRIKEFI_MAIN: Active Buzzer configured on GPIO4 (audible alarm sounder)
+I (1296) SHRIKEFI_MAIN: Core 0: PPG Accelerator Task Started (FPGA hardware + Software DSP fallback).
+I (1296) SHRIKEFI_MAIN: Core 1: Disaster Risk Engine & TinyML Task Started.
+FG 0 0 10 0
+I (1296) SHRIKEFI_MAIN: PMS5003 UART RX Task Started.
+I (1296) SHRIKEFI_MAIN: GNSS (u-blox NEO-M8N / Quectel L89HS) UART RX Task Started on UART2 (RX=GPIO16, TX=GPIO17, 9600 8N1).
+I (1296) SHRIKEFI_MAIN: Core 1: IMU & Fall Detection Task Started (MPU6050 at 40 Hz).
+I (1296) SHRIKEFI_MAIN: Task Affinities Configured:
+I (1326) SHRIKEFI_MAIN:  - PPG_Accel (Acquisition): Core 0
+I (1331) SHRIKEFI_MAIN:  - Risk_Monitor (Processing): Core 1
+[CALIB] DIE=0.00,AMB=24.30,CONTACT=0,SLOPE=0.0000,SETTLED=0,EST=0.00
+I (1336) SHRIKEFI_MAIN:  - PMS5003_UART: Core 1
+I (1346) SHRIKEFI_MAIN:  - GPS_UART: Core 1
+W (1351) SHRIKEFI_MAIN: Insufficient HRV data for AI risk assessment (INT8)
+FG 25 0 0 0
+I (1361) SHRIKEFI_MAIN: [ShrikeFi] HR: 0.0 BPM | SpO2: CALC | RMSSD: 0.0 ms | RR: 0.0 br/min | SQI: 0.00 | AmbTemp: 24.3 C | PM2.5: 16
+I (1351) SHRIKEFI_MAIN:  - IMU_Monitor: Core 1
+I (1376) SHRIKEFI_MAIN:  - Wi-Fi Driver: Core 1
+[TELEMETRY] HR=0.0,SPO2=0.0,RMSSD=0.0,TEMP=24.3,HUM=64.5,PM25=15.9,RR=0.0,SQI=0.00,RRDEPTH=0.0,RRCONF=0.00,PI=0.00,HRVN=0,PMRAW=30.0,PMCONF=SETTLING,SKINTEMP=0.0
+I (1381) SHRIKEFI_MAIN:  - TCP/IP (lwIP): Core 1
+I (1401) SHRIKEFI_MAIN:  - HTTPD Web Server: Core 1
+[TRIAGE] NEWS2=0,LEVEL=1,FLAGS=0x40,RISK=UNKNOWN,NNHEAT=0.000,NNPOLL=0.000,NNFLOOD=0.000,RHEAT=NORMAL,RPOLL=NORMAL,RFLOOD=NORMAL,PSI=0.00,AHA=0.00,CYCLONE=UNKNOWN,PTREND=0.00,HRPTS=0,SPO2PTS=0,RRPTS=0,TEMPPTS=0,AIVALID=0
+I (1401) main_task: Returned from app_main()
+[LOC] KIET COLLEGE GHAZIABAD
+[ENV] PM2.5 15.9 ug/m3: Moderate (EPA AQI 64, 2024). WHO 2021 24-h guideline 15 ug/m3 exceeded (1.1x). Heat index 24.3 C: Normal (NWS).
+I (1546) SHRIKEFI_MAIN: OLED dashboard framebuffer transferred successfully over I2C
+FG 50 0 0 0
+FG 75 0 0 0
+I (1941) SHRIKEFI_MAIN: [RRDIAG] beats=0 mean_ibi=0ms lag=0(0.00) r=0.000 r1=0.000 depth=0.0ms conf=0.00 rel=0 am=0.0 amc=0.00
+I (1941) PPG_OPTICAL: Raw: IR=531, Red=645 | AC=0 | Status: ACQUIRING | HR: 0.0 BPM | IBI: 0 (need 10 to arm risk engines) | SpO2: CALC/-- | (Samples/tick: 1)
+I (1956) PPG_OPTICAL: [SPO2DIAG] windows=0 valid=0 consec=0 reject=0 ir_dc=0 ir_ac=0 red_dc=0 red_ac=0 pi=0.000 R=0.000 led_r=54 led_ir=54 hist=0 spread=0.00 raw=0.00 settled=0
+FG 100 0 0 0
+FG 125 0 0 0
+I (2471) SHRIKEFI_MAIN: [RRDIAG] beats=0 mean_ibi=0ms lag=0(0.00) r=0.000 r1=0.000 depth=0.0ms conf=0.00 rel=0 am=0.0 amc=0.00
+I (2471) PPG_OPTICAL: Raw: IR=574, Red=643 | AC=0 | Status: NO FINGER | HR: 0.0 BPM | IBI: 0 (need 10 to arm risk engines) | SpO2: CALC/-- | (Samples/tick: 1)
+I (2486) PPG_OPTICAL: [SPO2DIAG] windows=0 valid=0 consec=0 reject=0 ir_dc=0 ir_ac=0 red_dc=0 red_ac=0 pi=0.000 R=0.000 led_r=54 led_ir=54 hist=0 spread=0.00 raw=0.00 settled=0
+[CALIB] DIE=27.12,AMB=24.29,CONTACT=0,SLOPE=0.0000,SETTLED=0,EST=0.00
+I (2566) SHRIKEFI_MAIN: [ShrikeFi] HR: 0.0 BPM | SpO2: CALC | RMSSD: 0.0 ms | RR: 0.0 br/min | SQI: 0.00 | AmbTemp: 24.3 C | PM2.5: 16
+[TELEMETRY] HR=0.0,SPO2=0.0,RMSSD=0.0,TEMP=24.3,HUM=64.6,PM25=15.9,RR=0.0,SQI=0.00,RRDEPTH=0.0,RRCONF=0.00,PI=0.00,HRVN=0,PMRAW=30.0,PMCONF=SETTLING,SKINTEMP=0.0
+FG 150 0 0 0
+[TRIAGE] NEWS2=0,LEVEL=1,FLAGS=0x40,RISK=UNKNOWN,NNHEAT=0.000,NNPOLL=0.000,NNFLOOD=0.000,RHEAT=NORMAL,RPOLL=NORMAL,RFLOOD=NORMAL,PSI=0.00,AHA=0.00,CYCLONE=UNKNOWN,PTREND=0.00,HRPTS=0,SPO2PTS=0,RRPTS=0,TEMPPTS=0,AIVALID=0
+[LOC] KIET COLLEGE GHAZIABAD
+[ENV] PM2.5 15.9 ug/m3: Moderate (EPA AQI 64, 2024). WHO 2021 24-h guideline 15 ug/m3 exceeded (1.1x). Heat index 24.3 C: Normal (NWS).
+FG 175 0 0 0
+I (3056) SHRIKEFI_MAIN: [RRDIAG] beats=0 mean_ibi=0ms lag=0(0.00) r=0.000 r1=0.000 depth=0.0ms conf=0.00 rel=0 am=0.0 amc=0.00
+I (3056) PPG_OPTICAL: Raw: IR=627, Red=668 | AC=0 | Status: NO FINGER | HR: 0.0 BPM | IBI: 0 (need 10 to arm risk engines) | SpO2: CALC/-- | (Samples/tick: 1)
+I (3071) PPG_OPTICAL: [SPO2DIAG] windows=0 valid=0 consec=0 reject=0 ir_dc=0 ir_ac=0 red_dc=0 red_ac=0 pi=0.000 R=0.000 led_r=54 led_ir=54 hist=0 spread=0.00 raw=0.00 settled=0
+FG 200 0 0 0
+FG 225 0 0 0
+FG 250 0 0 0
+I (3591) SHRIKEFI_MAIN: [RRDIAG] beats=0 mean_ibi=0ms lag=0(0.00) r=0.000 r1=0.000 depth=0.0ms conf=0.00 rel=0 am=0.0 amc=0.00
+I (3591) PPG_OPTICAL: Raw: IR=684, Red=703 | AC=0 | Status: NO FINGER | HR: 0.0 BPM | IBI: 0 (need 10 to arm risk engines) | SpO2: CALC/-- | (Samples/tick: 1)
+I (3606) PPG_OPTICAL: [SPO2DIAG] windows=0 valid=0 consec=0 reject=0 ir_dc=0 ir_ac=0 red_dc=0 red_ac=0 pi=0.000 R=0.000 led_r=54 led_ir=54 hist=0 spread=0.00 raw=0.00 settled=0
+I (3621) PPG_CAL: [SPO2CAL] R=0.000 spo2=0.0 valid=0 pi=0.000 rej=0 red_dc=0 red_ac=0 ir_dc=0 ir_ac=0
+[CALIB] DIE=27.32,AMB=24.29,CONTACT=0,SLOPE=0.0000,SETTLED=0,EST=0.00
+I (3681) SHRIKEFI_MAIN: [ShrikeFi] HR: 0.0 BPM | SpO2: CALC | RMSSD: 0.0 ms | RR: 0.0 br/min | SQI: 0.00 | AmbTemp: 24.3 C | PM2.5: 16
+[TELEMETRY] HR=0.0,SPO2=0.0,RMSSD=0.0,TEMP=24.3,HUM=64.6,PM25=15.9,RR=0.0,SQI=0.00,RRDEPTH=0.0,RRCONF=0.00,PI=0.00,HRVN=0,PMRAW=30.0,PMCONF=SETTLING,SKINTEMP=0.0
+[TRIAGE] NEWS2=0,LEVEL=1,FLAGS=0x40,RISK=UNKNOWN,NNHEAT=0.000,NNPOLL=0.000,NNFLOOD=0.000,RHEAT=NORMAL,RPOLL=NORMAL,RFLOOD=NORMAL,PSI=0.00,AHA=0.00,CYCLONE=UNKNOWN,PTREND=0.00,HRPTS=0,SPO2PTS=0,RRPTS=0,TEMPPTS=0,AIVALID=0
+[LOC] KIET COLLEGE GHAZIABAD
+[ENV] PM2.5 15.9 ug/m3: Moderate (EPA AQI 64, 2024). WHO 2021 24-h guideline 15 ug/m3 exceeded (1.1x). Heat index 24.3 C: Normal (NWS).
+FG 275 0 0 0
+FG 300 0 0 0
+I (4136) SHRIKEFI_MAIN: [RRDIAG] beats=0 mean_ibi=0ms lag=0(0.00) r=0.000 r1=0.000 depth=0.0ms conf=0.00 rel=0 am=0.0 amc=0.00
+I (4136) PPG_OPTICAL: Raw: IR=760, Red=761 | AC=0 | Status: NO FINGER | HR: 0.0 BPM | IBI: 0 (need 10 to arm risk engines) | SpO2: CALC/-- | (Samples/tick: 1)
+I (4151) PPG_OPTICAL: [SPO2DIAG] windows=0 valid=0 consec=0 reject=0 ir_dc=0 ir_ac=0 red_dc=0 red_ac=0 pi=0.000 R=0.000 led_r=54 led_ir=54 hist=0 spread=0.00 raw=0.00 settled=0
+FG 325 0 0 0
+FG 350 0 0 0
+I (4666) SHRIKEFI_MAIN: [RRDIAG] beats=0 mean_ibi=0ms lag=0(0.00) r=0.000 r1=0.000 depth=0.0ms conf=0.00 rel=0 am=0.0 amc=0.00
+I (4666) PPG_OPTICAL: Raw: IR=789, Red=828 | AC=0 | Status: NO FINGER | HR: 0.0 BPM | IBI: 0 (need 10 to arm risk engines) | SpO2: CALC/-- | (Samples/tick: 1)
+I (4681) PPG_OPTICAL: [SPO2DIAG] windows=0 valid=0 consec=0 reject=0 ir_dc=0 ir_ac=0 red_dc=0 red_ac=0 pi=0.000 R=0.000 led_r=54 led_ir=54 hist=0 spread=0.00 raw=0.00 settled=0
+[CALIB] DIE=27.25,AMB=24.29,CONTACT=0,SLOPE=0.0000,SETTLED=0,EST=0.00
+I (4756) SHRIKEFI_MAIN: [ShrikeFi] HR: 0.0 BPM | SpO2: CALC | RMSSD: 0.0 ms | RR: 0.0 br/min | SQI: 0.00 | AmbTemp: 24.3 C | PM2.5: 16
+[TELEMETRY] HR=0.0,SPO2=0.0,RMSSD=0.0,TEMP=24.3,HUM=64.5,PM25=15.9,RR=0.0,SQI=0.00,RRDEPTH=0.0,RRCONF=0.00,PI=0.00,HRVN=0,PMRAW=30.0,PMCONF=SETTLING,SKINTEMP=0.0
+[TRIAGE] NEWS2=0,LEVEL=1,FLAGS=0x40,RISK=UNKNOWN,NNHEAT=0.000,NNPOLL=0.000,NNFLOOD=0.000,RHEAT=NORMAL,RPOLL=NORMAL,RFLOOD=NORMAL,PSI=0.00,AHA=0.00,CYCLONE=UNKNOWN,PTREND=0.00,HRPTS=0,SPO2PTS=0,RRPTS=0,TEMPPTS=0,AIVALID=0
+[LOC] KIET COLLEGE GHAZIABAD
+[ENV] PM2.5 15.9 ug/m3: Moderate (EPA AQI 64, 2024). WHO 2021 24-h guideline 15 ug/m3 exceeded (1.1x). Heat index 24.3 C: Normal (NWS).
+FG 375 0 0 0
+FG 400 0 0 0
+I (5201) SHRIKEFI_MAIN: [RRDIAG] beats=0 mean_ibi=0ms lag=0(0.00) r=0.000 r1=0.000 depth=0.0ms conf=0.00 rel=0 am=0.0 amc=0.00
+I (5201) PPG_OPTICAL: Raw: IR=786, Red=906 | AC=0 | Status: NO FINGER | HR: 0.0 BPM | IBI: 0 (need 10 to arm risk engines) | SpO2: CALC/-- | (Samples/tick: 1)
+I (5216) PPG_OPTICAL: [SPO2DIAG] windows=0 valid=0 consec=0 reject=0 ir_dc=0 ir_ac=0 red_dc=0 red_ac=0 pi=0.000 R=0.000 led_r=54 led_ir=54 hist=0 spread=0.00 raw=0.00 settled=0
+FG 425 0 0 0
+I (5446) GNSS: [SEARCHING SATELLITES] Sats: 0 | NMEA parsed: 12 | Fix: NO (PPS LED steady; place antenna near window)
+FG 450 0 0 0
+I (5731) SHRIKEFI_MAIN: [RRDIAG] beats=0 mean_ibi=0ms lag=0(0.00) r=0.000 r1=0.000 depth=0.0ms conf=0.00 rel=0 am=0.0 amc=0.00
+I (5731) PPG_OPTICAL: Raw: IR=774, Red=916 | AC=0 | Status: NO FINGER | HR: 0.0 BPM | IBI: 0 (need 10 to arm risk engines) | SpO2: CALC/-- | (Samples/tick: 1)
+I (5746) PPG_OPTICAL: [SPO2DIAG] windows=0 valid=0 consec=0 reject=0 ir_dc=0 ir_ac=0 red_dc=0 red_ac=0 pi=0.000 R=0.000 led_r=54 led_ir=54 hist=0 spread=0.00 raw=0.00 settled=0
+I (5761) PPG_CAL: [SPO2CAL] R=0.000 spo2=0.0 valid=0 pi=0.000 rej=0 red_dc=0 red_ac=0 ir_dc=0 ir_ac=0
+FG 475 0 0 0
+[CALIB] DIE=27.41,AMB=24.29,CONTACT=0,SLOPE=0.0000,SETTLED=0,EST=0.00
+I (5826) SHRIKEFI_MAIN: [ShrikeFi] HR: 0.0 BPM | SpO2: CALC | RMSSD: 0.0 ms | RR: 0.0 br/min | SQI: 0.00 | AmbTemp: 24.3 C | PM2.5: 16
+[TELEMETRY] HR=0.0,SPO2=0.0,RMSSD=0.0,TEMP=24.3,HUM=64.5,PM25=15.9,RR=0.0,SQI=0.00,RRDEPTH=0.0,RRCONF=0.00,PI=0.00,HRVN=0,PMRAW=30.0,PMCONF=SETTLING,SKINTEMP=0.0
+[TRIAGE] NEWS2=0,LEVEL=1,FLAGS=0x40,RISK=UNKNOWN,NNHEAT=0.000,NNPOLL=0.000,NNFLOOD=0.000,RHEAT=NORMAL,RPOLL=NORMAL,RFLOOD=NORMAL,PSI=0.00,AHA=0.00,CYCLONE=UNKNOWN,PTREND=0.00,HRPTS=0,SPO2PTS=0,RRPTS=0,TEMPPTS=0,AIVALID=0
+[LOC] KIET COLLEGE GHAZIABAD
+[ENV] PM2.5 15.9 ug/m3: Moderate (EPA AQI 64, 2024). WHO 2021 24-h guideline 15 ug/m3 exceeded (1.1x). Heat index 24.3 C: Normal (NWS).
+FG 500 0 0 0
+I (6276) SHRIKEFI_MAIN: [RRDIAG] beats=0 mean_ibi=0ms lag=0(0.00) r=0.000 r1=0.000 depth=0.0ms conf=0.00 rel=0 am=0.0 amc=0.00
+I (6276) PPG_OPTICAL: Raw: IR=756, Red=894 | AC=0 | Status: NO FINGER | HR: 0.0 BPM | IBI: 0 (need 10 to arm risk engines) | SpO2: CALC/-- | (Samples/tick: 1)
+I (6291) PPG_OPTICAL: [SPO2DIAG] windows=0 valid=0 consec=0 reject=0 ir_dc=0 ir_ac=0 red_dc=0 red_ac=0 pi=0.000 R=0.000 led_r=54 led_ir=54 hist=0 spread=0.00 raw=0.00 settled=0
+FG 525 0 0 0
+FG 550 0 0 0
+I (6811) SHRIKEFI_MAIN: [RRDIAG] beats=0 mean_ibi=0ms lag=0(0.00) r=0.000 r1=0.000 depth=0.0ms conf=0.00 rel=0 am=0.0 amc=0.00
+I (6811) PPG_OPTICAL: Raw: IR=731, Red=882 | AC=0 | Status: NO FINGER | HR: 0.0 BPM | IBI: 0 (need 10 to arm risk engines) | SpO2: CALC/-- | (Samples/tick: 1)
+I (6826) PPG_OPTICAL: [SPO2DIAG] windows=0 valid=0 consec=0 reject=0 ir_dc=0 ir_ac=0 red_dc=0 red_ac=0 pi=0.000 R=0.000 led_r=54 led_ir=54 hist=0 spread=0.00 raw=0.00 settled=0
+FG 575 0 0 0
+[CALIB] DIE=27.50,AMB=24.29,CONTACT=0,SLOPE=0.0000,SETTLED=0,EST=0.00
+I (6906) SHRIKEFI_MAIN: [ShrikeFi] HR: 0.0 BPM | SpO2: CALC | RMSSD: 0.0 ms | RR: 0.0 br/min | SQI: 0.00 | AmbTemp: 24.3 C | PM2.5: 16
+[TELEMETRY] HR=0.0,SPO2=0.0,RMSSD=0.0,TEMP=24.3,HUM=64.2,PM25=15.8,RR=0.0,SQI=0.00,RRDEPTH=0.0,RRCONF=0.00,PI=0.00,HRVN=0,PMRAW=29.8,PMCONF=SETTLING,SKINTEMP=0.0
+[TRIAGE] NEWS2=0,LEVEL=1,FLAGS=0x40,RISK=UNKNOWN,NNHEAT=0.000,NNPOLL=0.000,NNFLOOD=0.000,RHEAT=NORMAL,RPOLL=NORMAL,RFLOOD=NORMAL,PSI=0.00,AHA=0.00,CYCLONE=UNKNOWN,PTREND=0.00,HRPTS=0,SPO2PTS=0,RRPTS=0,TEMPPTS=0,AIVALID=0
+[LOC] KIET COLLEGE GHAZIABAD
+[ENV] PM2.5 15.8 ug/m3: Moderate (EPA AQI 64, 2024). WHO 2021 24-h guideline 15 ug/m3 exceeded (1.1x). Heat index 24.3 C: Normal (NWS).
+FG 600 0 0 0
+FG 625 0 0 0
+I (7346) SHRIKEFI_MAIN: [RRDIAG] beats=0 mean_ibi=0ms lag=0(0.00) r=0.000 r1=0.000 depth=0.0ms conf=0.00 rel=0 am=0.0 amc=0.00
+I (7346) PPG_OPTICAL: Raw: IR=649, Red=871 | AC=0 | Status: NO FINGER | HR: 0.0 BPM | IBI: 0 (need 10 to arm risk engines) | SpO2: CALC/-- | (Samples/tick: 1)
+I (7361) PPG_OPTICAL: [SPO2DIAG] windows=0 valid=0 consec=0 reject=0 ir_dc=0 ir_ac=0 red_dc=0 red_ac=0 pi=0.000 R=0.000 led_r=54 led_ir=54 hist=0 spread=0.00 raw=0.00 settled=0
+FG 650 0 0 0
+FG 675 0 0 0
+I (7881) SHRIKEFI_MAIN: [RRDIAG] beats=0 mean_ibi=0ms lag=0(0.00) r=0.000 r1=0.000 depth=0.0ms conf=0.00 rel=0 am=0.0 amc=0.00
+I (7881) PPG_OPTICAL: Raw: IR=614, Red=843 | AC=0 | Status: NO FINGER | HR: 0.0 BPM | IBI: 0 (need 10 to arm risk engines) | SpO2: CALC/-- | (Samples/tick: 1)
+I (7896) PPG_OPTICAL: [SPO2DIAG] windows=0 valid=0 consec=0 reject=0 ir_dc=0 ir_ac=0 red_dc=0 red_ac=0 pi=0.000 R=0.000 led_r=54 led_ir=54 hist=0 spread=0.00 raw=0.00 settled=0
+I (7911) PPG_CAL: [SPO2CAL] R=0.000 spo2=0.0 valid=0 pi=0.000 rej=0 red_dc=0 red_ac=0 ir_dc=0 ir_ac=0
+[CALIB] DIE=27.57,AMB=24.30,CONTACT=0,SLOPE=0.0000,SETTLED=0,EST=0.00
+I (7981) SHRIKEFI_MAIN: [ShrikeFi] HR: 0.0 BPM | SpO2: CALC | RMSSD: 0.0 ms | RR: 0.0 br/min | SQI: 0.00 | AmbTemp: 24.3 C | PM2.5: 16
+[TELEMETRY] HR=0.0,SPO2=0.0,RMSSD=0.0,TEMP=24.3,HUM=64.4,PM25=15.8,RR=0.0,SQI=0.00,RRDEPTH=0.0,RRCONF=0.00,PI=0.00,HRVN=0,PMRAW=29.7,PMCONF=SETTLING,SKINTEMP=0.0
+[TRIAGE] NEWS2=0,LEVEL=1,FLAGS=0x40,RISK=UNKNOWN,NNHEAT=0.000,NNPOLL=0.000,NNFLOOD=0.000,RHEAT=NORMAL,RPOLL=NORMAL,RFLOOD=NORMAL,PSI=0.00,AHA=0.00,CYCLONE=UNKNOWN,PTREND=0.00,HRPTS=0,SPO2PTS=0,RRPTS=0,TEMPPTS=0,AIVALID=0
+[LOC] KIET COLLEGE GHAZIABAD
+[ENV] PM2.5 15.8 ug/m3: Moderate (EPA AQI 63, 2024). WHO 2021 24-h guideline 15 ug/m3 exceeded (1.1x). Heat index 24.3 C: Normal (NWS).
+FG 700 0 0 0
+FG 725 0 0 0
+I (8426) SHRIKEFI_MAIN: [RRDIAG] beats=0 mean_ibi=0ms lag=0(0.00) r=0.000 r1=0.000 depth=0.0ms conf=0.00 rel=0 am=0.0 amc=0.00
+I (8426) PPG_OPTICAL: Raw: IR=404, Red=777 | AC=0 | Status: NO FINGER | HR: 0.0 BPM | IBI: 0 (need 10 to arm risk engines) | SpO2: CALC/-- | (Samples/tick: 1)
+I (8441) PPG_OPTICAL: [SPO2DIAG] windows=0 valid=0 consec=0 reject=0 ir_dc=0 ir_ac=0 red_dc=0 red_ac=0 pi=0.000 R=0.000 led_r=54 led_ir=54 hist=0 spread=0.00 raw=0.00 settled=0
+FG 750 0 0 0
+FG 775 0 0 0
+I (8956) SHRIKEFI_MAIN: [RRDIAG] beats=0 mean_ibi=0ms lag=0(0.00) r=0.000 r1=0.000 depth=0.0ms conf=0.00 rel=0 am=0.0 amc=0.00
+I (8956) PPG_OPTICAL: Raw: IR=257, Red=708 | AC=0 | Status: NO FINGER | HR: 0.0 BPM | IBI: 0 (need 10 to arm risk engines) | SpO2: CALC/-- | (Samples/tick: 1)
+I (8971) PPG_OPTICAL: [SPO2DIAG] windows=0 valid=0 consec=0 reject=0 ir_dc=0 ir_ac=0 red_dc=0 red_ac=0 pi=0.000 R=0.000 led_r=54 led_ir=54 hist=0 spread=0.00 raw=0.00 settled=0
+[CALIB] DIE=27.63,AMB=24.29,CONTACT=0,SLOPE=0.0000,SETTLED=0,EST=0.00
+I (9056) SHRIKEFI_MAIN: [ShrikeFi] HR: 0.0 BPM | SpO2: CALC | RMSSD: 0.0 ms | RR: 0.0 br/min | SQI: 0.00 | AmbTemp: 24.3 C | PM2.5: 16
+[TELEMETRY] HR=0.0,SPO2=0.0,RMSSD=0.0,TEMP=24.3,HUM=64.5,PM25=15.7,RR=0.0,SQI=0.00,RRDEPTH=0.0,RRCONF=0.00,PI=0.00,HRVN=0,PMRAW=29.6,PMCONF=SETTLING,SKINTEMP=0.0
+[TRIAGE] NEWS2=0,LEVEL=1,FLAGS=0x40,RISK=UNKNOWN,NNHEAT=0.000,NNPOLL=0.000,NNFLOOD=0.000,RHEAT=NORMAL,RPOLL=NORMAL,RFLOOD=NORMAL,PSI=0.00,AHA=0.00,CYCLONE=UNKNOWN,PTREND=0.00,HRPTS=0,SPO2PTS=0,RRPTS=0,TEMPPTS=0,AIVALID=0
+FG 800 0 0 0
+[LOC] KIET COLLEGE GHAZIABAD
+[ENV] PM2.5 15.7 ug/m3: Moderate (EPA AQI 63, 2024). WHO 2021 24-h guideline 15 ug/m3 exceeded (1.0x). Heat index 24.3 C: Normal (NWS).
+FG 825 0 0 0
+I (9506) SHRIKEFI_MAIN: [RRDIAG] beats=0 mean_ibi=0ms lag=0(0.00) r=0.000 r1=0.000 depth=0.0ms conf=0.00 rel=0 am=0.0 amc=0.00
+I (9506) PPG_OPTICAL: Raw: IR=203, Red=664 | AC=0 | Status: NO FINGER | HR: 0.0 BPM | IBI: 0 (need 10 to arm risk engines) | SpO2: CALC/-- | (Samples/tick: 1)
+I (9521) PPG_OPTICAL: [SPO2DIAG] windows=0 valid=0 consec=0 reject=0 ir_dc=0 ir_ac=0 red_dc=0 red_ac=0 pi=0.000 R=0.000 led_r=54 led_ir=54 hist=0 spread=0.00 raw=0.00 settled=0
+FG 850 0 0 0
+FG 875 0 0 0
+I (10041) SHRIKEFI_MAIN: [RRDIAG] beats=0 mean_ibi=0ms lag=0(0.00) r=0.000 r1=0.000 depth=0.0ms conf=0.00 rel=0 am=0.0 amc=0.00
+I (10041) PPG_OPTICAL: Raw: IR=527, Red=640 | AC=0 | Status: NO FINGER | HR: 0.0 BPM | IBI: 0 (need 10 to arm risk engines) | SpO2: CALC/-- | (Samples/tick: 1)
+I (10056) PPG_OPTICAL: [SPO2DIAG] windows=0 valid=0 consec=0 reject=0 ir_dc=0 ir_ac=0 red_dc=0 red_ac=0 pi=0.000 R=0.000 led_r=54 led_ir=54 hist=0 spread=0.00 raw=0.00 settled=0
+I (10071) PPG_CAL: [SPO2CAL] R=0.000 spo2=0.0 valid=0 pi=0.000 rej=0 red_dc=0 red_ac=0 ir_dc=0 ir_ac=0
+FG 900 0 0 0
+[CALIB] DIE=27.67,AMB=24.29,CONTACT=0,SLOPE=0.0000,SETTLED=0,EST=0.00
+I (10126) SHRIKEFI_MAIN: [ShrikeFi] HR: 0.0 BPM | SpO2: CALC | RMSSD: 0.0 ms | RR: 0.0 br/min | SQI: 0.00 | AmbTemp: 24.3 C | PM2.5: 16
+[TELEMETRY] HR=0.0,SPO2=0.0,RMSSD=0.0,TEMP=24.3,HUM=64.5,PM25=15.7,RR=0.0,SQI=0.00,RRDEPTH=0.0,RRCONF=0.00,PI=0.00,HRVN=0,PMRAW=29.6,PMCONF=SETTLING,SKINTEMP=0.0
+[TRIAGE] NEWS2=0,LEVEL=1,FLAGS=0x40,RISK=UNKNOWN,NNHEAT=0.000,NNPOLL=0.000,NNFLOOD=0.000,RHEAT=NORMAL,RPOLL=NORMAL,RFLOOD=NORMAL,PSI=0.00,AHA=0.00,CYCLONE=UNKNOWN,PTREND=0.00,HRPTS=0,SPO2PTS=0,RRPTS=0,TEMPPTS=0,AIVALID=0
+[LOC] KIET COLLEGE GHAZIABAD
+[ENV] PM2.5 15.7 ug/m3: Moderate (EPA AQI 63, 2024). WHO 2021 24-h guideline 15 ug/m3 exceeded (1.0x). Heat index 24.3 C: Normal (NWS).
+FG 925 0 0 0
+I (10446) GNSS: [SEARCHING SATELLITES] Sats: 0 | NMEA parsed: 27 | Fix: NO (PPS LED steady; place antenna near window)
+FG 950 0 0 0
+I (10586) SHRIKEFI_MAIN: [RRDIAG] beats=0 mean_ibi=0ms lag=0(0.00) r=0.000 r1=0.000 depth=0.0ms conf=0.00 rel=0 am=0.0 amc=0.00
+I (10586) PPG_OPTICAL: Raw: IR=751, Red=640 | AC=0 | Status: NO FINGER | HR: 0.0 BPM | IBI: 0 (need 10 to arm risk engines) | SpO2: CALC/-- | (Samples/tick: 1)
+I (10601) PPG_OPTICAL: [SPO2DIAG] windows=0 valid=0 consec=0 reject=0 ir_dc=0 ir_ac=0 red_dc=0 red_ac=0 pi=0.000 R=0.000 led_r=54 led_ir=54 hist=0 spread=0.00 raw=0.00 settled=0
+FG 975 0 0 0
+FG 1000 0 0 0
+I (11116) SHRIKEFI_MAIN: [RRDIAG] beats=0 mean_ibi=0ms lag=0(0.00) r=0.000 r1=0.000 depth=0.0ms conf=0.00 rel=0 am=0.0 amc=0.00
+I (11116) PPG_OPTICAL: Raw: IR=796, Red=669 | AC=0 | Status: NO FINGER | HR: 0.0 BPM | IBI: 0 (need 10 to arm risk engines) | SpO2: CALC/-- | (Samples/tick: 1)
+I (11131) PPG_OPTICAL: [SPO2DIAG] windows=0 valid=0 consec=0 reject=0 ir_dc=0 ir_ac=0 red_dc=0 red_ac=0 pi=0.000 R=0.000 led_r=54 led_ir=54 hist=0 spread=0.00 raw=0.00 settled=0
+[CALIB] DIE=27.42,AMB=24.29,CONTACT=0,SLOPE=0.0000,SETTLED=0,EST=0.00
+I (11196) SHRIKEFI_MAIN: [ShrikeFi] HR: 0.0 BPM | SpO2: CALC | RMSSD: 0.0 ms | RR: 0.0 br/min | SQI: 0.00 | AmbTemp: 24.3 C | PM2.5: 16
+[TELEMETRY] HR=0.0,SPO2=0.0,RMSSD=0.0,TEMP=24.3,HUM=64.6,PM25=15.6,RR=0.0,SQI=0.00,RRDEPTH=0.0,RRCONF=0.00,PI=0.00,HRVN=0,PMRAW=29.5,PMCONF=SETTLING,SKINTEMP=0.0
+[TRIAGE] NEWS2=0,LEVEL=1,FLAGS=0x40,RISK=UNKNOWN,NNHEAT=0.000,NNPOLL=0.000,NNFLOOD=0.000,RHEAT=NORMAL,RPOLL=NORMAL,RFLOOD=NORMAL,PSI=0.00,AHA=0.00,CYCLONE=UNKNOWN,PTREND=0.00,HRPTS=0,SPO2PTS=0,RRPTS=0,TEMPPTS=0,AIVALID=0
+[LOC] KIET COLLEGE GHAZIABAD
+[ENV] PM2.5 15.6 ug/m3: Moderate (EPA AQI 63, 2024). WHO 2021 24-h guideline 15 ug/m3 exceeded (1.0x). Heat index 24.3 C: Normal (NWS).
+FG 1025 0 0 0
+FG 1050 0 0 0
+I (11646) SHRIKEFI_MAIN: [RRDIAG] beats=0 mean_ibi=0ms lag=0(0.00) r=0.000 r1=0.000 depth=0.0ms conf=0.00 rel=0 am=0.0 amc=0.00
+I (11646) PPG_OPTICAL: Raw: IR=550, Red=703 | AC=0 | Status: NO FINGER | HR: 0.0 BPM | IBI: 0 (need 10 to arm risk engines) | SpO2: CALC/-- | (Samples/tick: 1)
+I (11661) PPG_OPTICAL: [SPO2DIAG] windows=0 valid=0 consec=0 reject=0 ir_dc=0 ir_ac=0 red_dc=0 red_ac=0 pi=0.000 R=0.000 led_r=54 led_ir=54 hist=0 spread=0.00 raw=0.00 settled=0
+FG 1075 0 0 0
+FG 1100 0 0 0
+I (12181) SHRIKEFI_MAIN: [RRDIAG] beats=0 mean_ibi=0ms lag=0(0.00) r=0.000 r1=0.000 depth=0.0ms conf=0.00 rel=0 am=0.0 amc=0.00
+I (12181) PPG_OPTICAL: Raw: IR=750, Red=756 | AC=0 | Status: NO FINGER | HR: 0.0 BPM | IBI: 0 (need 10 to arm risk engines) | SpO2: CALC/-- | (Samples/tick: 1)
+I (12196) PPG_OPTICAL: [SPO2DIAG] windows=0 valid=0 consec=0 reject=0 ir_dc=0 ir_ac=0 red_dc=0 red_ac=0 pi=0.000 R=0.000 led_r=54 led_ir=54 hist=0 spread=0.00 raw=0.00 settled=0
+I (12211) PPG_CAL: [SPO2CAL] R=0.000 spo2=0.0 valid=0 pi=0.000 rej=0 red_dc=0 red_ac=0 ir_dc=0 ir_ac=0
+I (12221) PPG_DIAG: [10s Summary] HR: 0.0 BPM (Conf: 0.00), SpO2: 0.0% (Valid: 0), RR: 0.0 br/min (Conf: 0.00), SDNN: 0.0 ms
+[CALIB] DIE=27.12,AMB=24.29,CONTACT=0,SLOPE=0.0000,SETTLED=0,EST=0.00
+I (12266) SHRIKEFI_MAIN: [ShrikeFi] HR: 0.0 BPM | SpO2: CALC | RMSSD: 0.0 ms | RR: 0.0 br/min | SQI: 0.00 | AmbTemp: 24.3 C | PM2.5: 16
+[TELEMETRY] HR=0.0,SPO2=0.0,RMSSD=0.0,TEMP=24.3,HUM=64.6,PM25=15.6,RR=0.0,SQI=0.00,RRDEPTH=0.0,RRCONF=0.00,PI=0.00,HRVN=0,PMRAW=29.5,PMCONF=SETTLING,SKINTEMP=0.0
+[TRIAGE] NEWS2=0,LEVEL=1,FLAGS=0x40,RISK=UNKNOWN,NNHEAT=0.000,NNPOLL=0.000,NNFLOOD=0.000,RHEAT=NORMAL,RPOLL=NORMAL,RFLOOD=NORMAL,PSI=0.00,AHA=0.00,CYCLONE=UNKNOWN,PTREND=0.00,HRPTS=0,SPO2PTS=0,RRPTS=0,TEMPPTS=0,AIVALID=0
+[LOC] KIET COLLEGE GHAZIABAD
+[ENV] PM2.5 15.6 ug/m3: Moderate (EPA AQI 63, 2024). WHO 2021 24-h guideline 15 ug/m3 exceeded (1.0x). Heat index 24.3 C: Normal (NWS).
+FG 1125 0 0 0
+FG 1150 0 0 0
+I (12736) SHRIKEFI_MAIN: [RRDIAG] beats=0 mean_ibi=0ms lag=0(0.00) r=0.000 r1=0.000 depth=0.0ms conf=0.00 rel=0 am=0.0 amc=0.00
+I (12736) PPG_OPTICAL: Raw: IR=601, Red=716 | AC=0 | Status: NO FINGER | HR: 0.0 BPM | IBI: 0 (need 10 to arm risk engines) | SpO2: CALC/-- | (Samples/tick: 1)
+I (12751) PPG_OPTICAL: [SPO2DIAG] windows=0 valid=0 consec=0 reject=0 ir_dc=0 ir_ac=0 red_dc=0 red_ac=0 pi=0.000 R=0.000 led_r=54 led_ir=54 hist=0 spread=0.00 raw=0.00 settled=0
+FG 1175 0 0 0
+FG 1200 0 0 0
+I (13266) SHRIKEFI_MAIN: [RRDIAG] beats=0 mean_ibi=0ms lag=0(0.00) r=0.000 r1=0.000 depth=0.0ms conf=0.00 rel=0 am=0.0 amc=0.00
+I (13266) PPG_OPTICAL: Raw: IR=643, Red=662 | AC=0 | Status: NO FINGER | HR: 0.0 BPM | IBI: 0 (need 10 to arm risk engines) | SpO2: CALC/-- | (Samples/tick: 1)
+I (13281) PPG_OPTICAL: [SPO2DIAG] windows=0 valid=0 consec=0 reject=0 ir_dc=0 ir_ac=0 red_dc=0 red_ac=0 pi=0.000 R=0.000 led_r=54 led_ir=54 hist=0 spread=0.00 raw=0.00 settled=0
+FG 1225 0 0 0
+[CALIB] DIE=26.92,AMB=24.28,CONTACT=0,SLOPE=0.0000,SETTLED=0,EST=0.00
+I (13336) SHRIKEFI_MAIN: [ShrikeFi] HR: 0.0 BPM | SpO2: CALC | RMSSD: 0.0 ms | RR: 0.0 br/min | SQI: 0.00 | AmbTemp: 24.3 C | PM2.5: 16
+[TELEMETRY] HR=0.0,SPO2=0.0,RMSSD=0.0,TEMP=24.3,HUM=64.4,PM25=15.7,RR=0.0,SQI=0.00,RRDEPTH=0.0,RRCONF=0.00,PI=0.00,HRVN=0,PMRAW=29.5,PMCONF=SETTLING,SKINTEMP=0.0
+[TRIAGE] NEWS2=0,LEVEL=1,FLAGS=0x40,RISK=UNKNOWN,NNHEAT=0.000,NNPOLL=0.000,NNFLOOD=0.000,RHEAT=NORMAL,RPOLL=NORMAL,RFLOOD=NORMAL,PSI=0.00,AHA=0.00,CYCLONE=UNKNOWN,PTREND=0.00,HRPTS=0,SPO2PTS=0,RRPTS=0,TEMPPTS=0,AIVALID=0
+[LOC] KIET COLLEGE GHAZIABAD
+[ENV] PM2.5 15.7 ug/m3: Moderate (EPA AQI 63, 2024). WHO 2021 24-h guideline 15 ug/m3 exceeded (1.0x). Heat index 24.3 C: Normal (NWS).
+FG 1250 0 0 0
+I (13796) SHRIKEFI_MAIN: [RRDIAG] beats=0 mean_ibi=0ms lag=0(0.00) r=0.000 r1=0.000 depth=0.0ms conf=0.00 rel=0 am=0.0 amc=0.00
+I (13796) PPG_OPTICAL: Raw: IR=844, Red=667 | AC=0 | Status: NO FINGER | HR: 0.0 BPM | IBI: 0 (need 10 to arm risk engines) | SpO2: CALC/-- | (Samples/tick: 1)
+I (13811) PPG_OPTICAL: [SPO2DIAG] windows=0 valid=0 consec=0 reject=0 ir_dc=0 ir_ac=0 red_dc=0 red_ac=0 pi=0.000 R=0.000 led_r=54 led_ir=54 hist=0 spread=0.00 raw=0.00 settled=0
+FG 1275 0 0 0
+FG 1300 0 0 0
+FG 1325 0 0 0
+I (14331) SHRIKEFI_MAIN: [RRDIAG] beats=0 mean_ibi=0ms lag=0(0.00) r=0.000 r1=0.000 depth=0.0ms conf=0.00 rel=0 am=0.0 amc=0.00
+I (14331) PPG_OPTICAL: Raw: IR=796, Red=901 | AC=0 | Status: NO FINGER | HR: 0.0 BPM | IBI: 0 (need 10 to arm risk engines) | SpO2: CALC/-- | (Samples/tick: 1)
+I (14346) PPG_OPTICAL: [SPO2DIAG] windows=0 valid=0 consec=0 reject=0 ir_dc=0 ir_ac=0 red_dc=0 red_ac=0 pi=0.000 R=0.000 led_r=54 led_ir=54 hist=0 spread=0.00 raw=0.00 settled=0
+I (14361) PPG_CAL: [SPO2CAL] R=0.000 spo2=0.0 valid=0 pi=0.000 rej=0 red_dc=0 red_ac=0 ir_dc=0 ir_ac=0
+[CALIB] DIE=26.80,AMB=24.28,CONTACT=0,SLOPE=0.0000,SETTLED=0,EST=0.00
+I (14416) SHRIKEFI_MAIN: [ShrikeFi] HR: 0.0 BPM | SpO2: CALC | RMSSD: 0.0 ms | RR: 0.0 br/min | SQI: 0.00 | AmbTemp: 24.3 C | PM2.5: 16
+[TELEMETRY] HR=0.0,SPO2=0.0,RMSSD=0.0,TEMP=24.3,HUM=64.1,PM25=15.7,RR=0.0,SQI=0.00,RRDEPTH=0.0,RRCONF=0.00,PI=0.00,HRVN=0,PMRAW=29.5,PMCONF=SETTLING,SKINTEMP=0.0
+[TRIAGE] NEWS2=0,LEVEL=1,FLAGS=0x40,RISK=UNKNOWN,NNHEAT=0.000,NNPOLL=0.000,NNFLOOD=0.000,RHEAT=NORMAL,RPOLL=NORMAL,RFLOOD=NORMAL,PSI=0.00,AHA=0.00,CYCLONE=UNKNOWN,PTREND=0.00,HRPTS=0,SPO2PTS=0,RRPTS=0,TEMPPTS=0,AIVALID=0
+[LOC] KIET COLLEGE GHAZIABAD
+[ENV] PM2.5 15.7 ug/m3: Moderate (EPA AQI 63, 2024). WHO 2021 24-h guideline 15 ug/m3 exceeded (1.0x). Heat index 24.3 C: Normal (NWS).
+FG 1350 0 0 0
+FG 1375 0 0 0
+I (14876) SHRIKEFI_MAIN: [RRDIAG] beats=0 mean_ibi=0ms lag=0(0.00) r=0.000 r1=0.000 depth=0.0ms conf=0.00 rel=0 am=0.0 amc=0.00
+I (14876) PPG_OPTICAL: Raw: IR=902, Red=470 | AC=0 | Status: NO FINGER | HR: 0.0 BPM | IBI: 0 (need 10 to arm risk engines) | SpO2: CALC/-- | (Samples/tick: 1)
+I (14891) PPG_OPTICAL: [SPO2DIAG] windows=0 valid=0 consec=0 reject=0 ir_dc=0 ir_ac=0 red_dc=0 red_ac=0 pi=0.000 R=0.000 led_r=54 led_ir=54 hist=0 spread=0.00 raw=0.00 settled=0
+FG 1400 0 0 0
