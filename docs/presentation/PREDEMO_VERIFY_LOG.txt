@@ -1,0 +1,30 @@
+﻿==========================================================
+   SIH26181 VALOR: PRE-DEMO A-to-Z VERIFICATION GATES
+==========================================================
+Timestamp: 2026-10-29 22:19:04
+Commit: a5db69d (v1.0-zynq-SIH-318-ga5db69d)
+Temp directory: C:\Users\abhin\AppData\Local\Temp\predemo_verify_1216825364
+
+PASS: verilator-zynq 
+PASS: verilator-shrikefi 
+PASS: flat-source 
+PASS: tb-zynq 
+PASS: tb-common 
+PASS: tb-shrikefi 
+PASS: fp32-hygiene 
+PASS: unit-engine 
+PASS: unit-fall 
+PASS: unit-gnss 
+PASS: shrikefi-host 
+PASS: compare-harness 
+PASS: test-pm25 
+PASS: mimic-gate acc=94.11% int8_agree=99.95%
+PASS: nn-train (Arch 6-24-16-3, 619 bytes verified)
+PASS: dash-softap 
+PASS: dash-desktop 
+PASS: secrets 
+PASS: fw-build (Built cleanly)
+
+==========================================================
+   SUMMARY: 19/19 PASS, 0 WARN, 0 FAIL
+==========================================================
