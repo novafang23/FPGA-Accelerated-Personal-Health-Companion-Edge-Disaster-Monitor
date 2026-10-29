@@ -29,7 +29,34 @@
 > [!CAUTION]
 > **CRITICAL VOLTAGE RULE: 3.3V ONLY**  
 > All ESP32-S3 and Renesas ForgeFPGA I/O pins are strictly **3.3V LVCMOS**.  
-> **NEVER** apply 5V to any GPIO pin or FPGA header pin. 5V must **ONLY** go to the PMS5003 power pins (Pin 1 & 2).
+> **NEVER** apply 5V to any GPIO pin or FPGA header pin. 5V must **ONLY** go to the PMS5003 power pins (Pin 1 & 2) or the dedicated ShrikeFi 5V input rail.
+
+---
+
+## 1.1 Power Input Architecture & J3 Pin Safety Guidelines
+
+Official manufacturer technical advisory (Vicharak Support Ticket `#TKT-MVCAW0WA-BO7I` for PCB Rev V1.0 R0.3):
+
+### A. Approved Power Input Methods (5 V Only)
+The Shrike-Fi board must be powered exclusively via **5.0 V** using one of the following two approved methods:
+1. **USB Type-C Power Input:** Primary power method via standard 5V USB-C cable.
+2. **Dedicated 5 V Header Pin & GND:** Regulated external 5.0 V DC supply connected across the pin labeled **`5V`** and any **`GND`** pin.
+
+> [!WARNING]
+> **Simultaneous Power Hazard:**  
+> **NEVER** power the board through USB Type-C and the 5 V header pin simultaneously. The board lacks automatic power OR-ing / reverse-current isolation between these two rails; dual-powering will cause cross-conduction and can permanently damage the onboard regulator or host USB port.
+
+### B. Unpopulated J3 Pinholes & Battery Circuitry (Strict Prohibitions)
+On the base version of Shrike-Fi (PCB Rev V1.0, R0.3):
+* **J3 is NOT a 5 V Input:** J3 is designated in the BOM as a 2-pin connector for a **single-cell 3.7 V Li-Ion/LiPo battery** (nominal 3.7 V, 4.2 V max charge). Applying 5.0 V directly to J3 exceeds single-cell lithium voltage ratings.
+* **Unpopulated Power Management Circuit:** The lithium battery charging and protection circuitry (**TP4056** linear charger IC, **DW01A** battery protection IC, and **FS8205A** dual MOSFET) is **unpopulated** on the base version. 
+* **Floating Pads Hazard:** Because the charging and protection ICs are missing, the J3 pins terminate in open solder pads and discontinuous traces. **Do NOT connect an external battery or apply power to J3**. Applying power to unpopulated circuitry risks uncontrolled leakage currents, short circuits, or damage to adjacent traces.
+
+### C. Safe External Battery Operation Architecture
+For portable / field disaster deployment where untethered battery operation is required:
+1. Connect a 3.7 V LiPo battery to an **external battery management module** (containing TP4056 charge control, DW01A protection, and a 5 V boost step-up regulator).
+2. Feed the regulated **5.0 V output** from the boost converter into the Shrike-Fi **`5V` header pin** and **`GND`** (or into the USB Type-C port).
+3. Ensure the PC USB-C cable is disconnected before enabling the external battery supply.
 
 ---
 
