@@ -224,7 +224,7 @@ The system features an active piezo buzzer to generate distinct audible alerts:
 
 ### E. Temperature Sensor Architecture: BME280 Ambient Proxy
 * **No separate skin temperature probe required:** You do **not** need a separate contact thermometer or skin temp probe.
-* **Clinical Fallback:** The clinical vital sign engine (`clinical_vitals_engine.c`) and disaster risk engine natively check `env.skin_temp_c`. When no contact skin thermometer is present (`skin_temp_c == 0.0f`), the engine automatically uses the **BME280 high-precision ambient temperature as a clinically validated proxy**.
+* **Clinical Fallback:** The clinical vital sign engine (`clinical_vitals_engine.c`) and disaster risk engine natively check `env.skin_temp_c`. When no contact skin thermometer is present (`skin_temp_c == 0.0f`), the engine automatically uses the **BME280 high-precision ambient temperature as an environmental exposure proxy**.
 * **Zero Missing-Sensor Impact:** All heat strain index calculations (Moran PSI), cold/flood hypothermia proxies, and the published PM2.5 correction operate at 100% full capacity using the BME280.
 
 ---

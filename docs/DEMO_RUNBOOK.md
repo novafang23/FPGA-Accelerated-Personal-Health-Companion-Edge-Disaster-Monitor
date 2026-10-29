@@ -256,7 +256,8 @@ Complete this checklist 15 minutes before your scheduled judging slot:
 - [ ] **Browser Tabs Prepared:**
   - Tab 1: `firmware/shrikefi/dashboard/valor_dashboard.html` (Web Serial Dashboard).
   - Tab 2: `hardware/shrikefi/synthesis_evidence/resource_utilization_spi_link.log` (FPGA Evidence).
-  - Tab 3: `docs/PROJECT_GUIDE.md` (Architecture Reference).
+  - Tab 3: `docs/MASTER_PROJECT_GUIDE.md` (Architecture Reference).
+  - Tab 4: `docs/presentation/FACT_SHEET.md` (Presenter Quick Reference).
 - [ ] **Terminal Prepared:** PowerShell open in repo root with GCC compiler and Icarus Verilog verified on PATH.
 - [ ] **Sensors Secured:** Sensor breakout boards firmly seated in breadboard rows with no loose floating wires.
 - [ ] **Spoken Roles Assigned:**
