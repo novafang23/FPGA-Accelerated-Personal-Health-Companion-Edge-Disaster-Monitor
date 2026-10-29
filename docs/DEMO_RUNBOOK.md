@@ -197,6 +197,33 @@ I (2455) PPG_OPTICAL: Raw: IR=1048, Red=1094 | AC=0 | Status: NO FINGER | HR: 0.
 
 ---
 
+### Act 6: Wireless Standalone Battery Demonstration — Zero Wires to Laptop (7:00 - 8:30)
+1. **Physical Action (Untethered Hardware):**
+   - **Disconnect the USB-C cable completely from the ShrikeFi board.**
+   - Hold the standalone wearable in your hands, completely untethered, powered solely by the onboard 3.7V Li-ion battery.
+   - Point out to the judges: the blue D12 LED pulses, the SSD1306 OLED display updates continuously at 10 Hz, and the Wi-Fi AP remains active (`VALOR-0081`).
+2. **Laptop Action (Two Wireless Dashboard Options):**
+   - Ensure the presentation laptop's Wi-Fi is connected to **`VALOR-0081`** (open, no password, 192.168.4.1 subnet).
+   - **Option A (Desktop Standalone App via Chrome):**
+     Double-click `launch_web_dashboard.bat` (or open `firmware/shrikefi/dashboard/valor_dashboard.html`). Click the cyan button **[Connect Wi-Fi (192.168.4.1)]**.
+     - Status badge flips to `🟢 LIVE · WI-FI (192.168.4.1) · STANDALONE`.
+     - The dark-glassmorphism desktop dashboard polls `/status.json` every 400 ms and `/api/history` every 10 s over local Wi-Fi.
+     - The green 60 FPS oscilloscope uses a real-time arterial dicrotic pulse synthesizer locked to the physical device's live heart rate and SQI.
+   - **Option B (Zero-Install Direct Browser URL):**
+     Open any browser on the laptop or tablet and navigate directly to:
+     ```
+     http://192.168.4.1/desktop
+     ```
+     - The ESP32-S3 HTTP server directly streams the pre-compressed 34.8 KB gzipped desktop dashboard from internal flash via 4 KB chunking in under 400 milliseconds.
+     - The complete aesthetic desktop dashboard (radial mNEWS2 arc, ECG rhythm, EPA AQI badge, 24-hour history charts, and SOS controls) runs wirelessly with zero external internet or cloud dependencies!
+3. **Live Interactive Demo:**
+   - Place your finger on the MAX30102 sensor while holding the untethered battery device across the room.
+   - The laptop display across the room immediately tracks your real-time heart rate, blood oxygenation (SpO2), signal quality (SQI), and 60 FPS pulsing arterial waveform wirelessly over local Wi-Fi!
+4. **Spoken Dialogue:**
+   > *"Judges, look closely at this device: there are zero cables connecting it to my laptop. It is running 100% standalone on an external lithium battery. The Renesas ForgeFPGA conditions the optical biosensor, the ESP32-S3 executes our multi-hazard clinical triage and 619-byte neural network, and its internal SoftAP broadcasts both a mobile triage interface and this high-fidelity desktop command center over Wi-Fi. Whether a rescuer connects via a mobile phone or a command tent connects via a laptop from 50 feet away, they get real-time 60 FPS waveforms and 24-hour physiological trend telemetry with zero cloud infrastructure."*
+
+---
+
 ## 5. Real Hardware Verification vs. Verified Fallback Demos
 
 In competitive hackathons, physical hardware can suffer broken jumper wires, dead USB hubs, or hostile RF interference. Valor includes **verified fallback modes** that run on standard laptops without physical silicon.

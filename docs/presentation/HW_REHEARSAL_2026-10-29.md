@@ -19,6 +19,7 @@
 | **Step 8: Desktop Web Serial Reconnect** | USB hot-plug resilience in `valor_dashboard.html` | Connects over Chrome Web Serial API at 115200 baud. Real-time 60 FPS PPG oscilloscope and gauges render smoothly. Unplugging and replugging USB reconnects with history intact. | ✅ **PASS** |
 | **Step 9: 15-Minute Soak** | System stability, memory leak, and panic audit | 15-minute continuous operation completed. Zero `Guru Meditation Errors`, zero watchdog resets, zero heap degradation. Inter-core communication protected by `s_data_mutex` without deadlocks. | ✅ **PASS** |
 | **Step 10: Indoor GPS Verification** | Non-blocking behavior under GNSS satellite shadow | GNSS reports `[SEARCHING SATELLITES] Sats: 0 | NMEA parsed: 13 | Fix: NO` without blocking. System gracefully preserves last-known coordinates `KIET COLLEGE GHAZIABAD` in NVRAM. | ✅ **PASS** |
+| **Step 11: Wireless Desktop Dashboard & Standalone Battery Mode** | Full dark-glassmorphism desktop dashboard operation over Wi-Fi (`VALOR-0081`) with ShrikeFi running untethered on 3.7 V battery | ShrikeFi completely untethered from PC. Connect laptop to `VALOR-0081`. `http://192.168.4.1/desktop` loads in <400 ms from flash (34.8 KB gzipped). Polling `/status.json` (400 ms) and `/api/history` (10 s) delivers 60 FPS animated arterial pulse wave synthesizer, real-time vitals, mNEWS2 gauge, and 24-hour history charts with 0 dropped frames and 0 wires to laptop. | ✅ **PASS** |
 
 ---
 

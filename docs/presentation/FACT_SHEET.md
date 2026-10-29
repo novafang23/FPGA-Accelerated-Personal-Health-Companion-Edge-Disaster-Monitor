@@ -26,6 +26,7 @@ This sheet contains every canonical metric, architectural parameter, reproductio
 | **HRV Settlement Gate** | **30 beats** & **≥15 valid NN pairs** | [`firmware/core/clinical_vitals_engine.c`](file:///c:/Users/abhin/OneDrive/Desktop/verilog/firmware/core/clinical_vitals_engine.c) (`hrv_is_settled()`) | Tested in `firmware/core/test_clinical_engine.c` | SoftAP displays `n/30`; RMSSD is held rather than fabricating unstable noisy readings during initial contact. |
 | **SPI Hardware Link** | **SPI Mode 0**, **8-bit**, **GPIO10/11/12/13**, **3.3 V strict** | [`docs/SHRIKEFI_LINK_PROTOCOL.md`](file:///c:/Users/abhin/OneDrive/Desktop/verilog/docs/SHRIKEFI_LINK_PROTOCOL.md) | Verified in `firmware/shrikefi/main/main_shrikefi.c` and `hardware/shrikefi/tb_shrikefi_spi_top.v` | SCK=GPIO12, SS_n=GPIO10, MOSI=GPIO11, MISO=GPIO13. Connecting 5 V directly destroys the FPGA pins. |
 | **Inter-Core Concurrency** | **FreeRTOS `s_data_mutex`** | [`firmware/shrikefi/main/main_shrikefi.c`](file:///c:/Users/abhin/OneDrive/Desktop/verilog/firmware/shrikefi/main/main_shrikefi.c) | Audited across all task access points | Core 0 (sensors/FPGA) and Core 1 (web/display) share telemetry strictly via mutex-guarded copy. |
+| **Wireless SoftAP Dashboard** | **34.8 KB Gzip (26.8%)** streamed in 4 KB chunks | [`firmware/shrikefi/valor_dashboard_gz.h`](file:///c:/Users/abhin/OneDrive/Desktop/verilog/firmware/shrikefi/valor_dashboard_gz.h) | `python scripts/bundle_desktop_dashboard.py` | Embedded at `GET /desktop` and `GET /dashboard`; serves 133 KB desktop dashboard wirelessly over SoftAP with zero external CDN dependencies. |
 
 ---
 
@@ -41,3 +42,5 @@ This sheet contains every canonical metric, architectural parameter, reproductio
    * *Answer:* The Xilinx Zynq-7000 baseline (185 LUT) demonstrates our high-performance SoC architecture in standard Vivado EDA tools. The Renesas ForgeFPGA target (515 / 1120 LUT) proves commercial ultra-low-cost (<$0.50) wearable feasibility on a strict cell budget.
 5. **"Why does GPS say NO FIX indoors?"**
    * *Answer:* GNSS satellite signals (1.5 GHz) cannot penetrate reinforced concrete ceilings. The system non-blocking handles NO FIX and retains the last-known NVRAM coordinates so triage telemetry remains uninterrupted.
+6. **"Can the aesthetic desktop dashboard operate without USB cables on battery?"**
+   * *Answer:* Yes. VALOR's ESP32-S3 hosts an autonomous SoftAP (`VALOR-0081`) serving both the mobile triage page and the full 60 FPS desktop command center at `http://192.168.4.1/desktop` via 4 KB chunked gzip streaming from flash. It operates 100% offline on a single Li-ion cell with zero external network dependencies.
