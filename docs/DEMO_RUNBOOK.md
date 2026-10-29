@@ -213,17 +213,18 @@ In competitive hackathons, physical hardware can suffer broken jumper wires, dea
 
 ### Executing the Verified Fallback Demonstration (If Hardware Fails)
 
-If a sensor wire breaks or your board loses power, do **not** panic. Immediately transition to the verified software and simulation fallback:
+If a sensor wire breaks or your board loses power, do **not** panic or freeze. Execute the rehearsed fallback within **30 seconds**:
+* **Spoken Trigger Phrase:** *"Judges, while we reseat the hardware cable, let us pivot immediately to our verified offline simulation and cycle-accurate RTL verification suite."*
+* **Target Switch Time:** **< 20 seconds** total from fault detection to interactive demo.
 
-1. **Launch the Web Dashboard in Simulation Mode:**
-   Double-click `launch_web_dashboard.bat`. Chrome opens `valor_dashboard.html`.
-2. **Select a Disaster Profile:**
+1. **Step 1: Switch to Offline Browser Simulation (Keystroke: `Alt + Tab` to Chrome):**
+   Open or switch to `firmware/shrikefi/dashboard/valor_dashboard.html` (or run `launch_web_dashboard.bat`).
+2. **Step 2: Select a Disaster Scenario:**
    Under **Simulated Profiles**, select:
    - **`Heat Wave & Dehydration`**: Watch HR climb to 138 BPM, Ambient Temp to 43.5°C, Moran's PSI climb to 9.5, and the TinyML Heat Stroke gauge hit 94% (CRITICAL).
    - **`Severe Smog / PM2.5 Crisis`**: Watch PM2.5 rise to 340 µg/m³, SpO2 drop to 92.5%, and the Smog Inhalation gauge spike to 97%.
    - **`Flash Flood / Hypothermia`**: Watch ambient temperature plunge to 11.2°C, barometric slope drop to -3.8 hPa/hr, triggering the **CRITICAL CYCLONE** warning card.
-3. **Execute Verilog Hardware Simulation in Front of Judges:**
-   Open PowerShell and run:
+3. **Step 3: Execute Verilog Hardware Simulation in Front of Judges (`Alt + Tab` to PowerShell):**
    ```powershell
    cd hardware\shrikefi
    iverilog -o sim.vvp -I ../common tb_forgefpga_system.v forgefpga_ppg_top.v spi_target.v ../common/moving_average_8tap.v ../common/ppg_peak_detector.v
@@ -231,6 +232,8 @@ If a sensor wire breaks or your board loses power, do **not** panic. Immediately
    ```
    Show the judges the terminal output:
    `RESULTS: 13 passed, 0 failed (out of 13 checks) - ALL TESTS PASSED`.
+4. **Step 4: Backup Demonstration Video (Ultimate Safety Shield):**
+   Double-click `VALOR_Hardware_Demo_Backup.mp4` directly on the laptop Desktop. Play the 60-90 second clip showing the physical prototype operating with live vitals, flashing FPGA D12 LED, and the phone dashboard updating in real time.
 
 ---
 
