@@ -76,7 +76,7 @@
 Connect the ShrikeFi board to your laptop using a USB-C data cable. In PowerShell:
 ```powershell
 # Check which COM port is assigned
-Get-WmiObject Win32_SerialPort | Select-Object DeviceID, Description
+[System.IO.Ports.SerialPort]::GetPortNames()
 # Expected: "COM4" today (port can change after replug; was COM5 earlier)
 ```
 
@@ -125,6 +125,7 @@ I (2455) PPG_OPTICAL: Raw: IR=1048, Red=1094 | AC=0 | Status: NO FINGER | HR: 0.
    > *"Judges, in an active flood or cyclone disaster, the cloud does not exist. We have zero cellular connectivity and zero server backhaul. This is Valor. It is a dual-brain architecture: a Renesas ForgeFPGA executing optical signal conditioning with 20-nanosecond hardware timing, and a dual-core ESP32-S3 executing clinical triage and a zero-cloud integer neural network."*
 3. **Physical Action:** Plug in the USB cable. Point out the OLED display lighting up with live sensor telemetry and the blue LED (D12) on the board.
    - Before any finger is placed, the triage verdict is **UNKNOWN ("Patient not assessed")**, not NORMAL and not MODERATE. The environment is still being measured and its own hazards are still reported, but the device does not grade a patient it has not measured. If a judge asks why it is not "NORMAL", that is the answer.
+   - **Indoor GPS Note:** Notice the GPS status shows `NO FIX`. Point out to judges: *"We are indoors under a reinforced concrete ceiling where 1.5 GHz GNSS signals cannot penetrate. Valor non-blockingly handles satellite signal shadow without stalling the I2C or SPI pipelines, preserving last-known NVRAM coordinates (`KIET COLLEGE GHAZIABAD`) for immediate emergency card projection."*
 
 ---
 
@@ -237,7 +238,7 @@ If a sensor wire breaks or your board loses power, do **not** panic. Immediately
 
 | Symptom / Error | Immediate Root Cause | 30-Second Fix |
 | :--- | :--- | :--- |
-| **`Permission denied: build_host_tests.exe`** | A previously compiled test executable is still running in the background | Run `Stop-Process -Name *host_test* -Force` in PowerShell, then recompile. |
+| **`Permission denied: test_engine.exe`** | A previously compiled test executable is still running in the background | Run `Stop-Process -Name *test_engine* -Force` in PowerShell, then recompile. |
 | **OLED display is completely black** | I2C pull-up collision or loose SDA/SCL wire | Jiggle breadboard rows 4 and 5 (GPIO 1 & 2). Power-cycle USB cable. |
 | **`[TELEMETRY] NO_FINGER` permanently displayed** | MAX30102 photodiode saturated by overhead lighting | Cup your hand over the sensor to shield it from harsh fluorescent lights. Warm your finger. |
 | **Phone cannot connect to `VALOR-0081`** | Wi-Fi channel congestion or phone auto-disconnecting (no internet) | Disable mobile data on the phone; hold phone within 1 meter of the ESP32-S3 board. |
@@ -249,6 +250,7 @@ If a sensor wire breaks or your board loses power, do **not** panic. Immediately
 
 Complete this checklist 15 minutes before your scheduled judging slot:
 
+- [ ] **Automated CI Verified:** Run `powershell -ExecutionPolicy Bypass -File scripts/predemo_verify.ps1` -> confirm `SUMMARY: 19/19 PASS`.
 - [ ] **USB Cables Tested:** Both USB-C cables confirmed working for data communication.
 - [ ] **Firmware Flashed:** Board has the latest firmware build with boot banner verified.
 - [ ] **COM Port Verified:** Note whether your device is on COM3, COM4 or COM5.
