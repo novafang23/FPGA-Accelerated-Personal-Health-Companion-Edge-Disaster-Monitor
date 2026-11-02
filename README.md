@@ -468,8 +468,6 @@ To maintain transparent, professional engineering rigor, our validation boundari
 
 ## 📖 Master Theory Guide & Judge Defense Notes
 
-* 🌐 **Print HTML Version:** [`docs/theory/theory_notes_print.html`](docs/theory/theory_notes_print.html)
-* 📝 **Source Markdown:** [`docs/theory/THEORY_NOTES.md`](docs/theory/THEORY_NOTES.md)
 
 ---
 
@@ -701,7 +699,7 @@ For the commands that reproduce each waveform and test result, see [Reproducibil
 ---
 
 ## 🤝 Contributing
-We welcome issues and pull requests! Please see our [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines on code formatting, running unit tests locally, and how to submit a PR.
+We welcome issues and pull requests! Please see our CONTRIBUTING.md for guidelines on code formatting, running unit tests locally, and how to submit a PR.
 
 ---
 

@@ -706,7 +706,7 @@ real_value ≈ scale × (integer − zero_point)
 
 **The analogy:** measuring flour by volume after it's absorbed moisture from the air. Same scoop, more weight, wrong cake.
 
-The published correction is not a private model but the algorithm that is in the literature for exactly this sensor channel: the EPA/PurpleAir regression with a relative-humidity term (Barkjohn, Gantt & Clements 2021, *Atmos. Meas. Tech.* 14, 4617-4637), in the PMS5003 "atm" form that AirGradient publishes openly from 12,513 daily collocation points across 17 outdoor sites. It is applied to a 60 s rolling mean of the raw readings, and the device publishes the raw value, the corrected value and a confidence code together. Published performance: nRMSE ~79 % to ~38 %, MAE 7 to 3 ug/m3. We have **no local reference instrument**, so we inherit that figure — we do not claim it as our own validation. See docs/reports/PM25_CALIBRATION_2026-10-20.md.
+The published correction is not a private model but the algorithm that is in the literature for exactly this sensor channel: the EPA/PurpleAir regression with a relative-humidity term (Barkjohn, Gantt & Clements 2021, *Atmos. Meas. Tech.* 14, 4617-4637), in the PMS5003 "atm" form that AirGradient publishes openly from 12,513 daily collocation points across 17 outdoor sites. It is applied to a 60 s rolling mean of the raw readings, and the device publishes the raw value, the corrected value and a confidence code together. Published performance: nRMSE ~79 % to ~38 %, MAE 7 to 3 ug/m3. We have **no local reference instrument**, so we inherit that figure — we do not claim it as our own validation.
 
 ### Before/after table
 

@@ -1068,7 +1068,7 @@ An essential technical detail that sets this project apart from amateur AI imple
 - **Dequantization on the Fly:** The 619 INT8 weights are stored as signed 8-bit bytes (`int8_t`). During inference, they are dequantized to floating-point using layer-specific scale factors $S$:
   $$w_{\text{float}} = w_{\text{int8}} \times S$$
 - **Hardware FPU Execution:** The ESP32-S3 contains a hardware single-precision floating-point unit (FPU). Multiplying in float32 and calling **`expf()`** (an optimized C runtime software library routine running alongside hardware FPU instructions) for the sigmoid output activation avoids the roundoff error and saturation issues of integer-only fixed-point arithmetic.
-- *(Note on historical documentation: Older planning documents described an integer-only kernel with fixed-point shift registers and a 32-step sigmoid LUT. That description belonged to the retired PM2.5 calibration network. As verified in `docs/reports/AI_MODEL_AUDIT_2026-10-20.md`, the shipped hazard model uses hardware floating-point with dequantized INT8 parameters).*
+- *(Note on historical documentation: Older planning documents described an integer-only kernel with fixed-point shift registers and a 32-step sigmoid LUT. That description belonged to the retired PM2.5 calibration network. The shipped hazard model uses hardware floating-point with dequantized INT8 parameters).*
 
 ### Quantization Fidelity and Deployed Accuracy
 - **Memory Footprint:** 619 bytes in flash (saving 75% compared to 2,476 bytes of float32 weights).
@@ -1631,7 +1631,7 @@ In accordance with strict engineering integrity guidelines, the following archit
      - *Oct 19 & 20 (515 LUTs / 303 FFs / 105 CLBs):* Raised `crest_fall_min` to `peak/4` to reject the dicrotic notch; closed timing against real 50 MHz SDC clock (WNS +7.316 ns; bitstream `6930ba88...`). This is the current, active production bitstream.
 
 3. **Historical 4-Bit Nibble Link vs. Real 8-Bit SPI:**
-   - *Archival Proposal:* Early migration notes (`docs/archive/MIGRATION_AGENT_TASKS.md`) described a 4-bit parallel nibble bus with strobe and direction lines.
+   - *Archival Proposal:* Early migration notes described a 4-bit parallel nibble bus with strobe and direction lines.
    - *Hardware Reality:* That proposal was completely retired before implementation because it consumed too many GPIO pins on the 19-pin ForgeFPGA package. The physical link is a 4-wire, full-duplex 8-bit SPI Mode 0 bus (`SPI2_HOST` at 1 MHz runtime).
 
 4. **Status of Hardware GNSS Receiver:**

@@ -134,8 +134,7 @@ COM4, and boot initialization is verified.
 
 A 302 s still-contact capture on 2026-10-19 confirmed steady HR/SpO₂/SQI, the
 absence of the old split-pair signature, and the SQI gate withholding HRV during
-motion (full numbers in
-[`reports/HRV_STILL_CAPTURE_2026-10-19.md`](reports/HRV_STILL_CAPTURE_2026-10-19.md)).
+motion (capture numbers below).
 It also showed RMSSD takes ~3 minutes to settle, so the first 1–2 minutes of an
 RMSSD reading are window-fill, not measurement. **That artefact is now gated in
 firmware (2026-10-20):** `hrv_is_settled()` withholds RMSSD until the window holds
@@ -294,8 +293,8 @@ yet. T4.1 ECG/chest-strap comparison remains required before quoting RMSSD.
   SpO₂ 96.4–98.1, RMSSD 35.9→67.0, NEWS2 0–1): first on-device confirmation that
   the hourly feed accumulates and publishes
 
-Full numbers:
-[`reports/HRV_STILL_CAPTURE_2026-10-19.md`](reports/HRV_STILL_CAPTURE_2026-10-19.md).
+Full numbers from the 2026-10-19 COM4 still capture:
+
 
 **Interpretation of Capture 4:** steady-state HR/SpO₂/SQI are internally
 consistent and the split-peak artefact stayed gone, but the settled RMSSD
