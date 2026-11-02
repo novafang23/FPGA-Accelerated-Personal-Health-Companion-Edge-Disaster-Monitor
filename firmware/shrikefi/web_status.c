@@ -80,6 +80,11 @@ static void control_pin_init(void)
 #endif
 }
 
+const char *web_status_ap_password(void)
+{
+    return WEB_STATUS_AP_PASSWORD;
+}
+
 const char *web_status_control_pin(void)
 {
     control_pin_init();
@@ -1638,10 +1643,26 @@ esp_err_t web_status_start(void) {
     ap.ap.ssid_len       = (uint8_t)strlen(s_ssid);
     ap.ap.channel        = 6;
     ap.ap.max_connection = 4;
-    /* Open by design so a bystander needs no credential in an emergency.
-     * This exposes live status to anyone in WiFi range; cloud publishing is
-     * independently disabled by default. */
-    ap.ap.authmode       = WIFI_AUTH_OPEN;
+    /* WPA2, not open.
+     *
+     * The access point used to be open so a rescuer needed no credential. That
+     * made the device trivially reachable: anyone in radio range could read the
+     * live vitals AND POST to /api/emergency/cancel. A four-digit PIN was added
+     * on the mutating endpoints, but an open AP still leaks a patient's vitals
+     * to every nearby device and leaves the PIN open to offline guessing.
+     *
+     * The password is fixed rather than generated so it survives a reboot in
+     * the middle of a demo and can be printed in the runbook. It is a local
+     * single-purpose AP with a 4-client cap and no internet route, so a
+     * rotating credential would cost more in usability than it buys in
+     * security. The mutation PIN stays as a second factor.
+     *
+     * Stated plainly: a fixed password is only as good as the people who know
+     * it. This raises the bar from "anyone in range" to "anyone told the
+     * password", which is the correct bar for a field device handed to a
+     * rescuer - not a substitute for real credentials on a production unit. */
+    snprintf((char *)ap.ap.password, sizeof(ap.ap.password), "%s", WEB_STATUS_AP_PASSWORD);
+    ap.ap.authmode       = WIFI_AUTH_WPA2_PSK;
 
     err = esp_wifi_set_mode(WIFI_MODE_AP);
     if (err != ESP_OK) { ESP_LOGE(TAG, "set_mode failed (%s)", esp_err_to_name(err)); return err; }
@@ -1706,7 +1727,7 @@ esp_err_t web_status_start(void) {
     httpd_register_err_handler(s_server, HTTPD_404_NOT_FOUND, h_404);
 
     s_ap_active = true;
-    ESP_LOGI(TAG, "Status page up: join WiFi '%s' (open), then open http://192.168.4.1", s_ssid);
+    ESP_LOGI(TAG, "Status page up: join WiFi '%s' (WPA2, password '%s'), then open http://192.168.4.1", s_ssid, WEB_STATUS_AP_PASSWORD);
     return ESP_OK;
 }
 

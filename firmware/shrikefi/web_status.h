@@ -367,6 +367,21 @@ bool web_status_ap_active(void);
 #endif
 
 
+/* ---- Access point credentials --------------------------------------------
+ *
+ * The AP is WPA2, not open. An open AP let anyone in radio range read a
+ * patient's live vitals and reach the mutating endpoints; the 4-digit PIN on
+ * those endpoints is a second factor, not the primary one.
+ *
+ * Fixed rather than generated so it survives a mid-demo reboot and can be
+ * printed in the runbook. WPA2 requires 8..63 characters; this is 11.
+ *
+ * A fixed password is only as good as who knows it. That is the right bar for a
+ * field device handed to a rescuer - anyone told the password can join - and it
+ * is not a substitute for per-unit credentials on a production unit.
+ */
+#define WEB_STATUS_AP_PASSWORD "valorhealth"
+
 /* ---- Control PIN (available on host too, for tests) ----------------------
  *
  * The access point is OPEN by design so a rescuer can join with no app. That
@@ -383,6 +398,9 @@ bool web_status_ap_active(void);
 
 /* Never NULL. Four characters. */
 const char *web_status_control_pin(void);
+
+/* AP passphrase actually applied at boot. Never NULL. */
+const char *web_status_ap_password(void);
 
 /* True when `haystack` (query string, form body or JSON fragment) carries the
  * current PIN. Permissive about WHERE it appears, strict about its value. */
