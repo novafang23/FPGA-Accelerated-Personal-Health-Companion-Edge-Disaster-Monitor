@@ -20,6 +20,7 @@
 #include "esp32_i2c_hal.h"
 #include "max30102.h"
 #include "bme280.h"
+#include "tmp117.h"
 #include "skin_estimate.h"
 #include "pms5003.h"
 #include "ssd1306.h"
@@ -122,6 +123,13 @@ static health_system_state_t g_state;
 /* Sensor driver instances */
 static max30102_t s_max30102;
 static bme280_t s_bme280;
+/* Clinical skin probe (TI TMP117). When fitted its reading IS the published
+ * skin temperature; the MAX30102 die estimate below is only used while it is
+ * absent, and is labelled as an estimate when it is. */
+static tmp117_t s_tmp117;
+/* True when the last published skin temperature came from the TMP117 probe
+ * rather than the die model. Drives SKIN_SRC_* in the status JSON. */
+static bool s_skin_probe_valid = false;
 static skin_estimate_t s_skin_est;
 static pms5003_t s_pms5003;
 static ssd1306_t s_ssd1306;
@@ -275,9 +283,86 @@ typedef struct {
     int          prime_count;   /* plausible intervals seen since handover */
 } ibi_pipeline_t;
 
+/* ---------------------------------------------------------------------------
+ * Contact gate: is this light bouncing off a reflective interior, or through
+ * living tissue?
+ * ---------------------------------------------------------------------------
+ * An empty enclosed shroud is NOT dark. The inner black tape reflects the LEDs
+ * straight back, and this board measured IR 18,200 / Red 17,700 with nothing in
+ * the tunnel - which is above the old 7,000-count amplitude threshold, so the
+ * firmware reported LOCKED / HR 98.9 BPM / RMSSD 59.4 ms / SQI 0.79 / SpO2
+ * 93.8 % for a completely empty enclosure.
+ *
+ * A perfusion-index test does NOT separate these. Measured on the same board:
+ *
+ *   empty shroud : IR 18,230, AC ~400  -> PI 2.19 %
+ *   real finger  : IR 162,640, AC 1078 -> PI 0.66 %
+ *
+ * The reflection has THREE TIMES the PI of a perfusing finger, because the
+ * high-frequency flicker and 50 Hz pickup of a purely reflective cavity are
+ * larger single-sample excursions than a smooth cardiac pulse. Requiring
+ * PI >= 0.60 % therefore ADMITTED the empty tunnel. That gate was implemented,
+ * measured against real hardware, and removed.
+ *
+ * What does separate them is the absolute light budget and the spectral
+ * signature. Skin over the LEDs is an order of magnitude brighter than a taped
+ * plastic cavity, and with tissue IR sits clearly above Red because deoxy
+ * haemoglobin absorbs red more strongly:
+ *
+ *   empty shroud : IR 18,200, Red 17,700   (gap  +3 %, both dim)
+ *   real finger  : IR 162,000, Red 138,000 (gap +17 %, both bright)
+ *
+ * So a finger must clear BOTH a much higher DC floor AND show the IR/Red
+ * separation. Reflected LED light cannot satisfy either: it is dim, and it
+ * returns both wavelengths almost equally. */
+#define PPG_CONTACT_MIN_IR_COUNTS  60000u  /* measured tissue levels are 120k-185k */
+
+/* Kept as a named predicate because the host test exercises it directly
+ * (see the optical-contact gate profile). The on-device decision uses
+ * ppg_has_tissue_signature() below, which applies the same threshold. */
 static bool ppg_has_optical_contact(uint32_t ir, uint32_t red) {
-    return ir > PPG_CONTACT_THRESHOLD || red > PPG_CONTACT_THRESHOLD;
+    return ir > PPG_CONTACT_MIN_IR_COUNTS || red > PPG_CONTACT_MIN_IR_COUNTS;
 }
+
+/* Is this light passing through tissue?
+ *
+ * Measured on this hardware, the ONLY quantity that reliably separates a finger
+ * from the reflective interior of the enclosed shroud is the absolute light
+ * budget. The ratios are not usable:
+ *
+ *   empty shroud : IR 18,300  Red 17,700   PI 2.19 %   (dim, high "perfusion")
+ *   finger       : IR 128,700 Red 134,300  PI 0.66 %   (bright, low "perfusion")
+ *
+ * Note that with a finger the RED reading is HIGHER than IR on this board -
+ * an earlier version of this function required IR >= Red*1.06 and therefore
+ * rejected a real finger. Photodiode gain and LED placement vary between
+ * breakouts, so the IR/Red ordering cannot be relied on either.
+ *
+ * What is reliable is that skin returns roughly an order of magnitude more
+ * light than a taped plastic cavity. One threshold, with margin, does the job:
+ * a finger clears 60,000 counts, an empty shroud stays near 18,000. */
+static bool ppg_has_tissue_signature(uint32_t ir, uint32_t red) {
+    return ir > PPG_CONTACT_MIN_IR_COUNTS || red > PPG_CONTACT_MIN_IR_COUNTS;
+}
+
+/* True only while THIS sample looked like tissue. Distinct from the debounced
+ * contact flag, which deliberately lingers across a one-sample dropout. The
+ * SQI is forced below its validity bar whenever this is false, so a window
+ * collected from an empty enclosure can never certify a patient.
+ *
+ * ESP-only: it is read by ppg_update_respiration_and_sqi(), which exists solely
+ * in the device build, so the host harness has no user for it. */
+#ifdef ESP_PLATFORM
+static bool s_contact_verified = false;
+#endif
+
+/* Mark the tissue predicate as used in the host build too: the host test
+ * exercises ppg_has_optical_contact directly, and this alias keeps the two
+ * definitions from drifting apart. */
+#ifndef ESP_PLATFORM
+__attribute__((unused))
+static bool (*const ppg_tissue_signature_alias)(uint32_t, uint32_t) = ppg_has_tissue_signature;
+#endif
 
 static void ibi_pipeline_reset(ibi_pipeline_t *p) {
     p->source = IBI_SRC_NONE;
@@ -468,7 +553,17 @@ static void ppg_update_respiration_and_sqi(hrv_state_t *hrv,
         /* Hysteresis: require >= 0.70 for initial lock, and >= 0.60 to maintain lock
          * while the finger remains in contact and IMU motion is below the 0.35g hard gate. */
         float sqi_floor = (g_state.hrv_rmssd > 0.0f) ? 0.60f : PPG_SQI_THRESHOLD_VALID;
-        hrv_quality_ok = (sqi.overall_sqi >= sqi_floor) &&
+        /* An SQI computed without verified optical contact is not evidence of
+         * anything: the enclosure's reflective interior alone produced 0.79.
+         * Force the composite below the validity bar unless the SQI window was
+         * actually collected from a perfusing finger. s_contact_verified is
+         * sampled from the PPG task, so reading it here is racy in the strict
+         * sense but only ever causes one extra hold, never a false pass. */
+        float sqi_eff = sqi.overall_sqi;
+        if (!s_contact_verified && sqi_eff >= PPG_SQI_THRESHOLD_VALID) {
+            sqi_eff = PPG_SQI_THRESHOLD_VALID - 0.01f;
+        }
+        hrv_quality_ok = (sqi_eff >= sqi_floor) &&
                          (g_state.ppg_sqi >= sqi_floor) &&
                          (motion_energy < 0.35f);
         /* Publish PI when the SQI window is clinically usable; once locked during active
@@ -810,15 +905,32 @@ static void task_ppg_accelerator(void *pvParameters) {
                 ir_win_count = 0;
             }
 
-            /* Optical contact check with 100-sample (debounced) tolerance:
-             * Ambient air is IR < 1000; tissue contact elevates levels to > 50,000.
-             * This board also produced 3,800-4,400 counts without tissue while the
-             * LED current was high; a 7,000-count threshold separates that measured
-             * ambient level from tissue.
-             * A momentary 1-sample optical glitch or movement must not wipe the 300-beat
-             * HRV and SpO2 history buffers immediately. We require 100 consecutive missing
-             * samples before declaring contact lost. */
-            bool raw_contact = ppg_has_optical_contact(ppg_sample.ir, ppg_sample.red);
+            /* Optical contact check.
+             *
+             * Two independent conditions, both required:
+             *
+             *  1. AMPLITUDE (ppg_has_optical_contact): enough light is reaching
+             *     the photodiode. Ambient air is IR < 1000; tissue is > 50,000.
+             *
+             *  2. PERFUSION (ppg_ir_has_perfusion): the light is MODULATED like
+             *     arterial blood. This is the condition that was missing, and
+             *     its absence produced the worst bug this device has had: with
+             *     the enclosure fitted and NOTHING inside it, the black inner
+             *     tape reflects the LEDs back at IR ~18200 counts - above the
+             *     amplitude threshold - so the firmware reported LOCKED,
+             *     HR 98.9 BPM, RMSSD 59.4 ms and SQI 0.79 for an empty shroud.
+             *     Measured separation: empty PI 0.14-0.30 %, real finger PI
+             *     1.8-3.0 %. Requiring PI >= 0.60 % makes reflected light
+             *     insufficient on its own.
+             *
+             * A momentary 1-sample glitch or movement must not wipe the 300-beat
+             * HRV and SpO2 history buffers immediately, so contact loss is
+             * debounced over 100 consecutive bad samples. */
+            bool scope_amp = ppg_has_tissue_signature(ppg_sample.ir, ppg_sample.red);
+            bool raw_contact = scope_amp;
+            /* True only while THIS sample looked like tissue. Distinct from the
+             * debounced flag below, which deliberately lingers. */
+            s_contact_verified = raw_contact;
             bool optical_contact;
             if (raw_contact) {
                 s_disconnect_samples = 0;
@@ -920,6 +1032,14 @@ static void task_ppg_accelerator(void *pvParameters) {
             if (raw_contact) {
                 ppg_history_push_u32(s_sqi_raw, &s_sqi_raw_n, PPG_SQI_RAW_WIN,
                                      ppg_sample.ir);
+
+                /* Decimated waveform for the Wi-Fi dashboard scope (25 Hz from
+                 * the 100 Hz FIFO). Without this the SoftAP view has no
+                 * waveform to draw and can only show a synthesised pulse. */
+                static uint8_t s_wifi_ppg_decim = 0;
+                if ((s_wifi_ppg_decim++ & 3u) == 0u) {
+                    web_status_ppg_push(ppg_sample.ir);
+                }
             }
 
 /* ESP-IDF omits an unset bool from sdkconfig.h entirely, so an undefined
@@ -1383,6 +1503,9 @@ static void task_ppg_accelerator(void *pvParameters) {
                         g_state.signal_status        = SIGNAL_STATUS_NO_FINGER;
                         xSemaphoreGive(s_data_mutex);
                     }
+                    /* Drop the Wi-Fi scope's tail so a new finger does not
+                     * inherit the previous contact's samples. */
+                    web_status_ppg_reset();
                 }
             }
             vTaskDelay(pdMS_TO_TICKS(10));
@@ -1788,8 +1911,34 @@ static float s_last_pm10 = 0.0f;   /* coarse-particle proxy for dust detection *
                (int)s_skin_est.is_settled, s_skin_est.estimated_skin_c);
         fflush(stdout);
 
-        /* Only publish settled skin temperature inside valid range */
-        const float pub_skin_temp = s_skin_est.is_valid ? s_skin_est.estimated_skin_c : 0.0f;
+        /* Skin temperature: the TMP117 probe wins whenever it answers.
+         *
+         * The probe is a real contact thermometer (+/-0.1 C, 1/128 C
+         * resolution) mounted against the skin, so its reading IS the skin
+         * temperature. The MAX30102 die model below is only a fallback for when
+         * no probe is fitted, and it is published as an explicitly uncalibrated
+         * estimate.
+         *
+         * A single failed I2C read must not blank the display mid-contact, so
+         * the last good value is held for 10 s; past that the reading is
+         * absent rather than frozen forever. */
+        static uint32_t s_probe_last_ok_ms = 0;
+        const uint32_t  probe_now_ms = (uint32_t)(xTaskGetTickCount() * portTICK_PERIOD_MS);
+        float probe_c = 0.0f;
+        bool  probe_ok = false;
+        if (s_tmp117.initialized && tmp117_read_temp(&s_tmp117, &probe_c) == 0) {
+            probe_ok = true;
+            s_probe_last_ok_ms = probe_now_ms ? probe_now_ms : 1u;
+        } else if (s_tmp117.initialized && s_probe_last_ok_ms != 0u &&
+                   (probe_now_ms - s_probe_last_ok_ms) <= 10000u &&
+                   s_tmp117.last_c > TMP117_MIN_VALID_C && s_tmp117.last_c < TMP117_MAX_VALID_C) {
+            probe_c  = s_tmp117.last_c;
+            probe_ok = true;
+        }
+        s_skin_probe_valid = probe_ok;
+        const float pub_skin_temp = probe_ok
+                                  ? probe_c
+                                  : (s_skin_est.is_valid ? s_skin_est.estimated_skin_c : 0.0f);
 
         /* Unconditionally update shared system state with live environmental telemetry */
         if (xSemaphoreTake(s_data_mutex, pdMS_TO_TICKS(20)) == pdTRUE) {
@@ -1877,6 +2026,9 @@ static float s_last_pm10 = 0.0f;   /* coarse-particle proxy for dust detection *
          * the device actually produced, not a re-derivation of it. */
         unsigned clin_news2 = 0;
         unsigned clin_flags = 0;
+        /* NEWS2 sub-scores, hoisted so the status snapshot can publish the
+         * device's own breakdown for the dashboard tiles. */
+        unsigned clin_hr_pts = 0, clin_spo2_pts = 0, clin_rr_pts = 0, clin_temp_pts = 0;
 
         /* Barometric trend, evaluated and ASSESSED every second, deliberately
          * outside the assessment branch below.
@@ -1894,6 +2046,13 @@ static float s_last_pm10 = 0.0f;   /* coarse-particle proxy for dust detection *
         risk_level_t storm_risk = RISK_UNKNOWN;
         const char *storm_advisory = NULL;
         assess_cyclone_risk(&pressure_trend, &storm_risk, &storm_advisory);
+
+        /* Published PSI/AHA and the "did the engines run" flag, hoisted so the
+         * status snapshot can render them whether or not this cycle reached a
+         * full assessment. 0 with have_strain == 0 is absence, not calm. */
+        float moran_psi  = 0.0f;
+        float aha_strain = 0.0f;
+        bool  have_strain = false;
 
         risk_assessment_t final_risk;
         memset(&final_risk, 0, sizeof(final_risk));
@@ -1989,9 +2148,25 @@ static float s_last_pm10 = 0.0f;   /* coarse-particle proxy for dust detection *
              * NEWS2. RR is only trusted once the estimator reports it reliable;
              * SQI gates the whole score. */
             clinical_assessment_t clin_assess;
-            /* Body temperature for mNEWS2: uses estimated core temperature from settled
-             * TMP117 reading (or 0.0f uninstrumented if not fitted / still settling). */
-            /* Die-temp skin estimate is uninstrumented for NEWS2 triage (never claim core) */
+            /* Body temperature for mNEWS2.
+             *
+             * Only a REAL contact probe feeds the score. The MAX30102 die model
+             * never does: it is an uncalibrated estimate, and a NEWS2
+             * hypothermia point (+3 below 35.0 C) driven by a modelled number
+             * could raise a false alarm - or, worse, hide a real one.
+             *
+             * IMPORTANT: NEWS2's temperature term is defined on CORE/tympanic
+             * values, but the TMP117 measures PERIPHERAL SKIN. A healthy
+             * fingertip reads 30-34 C, which NEWS2 would score +3 hypothermia
+             * on every single healthy subject. Passing skin through unmodified
+             * would therefore manufacture a critical alert on a well patient.
+             *
+             * news2_temp_score() rejects temp <= 0 as "unmeasured", so the
+             * honest wiring is: the probe value is published as a MEASUREMENT in
+             * the status payload, but the NEWS2 temperature term stays
+             * uninstrumented until a core-equivalent site is available. Only a
+             * probe mounted at a core-equivalent site (tympanic/axillary with a
+             * documented offset) may feed this. */
             const float news2_temp = 0.0f;
             /* Once HRV is settled during active contact, apply 0.58->0.70 hysteresis on
              * sqi_for_news2 so a 1-second finger shift does not flip live triage to UNKNOWN. */
@@ -2003,6 +2178,10 @@ static float s_last_pm10 = 0.0f;   /* coarse-particle proxy for dust detection *
             triage_level = (int)clin_assess.level;
             clin_news2 = (unsigned)clin_assess.news2_score;
             clin_flags = (unsigned)clin_assess.alert_flags;
+            clin_hr_pts   = (unsigned)clin_assess.news2_hr_pts;
+            clin_spo2_pts = (unsigned)clin_assess.news2_spo2_pts;
+            clin_rr_pts   = (unsigned)clin_assess.news2_rr_pts;
+            clin_temp_pts = (unsigned)clin_assess.news2_temp_pts;
 
             /* 4. Unified Triage: Fuse deterministic bounds, TinyML patterns, and clinical vitals */
             risk_assessment_t env_fused = rule_risk;
@@ -2093,8 +2272,9 @@ static float s_last_pm10 = 0.0f;   /* coarse-particle proxy for dust detection *
              * the device had no value for them at all. Both are cited indices
              * (Moran 1998; Brook et al., AHA 2010) and the functions were
              * already linked in, so they are now computed for real. */
-            float moran_psi   = disaster_calculate_moran_psi(hr, env.ambient_temp_c, env.humidity_pct);
-            float aha_strain  = disaster_calculate_aha_autonomic_strain(env.pm25, hrv_snapshot.rmssd);
+            moran_psi   = disaster_calculate_moran_psi(hr, env.ambient_temp_c, env.humidity_pct);
+            aha_strain  = disaster_calculate_aha_autonomic_strain(env.pm25, hrv_snapshot.rmssd);
+            have_strain = true;
 
             printf("[TRIAGE] NEWS2=%u,LEVEL=%u,FLAGS=0x%02X,RISK=%s,"
                    "NNHEAT=%.3f,NNPOLL=%.3f,NNFLOOD=%.3f,"
@@ -2243,6 +2423,11 @@ static float s_last_pm10 = 0.0f;   /* coarse-particle proxy for dust detection *
             st.sqi      = sqi_for_news2;
             st.rmssd    = hrv_snapshot.rmssd;
             st.hrv_n    = hrv_snapshot.count;
+            /* Evidence behind the RR figure, so the Wi-Fi dashboard can say
+             * "low confidence, wait" instead of showing a bare "--". */
+            st.rr_conf     = rr_conf_dbg;
+            st.rr_depth_ms = rr_depth_dbg;
+            st.pi          = pi_pub;
             st.temp     = env.ambient_temp_c;
              
             st.hum      = env.humidity_pct;
@@ -2268,8 +2453,16 @@ static float s_last_pm10 = 0.0f;   /* coarse-particle proxy for dust detection *
             st.pvalid    = pressure_trend.valid;
             st.news2    = clin_news2;
             st.storm    = risk_level_to_string(storm_risk);
-            st.level    = (triage_level > 0) ? (unsigned)triage_level : 0u;
+            st.level    = (triage_level > 0) ? triage_level : 0;
             st.flags    = clin_flags;
+            /* The device's own NEWS2 sub-scores. clin_assess is only filled
+             * when the clinical engine ran this cycle; have_strain is the
+             * flag that says so, and the page renders "--" otherwise instead
+             * of a fabricated "+0" breakdown. */
+            st.news2_hr_pts   = have_strain ? (unsigned)clin_hr_pts   : 0u;
+            st.news2_spo2_pts = have_strain ? (unsigned)clin_spo2_pts : 0u;
+            st.news2_rr_pts   = have_strain ? (unsigned)clin_rr_pts   : 0u;
+            st.news2_temp_pts = have_strain ? (unsigned)clin_temp_pts : 0u;
             st.risk     = risk_level_to_string(final_risk.overall_risk);
             st.sos      = sos_state_name(sos_now);
             st.trigger  = sos_trigger_name(sos_trig);
@@ -2283,11 +2476,64 @@ static float s_last_pm10 = 0.0f;   /* coarse-particle proxy for dust detection *
             live_gps_buf[0] = '\0';
             st.uptime_s = sos_now_ms / 1000u;
             st.contact  = contact_present;
+            /* On-device TinyML + fused rule-engine hazard channels and the two
+             * literature-derived strain indices. Until now these existed only
+             * on the serial [TRIAGE] line, so the SoftAP dashboard had no
+             * source for its AI tiles and fell back to invented values. The
+             * point is that the browser renders what the board computed; it
+             * never re-derives a risk score. nn_out/cnn_risk/final_risk are
+             * all zero-initialised each cycle when no assessment ran, and
+             * ai_valid is false then, so "declined" and "scored 0" stay
+             * distinguishable on the page. */
+            st.nn_heat      = nn_out.heat_score;
+            st.nn_pollution = nn_out.pollution_score;
+            st.nn_flood     = nn_out.flood_score;
+            st.ai_valid     = (nn_risk.overall_risk != RISK_UNKNOWN);
+            st.rule_heat      = risk_level_to_string(rule_risk.heat_risk);
+            st.rule_pollution = risk_level_to_string(rule_risk.pollution_risk);
+            st.rule_flood     = risk_level_to_string(rule_risk.flood_risk);
+            st.psi = have_strain ? moran_psi : 0.0f;
+            st.aha = have_strain ? aha_strain : 0.0f;
+            st.ssid = web_status_ap_ssid();
             /* Only the thermally settled value is published. The OLED may show
              * the raw reading while the sensor is still settling, but a status
              * page must not present an unsettled value as a measurement. */
             st.skin_temp  = pub_skin_temp;
-            st.skin_valid = s_skin_est.is_valid;
+            /* Valid if EITHER source produced a value: the probe when fitted,
+             * otherwise the die model once settled. */
+            st.skin_valid = s_skin_probe_valid || s_skin_est.is_valid;
+            /* Provenance drives the UI label:
+             *   TMP117   -> a real contact thermometer, shown as "probe"
+             *   ESTIMATE -> the MAX30102 die model, shown as "uncalibrated"
+             *   NONE     -> nothing to show
+             * The probe's own accuracy (+/-0.1 C) is a datasheet figure and does
+             * not depend on any coefficient we fitted, so it is a measurement,
+             * not an estimate - the distinction the rest of this project already
+             * makes for SpO2 and HRV. */
+            st.skin_source = s_skin_probe_valid ? SKIN_SRC_TMP117
+                           : (s_skin_est.is_valid ? SKIN_SRC_ESTIMATED : SKIN_SRC_NONE);
+            /* A probe reading needs no calibration, so it counts as calibrated;
+             * the die model never does until its coefficients are fitted. */
+            st.skin_calibrated = s_skin_probe_valid ? true : s_skin_est.is_calibrated;
+            /* Die-model diagnostics are meaningless when the probe answered, so
+             * they are only published for the estimate path. */
+            st.skin_die_delta = s_skin_probe_valid ? 0.0f : s_skin_est.die_delta_c;
+            st.skin_weak      = s_skin_probe_valid ? false : s_skin_est.weak_signal;
+            /* Peripheral thermal state. Only ever a TREND from this subject's
+             * own settled baseline: a fingertip sits 3-7 C below core and that
+             * gap is vasoconstriction, not a calibratable offset, so we report
+             * direction of travel and never a core temperature. With a TMP117
+             * fitted the probe drives the estimate, so the same state machine
+             * sees the probe value -- which is the better input. */
+            st.skin_therm_state = skin_therm_state_name(s_skin_est.pt_state);
+            st.skin_trend_c     = s_skin_est.pt_trend_c;
+            st.skin_rate_c_per_min = s_skin_est.pt_rate_c_per_min;
+            st.skin_therm_ok    = (s_skin_est.pt_state != SKIN_THERM_UNKNOWN);
+            /* How much the die thermometer actually moved this contact. A
+             * delta near zero means the published number is the model constant
+             * plus ambient, not a property of the patient's skin - the page
+             * says so instead of implying a measurement. Already zeroed above
+             * when the TMP117 probe answered. */
             if (xSemaphoreTake(s_data_mutex, pdMS_TO_TICKS(10)) == pdTRUE) {
                 st.motion = g_state.imu_motion_energy;
                 st.fall   = fall_state_name(g_state.fall_state);
@@ -2434,6 +2680,25 @@ static float s_last_pm10 = 0.0f;   /* coarse-particle proxy for dust detection *
                 snprintf(buf_skin, sizeof(buf_skin), "Skin: <31.0C (COLD)");
             } else {
                 snprintf(buf_skin, sizeof(buf_skin), "Skin: ACQUIRING...");
+            }
+            /* Append the peripheral thermal direction to the Skin line when
+             * there is room and something worth saying. STABLE is the absence
+             * of a finding so it stays silent; COOLING/REWARMING are the
+             * actionable states and VASOCONSTRICTED is the alarm. The OLED is
+             * 21 columns wide, so the temperature string is only kept when it
+             * still fits -- truncation must never eat the state word. */
+            if (s_skin_est.pt_state != SKIN_THERM_UNKNOWN &&
+                s_skin_est.pt_state != SKIN_THERM_STABLE) {
+                const char *tag = (s_skin_est.pt_state == SKIN_THERM_COOLING)  ? " dn"
+                                : (s_skin_est.pt_state == SKIN_THERM_REWARMING) ? " up"
+                                                                               : " COLD";
+                size_t used = strlen(buf_skin);
+                size_t taglen = strlen(tag);
+                if (used + taglen + 1u <= 21u) {
+                    memcpy(buf_skin + used, tag, taglen + 1u);
+                } else {
+                    snprintf(buf_skin, sizeof(buf_skin), "Skin: %s", skin_therm_state_name(s_skin_est.pt_state));
+                }
             }
             ssd1306_draw_string(&s_ssd1306, 2, 32, buf_skin);
 
@@ -2876,16 +3141,157 @@ void app_main(void) {
         ESP_LOGI(TAG, "MAX30102 initialized OK");
     }
 
-    /* Initialize Skin Temperature Estimator (MAX30102 on-die temp + BME280 ambient) */
-    skin_estimate_init(&s_skin_est, SKIN_EST_DEFAULT_B0, SKIN_EST_DEFAULT_B1, SKIN_EST_DEFAULT_B2, true);
-    ESP_LOGI(TAG, "Skin temperature estimator ready (T_skin = %.2f + %.2f*T_die + %.2f*T_amb)",
+    /* Initialize Skin Temperature Estimator (MAX30102 on-die temp + BME280 ambient).
+     *
+     * is_calibrated = false, deliberately.
+     *
+     * The B0/B1/B2 constants are NOMINAL defaults, not a fit. They were never
+     * regressed against a reference thermometer: the TMP117 has never answered
+     * on the bus (all four addresses return 0xFFFF), so
+     * tools/calibrate_skin_single_subject.py has never had reference data to
+     * fit against. Marking this `true` made the firmware treat a plausible
+     * guess as a measurement, which is the one claim this project does not
+     * make anywhere else.
+     *
+     * The estimate still runs and is still shown - it responds to the die
+     * warming under a finger and it is stable once settled, which makes it
+     * useful as a relative indicator - but it is published as an ESTIMATE and
+     * stays out of the NEWS2 temperature term until the flags says otherwise.
+     *
+     * To calibrate: fit B0/B1/B2 with the tool, then pass `true` here. The
+     * dashboard label and the NEWS2 temperature term both follow this flag. */
+    skin_estimate_init(&s_skin_est, SKIN_EST_DEFAULT_B0, SKIN_EST_DEFAULT_B1, SKIN_EST_DEFAULT_B2, false);
+    ESP_LOGI(TAG, "Skin temperature estimator ready [UNCALIBRATED estimate] "
+                  "(T_skin = %.2f + %.2f*T_die + %.2f*T_amb)",
              SKIN_EST_DEFAULT_B0, SKIN_EST_DEFAULT_B1, SKIN_EST_DEFAULT_B2);
 
-    /* Initialize BME280 (environmental sensor) */
+    /* Measure the MAX30102's LED self-heating instead of assuming it.
+     *
+     * The estimator needs to know what the die reads with NO finger on it, and
+     * with the emitters running - because that is the temperature a finger has
+     * to beat. Previously this was the fabricate `ambient + 5.5`. On this board
+     * the real self-heating is smaller than that guess, so the assumed baseline
+     * sat ABOVE every die reading the finger produced, the delta clamped to
+     * zero, and the die thermometer contributed nothing to the published value.
+     *
+     * Measure it directly: shut the LEDs down, let the die relax, read it, then
+     * power the emitters back up and watch the step. That difference is the
+     * real offset, and the estimator only trusts the value if it is
+     * physically plausible - a probe that moved between the two reads is
+     * rejected rather than silently biasing every later reading.
+     *
+     * Costs ~4 s at boot and needs no user interaction. If either reading
+     * fails, the estimator falls back to the die's own idle level and flags the
+     * output as a weak signal rather than inventing an ambient margin. */
+
+    /* Initialize BME280 (environmental sensor).
+     * Runs BEFORE the skin calibration below, because that calibration needs a
+     * real ambient reading to compare the warm die against. */
     if (bme280_init(&s_bme280, esp32_i2c_hal_get_handle(), BME280_I2C_ADDR) != 0) {
         ESP_LOGE(TAG, "BME280 initialization failed!");
     } else {
         ESP_LOGI(TAG, "BME280 initialized OK");
+    }
+
+    /* Clinical skin-temperature probe (TI TMP117).
+     *
+     * This is the ONLY element that measures a body temperature directly. The
+     * MAX30102 die thermometer below is a junction sensor heated by its own
+     * emitters and is used only as a fallback estimate while no probe answers.
+     *
+     * The address is configurable from 0x48 to 0x4B, so all four are probed.
+     * A fitted part that is dead and a part that is not fitted both produce
+     * "no ACK", which is why the previous bench report could not tell them
+     * apart - the driver's device-ID check now can. */
+    {
+        static const uint8_t addrs[4] = {
+            TMP117_I2C_ADDR_0, TMP117_I2C_ADDR_1, TMP117_I2C_ADDR_2, TMP117_I2C_ADDR_3
+        };
+        int found = 0;
+        for (int a = 0; a < 4 && !found; a++) {
+            if (tmp117_init(&s_tmp117, esp32_i2c_hal_get_handle(), addrs[a]) == 0) {
+                found = 1;
+                float probe_c = 0.0f;
+                if (tmp117_read_temp(&s_tmp117, &probe_c) == 0) {
+                    ESP_LOGI(TAG, "TMP117 skin probe ACTIVE at 0x%02X: %.2f C "
+                                  "(clinical skin temperature is now MEASURED)",
+                             (unsigned)addrs[a], probe_c);
+                } else {
+                    ESP_LOGW(TAG, "TMP117 answered at 0x%02X but the first read failed",
+                             (unsigned)addrs[a]);
+                }
+            }
+        }
+        if (!found) {
+            ESP_LOGW(TAG, "TMP117 skin probe NOT FOUND at 0x48-0x4B. Skin temperature "
+                          "falls back to the MAX30102 die ESTIMATE, which is "
+                          "uncalibrated and excluded from NEWS2.");
+        }
+    }
+
+    if (s_max30102.initialized) {
+        /* Let the part settle after max30102_init() before the first
+         * temperature conversion.
+         *
+         * max30102_init() finishes by writing MODE_CONFIG (SpO2 mode), which
+         * restarts the internal state machine. A die-temperature conversion
+         * issued inside that window fails or returns reset values - measured on
+         * hardware: both reads returned 0.00 when taken immediately after init,
+         * while the identical read succeeded every second afterwards. Waiting
+         * one second costs nothing at boot and makes the measurement reliable. */
+        vTaskDelay(pdMS_TO_TICKS(1000));
+
+        float die_leds_on = 0.0f;
+        /* Retry: the first conversion after init can still land before the part
+         * has produced a result, which now reads back as a failure thanks to
+         * the "not converted yet" guard in max30102_read_die_temp(). Give it a
+         * few honest attempts rather than one shot. */
+        int on_ok = 0;
+        for (int attempt = 0; attempt < 5 && !on_ok; attempt++) {
+            on_ok = (max30102_read_die_temp(&s_max30102, &die_leds_on) == 0);
+            if (!on_ok) vTaskDelay(pdMS_TO_TICKS(400));
+        }
+        ESP_LOGI(TAG, "[SKINCAL] probe read: ok=%d die=%.2f", on_ok, die_leds_on);
+        if (on_ok) {
+            /* The LEDs-off half of this measurement does NOT work: shutdown
+             * halts the part, so the temperature conversion never completes and
+             * the second read fails (measured: on=28.25 ok=1, off=0.00 ok=0).
+             * Rather than fabricate an offset from a failed read, use the
+             * physically meaningful alternative that needs no shutdown -
+             * observe how much the die sits above ambient while the emitters
+             * run, which is exactly the self-heating the model must subtract. */
+            vTaskDelay(pdMS_TO_TICKS(4000));
+            float die_warm = 0.0f;
+            int warm_ok = 0;
+            for (int attempt = 0; attempt < 5 && !warm_ok; attempt++) {
+                warm_ok = (max30102_read_die_temp(&s_max30102, &die_warm) == 0);
+                if (!warm_ok) vTaskDelay(pdMS_TO_TICKS(400));
+            }
+            /* Read ambient through the shared helper, which is the same path
+             * the monitor task uses. */
+            bme280_data_t bme_now;
+            memset(&bme_now, 0, sizeof(bme_now));
+            float amb_now = 0.0f;
+            if (s_bme280.initialized && read_bme280_env(&bme_now) == 0) {
+                amb_now = bme_now.temperature_c;
+            }
+            if (warm_ok && amb_now >= 5.0f && amb_now <= 65.0f) {
+                float offset = die_warm - amb_now;
+                if (skin_estimate_set_led_offset(&s_skin_est, offset)) {
+                    ESP_LOGI(TAG, "[SKINCAL] LED self-heating MEASURED: "
+                                  "die_warm=%.2f amb=%.2f die_on=%.2f -> offset=%.2f C",
+                             die_warm, amb_now, die_leds_on, offset);
+                } else {
+                    ESP_LOGW(TAG, "[SKINCAL] offset %.2f C implausible "
+                                  "(die_warm=%.2f amb=%.2f); using die idle level",
+                             offset, die_warm, amb_now);
+                }
+            } else {
+                ESP_LOGW(TAG, "[SKINCAL] warm read unusable (ok=%d die=%.2f amb=%.2f); "
+                              "using die idle level instead",
+                         warm_ok, die_warm, amb_now);
+            }
+        }
     }
 
     /* Initialize PMS5003 (PM2.5 sensor) on UART1 */
@@ -3287,7 +3693,14 @@ int main(void) {
         .contact = true,
         .uptime_s = 100
     };
-    char missing_env_json[768];
+    /* Buffer size MUST match the device, not predate it. h_json allocates a
+     * static 1536-byte scratch buffer; this test used 768, which was fine until
+     * the skin-thermal and core-calibration fields grew the payload past it.
+     * With a 768-byte buffer web_status_json() correctly returns 0 (it refuses
+     * to emit truncated JSON) and the test reported a confusing "must serialize
+     * as null" failure that had nothing to do with nulls. Measured payload with
+     * every optional field populated is ~898 bytes, so 1536 is the real budget. */
+    char missing_env_json[1536];
     sim_stat.temp = -100.0f;
     sim_stat.hum = -1.0f;
     if (web_status_json(&sim_stat, missing_env_json, sizeof(missing_env_json)) == 0 ||
@@ -3602,13 +4015,31 @@ int main(void) {
     }
     printf("  [PASS] 669/1020 ms split pair rejected; RMSSD stayed %.1f ms\n",
            tachy_hrv.rmssd);
+    /* Optical contact gate, re-based on hardware measurements.
+     *
+     * The old fixture asserted that 50,001 counts is tissue. It is not: the
+     * enclosed shroud with NOTHING in it reflects IR 18,300 / Red 17,700 back
+     * into the photodiode, and the pre-enclosure ambient figure of ~4,400 was
+     * measured with a bare sensor in open air. A perfusing finger measures
+     * 128,000-185,000 counts. The gate therefore sits at 60,000.
+     *
+     * Cases checked:
+     *   ambient air (no enclosure)    4,400 / 5,400   -> reject
+     *   reflective shroud, empty     18,300 / 17,700  -> reject  (the bug)
+     *   just under the new bar       59,999 / 59,999  -> reject
+     *   real tissue                 128,000 / 134,000 -> accept  (Red may exceed IR)
+     */
     if (ppg_has_optical_contact(4400u, 5400u) ||
-        !ppg_has_optical_contact(50001u, 0u) ||
-        !ppg_has_optical_contact(0u, 10001u)) {
-        printf("  [FAIL] Optical contact threshold admitted ambient data or rejected tissue data!\n");
+        ppg_has_optical_contact(18300u, 17700u) ||
+        ppg_has_optical_contact(59999u, 59999u) ||
+        !ppg_has_optical_contact(128000u, 134000u) ||
+        !ppg_has_optical_contact(185000u, 0u)) {
+        printf("  [FAIL] Optical contact threshold admitted ambient/reflection data "
+               "or rejected tissue data!\n");
         return 1;
     }
-    printf("  [PASS] Optical contact gate rejects IR=4400/Red=5400 and accepts tissue-level counts\n");
+    printf("  [PASS] Contact gate rejects ambient (4.4k) and empty-shroud reflection "
+           "(18.3k), accepts tissue (128k)\n");
 
     /* Profile 10: MPU6050 6-Axis IMU, 3-Stage Fall Detection & Motion Artifact Rejection */
     printf("\nHost Test - Profile 10: MPU6050 6-Axis IMU & 3-Stage Fall Detection:\n");

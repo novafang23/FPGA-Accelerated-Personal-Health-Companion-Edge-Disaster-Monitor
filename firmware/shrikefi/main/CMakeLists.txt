@@ -42,6 +42,9 @@ idf_component_register(
         # missing entirely: the pads existed, the docs described the part, and
         # nothing ever read it.
         "${SHRIKEFI_DIR}/tmp117.c"
+        # Per-session core-offset calibration against an oral reference. A
+        # fingertip probe cannot report core temperature without one.
+        "${SHRIKEFI_DIR}/skin_calib.c"
         "${CORE_DIR}/skin_estimate.c"
         "${SHRIKEFI_DIR}/pms5003.c"
         "${SHRIKEFI_DIR}/ssd1306.c"

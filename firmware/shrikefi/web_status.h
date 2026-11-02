@@ -40,12 +40,74 @@ typedef struct {
     float    sqi;          /* [0, 1]                                            */
     float    rmssd;        /* ms, 0 when withheld by the SQI / 9-pair gate      */
     int      hrv_n;        /* beats currently in the HRV window (0..30+)        */
+    /* Respiratory-rate evidence and perfusion index, so the page can explain a
+     * missing RR instead of guessing. rr_conf is [0,1]; rr_depth_ms is the RSA
+     * envelope depth. pi is the SpO2 engine's perfusion index (%); 0 = not yet
+     * measured, which the page must render as absent rather than as a value. */
+    float    rr_conf;
+    float    rr_depth_ms;
+    float    pi;
     float    temp;         /* deg C, < -40 when BME280 has no reading           */
     /* Clinical skin temperature from TMP117 (0.0f = unavailable / settling).
      * skin_valid is true only when active optical contact is confirmed and
      * the sensor has thermally equilibrated (|dT/dt| <= 0.05 C/s over 3 samples). */
     float    skin_temp;
     bool     skin_valid;
+    /* Where skin_temp came from. This exists so the page can label the number
+     * honestly instead of implying a clinical contact thermometer:
+     *   SKIN_SRC_NONE       no reading (sensor absent / not settled)
+     *   SKIN_SRC_ESTIMATED  modelled from MAX30102 die temp + BME280 ambient
+     *   SKIN_SRC_TMP117     measured by the dedicated clinical probe
+     * An estimate must never be rendered with the same authority as a
+     * measurement; it is also excluded from the NEWS2 temperature term, whose
+     * temperature sub-score stays unpopulated unless a real probe is fitted. */
+    const char *skin_source;
+    /* True only when the model coefficients were fitted against a reference
+     * thermometer. With the nominal defaults this is false, and the page must
+     * render the value as "uncalibrated estimate" rather than as a
+     * measurement. The TMP117 calibration run sets it true. */
+    bool     skin_calibrated;
+    /* How much the MAX30102 die thermometer actually contributed this contact:
+     * skin_die_delta is (peak die - no-finger baseline) in Celsius, and
+     * skin_weak is true when that delta is too small for the die to be driving
+     * the published value. Without this the page cannot distinguish "the model
+     * followed the sensor" from "the model returned its constant" - which is
+     * exactly the failure that went unnoticed on hardware. */
+    float    skin_die_delta;
+    bool     skin_weak;
+    /* Peripheral thermal state: "UNKNOWN" / "STABLE" / "COOLING" /
+     * "REWARMING" / "VASOCONSTRICTED" (skin_therm_state_t as text).
+     *
+     * This is the answer to "what is the skin temperature telling us" that a
+     * fingertip can actually support. It is a TREND relative to the subject's
+     * own settled baseline, never a core-temperature estimate: skin sits 3-7 C
+     * below core and that gap is vasoconstriction, not a calibratable offset.
+     * A page must not present skin_trend_c as a temperature in its own right. */
+    const char *skin_therm_state;    /* Signed change since the baseline frozen at contact settle (C). Negative
+     * means the periphery is cooling. Valid only when skin_therm_ok is true. */
+    float    skin_trend_c;
+    /* Least-squares drift rate (C/min), clamped to a physically possible skin
+     * rate so the estimator's own slew cannot masquerade as physiology. */
+    float    skin_rate_c_per_min;
+    bool     skin_therm_ok;
+    /* Per-session core-offset calibration.
+     *
+     * A fingertip probe cannot report core temperature on its own: the skin sits
+     * 3-7 C below core and that gap is vasoconstriction, not sensor error. The
+     * published approach for continuous monitoring is an INDIVIDUALISED
+     * correction factor - one reference reading (oral), then core = skin +
+     * offset, revalidated as the session goes on.
+     *
+     * core_est_c is 0.0f whenever the calibration is not usable, and
+     * temp_calib_status then explains why ("uncalibrated", "stale", "drifted",
+     * "no contact"). A page must render 0.0f as "--", never as 0 C.
+     */
+    float    core_est_c;
+    const char *temp_calib_status;
+    /* The reference reading and site that produced the current calibration, so
+     * the audit trail is visible on the page rather than implied. */
+    float    temp_calib_ref_c;
+    const char *temp_calib_site;
     float    hum;
     float    pm25;
     /* Raw PMS5003 reading behind the published PM2.5 estimate, and the
@@ -91,6 +153,41 @@ typedef struct {
     /* IMU motion & fall status */
     float       motion;  /* Instantaneous IMU motion energy in g */
     const char *fall;    /* Fall state name: "MONITORING", "FALL_CONFIRMED", etc. */
+
+    /* On-device TinyML outputs. These were previously only printed to the
+     * serial [TRIAGE] line, so the Wi-Fi dashboard had no way to show the AI
+     * tiles at all - it silently fell back to invented values. ai_valid is
+     * false when the INT8 model declined to score this cycle (no published
+     * RMSSD, no environment, non-finite input); the page must then render
+     * "declined", never 0 %. */
+    float nn_heat;       /* [0,1] */
+    float nn_pollution;  /* [0,1] */
+    float nn_flood;      /* [0,1] */
+    bool  ai_valid;
+
+    /* Fused rule-engine hazard channels (RHEAT/RPOLL/RFLOOD on the serial
+     * line). Shown as text so the page does not have to infer them. */
+    const char *rule_heat;
+    const char *rule_pollution;
+    const char *rule_flood;
+
+    /* Moran physiological strain index (0-10) and the AHA PM2.5-HRV
+     * autonomic strain (0-1). Both are device-derived; 0 with no contact is
+     * absence, not calm - the page gates them on contact. */
+    float psi;
+    float aha;
+
+    /* Device identity, so a phone on the SoftAP can confirm which unit it is
+     * talking to when more than one VALOR is in range. */
+    const char *ssid;
+
+    /* NEWS2 sub-scores the device actually computed (0..3 each). Kept separate
+     * from the total so the page renders the board's own breakdown instead of
+     * re-deriving it. */
+    unsigned news2_hr_pts;
+    unsigned news2_spo2_pts;
+    unsigned news2_rr_pts;
+    unsigned news2_temp_pts;
 } valor_status_t;
 
 /* Publish a new snapshot. Called at 1 Hz from the monitor task; the HTTP server
@@ -100,6 +197,42 @@ void web_status_publish(const valor_status_t *s);
 
 /* Copy the current snapshot out. Safe to call from any task. */
 void web_status_snapshot(valor_status_t *out);
+
+/* ------------------------------------------------------------------------- */
+/* Skin-temperature provenance                                                */
+/* ------------------------------------------------------------------------- */
+#define SKIN_SRC_NONE      "NONE"
+#define SKIN_SRC_ESTIMATED "ESTIMATED"
+#define SKIN_SRC_TMP117    "TMP117"
+
+/* ------------------------------------------------------------------------- */
+/* Live PPG waveform transport (Wi-Fi dashboard oscilloscope)                 */
+/* ------------------------------------------------------------------------- */
+
+/* The desktop dashboard's scope draws real samples over USB serial, but the
+ * SoftAP link carries only JSON. Without a waveform channel the Wi-Fi scope
+ * can only show a synthesised pulse, which is why it was labelled "Synthetic
+ * PPG". These calls feed a small decimated ring that /ppg.json drains, so the
+ * standalone dashboard draws the same IR samples the board is actually
+ * reading.
+ *
+ * Decimation: the FIFO runs at 100 Hz. Pushing every sample would be 100
+ * points/s of JSON for a 700-point scope that redraws at most once per poll.
+ * 25 Hz keeps ~4 s of waveform, which is what the serial scope shows too. */
+#define WEB_STATUS_PPG_RING 200   /* 8 s at 25 Hz */
+
+/* Append one 18-bit IR sample. Called from the PPG task; drop-in, never
+ * blocks, and discards the oldest point when the ring is full. */
+void web_status_ppg_push(uint32_t ir_sample);
+
+/* Drain up to max_points samples into out[], oldest first, and return how many
+ * were copied. The ring is emptied by a successful drain so each client sees
+ * every sample exactly once. */
+size_t web_status_ppg_drain(uint32_t *out, size_t max_points);
+
+/* Reset the ring (called when contact is lost, so a new finger does not
+ * inherit the previous one's tail). */
+void web_status_ppg_reset(void);
 
 /* Serialise to JSON. Pure and deterministic - strings are JSON-escaped, output
  * is bounded and NUL-terminated, and the function returns the length written

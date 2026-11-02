@@ -9,6 +9,11 @@
 #include "web_status.h"
 #include "location.h"
 #include "sos.h"
+#include "skin_calib.h"
+#include <math.h>
+#ifdef ESP_PLATFORM
+#include "esp_log.h"
+#endif
 
 #include <stdbool.h>
 #include <stdarg.h>
@@ -21,6 +26,23 @@
 /* ------------------------------------------------------------------------- */
 
 static valor_status_t s_snap;
+
+/* Per-session core-offset calibration state.
+ *
+ * Lives here rather than in main_shrikefi.c so the HTTP handler that SETS it
+ * and the JSON serializer that REPORTS it share one copy. A fingertip probe
+ * cannot give core temperature without a reference measurement; this holds the
+ * offset derived from one oral reading and expires it when it stops being
+ * trustworthy (see skin_calib.c). */
+static skin_calib_t s_temp_calib;
+static bool         s_temp_calib_inited = false;
+
+/* Spinlock protecting the decimated PPG ring. Declared here because the
+ * producer (PPG task) and the consumer (HTTP task) are on different cores. */
+#ifdef ESP_PLATFORM
+#include "freertos/FreeRTOS.h"
+static portMUX_TYPE s_ppg_mux = portMUX_INITIALIZER_UNLOCKED;
+#endif
 
 /* ------------------------------------------------------------------------- */
 /* 24-Hour Rolling History (Requirement 7 / T3.2)                            */
@@ -57,6 +79,22 @@ static void history_feed_locked(const valor_status_t *s);
 static void history_nvs_load(void);
 static void history_nvs_store(const uint8_t *blob, size_t len);
 static void history_persist_if_dirty(void);
+
+/* Monotonic milliseconds for the calibration expiry check.
+ *
+ * Must exist on host too: web_status.c is compiled into the host test suite,
+ * where esp_log_timestamp() is unavailable. Both branches return a monotonic
+ * millisecond count, which is all skin_calib needs (it only ever subtracts). */
+static uint32_t calib_now_ms(void)
+{
+#ifdef ESP_PLATFORM
+    return (uint32_t)esp_log_timestamp();
+#else
+    static uint32_t host_ms = 0;
+    host_ms += 1000u;   /* one simulated second per call: enough for tests */
+    return host_ms;
+#endif
+}
 
 #ifdef ESP_PLATFORM
 #include "freertos/FreeRTOS.h"
@@ -104,6 +142,70 @@ void web_status_snapshot(valor_status_t *out) {
     WS_LOCK();
     *out = s_snap;
     WS_UNLOCK();
+}
+
+/* ------------------------------------------------------------------------- */
+/* Live PPG waveform ring                                                     */
+/* ------------------------------------------------------------------------- */
+/* A plain ring of the last WEB_STATUS_PPG_RING IR samples. The producer is the
+ * PPG task and the consumer is the HTTP task, so it is guarded by its own
+ * short critical section rather than by WS_LOCK(): the producer runs at 25 Hz
+ * and must never wait on the status-page lock.
+ *
+ * Head/tail semantics: `head` is the next write index and `tail` the oldest
+ * unread index. A drain takes up to max_points from the tail and advances it.
+ * When the writer overtakes a stalled reader the oldest samples are discarded
+ * - a late client gets the newest waveform, never an 8-second backlog. */
+static uint32_t s_ppg_ring[WEB_STATUS_PPG_RING];
+static size_t   s_ppg_ring_head  = 0;
+static size_t   s_ppg_ring_tail  = 0;
+static size_t   s_ppg_ring_count = 0;
+
+void web_status_ppg_push(uint32_t ir_sample) {
+#ifdef ESP_PLATFORM
+    portENTER_CRITICAL(&s_ppg_mux);
+#endif
+    s_ppg_ring[s_ppg_ring_head] = ir_sample;
+    s_ppg_ring_head = (s_ppg_ring_head + 1) % WEB_STATUS_PPG_RING;
+    if (s_ppg_ring_count == WEB_STATUS_PPG_RING) {
+        /* Full: overwrite the oldest unread point. */
+        s_ppg_ring_tail = (s_ppg_ring_tail + 1) % WEB_STATUS_PPG_RING;
+    } else {
+        s_ppg_ring_count++;
+    }
+#ifdef ESP_PLATFORM
+    portEXIT_CRITICAL(&s_ppg_mux);
+#endif
+}
+
+void web_status_ppg_reset(void) {
+#ifdef ESP_PLATFORM
+    portENTER_CRITICAL(&s_ppg_mux);
+#endif
+    s_ppg_ring_head  = 0;
+    s_ppg_ring_tail  = 0;
+    s_ppg_ring_count = 0;
+#ifdef ESP_PLATFORM
+    portEXIT_CRITICAL(&s_ppg_mux);
+#endif
+}
+
+size_t web_status_ppg_drain(uint32_t *out, size_t max_points) {
+    if (!out || max_points == 0) return 0;
+#ifdef ESP_PLATFORM
+    portENTER_CRITICAL(&s_ppg_mux);
+#endif
+    size_t n = s_ppg_ring_count;
+    if (n > max_points) n = max_points;
+    for (size_t i = 0; i < n; i++) {
+        out[i] = s_ppg_ring[(s_ppg_ring_tail + i) % WEB_STATUS_PPG_RING];
+    }
+    s_ppg_ring_tail = (s_ppg_ring_tail + n) % WEB_STATUS_PPG_RING;
+    s_ppg_ring_count -= n;
+#ifdef ESP_PLATFORM
+    portEXIT_CRITICAL(&s_ppg_mux);
+#endif
+    return n;
 }
 
 /* ------------------------------------------------------------------------- */
@@ -189,25 +291,94 @@ bool web_status_request_is_same_origin(const char *origin, const char *referer) 
 size_t web_status_json(const valor_status_t *s, char *buf, size_t cap) {
     if (!s || !buf || cap == 0) return 0;
 
+    /* Derive the core estimate from the per-session offset HERE, so every caller
+     * gets the same answer and the serializer cannot disagree with the page.
+     * core_est_c stays 0.0f (serialised as null) unless a calibration exists,
+     * is fresh, and the skin has not drifted out from under it. */
+    valor_status_t local;
+    local = *s;
+    if (s_temp_calib_inited && local.skin_temp > 0.0f) {
+        const uint32_t now_ms = calib_now_ms();
+        bool ok = false;
+        const float core = skin_calib_core_c(&s_temp_calib, local.skin_temp, now_ms + 1u, &ok);
+        local.core_est_c = ok ? core : 0.0f;
+        local.temp_calib_status = skin_calib_status(&s_temp_calib, local.skin_temp, now_ms + 1u);
+        local.temp_calib_ref_c = s_temp_calib.valid ? s_temp_calib.ref_c : 0.0f;
+        local.temp_calib_site = s_temp_calib.valid ? s_temp_calib.ref_site : "none";
+    } else {
+        local.core_est_c = 0.0f;
+        local.temp_calib_status = "uncalibrated";
+        local.temp_calib_ref_c = 0.0f;
+        local.temp_calib_site = "none";
+    }
+    s = &local;
+
     size_t used = 0;
     buf[0] = '\0';
     if (!json_append_format(
         buf, cap, &used,
         "{\"hr\":%.1f,\"spo2\":%.1f,\"rr\":%.1f,\"sqi\":%.2f,\"rmssd\":%.1f,\"hrvn\":%d,"
-        "\"temp\":",
+        "\"rrconf\":%.2f,\"rrdepth\":%.1f,\"pi\":%.2f,",
         (double)s->hr, (double)s->spo2, (double)s->rr, (double)s->sqi,
-        (double)s->rmssd, s->hrv_n < 0 ? 0 : s->hrv_n)) return 0;
+        (double)s->rmssd, s->hrv_n < 0 ? 0 : s->hrv_n,
+        (double)s->rr_conf, (double)s->rr_depth_ms, (double)s->pi)) return 0;
 
     if (s->temp < -40.0f || s->temp > 85.0f) {
-        if (!json_append(buf, cap, &used, "null,", 5)) return 0;
-    } else if (!json_append_format(buf, cap, &used, "%.1f,", (double)s->temp)) {
+        if (!json_append(buf, cap, &used, "\"temp\":null,", 12U)) return 0;
+    } else if (!json_append_format(buf, cap, &used, "\"temp\":%.1f,", (double)s->temp)) {
         return 0;
     }
 
-    /* Clinical skin temperature from TMP117 (null if no sensor / not settled) */
+    /* Clinical skin temperature. skintemp is null when there is no usable
+     * reading; skinsrc says whether the number is a measured probe value or a
+     * model output, so the page can label it. */
     if (!s->skin_valid || s->skin_temp < 20.0f || s->skin_temp > 50.0f) {
         if (!json_append(buf, cap, &used, "\"skintemp\":null,", 16)) return 0;
     } else if (!json_append_format(buf, cap, &used, "\"skintemp\":%.1f,", (double)s->skin_temp)) {
+        return 0;
+    }
+    if (!json_append(buf, cap, &used, "\"skinsrc\":", sizeof("\"skinsrc\":") - 1) ||
+        !json_append_string(buf, cap, &used,
+                            s->skin_source ? s->skin_source : SKIN_SRC_NONE) ||
+        !json_append_format(buf, cap, &used,
+                            ",\"skincal\":%s,\"skindie\":%.2f,\"skinweak\":%s,",
+                            s->skin_calibrated ? "true" : "false",
+                            (double)s->skin_die_delta,
+                            s->skin_weak ? "true" : "false")) {
+        return 0;
+    }
+
+    /* Peripheral thermal state. Emitted as null when there is no settled
+     * contact so the page cannot mistake "we do not know yet" for "stable".
+     * skin_trend_c is a CHANGE, not a temperature: a page that prints it as
+     * one would be inventing a reading. */
+    if (!json_append(buf, cap, &used, "\"skintherm\":", sizeof("\"skintherm\":") - 1)) return 0;
+    if (!s->skin_therm_ok || !s->skin_therm_state) {
+        if (!json_append(buf, cap, &used, "null,", 5)) return 0;
+    } else if (!json_append_string(buf, cap, &used, s->skin_therm_state) ||
+               !json_append_format(buf, cap, &used, ",\"skintrend\":%+.2f,\"skinrate\":%.2f,",
+                                   (double)s->skin_trend_c,
+                                   (double)s->skin_rate_c_per_min)) {
+        return 0;
+    }
+
+    /* Core estimate from the per-session offset. null unless the calibration is
+     * currently valid: a fingertip cannot give core temperature on its own, so
+     * "no calibration" must serialise as absent rather than as a number. */
+    if (!json_append(buf, cap, &used, "\"coretemp\":", sizeof("\"coretemp\":") - 1)) return 0;
+    if (!(s->core_est_c > 0.0f)) {
+        if (!json_append(buf, cap, &used, "null,", 5)) return 0;
+    } else if (!json_append_format(buf, cap, &used, "%.2f,", (double)s->core_est_c)) {
+        return 0;
+    }
+    if (!json_append(buf, cap, &used, "\"calstat\":", sizeof("\"calstat\":") - 1) ||
+        !json_append_string(buf, cap, &used,
+                            s->temp_calib_status ? s->temp_calib_status : "uncalibrated") ||
+        !json_append_format(buf, cap, &used, ",\"calref\":%.2f,\"calsite\":",
+                            (double)s->temp_calib_ref_c) ||
+        !json_append_string(buf, cap, &used,
+                            s->temp_calib_site ? s->temp_calib_site : "none") ||
+        !json_append(buf, cap, &used, ",", 1)) {
         return 0;
     }
 
@@ -230,7 +401,8 @@ size_t web_status_json(const valor_status_t *s, char *buf, size_t cap) {
         if (!json_append_format(buf, cap, &used, "\"pm25raw\":%.1f,", (double)s->pm25_raw)) return 0;
     }
     if (!json_append(buf, cap, &used, "\"pm25conf\":", sizeof("\"pm25conf\":") - 1) ||
-        !json_append_string(buf, cap, &used, s->pm25_conf ? s->pm25_conf : "NODATA")) {
+        !json_append_string(buf, cap, &used, s->pm25_conf ? s->pm25_conf : "NODATA") ||
+        !json_append(buf, cap, &used, ",", 1)) {
         return 0;
     }
 
@@ -261,6 +433,24 @@ size_t web_status_json(const valor_status_t *s, char *buf, size_t cap) {
         !json_append_string(buf, cap, &used, s->heat_cat ? s->heat_cat : "") ||
         !json_append_format(buf, cap, &used, ",\"motion\":%.2f,\"fall\":", (double)s->motion) ||
         !json_append_string(buf, cap, &used, s->fall ? s->fall : "MONITORING") ||
+        !json_append_format(buf, cap, &used,
+                            ",\"psi\":%.2f,\"aha\":%.2f,"
+                            "\"nnheat\":%.3f,\"nnpoll\":%.3f,\"nnflood\":%.3f,\"aivalid\":%s,"
+                            "\"rheat\":",
+                            (double)s->psi, (double)s->aha,
+                            (double)s->nn_heat, (double)s->nn_pollution, (double)s->nn_flood,
+                            s->ai_valid ? "true" : "false") ||
+        !json_append_string(buf, cap, &used, s->rule_heat ? s->rule_heat : "UNKNOWN") ||
+        !json_append(buf, cap, &used, ",\"rpoll\":", sizeof(",\"rpoll\":") - 1) ||
+        !json_append_string(buf, cap, &used, s->rule_pollution ? s->rule_pollution : "UNKNOWN") ||
+        !json_append(buf, cap, &used, ",\"rflood\":", sizeof(",\"rflood\":") - 1) ||
+        !json_append_string(buf, cap, &used, s->rule_flood ? s->rule_flood : "UNKNOWN") ||
+        !json_append_format(buf, cap, &used,
+                            ",\"hrpts\":%u,\"spo2pts\":%u,\"rrpts\":%u,\"temppts\":%u",
+                            s->news2_hr_pts, s->news2_spo2_pts,
+                            s->news2_rr_pts, s->news2_temp_pts) ||
+        !json_append(buf, cap, &used, ",\"ssid\":", sizeof(",\"ssid\":") - 1) ||
+        !json_append_string(buf, cap, &used, s->ssid ? s->ssid : "") ||
         !json_append_format(buf, cap, &used, ",\"contact\":%s,\"up\":%lu}",
                             s->contact ? "true" : "false", (unsigned long)s->uptime_s)) {
         return 0;
@@ -924,24 +1114,60 @@ static esp_err_t h_root(httpd_req_t *req) {
 #define HTTP_CORS_ALLOW_HEADERS "Access-Control-" "Allow-Headers"
 
 static esp_err_t h_desktop(httpd_req_t *req) {
-    httpd_resp_set_type(req, "text/html");
+    httpd_resp_set_type(req, "text/html; charset=utf-8");
     httpd_resp_set_hdr(req, "Content-Encoding", "gzip");
-    httpd_resp_set_hdr(req, "Cache-Control", "public, max-age=3600");
+    /* A one-hour cache on a page served from device flash was serving stale
+     * copies after a firmware update - the operator saw the old dashboard and
+     * concluded the board was not sending data. Revalidate every load; the
+     * page is a single 35 KB gzip stream over SoftAP, so this is cheap. */
+    httpd_resp_set_hdr(req, "Cache-Control", "no-cache");
+    httpd_resp_set_hdr(req, "Vary", "Accept-Encoding");
+    httpd_resp_set_hdr(req, "X-Content-Type-Options", "nosniff");
+    httpd_resp_set_hdr(req, "Referrer-Policy", "same-origin");
     httpd_resp_set_hdr(req, HTTP_CORS_ALLOW_ORIGIN, "*");
+    /* Content-Length lets the browser treat the response as a document rather
+     * than an open-ended stream some clients offered to download. */
+    char lenbuf[16];
+    snprintf(lenbuf, sizeof(lenbuf), "%u", (unsigned)VALOR_DASHBOARD_GZ_LEN);
+    httpd_resp_set_hdr(req, "Content-Length", lenbuf);
 
-    size_t off = 0;
-    while (off < VALOR_DASHBOARD_GZ_LEN) {
-        size_t slice = VALOR_DASHBOARD_GZ_LEN - off;
-        if (slice > 4096) {
-            slice = 4096;
-        }
-        esp_err_t res = httpd_resp_send_chunk(req, (const char *)&VALOR_DASHBOARD_GZ[off], (ssize_t)slice);
-        if (res != ESP_OK) {
-            return res;
-        }
-        off += slice;
+    /* Send the whole payload in one call: with a declared length the web
+     * server no longer has to emit chunked framing. */
+    return httpd_resp_send(req, (const char *)VALOR_DASHBOARD_GZ,
+                           (ssize_t)VALOR_DASHBOARD_GZ_LEN);
+}
+
+static esp_err_t h_ppg_json(httpd_req_t *req) {
+    /* 25 Hz decimated IR samples since the last poll. Shape:
+     *   {"n":N,"fs":25,"samples":[12345,12350,...]}
+     * The browser pushes them straight into its 700-point scope ring. */
+    static char buf[2048];
+    static uint32_t pts[128];
+    size_t n = web_status_ppg_drain(pts, sizeof(pts) / sizeof(pts[0]));
+
+    size_t used = (size_t)snprintf(buf, sizeof(buf), "{\"n\":%u,\"fs\":25,\"samples\":[",
+                                   (unsigned)n);
+    for (size_t i = 0; i < n && used < sizeof(buf); i++) {
+        int w = snprintf(buf + used, sizeof(buf) - used, (i == 0) ? "%lu" : ",%lu",
+                         (unsigned long)pts[i]);
+        if (w < 0) break;
+        used += (size_t)w;
     }
-    return httpd_resp_send_chunk(req, NULL, 0);
+    if (used < sizeof(buf) - 2) {
+        buf[used++] = ']';
+        buf[used++] = '}';
+        buf[used]   = '\0';
+    } else {
+        buf[sizeof(buf) - 1] = '\0';
+        return httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "ppg json too large");
+    }
+
+    httpd_resp_set_type(req, "application/json");
+    httpd_resp_set_hdr(req, "Cache-Control", "no-store");
+    httpd_resp_set_hdr(req, HTTP_CORS_ALLOW_ORIGIN, "*");
+    httpd_resp_set_hdr(req, HTTP_CORS_ALLOW_METHODS, "GET, POST, OPTIONS");
+    httpd_resp_set_hdr(req, HTTP_CORS_ALLOW_HEADERS, "Content-Type");
+    return httpd_resp_send(req, buf, (ssize_t)used);
 }
 
 static esp_err_t h_options(httpd_req_t *req) {
@@ -952,15 +1178,98 @@ static esp_err_t h_options(httpd_req_t *req) {
     return httpd_resp_send(req, NULL, 0);
 }
 
+/* ---- /cal : record an oral reference and derive the core offset -----------
+ *
+ * A fingertip probe reads 3-7 C below core and the gap is vasoconstriction,
+ * not sensor error, so there is no fixed skin->core conversion. The published
+ * approach for continuous monitoring is an individualised correction factor:
+ * take ONE reference reading with the probe in place, then report
+ * core = skin + offset for as long as that offset holds.
+ *
+ * Usage from the SoftAP page or any phone on VALOR-0081:
+ *     http://192.168.4.1/cal?ref=36.6
+ *
+ * The current skin value is read from the last published snapshot, so the
+ * caller must have a settled finger on the sensor BEFORE calling this. That is
+ * the entire point: the offset is only meaningful if skin and reference
+ * describe the same moment.
+ *
+ * Deliberately GET, not POST: this is a single-purpose demo endpoint on a
+ * private AP and a plain URL is what a user can type on a phone. It is
+ * idempotent in the sense that repeating it with the same reference simply
+ * re-derives the same offset. */
+static esp_err_t h_cal(httpd_req_t *req) {
+    char q[96];
+    char refbuf[24] = {0};
+    valor_status_t snap;
+
+    if (!s_temp_calib_inited) {
+        skin_calib_init(&s_temp_calib);
+        s_temp_calib_inited = true;
+    }
+
+    if (httpd_req_get_url_query_str(req, q, sizeof(q)) != ESP_OK ||
+        httpd_query_key_value(q, "ref", refbuf, sizeof(refbuf)) != ESP_OK) {
+        httpd_resp_set_type(req, "application/json");
+        httpd_resp_sendstr(req,
+            "{\"ok\":false,\"error\":\"missing ?ref=<oral_temp_C>\"}");
+        return ESP_OK;
+    }
+
+    char *endp = NULL;
+    const float ref_c = strtof(refbuf, &endp);
+    if (endp == refbuf || !isfinite(ref_c)) {
+        httpd_resp_set_type(req, "application/json");
+        httpd_resp_sendstr(req, "{\"ok\":false,\"error\":\"ref is not a number\"}");
+        return ESP_OK;
+    }
+
+    web_status_snapshot(&snap);
+    const float skin_c = snap.skin_temp;
+
+    const uint32_t now_ms = calib_now_ms();
+    const bool ok = skin_calib_set(&s_temp_calib, skin_c, ref_c, "oral", now_ms + 1u);
+
+    static char out[256];
+    if (ok) {
+        snprintf(out, sizeof(out),
+                 "{\"ok\":true,\"ref_c\":%.2f,\"skin_c\":%.2f,\"offset_c\":%.2f,"
+                 "\"site\":\"oral\",\"note\":\"core = skin + offset for this session\"}",
+                 (double)ref_c, (double)skin_c, (double)s_temp_calib.offset_c);
+    } else {
+        snprintf(out, sizeof(out),
+                 "{\"ok\":false,\"ref_c\":%.2f,\"skin_c\":%.2f,"
+                 "\"error\":\"rejected - need a settled finger on the probe and a "
+                 "plausible oral temperature (30-43 C)\"}",
+                 (double)ref_c, (double)skin_c);
+    }
+    httpd_resp_set_type(req, "application/json");
+    httpd_resp_set_hdr(req, "Cache-Control", "no-store");
+    httpd_resp_set_hdr(req, HTTP_CORS_ALLOW_ORIGIN, "*");
+    httpd_resp_sendstr(req, out);
+    return ESP_OK;
+}
+
 static esp_err_t h_json(httpd_req_t *req) {
     valor_status_t s;
     web_status_snapshot(&s);
 
-    /* 512 bytes was enough before the environmental-condition sentence (env,
-     * ~170 bytes) and the AQI/heat fields were added. The JSON now overflows
-     * it, web_status_json() returns 0, and the handler answered HTTP 500,
-     * which the page reports as "NO CONNECTION" even though the Wi-Fi is up. */
-    char buf[1024];
+    /* SCRATCH BUFFER MUST BE STATIC, NOT ON THE STACK.
+     *
+     * This handler used to declare `char buf[1536]` locally. The HTTP server
+     * task runs with HTTPD_DEFAULT_CONFIG stack_size = 4096 bytes, shared with
+     * every httpd call frame (recv, header parse, send). A 1.5 KB local plus
+     * those frames leaves almost nothing, and once the AI/TinyML channels,
+     * rule-engine strings, PSI/AHA, NEWS2 sub-scores and SSID pushed the JSON
+     * past ~750 bytes the handler overflowed the server task stack on every
+     * poll. The visible symptom was the board RESETTING under load and the
+     * browser reporting ERR_CONNECTION_RESET - which looks exactly like a
+     * network/Wi-Fi fault and is not one.
+     *
+     * Static storage removes the handler from the stack budget entirely. The
+     * HTTP server serialises handler invocations for a given server instance,
+     * and h_history already used the same pattern for its 4 KB buffer. */
+    static char buf[1536];
     size_t n = web_status_json(&s, buf, sizeof(buf));
     if (n == 0) {
         return httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "status too large");
@@ -1017,6 +1326,8 @@ static esp_err_t h_sos_trigger(httpd_req_t *req) {
     httpd_resp_set_type(req, "application/json");
     httpd_resp_set_hdr(req, "Cache-Control", "no-store");
     httpd_resp_set_hdr(req, HTTP_CORS_ALLOW_ORIGIN, "*");
+    httpd_resp_set_hdr(req, HTTP_CORS_ALLOW_METHODS, "GET, POST, OPTIONS");
+    httpd_resp_set_hdr(req, HTTP_CORS_ALLOW_HEADERS, "Content-Type");
     return httpd_resp_send(req, resp, HTTPD_RESP_USE_STRLEN);
 }
 
@@ -1058,6 +1369,8 @@ static esp_err_t h_sos_cancel(httpd_req_t *req) {
     httpd_resp_set_type(req, "application/json");
     httpd_resp_set_hdr(req, "Cache-Control", "no-store");
     httpd_resp_set_hdr(req, HTTP_CORS_ALLOW_ORIGIN, "*");
+    httpd_resp_set_hdr(req, HTTP_CORS_ALLOW_METHODS, "GET, POST, OPTIONS");
+    httpd_resp_set_hdr(req, HTTP_CORS_ALLOW_HEADERS, "Content-Type");
     return httpd_resp_send(req, resp, HTTPD_RESP_USE_STRLEN);
 }
 
@@ -1180,6 +1493,18 @@ esp_err_t web_status_start(void) {
     hcfg.lru_purge_enable = true;
     hcfg.max_uri_handlers = 20;
     hcfg.core_id = 1;
+    /* 4096 (the IDF default) is not enough for this server: the handlers build
+     * JSON strings, run snprintf with a dozen arguments, and one of them used
+     * to put a 1.5 KB buffer in the frame. The overflow surfaced as the board
+     * resetting whenever a dashboard polled it, which reads as a Wi-Fi fault.
+     * 8192 leaves room for the deepest handler plus httpd's own frames. */
+    hcfg.stack_size = 8192;
+    /* A standalone, battery-powered unit is often polled by a phone that
+     * disappears mid-request. Drop dead sockets faster than the 5 s default so
+     * a stale connection cannot hold one of the 7 slots for a whole poll
+     * interval. */
+    hcfg.recv_wait_timeout = 3;
+    hcfg.send_wait_timeout = 3;
     err = httpd_start(&s_server, &hcfg);
     if (err != ESP_OK) {
         ESP_LOGE(TAG, "httpd_start failed (%s); AP is up but has no page", esp_err_to_name(err));
@@ -1194,6 +1519,8 @@ esp_err_t web_status_start(void) {
     httpd_uri_t uri_loc      = { .uri = "/location",              .method = HTTP_POST,    .handler = h_set_location };
     httpd_uri_t uri_hist     = { .uri = "/history.json",          .method = HTTP_GET,     .handler = h_history };
     httpd_uri_t uri_api      = { .uri = "/api/history",           .method = HTTP_GET,     .handler = h_history };
+    httpd_uri_t uri_ppg      = { .uri = "/ppg.json",              .method = HTTP_GET,     .handler = h_ppg_json };
+    httpd_uri_t uri_cal      = { .uri = "/cal",                   .method = HTTP_GET,     .handler = h_cal };
     httpd_uri_t uri_sos_trig = { .uri = "/api/emergency/trigger", .method = HTTP_POST,    .handler = h_sos_trigger };
     httpd_uri_t uri_sos_canc = { .uri = "/api/emergency/cancel",  .method = HTTP_POST,    .handler = h_sos_cancel };
     httpd_uri_t uri_opt_trig = { .uri = "/api/emergency/trigger", .method = HTTP_OPTIONS, .handler = h_options };
@@ -1207,6 +1534,8 @@ esp_err_t web_status_start(void) {
     httpd_register_uri_handler(s_server, &uri_loc);
     httpd_register_uri_handler(s_server, &uri_hist);
     httpd_register_uri_handler(s_server, &uri_api);
+    httpd_register_uri_handler(s_server, &uri_ppg);
+    httpd_register_uri_handler(s_server, &uri_cal);
     httpd_register_uri_handler(s_server, &uri_sos_trig);
     httpd_register_uri_handler(s_server, &uri_sos_canc);
     httpd_register_uri_handler(s_server, &uri_opt_trig);
