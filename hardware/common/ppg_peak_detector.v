@@ -21,6 +21,31 @@
 // changes -- see reports/FPGA_PPG_WAVEFORM_ANALYSIS.md.
 // =============================================================================
 
+/* ============================================================================
+ * !! THIS FILE IS ONE OF TWO COPIES OF ppg_peak_detector.v !!
+ *
+ * A byte-for-byte equivalent FSM also lives in:
+ *     hardware/shrikefi/forgefpga_project/ffpga/src/forgefpga_ppg_top.v
+ *     (module ppg_peak_detector, inlined inside forgefpga_ppg_top)
+ *
+ * The Zynq/AXI design instantiates hardware/common/ppg_peak_detector.v.
+ * The ShrikeFi ForgeFPGA project does NOT reference that file - ForgeFPGA
+ * Designer compiles forgefpga_project/ffpga/src/forgefpga_ppg_top.v, which
+ * INLINES the same modules (forgefpga_ppg_top, spi_target,
+ * moving_average_8tap, ppg_peak_detector).
+ *
+ * Consequence, learned the hard way on 2026-11-02: a change made only to the
+ * common file regenerates a bitstream with an IDENTICAL SHA-256. convert_bitstream.py
+ * cannot catch that, because it compares the .bin to the C header, not the RTL
+ * to the .bin. The board then runs logic that does not match the source tree.
+ *
+ * ANY BEHAVIOURAL CHANGE MUST BE APPLIED TO BOTH FILES, and then:
+ *     1. re-synthesise in ForgeFPGA Designer
+ *     2. python hardware/shrikefi/convert_bitstream.py      (header)
+ *     3. idf.py build && idf.py flash                       (firmware)
+ * Check step 2 actually changed the Source-SHA256 in forgefpga_bitstream.h.
+ * ========================================================================= */
+
 module ppg_peak_detector #(
     parameter DATA_WIDTH      = 8,
     parameter REFRACTORY_CYC  = 12_500_000, // 250 ms at 50 MHz clock
