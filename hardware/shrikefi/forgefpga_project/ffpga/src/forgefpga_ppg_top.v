@@ -383,31 +383,6 @@ endmodule
 // ============================================================================
 // From hardware/common/ppg_peak_detector.v -- generated, do not edit here
 // ============================================================================
-/* ============================================================================
- * !! THIS FILE IS ONE OF TWO COPIES OF ppg_peak_detector.v !!
- *
- * A byte-for-byte equivalent FSM also lives in:
- *     hardware/common/ppg_peak_detector.v
- *     (the Zynq/AXI design instantiates that one directly)
- *
- * The Zynq/AXI design instantiates hardware/common/ppg_peak_detector.v.
- * The ShrikeFi ForgeFPGA project does NOT reference that file - ForgeFPGA
- * Designer compiles forgefpga_project/ffpga/src/forgefpga_ppg_top.v, which
- * INLINES the same modules (forgefpga_ppg_top, spi_target,
- * moving_average_8tap, ppg_peak_detector).
- *
- * Consequence, learned the hard way on 2026-11-02: a change made only to the
- * common file regenerates a bitstream with an IDENTICAL SHA-256. convert_bitstream.py
- * cannot catch that, because it compares the .bin to the C header, not the RTL
- * to the .bin. The board then runs logic that does not match the source tree.
- *
- * ANY BEHAVIOURAL CHANGE MUST BE APPLIED TO BOTH FILES, and then:
- *     1. re-synthesise in ForgeFPGA Designer
- *     2. python hardware/shrikefi/convert_bitstream.py      (header)
- *     3. idf.py build && idf.py flash                       (firmware)
- * Check step 2 actually changed the Source-SHA256 in forgefpga_bitstream.h.
- * ========================================================================= */
-
 module ppg_peak_detector #(
     parameter DATA_WIDTH      = 8,
     parameter REFRACTORY_CYC  = 12_500_000, // 250 ms at 50 MHz clock
@@ -435,26 +410,30 @@ module ppg_peak_detector #(
     reg        first_beat_seen;            // guard: IBI is only valid from the 2nd beat
 
     /* ---- Crest timestamps -------------------------------------------------
-     * IBI used to be interval_cnt latched at STATE_PEAK_FOUND, i.e. when the
-     * downstroke had fallen crest_fall_min below the running peak. That is the
-     * CONFIRMATION, not the crest, and the delay between them depends on how
-     * steep the downstroke is - which varies with heart rate and pulse shape.
-     * It partly cancels between two consecutive beats, but only partly, so the
-     * interval carried a rate-dependent bias on top of the 10 ms sample
-     * quantisation.
+     * IBI used to be interval_cnt latched at STATE_PEAK_FOUND, i.e. at the
+     * moment the downstroke had fallen crest_fall_min below the running peak.
+     * That is the CONFIRMATION, not the crest, and the delay between them
+     * depends on how steep the downstroke is - which varies with heart rate and
+     * pulse morphology. It partly cancels between two consecutive beats, but
+     * only partly, so the old interval carried a rate-dependent bias on top of
+     * the 10 ms sample quantisation.
      *
-     * Now the crest itself is timestamped: peak_cycle records the cycle when
-     * peak_val last advanced, and IBI is the difference between successive crest
-     * timestamps. The confirmation still happens at the same point; it simply no
-     * longer enters the measurement.
+     * Now the crest itself is timestamped: peak_cycle records the cycle at
+     * which peak_val last advanced, and the IBI is the difference between
+     * successive crest timestamps. The confirmation latency still exists, but
+     * it no longer enters the measurement.
      *
-     * cycle_now is free-running (never reset) so the delta stays well defined
-     * across the interval_cnt restart that happens on every confirmation. */
+     * cycle_now is free-running (never reset) so the delta is well defined
+     * across the interval_cnt reset that happens on every confirmation. */
     reg [31:0] cycle_now;
     reg [31:0] peak_cycle;                 // cycle of the most recent crest
     reg [31:0] prev_peak_cycle;            // cycle of the previous crest
     reg        peak_cycle_valid;           // a crest has been timestamped before
-    reg        prev_peak_valid;            // prev_peak_cycle holds a real crest
+    reg        prev_peak_valid;            // prev_peak_cycle holds a real crest */
+
+    /* Number of 20 ns cycles in one 100 Hz sample period, for the diagnostic
+     * output below. 50 MHz / 100 Hz = 500_000. */
+    localparam [31:0] CYCLES_PER_SAMPLE = 32'd500000;
 
     // Required drop from peak_val to confirm a crest.
     //   peak > 48 : peak/4 -- 25 %. The earlier peak/8 (12.5 %) rule still
@@ -497,9 +476,9 @@ module ppg_peak_detector #(
                 interval_cnt <= interval_cnt + 32'd1;
             end
 
-            // Free-running cycle counter: the timebase for crest stamps. NOT
-            // reset, so successive crest timestamps stay comparable even though
-            // interval_cnt restarts on every beat.
+            // Free-running cycle counter: the timebase for crest stamps. It is
+            // deliberately NOT reset, so successive crest timestamps remain
+            // comparable even though interval_cnt restarts on every beat.
             cycle_now <= cycle_now + 32'd1;
 
             if (sample_valid) begin
@@ -515,8 +494,8 @@ module ppg_peak_detector #(
                     if (sample_valid) begin
                         peak_val   <= sample_in;
                         // The re-seeded sample is the first candidate crest of the
-                        // new rise, so stamp it; otherwise the first crest after a
-                        // re-arm would inherit the previous beat's timestamp.
+                        // new rise, so stamp it. Without this the first crest after
+                        // a re-arm would inherit the previous beat's timestamp.
                         peak_cycle <= cycle_now;
                     end
                 end
@@ -525,9 +504,10 @@ module ppg_peak_detector #(
                     beat_detected <= 1'b0;
                     if (sample_valid && (sample_in > peak_val)) begin
                         peak_val   <= sample_in;
-                        // The crest, as far as the signal has shown so far.
-                        // Stamping here rather than at confirmation is what
-                        // removes the downstroke-slope dependence.
+                        // This is the crest as far as the signal has shown so far.
+                        // Stamping here - rather than at the confirmation below -
+                        // is what removes the downstroke-slope dependence from the
+                        // interval.
                         peak_cycle <= cycle_now;
                     end
                 end
@@ -543,8 +523,8 @@ module ppg_peak_detector #(
                         peak_cycle_valid <= 1'b1;
                     end else begin
                         beat_detected    <= 1'b1;
-                        /* Crest-to-crest, both stamped where the running peak
-                         * last advanced. */
+                        /* Crest-to-crest, both stamped at the sample where the
+                         * running peak last advanced. */
                         ibi_cycles       <= peak_cycle - prev_peak_cycle;
                         prev_peak_cycle  <= peak_cycle;
                         prev_peak_valid  <= 1'b1;

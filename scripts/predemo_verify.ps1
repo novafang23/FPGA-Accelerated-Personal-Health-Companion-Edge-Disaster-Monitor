@@ -100,7 +100,7 @@ try {
         firmware/core/ppg_sqi.c firmware/core/disaster_risk_engine.c `
         firmware/core/pressure_trend.c firmware/core/ppg_respiratory_rate.c `
         firmware/core/ppg_baseline_rr.c firmware/shrikefi/web_status.c `
-        firmware/core/skin_estimate.c 2>&1
+        firmware/core/skin_thermal.c 2>&1
     if ($LASTEXITCODE -eq 0) { Report-Gate "fp32-hygiene" "PASS" } else { Report-Gate "fp32-hygiene" "FAIL" ($out -join " ") }
 } catch { Report-Gate "fp32-hygiene" "FAIL" $_ }
 
@@ -115,8 +115,8 @@ try {
         firmware/core/clinical_vitals_engine.c firmware/core/spo2_engine.c `
         firmware/core/ppg_sqi.c firmware/core/disaster_risk_engine.c `
         firmware/core/pressure_trend.c firmware/core/ppg_respiratory_rate.c `
-        firmware/core/ppg_baseline_rr.c firmware/core/skin_estimate.c `
-        firmware/shrikefi/sos.c firmware/shrikefi/location.c firmware/shrikefi/web_status.c `
+        firmware/core/ppg_baseline_rr.c firmware/core/skin_thermal.c `
+        firmware/shrikefi/sos.c firmware/shrikefi/location.c firmware/shrikefi/skin_calib.c firmware/shrikefi/web_status.c `
         -lm -o $exe 2>&1
     if ($LASTEXITCODE -eq 0 -and (Test-Path $exe)) {
         $out = & $exe 2>&1
@@ -159,13 +159,15 @@ try {
         -Ifirmware/shrikefi -Ifirmware/core `
         firmware/shrikefi/main_shrikefi.c firmware/shrikefi/shrikefi_link_driver.c `
         firmware/shrikefi/esp32_i2c_hal.c firmware/shrikefi/max30102.c firmware/shrikefi/bme280.c `
+        firmware/shrikefi/tmp117.c firmware/shrikefi/skin_calib.c `
         firmware/shrikefi/pms5003.c firmware/shrikefi/gnss_nmea.c firmware/shrikefi/gps_l89hs.c `
         firmware/shrikefi/mpu6050.c firmware/shrikefi/fall_detect.c firmware/shrikefi/ssd1306.c `
         firmware/core/hrv_analysis.c firmware/core/spo2_engine.c firmware/core/disaster_risk_engine.c `
         firmware/core/clinical_vitals_engine.c `
         firmware/core/nn_risk_model.c firmware/core/nn_risk_model_int8.c firmware/core/pm25_correction.c `
+        firmware/core/pm25_aqi_avg.c `
         firmware/core/ppg_sqi.c firmware/core/ppg_respiratory_rate.c `
-        firmware/core/ppg_baseline_rr.c firmware/core/skin_estimate.c `
+        firmware/core/ppg_baseline_rr.c firmware/core/skin_thermal.c `
         firmware/core/pressure_trend.c firmware/shrikefi/location.c firmware/shrikefi/sos.c firmware/shrikefi/web_status.c `
         -lm -o $exe 2>&1
     if ($LASTEXITCODE -eq 0 -and (Test-Path $exe)) {

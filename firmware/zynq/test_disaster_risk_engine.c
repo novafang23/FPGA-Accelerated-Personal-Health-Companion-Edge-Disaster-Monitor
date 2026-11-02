@@ -10,7 +10,7 @@
 #include "ppg_respiratory_rate.h"
 #include "ppg_baseline_rr.h"
 #include "ppg_sqi.h"
-#include "skin_estimate.h"
+#include "skin_thermal.h"
 /* sos.c lives under firmware/shrikefi/ but is deliberately free of any hardware
  * or FreeRTOS dependency, so the emergency state machine is testable here
  * alongside everything else rather than only on the bench. */
@@ -2524,123 +2524,41 @@ static void test_max30102_temperature_conversion(void) {
     printf("test_max30102_temperature_conversion: PASS (masking and two's complement verified)\n");
 }
 
-static void test_skin_estimate_monotonic_and_bounded(void) {
-    /* 1. Trace 1 from tools/skin_calib_session.json: Neutral Finger #1
-     * Raw die temp jumps up and down (35.01 -> 34.76 -> 34.42 -> 34.84 -> 34.71 -> 35.46 -> 35.04 -> 35.56).
-     * Estimator must climb monotonically (never decrease) and settle in [34.4, 35.3] C. */
-    const float trace_neutral[] = {
-        33.75f, 33.90f, 34.23f, 34.31f, 35.01f, 34.76f, 34.42f,
-        34.84f, 34.92f, 34.80f, 34.71f, 34.80f, 34.99f, 35.27f,
-        35.34f, 35.46f, 35.04f, 35.03f, 35.56f
-    };
-    skin_estimate_t st_neutral;
-    skin_estimate_init(&st_neutral, SKIN_EST_DEFAULT_B0, SKIN_EST_DEFAULT_B1, SKIN_EST_DEFAULT_B2, true);
-    skin_estimate_update(&st_neutral, 33.75f, 27.80f, false, 1000u);
+static void test_skin_thermal_state_machine(void) {
+    skin_thermal_t st;
+    skin_thermal_init(&st);
+    assert(st.state == SKIN_THERM_UNKNOWN);
+    assert(strcmp(skin_therm_state_name(st.state), "UNKNOWN") == 0);
 
-    float prev_est = 0.0f;
-    uint32_t t_ms = 2000u;
-    for (size_t i = 0; i < sizeof(trace_neutral) / sizeof(trace_neutral[0]); i++) {
+    /* 1. Settle warm finger at 33.5 C, ambient 24.0 C */
+    uint32_t t_ms = 0;
+    for (int i = 0; i < 60; i++) {
         t_ms += 1000u;
-        skin_estimate_update(&st_neutral, trace_neutral[i], 27.80f, true, t_ms);
-        assert(st_neutral.estimated_skin_c >= prev_est); /* Strictly non-decreasing! */
-        prev_est = st_neutral.estimated_skin_c;
+        skin_thermal_update(&st, 33.5f, 24.0f, true, t_ms);
     }
-    assert(st_neutral.is_valid);
-    assert(st_neutral.is_settled);
-    /* REGRESSION GUARD against a silently-uncalibrated constant.
-     *
-     * The session recorded t_ref = 36.1 C for this trace, but the estimator
-     * settles at 34.93 C - a 1.17 C error. The old assertion checked only that
-     * the output landed in [34.40, 35.30], i.e. it certified the MODEL's own
-     * number rather than the reference it was supposed to predict. That is why
-     * nothing caught the die thermometer contributing exactly zero on real
-     * hardware.
-     *
-     * The assertion now states the true requirement (agreement with the
-     * reference) and is marked as a KNOWN FAILURE rather than being deleted or
-     * loosened. It stays visible so the gap cannot quietly become "correct"
-     * again, and it becomes a plain assert once b0/b1 are fitted from data.
-     *
-     * A 2-point fit is impossible from the existing session: both of its
-     * points record the SAME 36.1 C reference, and identical references cannot
-     * separate b0 from b1. Two distinct reference temperatures are required. */
-    {
-        const float t_ref_c = 36.1f;
-        const float err_c   = st_neutral.estimated_skin_c - t_ref_c;
-        const bool  agrees  = (err_c >= -1.00f && err_c <= 1.00f);
-        if (!agrees) {
-            printf("  [KNOWN GAP] neutral finger: model %.2f C vs reference %.2f C "
-                   "(error %+.2f C). b0/b1 are NOMINAL, not fitted - see skin_estimate.h.\n",
-                   st_neutral.estimated_skin_c, t_ref_c, err_c);
-        }
-        /* The value must at least still be a plausible peripheral skin
-         * temperature: the check that would have caught a badly broken model. */
-        assert(st_neutral.estimated_skin_c >= 32.0f && st_neutral.estimated_skin_c <= 37.0f);
-    }
+    assert(st.valid);
+    assert(st.state == SKIN_THERM_STABLE);
+    assert(fabsf(st.trend_c) < 0.5f);
 
-    /* 2. Trace 2 from tools/skin_calib_session.json: Warm Finger #1 (plus 1-sample spike at 41.0 C)
-     * Must reject the 1-sample spike via median-of-5, climb monotonically, and settle higher than neutral in [35.4, 36.35] C. */
-    const float trace_warm[] = {
-        35.39f, 35.40f, 35.21f, 35.39f, 35.70f, 35.70f, 36.11f,
-        36.56f, 41.00f, /* 1-sample I2C/ADC glitch spike - must be rejected by median-of-5 */
-        36.60f, 36.48f, 36.93f, 37.03f, 37.13f, 37.24f, 37.39f,
-        37.88f, 37.44f, 37.56f, 37.26f, 37.71f
-    };
-    skin_estimate_t st_warm;
-    skin_estimate_init(&st_warm, SKIN_EST_DEFAULT_B0, SKIN_EST_DEFAULT_B1, SKIN_EST_DEFAULT_B2, true);
-    skin_estimate_update(&st_warm, 33.75f, 27.75f, false, 1000u);
-
-    prev_est = 0.0f;
-    t_ms = 2000u;
-    for (size_t i = 0; i < sizeof(trace_warm) / sizeof(trace_warm[0]); i++) {
+    /* 2. Sustained cooling (cools by 1.5 C over 60 s) */
+    for (int i = 0; i < 60; i++) {
         t_ms += 1000u;
-        skin_estimate_update(&st_warm, trace_warm[i], 27.75f, true, t_ms);
-        assert(st_warm.estimated_skin_c >= prev_est); /* Strictly non-decreasing! */
-        assert(st_warm.estimated_skin_c <= 36.45f);   /* Never overheats into fever! */
-        prev_est = st_warm.estimated_skin_c;
+        float s = 33.5f - 1.5f * (float)i / 59.0f;
+        skin_thermal_update(&st, s, 24.0f, true, t_ms);
     }
-    float warm_final = st_warm.estimated_skin_c;
-    assert(st_warm.is_valid);
-    assert(st_warm.is_settled);
-    assert(warm_final > st_neutral.estimated_skin_c + 0.40f);
-    assert(warm_final >= 35.40f && warm_final <= 36.35f);
+    assert(st.state == SKIN_THERM_COOLING);
 
-    /* 3. Cold-boot touch immunity: idle die starts at room temp (27.8 C) before LEDs warm package */
-    skin_estimate_t st_coldboot;
-    skin_estimate_init(&st_coldboot, SKIN_EST_DEFAULT_B0, SKIN_EST_DEFAULT_B1, SKIN_EST_DEFAULT_B2, true);
-    skin_estimate_update(&st_coldboot, 27.80f, 27.80f, false, 1000u);
-    prev_est = 0.0f;
-    t_ms = 2000u;
-    for (int i = 0; i < 20; i++) {
-        t_ms += 1000u;
-        float die_ramp = 28.50f + 0.45f * (float)i; /* ramps up to 37.05 C */
-        skin_estimate_update(&st_coldboot, die_ramp, 27.80f, true, t_ms);
-        assert(st_coldboot.estimated_skin_c >= prev_est);
-        assert(st_coldboot.estimated_skin_c <= 36.45f);
-        prev_est = st_coldboot.estimated_skin_c;
-    }
+    /* 3. Finger release resets session */
+    skin_thermal_reset(&st);
+    assert(st.state == SKIN_THERM_UNKNOWN);
+    assert(!st.valid);
+    assert(st.ring_n == 0u);
 
-    /* 4. Cold-finger / hypothermia detection: cold finger cools die from 33.5 C down to 30.2 C */
-    skin_estimate_t st_cold_fgr;
-    skin_estimate_init(&st_cold_fgr, SKIN_EST_DEFAULT_B0, SKIN_EST_DEFAULT_B1, SKIN_EST_DEFAULT_B2, true);
-    skin_estimate_update(&st_cold_fgr, 33.50f, 24.00f, false, 1000u);
-    t_ms = 2000u;
-    for (int i = 0; i < 18; i++) {
-        t_ms += 1000u;
-        skin_estimate_update(&st_cold_fgr, 30.20f, 24.00f, true, t_ms);
-    }
-    assert(st_cold_fgr.estimated_skin_c < 31.0f);
-    assert(st_cold_fgr.is_below_range);
-    assert(!st_cold_fgr.is_valid);
+    /* 4. NULL safety */
+    skin_thermal_update(NULL, 33.0f, 24.0f, true, 1000u);
+    assert(skin_therm_state_name(SKIN_THERM_UNKNOWN) != NULL);
 
-    /* 5. Finger release immediately clears estimate and validity */
-    skin_estimate_update(&st_warm, 36.0f, 27.75f, false, t_ms + 1000u);
-    assert(!st_warm.is_valid);
-    assert(!st_warm.is_settled);
-    assert(st_warm.estimated_skin_c == 0.0f);
-
-    printf("test_skin_estimate_monotonic_and_bounded: PASS (neutral=%.2f C, warm=%.2f C, coldboot=%.2f C, cold=%.2f C)\n",
-           st_neutral.estimated_skin_c, warm_final, prev_est, st_cold_fgr.estimated_skin_c);
+    printf("test_skin_thermal_state_machine: PASS\n");
 }
 
 static void test_ppg_sqi_live_reflection_and_motion_gate(void) {
@@ -2731,7 +2649,7 @@ int main() {
     test_rr_baseline_path();
     test_news2_temperature_scoring();
     test_max30102_temperature_conversion();
-    test_skin_estimate_monotonic_and_bounded();
+    test_skin_thermal_state_machine();
     test_ppg_sqi_live_reflection_and_motion_gate();
     printf("ALL TESTS PASSED.\n");
     return 0;
