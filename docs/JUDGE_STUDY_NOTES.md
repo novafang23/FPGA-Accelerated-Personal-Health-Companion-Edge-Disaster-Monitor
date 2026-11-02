@@ -712,7 +712,7 @@ Be precise. Judges reward this.
 | HRV / RMSSD | **Not clinically validated**; split-pair signature gone in the 302 s still capture, but RMSSD needs ~3 min to settle and is still higher than expected — ECG comparison pending |
 | SpO₂ accuracy | **Rough two-point calibration**, not clinical |
 | Respiratory rate | **Often unresolved**; RSA from finger PPG is weak |
-| Skin temperature | **Estimated, not clinically calibrated.** Two independent sources: the MAX30102 die temperature (read directly, LED self-heating offset measured on the bench at **4.39 °C**, warm die 28.44 °C vs ambient 24.05 °C) feeds `firmware/core/skin_estimate.c`; optionally a TMP117 at 0x48–0x4B is probed at boot by `firmware/shrikefi/tmp117.c` (16/16 host tests pass) and takes over when present. NEWS2 temperature points stay **withheld** (see §14.3). |
+| Skin temperature | **Measured by a TMP117 probe** (±0.1 °C, 1/128 °C, device ID checked at 0x48), or **absent** if no probe answers - there is no modelled fallback. The MAX30102 die-based estimate was removed on 2026-11-02. A per-session core offset can be taken from one oral reading via `/cal?ref=`; it expires after 4 h or a 3 °C drift. NEWS2 temperature points stay **withheld** because a fingertip is not a core site. |
 | Fall detection | **5-state FSM; 16/16 host tests; 1/1 physical drop trial passed**; false-positive rate not characterised |
 | SOS escalation | **4-state FSM implemented**; 10 s fall grace + 5 s cancel hold; countdown + buzzer + cancel verified in the physical trial |
 | 24-hour history | **NVS-persisted device-hours** (24 slots, reboot-safe); wrap + oldest-slot eviction exercised on hardware with a compressed-hour bench build; **not a calendar record** |
@@ -775,7 +775,7 @@ Do not say “HRV is fixed” or “HRV is accurate” yet.
 
 ### 14.5 Security and privacy — honest version
 
-- The **SoftAP is open** (`WIFI_AUTH_OPEN`) so a rescuer can join without a password. It has **no authentication**; it is a local emergency-access page, not a hardened service.
+- The **SoftAP is WPA2** (`WIFI_AUTH_WPA2_PSK`, passphrase `valorhealth`) so a rescuer can join with no app or laptop. Mutating endpoints (`/api/emergency/cancel`, `/location`) additionally require a **4-digit control PIN** shown on the OLED - joining the network alone cannot silence an alert. Read-only endpoints stay open so the page loads with no friction.
 - The page uses **same-origin checks and a CSP**, but that is not a full security audit.
 - **MQTT is off by default**; the demo does not need the cloud.
 - Data stays on the device by default; the stored location is local NVS text. Do not claim TLS or end-to-end encryption.
@@ -856,7 +856,7 @@ That answer is stronger than guessing.
 > “At boot, the ESP32 drives the FPGA power/enable/boot pins and streams the 46 KB bitstream over SPI2 at 16 MHz. The transfer is open-loop, so we don’t claim it as proof; the proof is the beat flag after real contact. It is not programmed over I²C.”
 
 ### Q7. How do you get the beat and the IBI?
-> “One SPI byte per sample: bit 7 is the beat flag, bits 6:0 are the filtered diagnostic. On a beat the FPGA queues five bytes: 0xC3 plus a 32-bit cycle count. The count is in 50 MHz ticks, so 20 ns resolution. Older bitstreams fall back to the ESP32 timer.”
+> - One 50 MHz cycle is 20 ns, but that is only the counter LSB. Two crests can be told apart no better than one sample, and the MAX30102 delivers a sample every 10 ms - so treat the IBI resolution as **10 ms**. What the FPGA guarantees is that this 10 ms quantisation is the *same* every beat, with no OS or Wi-Fi jitter added on top.
 
 ### Q8. How do you handle a noisy PPG?
 > “Hardware: 8-tap moving average, 250 ms refractory, 25 % crest confirmation. Firmware: SQI from perfusion, skewness, interval regularity and IMU motion; if SQI is below 0.70 we hold/qualify instead of publishing a fake value. Critical vitals can still override.”

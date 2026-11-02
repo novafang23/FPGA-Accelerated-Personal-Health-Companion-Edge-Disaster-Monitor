@@ -73,10 +73,13 @@
 
 ### Q4.1 (Advanced): Why did you choose the Renesas ForgeFPGA SLG47910C over a Xilinx Artix-7 or Zynq?
 - **Direct Answer:** "Cost, power, and board footprint. The Renesas ForgeFPGA costs approximately $0.50 and consumes under 5 milliwatts, making a mass-deployed disaster wearable economically feasible. The Zynq-7000 costs $50 to $150 and consumes watts, which is unsuitable for a low-cost wearable. We used the Zynq-7000 as our verified golden baseline and ported the core to the ForgeFPGA."
-- **Technical Explanation:** The Zynq-7000 was verified in Vivado ML 2022.2 (185 LUTs, 0 DSP, 0 BRAM, Fmax 69.45 MHz). The ForgeFPGA SLG47910C fits into 515 LUT5s (45.98% fabric), 303 flip-flops and 105/140 CLBs, and **closes timing at its 50 MHz clock (WNS +7.316 ns, TNS 0, zero failing endpoints)** — no Block RAM or dedicated DSPs are needed.
+- **Technical Explanation:** The Zynq-7000 was verified in Vivado ML 2022.2 (185 LUTs, 0 DSP, 0 BRAM, Fmax 69.45 MHz). The ForgeFPGA SLG47910 fits into 533 LUT5s (47.59% of fabric), 367 FFs and 118 of 140 CLBs (84.3% - the real constraint), timing-closed at 50 MHz with WNS +7.131 ns and 77.712 MHz achievable. The crest-timestamping change of 2026-11-02 added the +64 FFs.
 - **Evidence:** `docs/MIGRATION.md`, `hardware/shrikefi/synthesis_evidence/resource_utilization_spi_link.log`, `hardware/shrikefi/synthesis_evidence/timing_summary_spi_link_50mhz.log`.
 - **Follow-up Challenge:** "Does the ForgeFPGA have enough logic remaining for feature expansion?"
-- **Safe Response:** "Yes. With 515 LUT5s utilized out of 1120, 54.02% of the LUT fabric remains uncommitted; CLB occupancy is the tighter number at 105 of 140 blocks."
+- **Safe Response:** "Yes. With 533 LUT5s utilized out of 1120, **52.4% of the LUT fabric**
+  is still free, and the binding constraint is CLBs at 118 of 140 - headroom, not a
+  squeeze. We also added 64 flip-flops on 2026-11-02 for crest timestamping without
+  moving the timing closure."
 
 ---
 
@@ -260,9 +263,15 @@
 # Category 14: Candid Limitations, Unfinished Features & Future Work
 
 ### Q14.1 (Adversarial): What is the single weakest part of your current implementation?
-- **Direct Answer:** "Skin temperature. Because the TMP117 footprint on our current board revision is unpopulated, we estimate fingertip skin temperature by fusing the MAX30102 on-die temperature sensor (`0x1F`/`0x20`) with the BME280 ambient temperature sensor via a median-of-5 peak-holding thermal convergence filter (`skin_estimate.c`), calibrated against a DT-112 clinical reference thermometer (`34.4–36.4 °C`). Because fingertip skin temperature is a peripheral measurement subject to vasoconstriction and LED package self-heating, we treat it strictly as a display-only indicator and pass `0.0f` to the NEWS2 core-temperature scorer so an estimated peripheral temperature never fabricates a clinical fever or hypothermia alert."
+- **Direct Answer:** "Not skin temperature any more - that is now a real TMP117 measurement. The
+  weakest part is that **a fingertip is not a core site**. It reads 30–34 °C against a
+  36.5–37.5 °C core, that gap is vasoconstriction rather than a fixed offset, and it moves with
+  the room. We therefore report a *trend* plus a per-session offset from one oral reading, and we
+  keep the NEWS2 temperature row uninstrumented rather than score a peripheral number."
 - **Technical Explanation:** The MAX30102 on-die sensor has a slow thermal RC time constant through the optical glass package and ~5.5 °C of steady-state LED self-heating above ambient. Firmware applies a 5-sample median filter to reject single-sample ADC glitches, enforces a cold-boot baseline floor (`ambient + 5.5 °C`), and runs a monotonically non-decreasing peak-hold integrator during warm finger contact (starting at `32.2 °C` and climbing smoothly at `<= +0.28 °C/s` to the settled fingertip equilibrium) while preserving a cooling detection path (`<31.0 °C COLD`) when a cold finger actively cools the die below baseline.
-- **Evidence:** `firmware/core/skin_estimate.h`, `firmware/core/skin_estimate.c`, `firmware/zynq/test_disaster_risk_engine.c`, `tools/skin_calib_session.json`.
+- **Evidence:** `firmware/shrikefi/tmp117.c` (16/16 host tests), `firmware/core/skin_thermal.c`
+  (peripheral trend), `firmware/shrikefi/skin_calib.c` (per-session offset),
+  `docs/SKIN_TEMP_VALIDATION_PROTOCOL.md`. The die-based estimator was deleted on 2026-11-02.
 
 ### Q14.2 (Intermediate): Has the physical fall/SOS path actually been tested?
 - **Direct Answer:** "Yes — one physical drop trial on 2026-10-19 was detected, and the full SOS path was exercised: the 10-second countdown ran, the buzzer sounded, and the hold-to-cancel worked (5-second hold on physical button GPIO5, 3-second hold on the web dashboard). It is a single bench trial; false positives and multi-trial/orientation testing are still open, so we call it physically demonstrated, not field-validated."
@@ -275,7 +284,7 @@
 
 ### Q15.1 (Adversarial): "You claim this is an FPGA project, but your FPGA just runs a boxcar filter and peak detector while the ESP32 does all the real work. Isn't the FPGA just a marketing gimmick?"
 - **Direct Answer:** "No. Offloading peak detection to hardware is the only reason our Heart Rate Variability metrics are valid. Without the FPGA, peak detection in software would be quantized to the FreeRTOS 5 ms scheduling tick, introducing timing errors larger than the RMSSD signal itself."
-- **Technical Explanation:** In a healthy adult, RMSSD is 20–50 ms; in autonomic collapse, it drops below 15 ms. A 5 ms RTOS tick is already the same size as the variation we are trying to measure, which makes software-timestamped HRV meaningless. The FPGA detects peaks with 20 ns resolution directly in hardware, shielding biosignal timing from CPU scheduling, Wi-Fi radio interrupts, and flash cache latency.
+- **Technical Explanation:** In a healthy adult RMSSD is 20-50 ms; in autonomic collapse it drops below 15 ms. A 5 ms RTOS tick is already the same size as the variation we are trying to measure. The FPGA counts the interval on a 50 MHz counter so the CPU and radio cannot perturb it - but the honest resolution is **10 ms**, set by the 100 Hz sample rate, not the 20 ns counter LSB.
 - **Evidence:** `docs/MASTER_PROJECT_GUIDE.md:75-105`, `hardware/shrikefi/tb_forgefpga_system.v:310-340`.
 
 ---

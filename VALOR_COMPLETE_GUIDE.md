@@ -369,7 +369,13 @@ If bit 7 is HIGH (a beat occurred), `shrikefi_link_driver.c` immediately execute
 | Byte 3 | `IBI[15:8]` | Cycle count byte 1 |
 | Byte 4 | `IBI[7:0]` | Cycle count byte 0 (Least Significant Byte) |
 
-Because one FPGA clock tick at 50 MHz is exactly **20 nanoseconds**, the IBI timestamp has 20 ns resolution. If an older bitstream without burst support is running, Byte 0 will not equal `0xC3`, and the driver safely falls back to CPU microsecond timer timestamps.
+Because one FPGA clock tick at 50 MHz is 20 nanoseconds, the IBI counter has a 20 ns LSB.
+
+**But that is not the resolution.** A crest can only be located to the nearest sample,
+and the MAX30102 delivers one sample every 10 ms at 100 Hz - so the effective IBI
+resolution is **10 ms**. The FPGA's value is *determinism*: the same 10 ms
+quantisation every beat, with no FreeRTOS or Wi-Fi jitter added on top. Quoting 20 ns
+as the measurement resolution would be precision without accuracy.
 
 ### The Retired 4-Bit Parallel "Nibble Protocol" Trap
 In early architectural proposals, a **4-bit parallel nibble bus** was planned (`link_data[3:0]`, `link_strobe`, `link_dir`, and a `0x1` to `0x8` command codebook).
@@ -1196,7 +1202,7 @@ VALOR uses a **hybrid safety envelope** architecture:
 - **TMP117 support shipped.** `firmware/shrikefi/tmp117.c` is a full driver (±0.0078125 °C LSB, device-ID check `0x0117`, range −20…60 °C) with 16/16 passing host tests; it probes four addresses at boot after the BME280 and is non-fatal if absent. An earlier bench session (21 Oct 2026, `docs/I2C_BUS_BENCH_REPORT.md`) had this specific breakout fail to answer on a demonstrably healthy bus (3.18 V, other four devices clean) — a defective module, not a bus fault. The driver was consequently written so a missing probe degrades to the die estimate rather than blanking the field.
 - **The die temperature IS read, and the LED offset is measured, not assumed.** `max30102_read_die_temp()` reads the on-chip junction sensor properly: bounded conversion polling, explicit completion check, and it rejects `ti==0 && (tf&0x0F)==0` as "not converted yet" instead of accepting 0.0 °C as a reading. The self-heating offset is then **measured on the bench rather than asserted**: `[SKINCAL] LED self-heating MEASURED: die_warm=28.44 amb=24.05 -> offset=4.39 C`. An earlier hand-guessed `amb + 5.5` guard sat *above* the observed peak die temperature (30.90 vs 30.07), which silently forced the estimator to contribute exactly 0.00 °C — a real bug the measurement exposed.
 - **The Static Formula Trap.** Naively substituting the die temperature into a static absolute linear equation ($T_{skin} = b_0 + b_1 T_{die} + b_2 T_{amb}$) fails badly: the high-current LEDs (~128,700 IR counts at the shipped LED setting) and ESP32 PCB heat the idle die well above ambient. Hence the baseline-relative model below.
-- **The Pre-Contact Baseline-Relative Model (`firmware/core/skin_estimate.c`):** The firmware tracks the idle sensor equilibrium ($T_{die\_idle}$) while no finger is present. On contact the baseline freezes, and skin temperature is the relative contact step:
+- **The estimator that was removed (`firmware/core/skin_estimate.c`, deleted 2026-11-02):** This guide previously described a baseline-relative die model. It has been **deleted**. The MAX30102 die is a junction sensor heated by its own emitters; deriving skin temperature from it needed a boot-time LED self-heating measurement, two independent validity gates and an "uncalibrated" label, and the result was a model output that looked like a measurement. Skin temperature is now **measured by the TMP117** (0.1 C) or reported as absent. The peripheral trend state machine survives as `firmware/core/skin_thermal.c`, fed by the probe.
   $$T_{skin} = 34.10 + 0.55 \cdot (T_{die\_pred} - T_{die\_baseline}) + 0.12 \cdot (T_{amb} - 27.5)$$
   with a 0.28 °C/s slew limit, a 5-sample median spike filter and monotonic drift rejection. It publishes 3 s after contact and settles at 12 s, so there is **no 4 s lead compensation and no 34.50 °C `T_base`** — those were removed for stability.
 - **What it is worth.** Tested against a known reference, the nominal model prints `[KNOWN GAP] neutral finger: model 34.87 C vs reference 36.10 C (error -1.23 C)`. That gap is why the tile says **(uncalibrated)** and why NEWS2 temperature points stay **withheld at 0**. A fingertip reads 30–34 °C while NEWS2's temperature row is defined on **core/tympanic** values: passing skin through unmodified would score **+3 hypothermia on every healthy subject**, manufacturing a critical alert on a well patient. The probe value is published as a *measurement*; only a probe at a core-equivalent site (tympanic/axillary with a documented offset) may feed the score.
@@ -1210,7 +1216,7 @@ VALOR uses a **hybrid safety envelope** architecture:
 - **Q:** *So what is your body-temperature reading?*  
   **A:** We report an **uncalibrated peripheral skin estimate** and say so on the tile. We do not publish a core temperature, because a fingertip is not a core site and our nominal model runs 1.23 °C low against a known reference. Giving NEWS2 temperature points from that number would add +3 hypothermia to every healthy person.
 - **Q:** *Why not just use the die temperature for fever detection?*  
-  **A:** The die measures its own silicon temperature, not the patient's core. With the LEDs drawing current it sits well above ambient, and the relationship to skin is only meaningful as a *relative* step from the pre-contact baseline — which is what `skin_estimate.c` encodes. Absolute thresholding would false-alarm.
+**A:** The die measures its own silicon temperature, not the patient's. With the LEDs drawing current it sits well above ambient, and its relation to skin is only meaningful as a *relative* step - which is exactly why we stopped publishing it as a temperature. The TMP117 contact probe replaced it entirely on 2026-11-02; if the probe is absent the reading is absent, not estimated.
 - **Q:** *How does VALOR prevent optical motion artifacts from corrupting vital calculations?*  
   **A:** The firmware evaluates the signal quality index (skewness term, Elgendi 2016, plus project perfusion/IBI terms) and MPU6050 motion energy. If motion or poor perfusion is detected, the device enters `ACQUIRING` mode and withholds HRV and clinical scores until a stable signal is re-established.
 :::

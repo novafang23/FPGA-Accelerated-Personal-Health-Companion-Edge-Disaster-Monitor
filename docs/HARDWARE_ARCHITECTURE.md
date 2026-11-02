@@ -18,7 +18,10 @@ The SIH26181 hardware accelerator is an FPGA-based digital signal processing pip
   * `STATE_RISING (01)`: Tracking rising slope until local peak is detected (`sample_in < prev_sample`).
   * `STATE_PEAK_FOUND (10)`: Latching peak timestamp, asserting `beat_detected` pulse, and capturing IBI cycle interval.
   * `STATE_REFRACTORY (11)`: 250 ms blanking window countdown (`REFRACTORY_CYC`) to reject dichrotic notches and motion artifacts.
-* **Timing Resolution:** 50 MHz clock counter $\implies$ **20 ns per tick** resolution.
+* **Timing Resolution:** the IBI counter runs on the 50 MHz clock, so its LSB is **20 ns**. The
+  *effective* resolution is **10 ms**, because a crest can only be located to the nearest sample and
+  the MAX30102 delivers one sample per 10 ms at 100 Hz. The FPGA removes OS/radio jitter from the
+  measurement; it does not remove the sensor’s sample quantisation.
 
 ### 3. AXI4-Lite Slave Wrapper (`axi_ppg_accelerator.v`)
 * **Decoupled Handshake:** Independent `AW` (Address Write) and `W` (Data Write) channels prevent out-of-order interconnect deadlocks.

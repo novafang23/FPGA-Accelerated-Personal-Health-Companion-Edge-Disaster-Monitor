@@ -6,6 +6,32 @@
 **Scope**: Complete technical audit of system architecture, pinouts, SPI protocol, Verilog RTL, reset hierarchy, timing & synthesis reports, FreeRTOS dual-core firmware, TinyML risk inference, clinical rules, GNSS subsystem, dashboards, and hardware test records.
 
 ---
+> **⚠ SUPERSEDED IN PART — read this first (updated 2026-11-02).**
+>
+> This is a dated audit of the guide as it stood on **2026-10-24**. Several findings below
+> describe hardware and firmware that has since changed. The audit is left intact as a record;
+> where it conflicts with the current tree, **the tree wins**. Specifically superseded:
+>
+> | Finding below | Current reality |
+> |---|---|
+> | “TMP117 skin probe failed hardware bench test” | **The TMP117 works.** `firmware/shrikefi/tmp117.c`
+> | | probes 0x48–0x4B at boot, verifies device ID `0x0117`, and reads ±0.1 °C. Confirmed on
+> | | hardware: 26.1 °C in room air → 34.1 °C under a fingertip. |
+> | Skin estimate `T_skin = b0 + b1*(T_die - T_die_base) + b2*(T_amb - 27.5)` | **Deleted.**
+> | | `skin_estimate.c/.h` were removed on 2026-11-02. Skin temperature is measured by the probe
+> | | or absent; there is no modelled fallback. `firmware/core/skin_thermal.c` keeps only the
+> | | peripheral trend state machine, now fed by the probe. |
+> | ForgeFPGA `515 LUT5 · 105/140 CLB · Fmax 78.85 MHz · WNS +7.316 ns` | **533 LUT5 (47.59%) ·
+> | | 118/140 CLB (84.29%) · 367 FFs · Fmax 77.712 MHz · WNS +7.131 ns**, from the 2026-11-02
+> | | synthesis that added crest timestamping to the peak detector. |
+> | SoftAP is open / no authentication on SOS cancel | **WPA2** (passphrase `valorhealth`) **plus a
+> | | 4-digit control PIN** shown on the OLED, required by `/api/emergency/cancel` and `/location`. |
+>
+> Two further corrections that apply throughout: the IBI resolution is **10 ms** (set by the
+> 100 Hz MAX30102 sample rate), not 20 ns — 20 ns is only the counter LSB; and the MIMIC
+> figures must always be quoted as **58.18 % sensitivity / 98.19 % specificity** (patient-level
+> 95 % CI for sensitivity **[49.7, 70.3]**), never as accuracy alone.
+
 
 ## 1. Executive Summary & Verdict Counts
 
@@ -182,7 +208,7 @@ Every technical claim in `VALOR_COMPLETE_GUIDE_1.md` was cross-referenced direct
 | Zynq testbench: 6 self-checking test cases passing | §17 | **CONFIRMED** | `hardware/zynq/tb_ppg_system.v:230-245; AGENTS.md:13` | Passes 6/6 tests covering reset, thresholds, dicrotic notch. |
 | Fall detection unit tests: 16 FSM unit tests | §17 | **CONFIRMED** | `firmware/shrikefi/test_fall_detect.c; docs/DEMO_RUNBOOK.md:210` | Validates free-fall, impact, rotational jerk, immobility transitions. |
 | I2C Bus bench test executed on 21 October 2026 | §15, §17 | **CONFIRMED** | `docs/I2C_BUS_BENCH_REPORT.md:8` | Measured on 21 October 2026; 4 of 5 devices answer. |
-| TMP117 skin probe failed hardware bench test (silent / faulty) | §15 | **CONFIRMED** | `docs/I2C_BUS_BENCH_REPORT.md:12-20` | Returns 0xFFFF across all addresses; bus healthy at 3.18V without it. |
+| *(historical, since fixed)* TMP117 skin probe failed hardware bench test | §15 | **CONFIRMED** | `docs/I2C_BUS_BENCH_REPORT.md:12-20` | Returns 0xFFFF across all addresses; bus healthy at 3.18V without it. |
 | Physical drop trial passed on 2026-10-19 (1/1 trial) | §10, §17 | **CONFIRMED** | `docs/DEMO_RUNBOOK.md:210; docs/JUDGE_QA.md:268` | 1/1 physical drop trial passed; exercised countdown and cancellation. |
 | Multi-trial physical fall orientation statistical dataset | §17, §20 | **NOT FOUND** | `docs/JUDGE_QA.md:268` | Honest limitation: single bench trial only; multi-trial orientation dataset does not exist. |
 | MIMIC-III ICU Evaluation: 16,387 records across 98 patients | §13, §17 | **CONFIRMED** | `data/mimic/mimic_eval_feed.csv:1-16388` | Empirically verified: exactly 16,387 data rows across 98 unique subject_ids. |
@@ -276,7 +302,9 @@ The following claims in the guide describe tests, data, or files that do **not**
 - `firmware/shrikefi/mpu6050.h` (MPU6050 6-axis IMU driver header)
 - `firmware/shrikefi/sos.c` & `sos.h` (Emergency assistance 4-state latching FSM)
 - `firmware/shrikefi/fall_detect.c` & `fall_detect.h` (5-state biomechanical fall detection FSM)
-- `firmware/core/skin_estimate.c` & `skin_estimate.h` (Newton lead skin temperature estimator)
+- `firmware/shrikefi/tmp117.c` & `tmp117.h` (TI TMP117 skin-temperature probe driver)
+- `firmware/core/skin_thermal.c` & `skin_thermal.h` (peripheral trend state machine)
+- `firmware/shrikefi/skin_calib.c` & `skin_calib.h` (per-session core offset)
 - `firmware/core/clinical_vitals_engine.c` & `clinical_vitals_engine.h` (mNEWS2 clinical scoring)
 - `firmware/core/disaster_risk_engine.c` & `disaster_risk_engine.h` (Multi-hazard triage engine)
 - `firmware/core/pressure_trend.c` & `pressure_trend.h` (180-min barometric slope calculation)

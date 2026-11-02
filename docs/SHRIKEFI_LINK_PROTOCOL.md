@@ -122,7 +122,7 @@ not disturb the waveform.
 If the first burst byte is not `0xC3` (an older bitstream without the burst), the
 driver discards the result and falls back to timing the beat flag with
 `esp_timer_get_time()`. That fallback is quantised by the ~100 Hz SPI poll rate;
-the burst path is the one that gives the FPGA's 20 ns resolution.
+the burst path is the one that carries the full 32-bit cycle count, whose LSB is 20 ns. Note that the effective IBI resolution is 10 ms: a crest can only be located to the nearest 100 Hz sample.
 
 ## 4. Timing
 
