@@ -39,19 +39,20 @@ static skin_calib_t s_temp_calib;
 static bool         s_temp_calib_inited = false;
 
 /* -------------------------------------------------------------------------
- * Control PIN — authorisation for state-changing endpoints.
+ * Control PIN — second factor for state-changing endpoints.
  *
- * The access point is OPEN by design: a rescuer must be able to join it with no
- * password, no app and no laptop, which is the whole point of the local page.
- * But open means anyone within radio range can also POST, and the endpoints
- * that do not merely display data are:
+ * The access point is WPA2 (see WEB_STATUS_AP_PASSWORD), so joining already
+ * requires a credential. This PIN is layered on top because the passphrase is
+ * fixed and shared, whereas silencing an emergency should need something only
+ * the person holding the device knows. The endpoints that do not merely display
+ * data are:
  *
  *     POST /api/emergency/cancel   silences an emergency
  *     POST /location               rewrites the deployment location
  *
- * Without a credential, a bystander (or a malicious neighbour) can cancel an
- * SOS. The same-origin check and the 3-second hold stop accidental taps, but
- * neither is authentication - the code said so and it was right.
+ * Without a PIN, anyone who knew the passphrase could cancel an SOS. The
+ * same-origin check and the 3-second hold stop accidental taps, but neither is
+ * authentication.
  *
  * The fix keeps zero-install: a 4-digit PIN is generated at boot and shown on
  * the OLED and in the serial log, so the person physically holding the device
@@ -1482,9 +1483,10 @@ static esp_err_t h_sos_cancel(httpd_req_t *req) {
     }
     /* A single forged request must not be able to silence an emergency. The page
      * sends hold_ms=3000 only after a 3-second held press; anything shorter (or a
-     * bare POST) is refused. This is not authentication - a determined client on
-     * the open AP can still hold the button - but it stops accidental taps and
-     * trivial drive-by cancels. */
+     * bare POST) is refused. This alone is not authentication - a client that
+     * knows the passphrase could still hold the button - which is why the
+     * control PIN is required above. The hold stops accidental taps; the PIN
+     * stops anyone without the credential. */
     char body[32];
     int len = req->content_len;
     if (len <= 0 || len >= (int)sizeof(body)) {
@@ -1496,7 +1498,7 @@ static esp_err_t h_sos_cancel(httpd_req_t *req) {
     }
     body[len] = '\0';
     /* Authorisation BEFORE acting. The hold_ms check alone only stopped
-     * accidental taps; this stops anyone on the open AP from silencing an
+     * accidental taps; this stops anyone without the PIN from silencing an
      * emergency. PIN is visible on the OLED/serial for whoever holds the unit. */
     if (!control_pin_authorised(req, body)) {
         return httpd_resp_send_err(req, HTTPD_403_FORBIDDEN,
@@ -1558,7 +1560,7 @@ static esp_err_t h_set_location(httpd_req_t *req) {
 
     /* Authorisation before the location is rewritten: the location is what a
      * rescue team is sent to, so it must not be editable by anyone who merely
-     * joined the open AP. */
+     * knows the AP passphrase. */
     if (!control_pin_authorised(req, body)) {
         return httpd_resp_send_err(req, HTTPD_403_FORBIDDEN,
                                    "PIN required - read it on the device display");
