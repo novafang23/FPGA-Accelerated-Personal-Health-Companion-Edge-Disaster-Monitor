@@ -9,7 +9,7 @@ An end-to-end heterogeneous edge System-on-Chip (SoC) pairing **synthesizable Ve
 ## 🏷️ Platform Status & Roadmap
 
 * **Verified Baseline:** [Xilinx Zynq-7000 (`xc7z020`)](hardware/zynq/) — Fully verified with 6/6 passing self-checking tests and static timing closed at 69.45 MHz (permanently tagged at `v1.0-zynq-SIH`).
-* **Active Port:** [ShrikeFi (ESP32-S3 + Renesas ForgeFPGA)](hardware/shrikefi/) — Affordable edge hardware platform. Post-synthesis fitter reports **515 / 1120 LUT5s (45.98%)**, 303 FFs and 105/140 CLBs, with 13 passing self-checking link checks (5 groups). Raw synthesis logs: [`hardware/shrikefi/synthesis_evidence/`](hardware/shrikefi/synthesis_evidence/) (read its README — an older, superseded build's numbers are also in there). Includes **fully integrated ESP32-S3 firmware** that streams live health telemetry via **USB UART & WiFi/MQTT**. (The firmware also programs the FPGA over **SPI2** at every boot using the Vicharak `Web_FPGA_programmer.ino` sequence; the boot log reaches `configuration COMPLETE! (46408 bytes loaded)` and the runtime link then answers its `0x55` probe, which is the real proof a configured design is running. See [`firmware/shrikefi/README.md`](firmware/shrikefi/README.md#fpga-delivery-how-the-bitstream-reaches-the-fpga).)
+* **Active Port:** [ShrikeFi (ESP32-S3 + Renesas ForgeFPGA)](hardware/shrikefi/) — Affordable edge hardware platform. Post-synthesis fitter reports **533 / 1120 LUT5s (47.59%)**, 367 FFs and 118/140 CLBs (84.29%) at **Fmax 77.712 MHz, WNS +7.131 ns** against the 50 MHz clock, with 13 passing self-checking link checks (5 groups). Raw synthesis logs: [`hardware/shrikefi/synthesis_evidence/`](hardware/shrikefi/synthesis_evidence/) (read its README — two older, superseded builds' numbers are also in there). Includes **fully integrated ESP32-S3 firmware** that streams live health telemetry via **USB UART & WiFi/MQTT**. (The firmware also programs the FPGA over **SPI2** at every boot using the Vicharak `Web_FPGA_programmer.ino` sequence; the boot log reaches `configuration COMPLETE! (46408 bytes loaded)` and the runtime link then answers its `0x55` probe, which is the real proof a configured design is running. See [`firmware/shrikefi/README.md`](firmware/shrikefi/README.md#fpga-delivery-how-the-bitstream-reaches-the-fpga).)
 * **Clinical Intelligence & Biomarkers:** Fuses **mNEWS2 Clinical Triage (Royal College of Physicians)**, **PPG-derived Respiratory Rate (Charlton 2018)**, **Signal Quality Index (Elgendi 2016 skewness + project perfusion/IBI terms)**, **Moran's Physiological Strain Index (PSI)**, **PM2.5-HRV autonomic-strain heuristic (motivated by Brook et al. 2010)**, and the **published PMS5003 PM2.5 correction** (EPA/Barkjohn 2021 method, AirGradient's PMS5003 atm-channel equations) applied to a 60 s rolling mean.
 * **Interactive Graphical Dashboard:** Standalone Windows desktop GUI (`shrikefi_dashboard.exe`) featuring a 60 FPS real-time optical PPG oscilloscope, live vital displays, and dual-mode operation (Live Hardware streaming + 6 simulated disaster profiles).
 
@@ -30,7 +30,7 @@ Every headline number below is reproducible from a committed command. Where a cl
 | Clinical triage metrics | build & run `firmware/core/accuracy_evaluator.c` on `data/mimic/mimic_eval_feed.csv` | sensitivity `58.18%`, specificity `98.19%` (accuracy `94.11%`), TP `971` / FP `267` / TN `14451` / FN `698` |
 | MIMIC cohort scan | build & run `firmware/core/mimic_harness.c` on `data/mimic/mimic_vital_feed.csv` | 16,387 records over 98 subjects |
 | Zynq resource/timing reports | `hardware/zynq/synthesis_evidence/*.rpt` | see that directory's README |
-| ForgeFPGA resource report | `hardware/shrikefi/synthesis_evidence/resource_utilization_spi_link.log` | 515/1120 LUT5s, 303 FFs (see that directory's README) |
+| ForgeFPGA resource report | `hardware/shrikefi/synthesis_evidence/resource_utilization_spi_link_crest_2026-11-02.log` | 533/1120 LUT5s, 367 FFs, 118/140 CLBs (see that directory's README) |
 
 CI (`.github/workflows/ci.yml`) runs the Zynq testbench, the ShrikeFi testbench, the firmware unit tests, and the accuracy evaluator, and fails the build if the model drops below its accuracy floor.
 
@@ -303,9 +303,9 @@ The ShrikeFi board has no on-chip AXI bus and the ForgeFPGA has no processor, so
 Post-synthesis compilation results from **Renesas ForgeFPGA Workshop v6.55** targeting the `SLG47910C` (1120 5-input LUTs):
 
 
-* **Logic LUT5 Usage:** **515 / 1120 CLB LUT5s (45.98%)** — **54.02% of logic fabric remains free** for expanded DSP and filtering.
+* **Logic LUT5 Usage:** **533 / 1120 CLB LUT5s (47.59%)** — **52.41% of LUT fabric remains free**, but see the CLB row below: LUT headroom is not the real constraint.
 * **Registers / Flip-Flops:** **303 Flip-Flops** (298 CLB FFs @ 26.61% + 5 IOB FFs @ 0.68%).
-* **CLB Macrocells:** **105 / 140 Blocks (75.00%)** — CLB occupancy is now the binding constraint (35 CLBs free). The SPI design runs from the on-chip oscillator, so the PLL is **free (0/1)**.
+* **CLB Macrocells:** **118 / 140 Blocks (84.29%)** — CLB occupancy is the binding constraint and is nearly exhausted (**22 CLBs free**). The 2026-11-02 crest-timestamping change cost 13 CLBs for only 18 LUT5s, so assume any datapath widening needs a fitter run before claiming it fits. The SPI design runs from the on-chip oscillator, so the PLL is **free (0/1)**.
 * **DSP Multipliers & BRAM:** **0 DSP Multipliers, 0 Block RAMs** (synthesized purely from logic).
 
 > **Footnote — the 443-LUT figure quoted by older revisions of this file, the

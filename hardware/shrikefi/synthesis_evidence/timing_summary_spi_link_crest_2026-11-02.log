@@ -1,0 +1,28 @@
+Timing Summary
+==============
+
+   POST-ROUTE
+
+         Group  No. Clocks  No. Clock Pairs  WNS(ps)  TNS(ps)  TNS Endpoints      
+   -----------  ----------  ---------------  -------  -------  -------------      
+     <DEFAULT>           1                1     7131        0              0      
+
+
+
+
+Clocks
+======
+
+            Clock    Clock net        Group  Constrained Period(ps)      Waveform(ps)   Achievable Period(ps)  Achievable Frequency(MHz)
+   --------------  -----------  -----------  ----------------------  -----------------  ---------------------  -------------------------
+              clk          clk    <DEFAULT>                 20000           (0,10000)                  12868                     77.712 
+
+
+
+
+Clock Relationships
+===================
+
+       From Clock        To Clock               Group    Endpoints     WNS(ps)    TNS(ps)  TNS Endpoints
+   --------------  --------------  ------------------  -----------  ----------  ---------  -------------
+              clk             clk           <DEFAULT>         1664        7131          0              0

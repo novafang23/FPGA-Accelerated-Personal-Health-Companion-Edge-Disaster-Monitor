@@ -381,7 +381,7 @@ ibi_cycles  XXXXXXXXXXXXXXXXXXXXXX< 0x00000CD1 >XXXX   (3,281 internal ticks = 6
 |---|---|---|
 | Zynq-7000 OOC (baseline, tag `v1.0-zynq-SIH`) | 185 LUT / 16 LUTRAM / 266 FF, **0 DSP, 0 BRAM**, WNS **+5.603 ns**, Fmax **69.45 MHz** | Tag + screenshots |
 | Zynq-7000 re-run (Vivado 2026.1) | **198** slice LUTs (182 logic + 16 LUTRAM), **267** FF, 0 DSP, 0 BRAM | `hardware/zynq/synthesis_evidence/ooc_utilization_synth.rpt` |
-| ForgeFPGA SLG47910C | **515 / 1120 LUT5s (45.98%)**, 303 FFs, 105/140 CLBs, 0 BRAM, PLL 0/1 | `hardware/shrikefi/synthesis_evidence/resource_utilization_spi_link.log` |
+| ForgeFPGA SLG47910C | **533 / 1120 LUT5s (47.59%)**, 367 FFs, 118/140 CLBs, 0 BRAM, PLL 0/1 | `hardware/shrikefi/synthesis_evidence/resource_utilization_spi_link_crest_2026-11-02.log` |
 
 > [!WARNING]
 > **Do not quote 443 LUT5s / 353 FFs / 85 CLBs** — that belongs to the superseded 4-bit parallel link build. The current SPI hardware fitter report (2026-10-19, peak/4 crest refit) measures **515 / 1120 LUT5s (45.98%)**, **303 FFs**, and **105/140 CLBs** with **PLL 0/1**. Earlier SPI figures (222, 342, 363, 362 and 535 LUT5s) are also real measurements of older netlists — see `hardware/shrikefi/synthesis_evidence/README.md` for the fit history. The jump from 362 to 535 was the 32-bit IBI burst; the 2026-10-19 crest refit landed at 515. Likewise do not mix the 185-LUT baseline with the 198-LUT re-run; they are different runs measuring different scopes.
@@ -975,7 +975,7 @@ A standalone Win32 GDI application — no Python, no browser, no dependencies. I
 |---|---|
 | **Project** | SIH26181 VALOR (Vital and Atmospheric Logic for Offline Rescue) / ShrikeFi — wearable offline disaster triage |
 | **MCU** | ESP32-S3 (WROOM-1-N8R2), Xtensa LX7 dual-core, **160 MHz configured**, FreeRTOS, **8 MB flash** |
-| **FPGA** | Renesas ForgeFPGA SLG47910C, 1120 LUT5s, 50 MHz, **515 LUT5s used (45.98%)**, 303 FFs, 105 CLBs, 0 DSP, 0 BRAM, 0 PLL |
+| **FPGA** | Renesas ForgeFPGA SLG47910C, 1120 LUT5s, 50 MHz, **533 LUT5s used (47.59%)**, 367 FFs, 118 CLBs, 0 DSP, 0 BRAM, 0 PLL |
 | **Baseline** | Xilinx Zynq-7000 `xc7z020`, AXI4-Lite, 6/6 tests, 0 DSP/BRAM |
 | **Sensors** | MAX30102 (PPG), BME280 (T/H/P), PMSA003 (PM1/2.5/10), SSD1306 OLED |
 | **Link** | **8-bit SPI, mode 0 (4-wire):** SCK/SS_n/MOSI/MISO, 1 MHz, CS driven manually — one full-duplex frame per sample; beat = **MISO bit 7**, followed by a 5-byte IBI burst (`0xC3` + 32-bit cycles). No command map, no strobe, no IRQ pin |

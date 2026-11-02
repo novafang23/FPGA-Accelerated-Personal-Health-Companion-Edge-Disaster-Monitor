@@ -228,7 +228,7 @@ The original design was implemented and verified on the AMD Xilinx Zynq-7000 SoC
 While the Zynq-7000 proves the Verilog architecture, it is too expensive ($50 to $150) and power-hungry (several watts) for a practical, mass-deployable disaster wearable. Therefore, the core Verilog modules were ported to the **Vicharak ShrikeFi** platform:
 - **Processor:** Espressif ESP32-S3 (dual-core Xtensa LX7, 240 MHz, single-precision hardware Floating-Point Unit).
 - **FPGA:** Renesas ForgeFPGA SLG47910, containing **1120 five-input Look-Up Tables (LUT5s)** across 140 Configurable Logic Blocks (CLBs).
-- **Current Production Fit:** **515 / 1120 CLB LUT5s (45.98%)**, **303 FFs (16.33%)**, and **105 / 140 CLBs (75.00% CLB occupancy)**.
+- **Current Production Fit:** **533 / 1120 CLB LUT5s (47.59%)**, **367 FFs (32.77%)**, and **118 / 140 CLBs (84.29% CLB occupancy)**, timing-closed at 50 MHz (WNS +7.131 ns, Fmax 77.712 MHz).
 - **Timing Closure:** **WNS +7.316 ns**, Total Negative Slack (TNS) = 0 ps, achieving $F_{\text{max}} = \mathbf{78.85\text{ MHz}}$ against the 50 MHz constraint (`timing_constraints.sdc`).
 - **Cost & Power:** The ForgeFPGA costs approximately $0.50 and consumes under 5 milliwatts, making battery-powered wearable deployment viable.
 
@@ -899,7 +899,7 @@ The table below details the official post-route physical resource utilization fr
 |---|:---:|:---:|---|
 | **CLB LUT5s** | **515 / 1120** | **45.98%** | Five-input Look-Up Tables implement the 8-tap filter, peak detector Moore FSM, and 32-bit IBI burst transmission multiplexers with 605 LUTs free. |
 | **Flip-Flops (FFs)** | **303 / 1856** | **16.33%** | 298 CLB flip-flops + 5 I/O buffer flip-flops store pipeline data, 32-bit timestamp counters, and CDC synchronizers. |
-| **Configurable Logic Blocks (CLBs)**| **105 / 140** | **75.00%** | **The true binding physical constraint.** 35 CLBs remain free; routing dense 32-bit wide counters across silicon slices consumes CLBs even while raw LUTs remain 54% uncommitted. |
+| **Configurable Logic Blocks (CLBs)**| **118 / 140** | **84.29%** | **The true binding physical constraint.** 22 CLBs remain free; routing dense 32-bit wide counters across silicon slices consumes CLBs even while raw LUTs remain 54% uncommitted. |
 | **User GPIOs** | **5 / 19** | **26.32%** | Dedicated I/O package pads for SPI clock (SCK), Slave Select (SS_n), MOSI, MISO, and the physical beat-stretched blue LED. |
 | **4k Block RAM (BRAM)** | **0 / 8** | **0.00%** | **Zero Block RAM.** Pure distributed logic; leaves all 8 dedicated SRAM blocks 100% free for future waveform buffers. |
 | **Phase-Locked Loops (PLLs)** | **0 / 1** | **0.00%** | **Zero PLLs.** The design runs directly from the hardwired on-chip relaxation oscillator, leaving the chip's sole PLL completely uncommitted. |
@@ -936,9 +936,9 @@ $$\text{Slack} = T_{\text{required}} - T_{\text{arrival}}$$
 - **Q:** *Why did your ForgeFPGA LUT count increase from 342 in early notes to 515 in the current bitstream?*  
   **A:** The initial 342-LUT design only performed basic filtering. Adding the cycle-accurate 32-bit IBI interval counter, 5-byte SPI burst serializer (`0xC3`), and dummy MOSI byte suppression increased the logic to 515 LUT5s. This was a deliberate capability upgrade to give the MCU 20-nanosecond timestamp precision for HRV analysis.
 - **Q:** *Why is CLB occupancy at 75% when LUT utilization is only 46%?*  
-  **A:** On ForgeFPGA, each CLB contains 8 LUT5s and flip-flops. Wide 32-bit arithmetic counters and shift registers require routing across adjacent CLB slices, causing CLBs to be allocated even when some of their internal LUTs remain unmapped. CLB occupancy (105/140) is our true binding floorplan constraint.
+  **A:** On ForgeFPGA, each CLB contains 8 LUT5s and flip-flops. Wide 32-bit arithmetic counters and shift registers require routing across adjacent CLB slices, causing CLBs to be allocated even when some of their internal LUTs remain unmapped. CLB occupancy (118/140) is our true binding floorplan constraint.
 - **Q:** *What is your timing margin on the ForgeFPGA?*  
-  **A:** Operating against a real 50 MHz SDC clock constraint (20.0 ns period), the post-route timing analysis reports Worst Negative Slack of **+7.316 ns** and zero failing endpoints, giving a maximum achievable frequency of **78.85 MHz**.
+  **A:** Operating against a real 50 MHz SDC clock constraint (20.0 ns period), the post-route timing analysis reports Worst Negative Slack of **+7.131 ns** and zero failing endpoints, giving a maximum achievable frequency of **77.712 MHz**.
 - **Q:** *Why is Block RAM utilization zero on both targets?*  
   **A:** Our 8-tap filter buffer and 4-state peak detector only require 8-bit pipeline registers and 32-bit counters, which synthesize directly into distributed logic flip-flops. This keeps power sub-milliwatt and leaves all dedicated SRAM blocks completely uncommitted.
 :::
@@ -1260,7 +1260,7 @@ Every technical claim in VALOR is backed by automated tests, physical hardware b
 |---|---|---|---|
 | **Zynq FPGA Baseline** | Vivado ML 2022.2 Out-Of-Context Synth | 185 LUT, 16 LUTRAM, 266 FF, **0 DSP, 0 BRAM**, WNS +5.603 ns, Fmax 69.45 MHz | **Verified Golden Reference** |
 | **ForgeFPGA Timing** | Renesas ForgeFPGA Fitter SDC Post-Route | **WNS +7.316 ns**, TNS 0 ps, 0 failing endpoints, Achievable Fmax 78.85 MHz | **Timing Closed at 50 MHz** |
-| **ForgeFPGA Resources** | Renesas Fitter Utilization Report (`resource_utilization_spi_link.log`) | **515/1120 CLB LUT5s (45.98%)**, **303 FFs (16.33%)**, **105/140 CLBs (75.00% CLB occupancy)**, 0 BRAM, 0 PLL, 5 GPIOs | **Fully Verified (Active Bitstream `6930ba88...`)** |
+| **ForgeFPGA Resources** | Renesas Fitter Utilization Report (`resource_utilization_spi_link_crest_2026-11-02.log`) | **533/1120 CLB LUT5s (47.59%)**, **367 FFs (32.77%)**, **118/140 CLBs (84.29% CLB occupancy)**, 0 BRAM, 0 PLL, 5 GPIOs | **Fully Verified (Active Bitstream `6930ba88...`)** |
 | **Verilog Testbench** | Icarus Verilog (`iverilog`) + `vvp` | `tb_forgefpga_system.v` (13/13 passing assertions); `tb_ppg_system.v` (6/6 passing) | **100% Passing** |
 | **MIMIC-III Benchmark**| Host evaluation harness (`accuracy_evaluator.c`)| 16,387 ICU vital records; **94.11% accuracy, 98.19% specificity**, 99.95% INT8 agreement | **Validated (Synthetic RMSSD caveat acknowledged)** |
 | **INT8 Quantization** | GCC 15.2 Host Test Harness (`accuracy_evaluator.c`) | Mean error **0.00790**, max absolute error **0.09136** vs FP32; 97.32% risk tier agreement across 7,000 samples | **Fully Verified** |
@@ -1403,12 +1403,12 @@ Every technical claim in VALOR is backed by automated tests, physical hardware b
    - *Don't Say:* "We hooked the SPI clock directly to the FPGA clock pin." (Doing that violates FPGA clocking rules because SPI clocks stop between bytes).
 7. **What is Worst Negative Slack (WNS) and what was your result?**
    - *20-Second Answer:* Slack is the time margin between when a signal arrives and when it is required. WNS is the slack of the slowest path. We achieved +7.316 ns on ForgeFPGA and +5.603 ns on Zynq-7000.
-   - *Follow-Up Detail:* Because WNS is positive, there is zero timing violation ($TNS = 0$), proving the hardware runs reliably up to 78.85 MHz against our 50 MHz target.
+   - *Follow-Up Detail:* Because WNS is positive, there is zero timing violation ($TNS = 0$), proving the hardware runs reliably up to 77.71 MHz against our 50 MHz target.
    - *Don't Say:* "Negative slack is okay if it's small." (Any negative slack means the circuit violates setup time and will fail).
 8. **Why is Block RAM (BRAM) utilization zero, and what is your true FPGA resource bottleneck?**
-   - *20-Second Answer:* BRAM is zero because our 8-tap filter and state registers fit into distributed flip-flops. Our true physical constraint on the Renesas ForgeFPGA is **CLB occupancy (105 / 140 CLBs = 75.00%)**, driven by routing 32-bit wide IBI burst counters across slices, even while raw LUT usage is only **515 / 1120 (45.98%)**.
-   - *Follow-Up Detail:* Early presentation decks quoted 342 LUTs for basic filtering. Adding the cycle-accurate 32-bit IBI interval counter (20 ns resolution), 5-byte SPI burst serializer (`0xC3`), and dummy MOSI byte suppression increased logic to 515 LUT5s and 303 FFs. Because each CLB has 8 LUTs, wide arithmetic causes CLBs to be allocated even when some internal LUTs remain unmapped. Dedicated BRAM blocks (8 available) remain 100% free.
-   - *Don't Say:* "The FPGA has no BRAM" or "The FPGA is out of logic." (The chip has 8 BRAMs, and raw LUT utilization is under 46%; CLB routing density is the governing floorplan constraint).
+   - *20-Second Answer:* BRAM is zero because our 8-tap filter and state registers fit into distributed flip-flops. Our true physical constraint on the Renesas ForgeFPGA is **CLB occupancy (118 / 140 CLBs = 84.29%)**, driven by routing 32-bit wide IBI burst counters and crest-timestamp registers across slices, even while raw LUT usage is only **533 / 1120 (47.59%)**.
+   - *Follow-Up Detail:* Early presentation decks quoted 342 LUTs for basic filtering. Adding the cycle-accurate 32-bit IBI interval counter (20 ns resolution), 5-byte SPI burst serializer (`0xC3`), and dummy MOSI byte suppression increased logic to 515 LUT5s and 303 FFs (an intermediate, now superseded fit); latching the crest timestamp instead of a bare crest flag then took it to 533 LUT5s and 367 FFs. Because each CLB has 8 LUTs, wide arithmetic causes CLBs to be allocated even when some internal LUTs remain unmapped. Dedicated BRAM blocks (8 available) remain 100% free.
+   - *Don't Say:* "The FPGA has no BRAM" or "The FPGA is out of logic." (The chip has 8 BRAMs, and raw LUT utilization is under 48%; CLB routing density is the governing floorplan constraint).
 9. **How does the 8-tap moving average filter divide by 8 for zero logic cost?**
    - *20-Second Answer:* In binary, dividing by 8 is a 3-bit right shift. In hardware, this is accomplished by wiring output pins to higher bit positions, consuming zero logic gates or ALUs.
    - *Follow-Up Detail:* Bit 3 of `next_sum` is routed to bit 0 of `data_out`, bit 4 to bit 1, and so on. No arithmetic division circuitry is inferred.
@@ -1621,14 +1621,15 @@ In accordance with strict engineering integrity guidelines, the following archit
 1. **RTL Peak Detector State Names & Crest Drop Rule:**
    - *Synthesizable RTL Ground Truth:* The actual synthesizable Verilog code (`hardware/common/ppg_peak_detector.v`) defines the states as `STATE_ARMED` (`2'b00`), `STATE_RISING` (`2'b01`), `STATE_PEAK_FOUND` (`2'b10`), and `STATE_REFRACTORY` (`2'b11`). It enforces a **proportional drop rule** (`peak_val >> 2` for peak > 48, or a floor of 6 for weak signals) to prevent false triggers on the dicrotic notch. *The synthesizable Verilog is the sole source of truth.*
 
-2. **ForgeFPGA Resource Evolution (342 → 364 → 535 → 515 LUT5s):**
-   - *Why Numbers Differ Across Reports:* Early presentation decks quote **342/1120 LUTs (30.54%)**. An intermediate report quotes **364/1120 LUT5s**. The active post-route implementation log (`resource_utilization_spi_link.log`) quotes **515/1120 LUT5s (45.98%)**, **303 FFs**, and **105/140 CLBs (75.00%)**.
+2. **ForgeFPGA Resource Evolution (342 → 364 → 535 → 515 → 533 LUT5s):**
+   - *Why Numbers Differ Across Reports:* Early presentation decks quote **342/1120 LUTs (30.54%)**. An intermediate report quotes **364/1120 LUT5s**. The active post-route implementation log (`resource_utilization_spi_link_crest_2026-11-02.log`) quotes **533/1120 LUT5s (47.59%)**, **367 FFs**, and **118/140 CLBs (84.29%)**, timing-closed at 50 MHz with WNS +7.131 ns.
    - *Authentic Chronological Progression:*
      - *Sept 16 (342 LUTs / 194 FFs / 76 CLBs):* Initial SPI port without cycle-accurate interval export.
      - *Sept 21 (363 LUTs / 202 FFs / 75 CLBs):* Added slope comparator to `STATE_ARMED` to reject pulse decay tails.
      - *Oct 17 (362 LUTs / 204 FFs / 74 CLBs):* Clean re-fit of the pre-burst flat source.
      - *Oct 18 (535 LUTs / 303 FFs / 108 CLBs):* Introduced the cycle-accurate 32-bit IBI interval counter (20 ns resolution), 5-byte SPI burst serializer (`0xC3`), and dummy MOSI byte suppression.
-     - *Oct 19 & 20 (515 LUTs / 303 FFs / 105 CLBs):* Raised `crest_fall_min` to `peak/4` to reject the dicrotic notch; closed timing against real 50 MHz SDC clock (WNS +7.316 ns; bitstream `6930ba88...`). This is the current, active production bitstream.
+     - *Oct 19 & 20 (515 LUTs / 303 FFs / 105 CLBs):* Raised `crest_fall_min` to `peak/4` to reject the dicrotic notch; closed timing against real 50 MHz SDC clock (WNS +7.316 ns; bitstream `6930ba88...`). Superseded by the 2026-11-02 crest-timestamping fit.
+     - *Nov 2 (533 LUTs / 367 FFs / 118 CLBs):* Peak detector now latches the systolic crest **timestamp** (32-bit cycle counter sampled at the crest) instead of only a flag, so IBI is measured in FPGA sample-clock cycles rather than at the SPI poll rate. Cost +18 LUT5s but +13 CLBs, taking CLB occupancy to 84.29% (22 CLBs free) — on this part, widening a datapath costs CLBs far faster than LUTs. Re-fitted against the 50 MHz constraint: WNS +7.131 ns, Fmax 77.712 MHz, zero failing endpoints. **This is the current, active production bitstream.**
 
 3. **Historical 4-Bit Nibble Link vs. Real 8-Bit SPI:**
    - *Archival Proposal:* Early migration notes described a 4-bit parallel nibble bus with strobe and direction lines.
@@ -1651,7 +1652,7 @@ In accordance with strict engineering integrity guidelines, the following archit
    - **Single-Channel FPGA Link:** The FPGA processes the Infrared (IR) channel exclusively. The Red optical channel is filtered and conditioned entirely in software on the ESP32 for $	ext{SpO}_2$ (`shrikefi_write_red_sample()` caches the sample in MCU memory).
    - **First-Beat Suppression:** `first_beat_seen` explicitly suppresses the first detected crest after reset to initialize the interval counter cleanly without emitting an erroneous initial beat flag or LED flash.
    - **MISO Waveform Modulo-128:** MISO bit 7 is the beat flag, so bits `[6:0]` return the lower 7 bits of the filtered sample, producing a modulo-128 wrap on raw serial logs. The firmware treats it strictly as diagnostic data, while the FPGA FSM processes the full 8-bit signal.
-   - **TinyML Parameter Sparsity:** 391 of the 619 INT8 parameters are zero (63.17% sparsity) due to training regularization, with 11 dead neurons in Layer 1 and 6 dead neurons in Layer 2, effectively pruning the active compute graph to 6 → 13 → 10 → 3 while maintaining 88.39% accuracy.
+   - **TinyML Parameter Sparsity:** 391 of the 619 INT8 parameters are zero (63.17% sparsity) due to training regularization, with 11 dead neurons in Layer 1 and 6 dead neurons in Layer 2, effectively pruning the active compute graph to 6 → 13 → 10 → 3 while maintaining 88.39% tier agreement with the rule-based teacher that generated the labels (agreement with the teacher, not clinical accuracy).
    - **FreeRTOS Jitter Sourcing:** The 5.0 ms scheduling quantum is strictly sourced from `CONFIG_FREERTOS_HZ = 200` in `firmware/shrikefi/sdkconfig.defaults`.
    - **Wi-Fi Core Pinning:** The Wi-Fi daemon is explicitly pinned to Core 1 via `CONFIG_ESP_WIFI_TASK_PINNED_TO_CORE_1 = y`.
    - **MAX30102 Interrupt Configuration:** In `firmware/shrikefi/max30102.c`, writing `0x40` to `INT_ENABLE_1` (Register `0x02`) specifically enables Bit 6 (`PPG_RDY_EN`) for per-sample FIFO data-ready interrupts, rather than Bit 7 (`A_FULL_EN`).

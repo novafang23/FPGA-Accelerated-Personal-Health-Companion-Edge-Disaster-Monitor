@@ -24,7 +24,9 @@ CANONICAL = {
     "ZYNQ_WNS": 5.603,
     "FORGEFPGA_LUT": 533,
     "FORGEFPGA_TOTAL_LUT": 1120,
-    "FORGEFPGA_FF": 303,
+    "FORGEFPGA_FF": 367,
+    "FORGEFPGA_CLB": 118,
+    "FORGEFPGA_TOTAL_CLB": 140,
     "FORGEFPGA_FMAX": 77.712,
     "FORGEFPGA_WNS": 7.131,
     "INT8_PARAMS": 619,
@@ -66,8 +68,10 @@ def check_text_line(file_path, line_no, line, context_lines=None):
 
     # RULE: OVERCLAIM - clinically validated / medical grade / FDA / diagnostic device
     if re.search(r"\b(clinically validated|medical-grade|FDA approved|FDA cleared|diagnostic device)\b", clean, re.IGNORECASE):
-        # Exclude guidance/rules/roadmap that explicitly instruct to avoid or explain non-clinical status
-        if not re.search(r"not|open|roadmap|standards|non-|unvalidated|avoid|do not|never|negative|rule|guidance|prohibited", clean, re.IGNORECASE):
+        # Exclude guidance/rules/roadmap that explicitly instruct to avoid or explain non-clinical status.
+        # The cross/ballot glyphs count as negation: an ASCII box reading
+        # "✗ Certified Medical Diagnostic Device" is the opposite of a claim.
+        if not re.search(r"not|open|roadmap|standards|non-|unvalidated|avoid|do not|never|negative|rule|guidance|prohibited|[✗✘×]", clean, re.IGNORECASE):
             add_violation(file_path, line_no, "OVERCLAIM", "Forbidden clinical/medical claim phrasing used", clean)
 
     # RULE: HRV-ACCURACY - claiming HRV/RMSSD accuracy as proven
@@ -82,6 +86,34 @@ def check_text_line(file_path, line_no, line, context_lines=None):
         val = int(m.group(1))
         if val != CANONICAL["FORGEFPGA_LUT"]:
             add_violation(file_path, line_no, "NUM-MISMATCH", f"ForgeFPGA LUT count is {val}, expected {CANONICAL['FORGEFPGA_LUT']}", clean)
+
+    # Check ForgeFPGA flip-flop and CLB counts.
+    # Scoped to lines that are clearly about the ForgeFPGA fit, and to files that
+    # state the CURRENT figures -- the fit-history tables in
+    # hardware/shrikefi/synthesis_evidence/README.md legitimately list older
+    # numbers and are not scanned here.
+    forge_ctx = re.search(r"ForgeFPGA|SLG47910|LUT5|CLBs?\b|/140", clean, re.IGNORECASE)
+    zynq_ctx = re.search(r"Zynq|xc7z020|Vivado", clean, re.IGNORECASE)
+    # Lines that are explicitly about a superseded fit are allowed to carry the
+    # old numbers -- that is the point of them. Only current-state claims are
+    # required to match CANONICAL.
+    historical = re.search(
+        r"do not quote|superseded|previously quoted|older build|historical|no longer|"
+        r"(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\w*\s+\d",
+        clean, re.IGNORECASE,
+    )
+    if forge_ctx and not zynq_ctx and not historical:
+        m = re.search(r"(\d{2,3})\s*FFs?\b", clean)
+        if m:
+            val = int(m.group(1))
+            if val != CANONICAL["FORGEFPGA_FF"]:
+                add_violation(file_path, line_no, "NUM-MISMATCH", f"ForgeFPGA FF count is {val}, expected {CANONICAL['FORGEFPGA_FF']}", clean)
+
+        m = re.search(r"(\d{1,3})\s*/\s*140\b", clean)
+        if m:
+            val = int(m.group(1))
+            if val != CANONICAL["FORGEFPGA_CLB"]:
+                add_violation(file_path, line_no, "NUM-MISMATCH", f"ForgeFPGA CLB count is {val}/140, expected {CANONICAL['FORGEFPGA_CLB']}/140", clean)
 
     # Check Zynq LUT count
     if re.search(r"Zynq|xc7z020", clean, re.IGNORECASE) and re.search(r"\bLUT\b", clean):
@@ -104,7 +136,9 @@ def check_text_line(file_path, line_no, line, context_lines=None):
         m = re.search(r"(\d{1,2}[,.]?\d{3})\s*(?:records|patients|samples|rows)", clean, re.IGNORECASE)
         if m:
             val = int(m.group(1).replace(",", "").replace(".", ""))
-            if val not in [CANONICAL["MIMIC_TOTAL"], 98, 16387]:
+            # 7000 is the synthetic held-out training split, not a MIMIC count; it
+            # legitimately appears in sentences that also mention MIMIC.
+            if val not in [CANONICAL["MIMIC_TOTAL"], 98, 16387, 7000]:
                 add_violation(file_path, line_no, "NUM-MISMATCH", f"MIMIC count is {val}, expected {CANONICAL['MIMIC_TOTAL']} (or 98 demo subset)", clean)
 
     # Check SENSITIVITY-HIDDEN (warning level)
@@ -176,14 +210,27 @@ def main():
             i += 1
 
     # 1. Check Markdown Documentation
-    doc_files = ["README.md"]
-    doc_files.extend(glob.glob("docs/*.md"))
-    doc_files.extend(glob.glob("docs/presentation/*.md"))
-    
-    # Filter out archive and superpowers internal plans
-    doc_files = [f for f in doc_files if "archive" not in f and "superpowers" not in f]
+    # Scope to tracked files: untracked scratch notes (DEMO_SHEET.md,
+    # JUDGE_STUDY_NOTES.md, local audit dumps) are gitignored and by definition
+    # are not part of the published repo, so flagging them here reports a problem
+    # the reader of the repo can never see. Fall back to globs outside a git tree.
+    try:
+        import subprocess
+        out = subprocess.run(
+            ["git", "ls-files", "-z", "--", "*.md"],
+            capture_output=True, check=True, timeout=30,
+        ).stdout
+        doc_files = [p for p in out.decode("utf-8").split("\0") if p]
+        # hardware/shrikefi/synthesis_evidence/README.md is a deliberately
+        # historical document: its job is to tabulate every past fit so nobody
+        # quotes the wrong one. Its old numbers are the content, not an error.
+        doc_files = [f for f in doc_files if "synthesis_evidence" not in f]
+    except (OSError, subprocess.SubprocessError):
+        doc_files = ["README.md"]
+        doc_files.extend(glob.glob("docs/*.md"))
+        doc_files = [f for f in doc_files if os.path.isfile(f)]
 
-    print(f"Scanning {len(doc_files)} markdown document(s)...")
+    print(f"Scanning {len(doc_files)} tracked markdown document(s)...")
     for df in doc_files:
         check_markdown_file(df)
 

@@ -1,0 +1,46 @@
+####   Resource Utilization Report   ####
+
+    Top level module name: forgefpga_ppg_top
+
+    Resource usage:
+
+        CLB LUT5s:    533/1120 (47.59%)
+            Lut5:                          533 (47.59%)
+            Lut5 for Shift-register:       0 (0.00%)
+            Lut5 for Distributed memory:   0 (0.00%)
+
+        FFs:    367
+        CLB FFs: 362/1120 (32.32%)
+        IOB FFs: 5/736 (0.68%)
+
+        CLBs:      118/140 (84.29%)
+        Tiles:     1/1 (100.00%)
+
+        RTL Input ports:     4 
+        RTL Output ports:    5 
+        GPIOs:               5/19 (26.32%)
+
+        PLLs:        0/1 (0.00%)
+        OSCs:        1/1 (100.00%)
+        4k BRAMs:    0/8 (0.00%)
+
+        1 Clock
+           Clock 0: net     2, clk, Fanout: 97 CLBs
+           Total 1 unique clocks
+
+####   Resource Utilization Complete   ####
+
+TILE-REQ:		0		0		0		1
+
+### Total FPGA resources from current floorplan: ###
+                       184 IOBs
+                       140 Logic 6-LUT CLBs
+                              40 CLBs support RAM/SR
+
+Usage of Logic CLBs is 84.3%.
+    Logic-Memory CLB for RAM/Shift-Register is 0.0%.
+Usage of LUTs is 76.6%.
+    dual-LUTs is 8.0%.
+Usage of FF is 51.1%.
+    dual-FF is 13.6%.
+Usage of IO CLB is 3.3%.

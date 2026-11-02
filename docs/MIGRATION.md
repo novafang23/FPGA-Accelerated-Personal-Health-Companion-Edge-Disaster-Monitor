@@ -40,7 +40,7 @@ Measured post-synthesis results from **Renesas ForgeFPGA Workshop v6.55**:
   `synthesis_evidence/resource_utilization_spi_link.log`):
   * **CLB LUT5s:** **515 / 1120 (45.98%)** (all Lut5; 0 as shift-register)
   * **Total Flip-Flops:** **303** (298 CLB FFs [26.61%] + 5 IOB FFs [0.68%])
-  * **CLB Blocks:** **105 / 140 (75.00%)** — 35 CLBs remain free
+  * **CLB Blocks:** **118 / 140 (84.29%)** — 22 CLBs remain free
   * **4k BRAMs:** **0 / 8 (0.00%)**
   * **PLLs:** **0 / 1 (0.00%)** — the SPI design runs from the on-chip oscillator
 * **Verification:** `tb_forgefpga_system.v`, 5 test groups / 13 checks passing
@@ -56,7 +56,7 @@ Measured post-synthesis results from **Renesas ForgeFPGA Workshop v6.55**:
 > count) and dummy-byte suppression, not fitter variation; the 2026-10-19 crest
 > refit landed at 515 LUT5s / 105 CLBs. The earlier SPI figures (222, 342, 363,
 > 362 and 535) are real measurements of older netlists; the fit history is
-> tabulated in the evidence README. CLB occupancy (105/140, 35 free) is still the
+> tabulated in the evidence README. CLB occupancy (118/140, 22 free) is still the
 > constraint to watch.
 >
 > **On timing (2026-10-20):** the flow now carries a real 50 MHz clock

@@ -1,14 +1,16 @@
 # ShrikeFi ForgeFPGA synthesis evidence
 
-Raw fitter reports for the ShrikeFi target. There are **two files** here, from two
-different designs, and quoting the wrong one is the easiest way to misstate this
-project.
+Raw fitter reports for the ShrikeFi target. There are **five files** here, covering
+two different designs and three fits of the current one, and quoting the wrong one
+is the easiest way to misstate this project.
 
 | File | Design | Status |
 |---|---|---|
 | `resource_utilization_parallel_link_superseded.log` | 4-bit parallel link | **Superseded** — the interconnect was replaced |
-| `resource_utilization_spi_link.log` | 4-wire SPI link + 32-bit IBI burst | **Current** — latest fitter run, 2026-10-19 |
-| `timing_summary_spi_link_50mhz.log` | 4-wire SPI link + 32-bit IBI burst | **Current** — first fit checked against a real 50 MHz constraint, 2026-10-20 |
+| `resource_utilization_spi_link.log` | 4-wire SPI link + 32-bit IBI burst | **Superseded** — 2026-10-19 fit, before crest timestamping |
+| `timing_summary_spi_link_50mhz.log` | 4-wire SPI link + 32-bit IBI burst | **Superseded** — first fit checked against a real 50 MHz constraint, 2026-10-20 |
+| `resource_utilization_spi_link_crest_2026-11-02.log` | + crest timestamping | **Current** — 2026-11-02 fitter run |
+| `timing_summary_spi_link_crest_2026-11-02.log` | + crest timestamping | **Current** — 2026-11-02 fit, 50 MHz constraint |
 
 All are byte-identical copies of Renesas ForgeFPGA Workshop fitter output
 (`forgefpga_project/ffpga/build/resource-utilization-report.log` and
@@ -39,16 +41,16 @@ each log:
 
 ## Comparison
 
-| Resource | parallel link (superseded) | **SPI + IBI burst (current)** |
-|---|---|---|
-| CLB LUT5s | 443 / 1120 (39.55%) | **515 / 1120 (45.98%)** |
-| — of which Lut5 | 443 | 515 |
-| — as shift-register | 0 | 0 |
-| FFs | 353 | **303** (298 CLB + 5 IOB) |
-| CLBs | 85 / 140 (60.71%) | **105 / 140 (75.00%)** |
-| 4k BRAMs | 0 / 8 | **0 / 8** |
-| PLLs | 1 / 1 (100%) | **0 / 1 (0%)** |
-| OSCs | 0 / 1 | **1 / 1 (100%)** |
+| Resource | parallel link (superseded) | SPI + IBI burst (2026-10-20) | **SPI + crest timestamping (current)** |
+|---|---|---|---|
+| CLB LUT5s | 443 / 1120 (39.55%) | 515 / 1120 (45.98%) | **533 / 1120 (47.59%)** |
+| — of which Lut5 | 443 | 515 | 533 |
+| — as shift-register | 0 | 0 | 0 |
+| FFs | 353 | 303 (298 CLB + 5 IOB) | **367** (362 CLB + 5 IOB) |
+| CLBs | 85 / 140 (60.71%) | 105 / 140 (75.00%) | **118 / 140 (84.29%)** |
+| 4k BRAMs | 0 / 8 | 0 / 8 | **0 / 8** |
+| PLLs | 1 / 1 (100%) | 0 / 1 (0%) | **0 / 1 (0%)** |
+| OSCs | 0 / 1 | 1 / 1 (100%) | **1 / 1 (100%)** |
 
 Consequences worth knowing:
 
@@ -58,10 +60,12 @@ Consequences worth knowing:
 * **The "consumes the part's only PLL" warning was an artefact of that same
   superseded build.** The SPI design runs from the on-chip oscillator and leaves
   the PLL free.
-* **CLB occupancy is now the binding constraint.** The current fit uses 105 of
-  140 CLBs (75.00%, 35 free) even though only 515 of 1120 LUT5s are used
-  (45.98%, 605 free). Check new logic against CLB count first; the LUT headroom
-  alone is misleading.
+* **CLB occupancy is now the binding constraint, and it is nearly exhausted.**
+  The current fit uses 118 of 140 CLBs (84.29%, **22 free**) even though only 533
+  of 1120 LUT5s are used (47.59%, 587 free). Check new logic against CLB count
+  first; the LUT headroom alone is misleading. Any further feature that widens
+  the interval/IBI datapath should be assumed to need a fitter run before it is
+  claimed to fit.
 
 ## Fit history of the SPI design
 
@@ -76,12 +80,21 @@ last row as current.
 | 2026-10-18 | 535 / 1120 (47.77%) | 303 | 108/140 | 32-bit IBI burst (`0xC3`) + dummy-byte suppression; bitstream `50623aa2…` |
 | 2026-10-19 | **515 / 1120 (45.98%)** | **303** | **105/140 (75.00%)** | `crest_fall_min` raised from peak/8 to **peak/4** to reject the dicrotic notch; bitstream `d9d58daa…` |
 
-| 2026-10-20 | **515 / 1120 (45.98%)** | **303** | **105/140 (75.00%)** | no RTL change: a real 50 MHz `create_clock` was added, so this is the first fit timed against its actual clock; bitstream `6930ba88...` |
+| 2026-10-20 | 515 / 1120 (45.98%) | 303 | 105/140 (75.00%) | no RTL change: a real 50 MHz `create_clock` was added, so this is the first fit timed against its actual clock; bitstream `6930ba88…` |
+| 2026-11-02 | **533 / 1120 (47.59%)** | **367** | **118/140 (84.29%)** | peak detector latches the crest **timestamp**, not just the crest flag; bitstream `494eedb8…` |
 
-The 2026-10-19 crest refit is **smaller** than the 2026-10-18 burst fit:
-515 LUT5s / 303 FFs / 105 CLBs, with **35 CLBs free**. The change was a constant
-bit-select in an existing comparator, so this is consistent with fitter
-variation and not a resource increase.
+The 2026-11-02 crest-timestamping change is the +64 FFs: the detector now
+captures a 32-bit cycle counter at the systolic crest so the firmware can compute
+IBI to the FPGA sample clock instead of to the SPI poll rate. That is the
+capability the interval math depends on, and it is why CLB occupancy jumped from
+75.00% to 84.29% — a 13-CLB increase for a change that touched only 18 LUT5s.
+That asymmetry is the thing to remember when judging headroom: on this part,
+widening a datapath costs CLBs far faster than it costs LUTs.
+
+The 2026-10-19 crest refit was **smaller** than the 2026-10-18 burst fit:
+515 LUT5s / 303 FFs / 105 CLBs, with **35 CLBs free**. That change was a constant
+bit-select in an existing comparator, so it was consistent with fitter variation
+and not a resource increase.
 
 The 342 → 363 delta was the slope comparison added to the peak detector's arm
 condition, which stops a still-decaying pulse tail from being counted as a
@@ -141,6 +154,26 @@ an achievable period of 11,356 ps (88.059 MHz); the 2026-10-18 run reported
 -10.219 ns / 81.846 MHz. Both are historical. Adding the constraint changed
 routing without changing resources: the bitstream hash moved from `d9d58daa…` to
 `6930ba88…`, while `resource_utilization_spi_link.log` is byte-identical.
+
+## Timing: re-fit after crest timestamping (2026-11-02)
+
+The crest-timestamp change was re-fitted against the same 20,000 ps constraint:
+
+```
+Group        No. Clocks  No. Clock Pairs  WNS(ps)  TNS(ps)  TNS Endpoints
+<DEFAULT>    1           1                +7131    0        0
+```
+
+| Clock | Constrained period | Waveform | Achievable period | Achievable frequency |
+|---|---|---|---|---|
+| `clk` | **20,000 ps (50 MHz)** | (0, 10,000) | 12,868 ps | **77.712 MHz** |
+
+**WNS +7,131 ps (+7.131 ns), TNS 0, zero failing endpoints** across 1664
+endpoints (up from 1260, which is the 64 added timestamp flops plus their fan-out).
+The design still closes 50 MHz with 7.1 ns to spare; achievable frequency fell
+from 78.846 to 77.712 MHz, which is the expected direction for 64 more flip-flops
+and nothing to be alarmed about. Tracked copy:
+`timing_summary_spi_link_crest_2026-11-02.log`.
 
 ## Reproducing
 

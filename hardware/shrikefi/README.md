@@ -68,13 +68,13 @@ spacing matches the stimulus period.
 
 ## Synthesis results
 
-Latest fitter run of the SPI design (`synthesis_evidence/resource_utilization_spi_link.log`):
+Latest fitter run of the SPI design (`synthesis_evidence/resource_utilization_spi_link_crest_2026-11-02.log`; 50 MHz constraint, WNS +7.131 ns, Fmax 77.712 MHz):
 
 | Resource | Usage |
 |---|---|
-| CLB LUT5s | **515 / 1120 (45.98%)** |
-| FFs | **303** (298 CLB + 5 IOB) |
-| CLBs | **105 / 140 (75.00%)** |
+| CLB LUT5s | **533 / 1120 (47.59%)** |
+| FFs | **367** (362 CLB + 5 IOB) |
+| CLBs | **118 / 140 (84.29%)** |
 | Block RAMs | **0 / 8** |
 | PLLs | **0 / 1** (runs from the on-chip oscillator) |
 
@@ -82,7 +82,7 @@ Latest fitter run of the SPI design (`synthesis_evidence/resource_utilization_sp
 superseded 4-bit parallel design and must not be mixed with the current SPI + IBI fit — see
 [`synthesis_evidence/README.md`](synthesis_evidence/README.md) for the full
 comparison, the port signature that tells the two logs apart, and the fit history
-(342 → 363 → 362 → 535 → 515 LUT5s; the 535 step is the 32-bit IBI burst, the
+(342 → 363 → 362 → 535 → 515 → 533 LUT5s; the 535 step is the 32-bit IBI burst, the
 515 step is the 2026-10-19 peak/4 crest refit, and the 2026-10-20
 clock-constraint re-fit changed no resource count).
 

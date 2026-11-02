@@ -7,6 +7,22 @@ on:
     branches: [main, master]
 
 jobs:
+  docs:
+    name: Docs (numbers & links)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Verify technical numbers across tracked docs
+        # Guards against the failure this job was added for: the front page and
+        # the Q&A guide quoted a ForgeFPGA fit that had been superseded, and
+        # nothing noticed for weeks because no job read the prose.
+        run: python3 scripts/check_presentation_claims.py
+      - name: Verify every relative doc link resolves
+        run: python3 tools/check_doc_links.py
+
   lint:
     name: Lint (Verilator)
     runs-on: ubuntu-latest
