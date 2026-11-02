@@ -2563,9 +2563,6 @@ static float s_last_pm10 = 0.0f;   /* coarse-particle proxy for dust detection *
             /* A probe reading needs no calibration: its accuracy is a datasheet
              * figure, not a coefficient we fitted. */
             st.skin_calibrated = s_skin_probe_valid;
-            /* The die-model diagnostics are gone with the die model. */
-            st.skin_die_delta = 0.0f;
-            st.skin_weak      = false;
             /* A held probe reading is published (a twitch must not blank the
              * display) but flagged, so the page can show it as held rather than
              * presenting a frozen value as a live measurement. */
@@ -3296,7 +3293,7 @@ void app_main(void) {
      * This block used to calibrate the removed die-based estimate, which was
      * published ONLY when no TMP117 probe answers. When the probe is fitted its
      * reading IS the published skin temperature and this estimate is discarded
-     * (skinsrc reports TMP117, skindie is forced to 0), so the measurement would
+     * (skinsrc reports TMP117), so the measurement would
      * be dead work costing ~5 s of boot time for a value nothing reads.
      *
      * It is deliberately NOT an "LED self-heating" calibration of the probe:

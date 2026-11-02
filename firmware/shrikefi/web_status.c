@@ -454,11 +454,8 @@ size_t web_status_json(const valor_status_t *s, char *buf, size_t cap) {
         !json_append_string(buf, cap, &used,
                             s->skin_source ? s->skin_source : SKIN_SRC_NONE) ||
         !json_append_format(buf, cap, &used, ",\"skinstale\":%s", s->skin_stale ? "true" : "false") ||
-        !json_append_format(buf, cap, &used,
-                            ",\"skincal\":%s,\"skindie\":%.2f,\"skinweak\":%s,",
-                            s->skin_calibrated ? "true" : "false",
-                            (double)s->skin_die_delta,
-                            s->skin_weak ? "true" : "false")) {
+        !json_append_format(buf, cap, &used, ",\"skincal\":%s,",
+                            s->skin_calibrated ? "true" : "false")) {
         return 0;
     }
 

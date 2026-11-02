@@ -207,7 +207,7 @@ int main(void) {
     s.rmssd = 123.4f; s.hrv_n = 128; s.rr_conf = 0.87f; s.rr_depth_ms = 412.3f;
     s.pi = 12.34f; s.temp = 39.7f; s.hum = 98.6f;
     s.skin_temp = 41.23f; s.skin_valid = true; s.skin_source = "ESTIMATED";
-    s.skin_die_delta = 3.75f; s.skin_weak = true; s.skin_stale = true;
+    s.skin_stale = true;
     s.skin_therm_state = "VASOCONSTRICTED"; s.skin_therm_ok = true;
     s.skin_trend_c = -9.99f; s.skin_rate_c_per_min = -2.0f;
     s.core_est_c = 42.99f; s.temp_calib_status = "uncalibrated";

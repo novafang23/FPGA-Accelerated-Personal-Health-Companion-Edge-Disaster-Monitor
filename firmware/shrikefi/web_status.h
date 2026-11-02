@@ -62,19 +62,10 @@ typedef struct {
      * measurement; it is also excluded from the NEWS2 temperature term, whose
      * temperature sub-score stays unpopulated unless a real probe is fitted. */
     const char *skin_source;
-    /* True only when the model coefficients were fitted against a reference
-     * thermometer. With the nominal defaults this is false, and the page must
-     * render the value as "uncalibrated estimate" rather than as a
-     * measurement. The TMP117 calibration run sets it true. */
+    /* True when the value came from a real contact thermometer, which needs no
+     * calibration: its accuracy is a datasheet figure, not a coefficient we
+     * fitted. False only when no probe answered. */
     bool     skin_calibrated;
-    /* How much the MAX30102 die thermometer actually contributed this contact:
-     * skin_die_delta is (peak die - no-finger baseline) in Celsius, and
-     * skin_weak is true when that delta is too small for the die to be driving
-     * the published value. Without this the page cannot distinguish "the model
-     * followed the sensor" from "the model returned its constant" - which is
-     * exactly the failure that went unnoticed on hardware. */
-    float    skin_die_delta;
-    bool     skin_weak;
     /* Peripheral thermal state: "UNKNOWN" / "STABLE" / "COOLING" /
      * "REWARMING" / "VASOCONSTRICTED" (skin_therm_state_t as text).
      *

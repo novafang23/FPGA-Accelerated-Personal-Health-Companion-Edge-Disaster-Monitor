@@ -144,14 +144,16 @@ The SSD1306 OLED, MAX30102/MAX30100 optical pulse sensor, BME280 environmental s
        (±0.1 °C, 16-bit result in 1/128 °C steps). When the probe answers, its
        reading **is** the published skin temperature and the status page labels
        it `(TMP117 probe)` with `skinsrc:"TMP117"`, `skincal:true`.
-     * **Fallback estimate.** When no probe answers, the MAX30102 on-die
-       thermometer **is** read every second (`main_shrikefi.c`, via
-       `max30102_read_die_temp()`), fed to `skin_estimate_update()`, and
-       published as an explicitly **uncalibrated estimate**
-       (`skinsrc:"ESTIMATED"`, `skincal:false`, plus `skindie` and `skinweak`).
-       An earlier revision of this document claimed the die read "was deleted
-       from `max30102.c`"; **that was wrong** — the function is present at
-       `max30102.c` and is called on every 1 Hz assessment tick.
+     * **No fallback any more.** The MAX30102 die-based estimate was **removed**
+       on 2026-11-02. The die is a junction sensor heated by its own emitters;
+       making a skin temperature out of it needed a boot-time LED self-heating
+       measurement, two separate validity gates and an "(uncalibrated)" label,
+       and the result was a model output that looked like a measurement. Skin
+       temperature now has exactly one source: the TMP117. When no probe answers
+       the reading is **absent** (`skinsrc:"NONE"`, `skintemp:null`), not
+       modelled. `skin_estimate.c` is deleted; the peripheral thermal state
+       machine survived as `firmware/core/skin_thermal.c` and is now fed by the
+       probe reading instead of the die model.
      * **NEWS2 temperature term stays uninstrumented.** NEWS2 scores core /
        tympanic temperature. A fingertip probe reads 30–34 °C, which would score
        +3 hypothermia on every healthy subject. Even with the TMP117 fitted, the
