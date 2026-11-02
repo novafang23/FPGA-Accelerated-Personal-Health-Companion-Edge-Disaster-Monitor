@@ -950,7 +950,7 @@ size_t web_status_history_json(char *buf, size_t cap) {
 static const char PAGE_HTML[] =
 "<!DOCTYPE html><html lang='en'><head><meta charset='utf-8'>"
 "<meta name='viewport' content='width=device-width,initial-scale=1'>"
-"<meta http-equiv='Content-Security-Policy' content=\"default-src 'none'; script-src 'sha256-cX+16m1WEpuvBN0jbcLrYsbkETqhQ1b+7mSLU/QfueE='; style-src 'unsafe-inline'; connect-src 'self'; form-action 'self'; base-uri 'none'; object-src 'none'\">"
+"<meta http-equiv='Content-Security-Policy' content=\"default-src 'none'; script-src 'sha256-0o4BS2MJx8L/uwDRS1vNbJW+HJNb00hzO66p0+ZwTgY='; style-src 'unsafe-inline'; connect-src 'self'; form-action 'self'; base-uri 'none'; object-src 'none'\">"
 "<title>VALOR - local status</title><style>"
 ":root{--bg:#070B14;--card:#0E1626;--line:#1C2740;--text:#E6EDF7;--dim:#8A9AB5;"
 "--cyan:#00E5FF;--emerald:#00FFAA;--amber:#FFB020;--crimson:#FF3B5C}"
@@ -1020,6 +1020,8 @@ static const char PAGE_HTML[] =
 "<div class='card wide'><label class='k' for='locin'>Deployment location</label>"
 "<form class='setloc' method='post' action='/location'>"
 "<input id='locin' name='loc' maxlength='31' placeholder='Village / Block / District'>"
+"<input name='pin' inputmode='numeric' maxlength='4' placeholder='PIN' "
+"style='width:64px;text-align:center' title='4-digit PIN shown on the device OLED'>"
 "<button type='submit'>Save</button></form>"
 "<div id='locnote'>Stored on the device and shown on the emergency card.</div></div>"
 "<div class='card wide'><div class='k'>Emergency Assist Control</div>"
@@ -1119,11 +1121,20 @@ static const char PAGE_HTML[] =
 "if(el&&s.loc!=='UNSET'){el.value=s.loc}locFilled=true}"
 "}).catch(clearReadings);"
 "}"
+"function getPin(force){var p=null;try{p=sessionStorage.getItem('valorPin')}catch(e){}"
+"if(p&&!force)return p;"
+"var v=window.prompt('Enter the 4-digit PIN shown on the VALOR device OLED (bottom row)');"
+"if(v===null)return null;p=String(v).replace(/\\D/g,'').slice(0,4);"
+"if(p.length!==4){t('sos-note','PIN must be 4 digits - read it on the device display');return null}"
+"try{sessionStorage.setItem('valorPin',p)}catch(e){}return p}"
 "function postEmergency(path,action,holdMs){t('sos-note','Sending '+action+' request...');"
-"var o={method:'POST'};if(holdMs){o.headers={'Content-Type':'application/x-www-form-urlencoded'};o.body='hold_ms='+holdMs;}"
-"fetch(path,o).then(function(r){if(!r.ok)throw new Error('HTTP '+r.status);return r.json()})"
+"var pin=null;if(holdMs){pin=getPin(false);if(!pin)return}"
+"var o={method:'POST'};if(holdMs){o.headers={'Content-Type':'application/x-www-form-urlencoded'};o.body='hold_ms='+holdMs+'&pin='+encodeURIComponent(pin);}"
+"fetch(path,o).then(function(r){if(r.status===403){try{sessionStorage.removeItem('valorPin')}catch(e){}"
+"throw new Error('PIN refused - read the current PIN on the device display')}"
+"if(!r.ok)throw new Error('HTTP '+r.status);return r.json()})"
 ".then(function(){t('sos-note',action+' request sent');poll()})"
-".catch(function(){t('sos-note',action+' request failed; check the connection')})}"
+".catch(function(e){t('sos-note',action+' failed: '+((e&&e.message)?e.message:'check the connection'))})}"
 "document.getElementById('sos-trigger').addEventListener('click',function(){postEmergency('/api/emergency/trigger','SOS trigger')});"
 "(function(){var b=document.getElementById('sos-cancel'),tm=null,ok=false;"
 "function start(e){if(tm)return;ok=false;if(e&&e.preventDefault)e.preventDefault();t('sos-note','Hold for 3 s to cancel...');"
@@ -1237,7 +1248,7 @@ static esp_err_t h_root(httpd_req_t *req) {
      * re-fetch every second on a network with one client. */
     httpd_resp_set_hdr(req, "Cache-Control", "no-store");
     httpd_resp_set_hdr(req, "Content-Security-Policy",
-        "default-src 'none'; script-src 'sha256-cX+16m1WEpuvBN0jbcLrYsbkETqhQ1b+7mSLU/QfueE='; style-src 'unsafe-inline'; connect-src 'self'; form-action 'self'; base-uri 'none'; object-src 'none'; frame-ancestors 'none'");
+        "default-src 'none'; script-src 'sha256-0o4BS2MJx8L/uwDRS1vNbJW+HJNb00hzO66p0+ZwTgY='; style-src 'unsafe-inline'; connect-src 'self'; form-action 'self'; base-uri 'none'; object-src 'none'; frame-ancestors 'none'");
     httpd_resp_set_hdr(req, "X-Content-Type-Options", "nosniff");
     httpd_resp_set_hdr(req, "X-Frame-Options", "DENY");
     httpd_resp_set_hdr(req, "Referrer-Policy", "same-origin");

@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'sha256-ZcjDdDzAHtgbWZyofp3D6MBsOkfAQUC+FfG8F37jDIM='; style-src 'unsafe-inline'; connect-src 'self' http://192.168.4.1 ws: http://localhost:*; form-action 'self'; base-uri 'none'; object-src 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'sha256-dH1XigeDmvSFz3Wv5dn+PMqDGRPiHS9OPc4+P+Mpvc4='; style-src 'unsafe-inline'; connect-src 'self' http://192.168.4.1 ws: http://localhost:*; form-action 'self'; base-uri 'none'; object-src 'none'">
 <title>VALOR — Edge Health &amp; Disaster Triage</title>
 <!--
   VALOR dashboard — single self-contained file.
@@ -2775,6 +2775,31 @@ function drainWifiPpg(dt) {
   return moved;
 }
 
+/* Control PIN, remembered for this browser tab.
+ *
+ * Cancelling an SOS and changing the location require a four-digit PIN that the
+ * device generates at boot and shows on its OLED. The AP passphrase alone is not
+ * enough: it is fixed and shared, whereas silencing an emergency should need
+ * something only the person holding the unit can read. sessionStorage (not
+ * localStorage) so it is forgotten when the tab closes.
+ */
+function getControlPin(forcePrompt) {
+  let pin = null;
+  try { pin = sessionStorage.getItem('valorPin'); } catch (e) { pin = null; }
+  if (pin && !forcePrompt) return pin;
+  const entered = window.prompt(
+    'Enter the 4-digit PIN shown on the VALOR device display\n' +
+    '(bottom row of the OLED, e.g. "PIN: 5456")');
+  if (entered === null) return null;                 /* user cancelled */
+  pin = String(entered).replace(/\D/g, '').slice(0, 4);
+  if (pin.length !== 4) {
+    setStatus('err', 'PIN must be 4 digits - read it on the device display');
+    return null;
+  }
+  try { sessionStorage.setItem('valorPin', pin); } catch (e) { /* ignore */ }
+  return pin;
+}
+
 async function sendEmergencySos(action) {
   if (mode !== 'wifi') {
     setStatus('err', 'SOS only available in Wi-Fi standalone mode');
@@ -2784,12 +2809,23 @@ async function sendEmergencySos(action) {
   const path = wifiTarget + (isCancel ? '/api/emergency/cancel' : '/api/emergency/trigger');
   const opts = { method: 'POST' };
   if (isCancel) {
+    /* A 3 s hold proves intent; the PIN proves authority. Ask before sending so
+       a failed cancel does not leave the user staring at an unexplained error. */
+    const pin = getControlPin(false);
+    if (!pin) return;
     opts.headers = { 'Content-Type': 'application/x-www-form-urlencoded' };
-    opts.body = 'hold_ms=3000';
+    opts.body = 'hold_ms=3000&pin=' + encodeURIComponent(pin);
   }
   try {
     setStatus('live', isCancel ? 'Cancelling SOS...' : 'Triggering Emergency SOS...');
     const r = await fetch(path, opts);
+    if (r.status === 403) {
+      /* Wrong PIN, or the device rebooted and generated a new one. Drop the
+         cached value and let the next attempt prompt again. */
+      try { sessionStorage.removeItem('valorPin'); } catch (e) { /* ignore */ }
+      setStatus('err', 'Cancelled refused - wrong PIN? Read the current PIN on the device display');
+      return;
+    }
     if (!r.ok) throw new Error('HTTP ' + r.status);
     setStatus('live', isCancel ? 'SOS Cancelled' : '🚨 SOS TRIGGERED');
     await pollWifiStatus();
