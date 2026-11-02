@@ -4,10 +4,9 @@
 **Project Identifier:** SIH26181 — VALOR (*Vital and Atmospheric Logic for Offline Rescue*)  
 **System Classification:** Heterogeneous Edge SoC (FPGA Verilog RTL + ESP32-S3 FreeRTOS C11 Firmware + Zero-Cloud INT8 TinyML)
 
-> **Companion documents (keep these honest against each other).** This guide is the long-form study text. Three shorter, more frequently updated documents carry the latest hardware state and the demo script — read them alongside, and trust them where they disagree with this file:
-> - [`docs/DEMO_SHEET.md`](docs/DEMO_SHEET.md) — one-page pitch, architecture, RTL/FSM walkthrough, AI and clinical numbers, Q&A bank, live demo script, cheat card. **Newest and most current.**
-> - [`docs/JUDGE_QA.md`](docs/JUDGE_QA.md) — adversarial question bank.
-> - [`docs/DEMO_RUNBOOK.md`](docs/DEMO_RUNBOOK.md) — minute-by-minute run of show.
+> **Companion document.** This guide is the long-form reference. For the authoritative pin map and
+> sensor inventory, read the hardware connections document alongside it and trust that where the
+> two disagree:
 > - [`docs/SHRIKEFI_HARDWARE_CONNECTIONS.md`](docs/SHRIKEFI_HARDWARE_CONNECTIONS.md) — authoritative pin map and sensor inventory.
 >
 > **Reporting rule for every number in this guide:** state MIMIC-III as **58.18 % sensitivity / 98.19 % specificity** (94.11 % accuracy hides that pair because only 10.2 % of labels are positive), and never present a skin-temperature estimate as a core temperature.
@@ -1283,7 +1282,6 @@ Every technical claim in VALOR is backed by automated tests, physical hardware b
 
 ## 18. Demo Walkthrough
 
-Follow this step-by-step script from `DEMO_RUNBOOK.md` during live judging.
 
 ```
        ACT 1: BOOT & PITCH              ACT 2: LIVE OPTICAL PPG             ACT 3: MULTI-HAZARD
@@ -1607,7 +1605,6 @@ To survive a rigorous defense panel, you must state your project's boundaries cl
 
 ## 22. Who Should Be Able to Explain What
 
-Based on the three spoken roles defined in `docs/DEMO_RUNBOOK.md`, every teammate must master specific technical areas to ensure seamless presentation and defense:
 
 | Team Member | Official Assigned Role | Core Sections to Master | Key Defense Topics to Own |
 |---|---|---|---|
@@ -1622,7 +1619,6 @@ Based on the three spoken roles defined in `docs/DEMO_RUNBOOK.md`, every teammat
 In accordance with strict engineering integrity guidelines, the following architectural disclosures, fit histories, and audited codebase realities are explicitly documented so the engineering team can defend them with complete confidence:
 
 1. **RTL Peak Detector State Names & Crest Drop Rule:**
-   - *Preliminary Documentation Divergence:* Early presentation notes (e.g., `JUDGE_QA.md` lines 96–100) described an initial conceptual 4-state machine using names `STATE_IDLE`, `STATE_ARMED`, `STATE_CREST_FALL`, and `STATE_REFRACTORY` with a fixed drop of 3 units.
    - *Synthesizable RTL Ground Truth:* The actual synthesizable Verilog code (`hardware/common/ppg_peak_detector.v`) defines the states as `STATE_ARMED` (`2'b00`), `STATE_RISING` (`2'b01`), `STATE_PEAK_FOUND` (`2'b10`), and `STATE_REFRACTORY` (`2'b11`). It enforces a **proportional drop rule** (`peak_val >> 2` for peak > 48, or a floor of 6 for weak signals) to prevent false triggers on the dicrotic notch. *The synthesizable Verilog is the sole source of truth.*
 
 2. **ForgeFPGA Resource Evolution (342 → 364 → 535 → 515 LUT5s):**
