@@ -96,6 +96,44 @@ static uint32_t calib_now_ms(void)
 #endif
 }
 
+bool web_status_temp_calib_set(float skin_c, float ref_c, const char *site)
+{
+    if (!s_temp_calib_inited) {
+        skin_calib_init(&s_temp_calib);
+        s_temp_calib_inited = true;
+    }
+    const uint32_t now_ms = calib_now_ms();
+    /* +1 so a calibration taken at the same millisecond as the query is not
+     * immediately rejected as "stale" by a zero/negative elapsed check. */
+    return skin_calib_set(&s_temp_calib, skin_c, ref_c, site, now_ms + 1u);
+}
+
+bool web_status_temp_core(const valor_status_t *s, float *out_core_c,
+                          const char **out_status, float *out_ref_c,
+                          const char **out_site)
+{
+    if (out_core_c) *out_core_c = 0.0f;
+    if (out_ref_c)  *out_ref_c = 0.0f;
+    if (out_status) *out_status = "uncalibrated";
+    if (out_site)   *out_site = "none";
+
+    if (!s || !s_temp_calib_inited || !(s->skin_temp > 0.0f)) return false;
+
+    const uint32_t now_ms = calib_now_ms();
+    bool ok = false;
+    const float core = skin_calib_core_c(&s_temp_calib, s->skin_temp, now_ms + 1u, &ok);
+
+    if (out_status) *out_status = skin_calib_status(&s_temp_calib, s->skin_temp, now_ms + 1u);
+    if (s_temp_calib.valid) {
+        if (out_ref_c) *out_ref_c = s_temp_calib.ref_c;
+        if (out_site)  *out_site = s_temp_calib.ref_site;
+    }
+    if (!ok) return false;
+    if (out_core_c) *out_core_c = core;
+    return true;
+}
+
+
 #ifdef ESP_PLATFORM
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
@@ -297,19 +335,14 @@ size_t web_status_json(const valor_status_t *s, char *buf, size_t cap) {
      * is fresh, and the skin has not drifted out from under it. */
     valor_status_t local;
     local = *s;
-    if (s_temp_calib_inited && local.skin_temp > 0.0f) {
-        const uint32_t now_ms = calib_now_ms();
-        bool ok = false;
-        const float core = skin_calib_core_c(&s_temp_calib, local.skin_temp, now_ms + 1u, &ok);
-        local.core_est_c = ok ? core : 0.0f;
-        local.temp_calib_status = skin_calib_status(&s_temp_calib, local.skin_temp, now_ms + 1u);
-        local.temp_calib_ref_c = s_temp_calib.valid ? s_temp_calib.ref_c : 0.0f;
-        local.temp_calib_site = s_temp_calib.valid ? s_temp_calib.ref_site : "none";
-    } else {
-        local.core_est_c = 0.0f;
-        local.temp_calib_status = "uncalibrated";
-        local.temp_calib_ref_c = 0.0f;
-        local.temp_calib_site = "none";
+    {
+        float core = 0.0f, ref = 0.0f;
+        const char *status = "uncalibrated", *site = "none";
+        web_status_temp_core(&local, &core, &status, &ref, &site);
+        local.core_est_c = core;
+        local.temp_calib_status = status;
+        local.temp_calib_ref_c = ref;
+        local.temp_calib_site = site;
     }
     s = &local;
 
@@ -1227,15 +1260,14 @@ static esp_err_t h_cal(httpd_req_t *req) {
     web_status_snapshot(&snap);
     const float skin_c = snap.skin_temp;
 
-    const uint32_t now_ms = calib_now_ms();
-    const bool ok = skin_calib_set(&s_temp_calib, skin_c, ref_c, "oral", now_ms + 1u);
+    const bool ok = web_status_temp_calib_set(skin_c, ref_c, "oral");
 
     static char out[256];
     if (ok) {
         snprintf(out, sizeof(out),
                  "{\"ok\":true,\"ref_c\":%.2f,\"skin_c\":%.2f,\"offset_c\":%.2f,"
                  "\"site\":\"oral\",\"note\":\"core = skin + offset for this session\"}",
-                 (double)ref_c, (double)skin_c, (double)s_temp_calib.offset_c);
+                 (double)ref_c, (double)skin_c, (double)(ref_c - skin_c));
     } else {
         snprintf(out, sizeof(out),
                  "{\"ok\":false,\"ref_c\":%.2f,\"skin_c\":%.2f,"

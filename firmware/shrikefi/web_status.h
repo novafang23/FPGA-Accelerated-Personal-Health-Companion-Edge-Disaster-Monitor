@@ -190,6 +190,24 @@ typedef struct {
     unsigned news2_temp_pts;
 } valor_status_t;
 
+/* Record a reference temperature and derive the per-session core offset.
+ *
+ * Caller supplies the skin value that was current WHEN the reference was
+ * taken, so the two describe one moment. Returns false if the pair is not
+ * usable (no contact, implausible reference, offset too large to
+ * extrapolate) - in which case the previous calibration is left untouched.
+ *
+ * Exposed as public API rather than living only inside the /cal handler so
+ * the behaviour is testable, and so a future hardware button could drive it
+ * without duplicating the offset logic. */
+bool web_status_temp_calib_set(float skin_c, float ref_c, const char *site);
+
+/* Report the current calibration state for the given skin reading.
+ * Fills *out_core_c with 0.0f and returns false when it is not usable. */
+bool web_status_temp_core(const valor_status_t *s, float *out_core_c,
+                          const char **out_status, float *out_ref_c,
+                          const char **out_site);
+
 /* Publish a new snapshot. Called at 1 Hz from the monitor task; the HTTP server
  * reads it from its own task, so the copy is internally locked. The pointed-to
  * strings must outlive the call - all three come from static name tables. */

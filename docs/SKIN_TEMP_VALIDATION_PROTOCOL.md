@@ -49,17 +49,33 @@ AC/fan cycling; or your hands already feel cold.
 
 ---
 
-## 3. Procedure (one session ≈ 8 min)
+## 3. Procedure (one session ≈ 10–12 min)
 
 ### Phase A — settle (3 min)
 1. Board powered, **no finger** on the sensor.
 2. Sit still, hands open on your knees — not clasped, not in pockets.
 
-### Phase B — establish contact (1 min)
+### Phase B — establish contact (2–3 min) ← do not rush this
+
 3. Place the **index finger** of one hand on the sensor. Same finger, same
    pressure, same position, every session.
-4. Wait until the OLED stops saying `ACQUIRING` (≥12 s) and the page shows a
-   settled skin value.
+4. **Wait 2–3 minutes.** Keep checking `http://192.168.4.1/status.json` until
+   `skintemp` stops moving (less than 0.1 °C change over 30 s).
+
+> **Why 2–3 minutes and not 15 seconds.** The 12 s settle figure that appears in
+> the firmware belongs to the *die-based estimate*, not to the TMP117. A contact
+> thermometer has its own thermal time constant: it must soak up to your finger's
+> temperature, which takes minutes, not seconds.
+>
+> Measured on hardware, 60 s after placing the finger:
+>
+> ```
+> 27.5  28.2  31.2  32.1  32.5  32.8  33.1  33.3  33.6  33.8  33.9  34.1
+> ```
+>
+> still rising 6.6 °C later, and not yet flat. Calibrating at 15 s would read the
+> probe ~3 °C below its true value and bake that error into every subsequent
+> reading. This is the single easiest way to ruin the whole dataset.
 
 ### Phase C — the paired calibration (1 min) ← the important part
 5. **Keep the finger on the sensor.** Put the thermometer under the tongue —
