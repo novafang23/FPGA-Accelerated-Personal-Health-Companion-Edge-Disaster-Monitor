@@ -513,6 +513,28 @@ size_t web_status_json(const valor_status_t *s, char *buf, size_t cap) {
         return 0;
     }
 
+    /* 24-hour PM2.5 and the standards-based AQI. Both are null / -1 until enough
+     * complete hours exist, because a 24-hour AQI cannot be computed from
+     * twenty minutes of data and claiming otherwise is exactly the error this
+     * field exists to prevent. aqibasis tells the page which basis it is
+     * looking at, so a short-term number can never be rendered as a 24-h one. */
+    if (!(s->pm25_24h > 0.0f)) {
+        if (!json_append(buf, cap, &used, "\"pm2524h\":null,", 13)) return 0;
+    } else if (!json_append_format(buf, cap, &used, "\"pm2524h\":%.1f,", (double)s->pm25_24h)) {
+        return 0;
+    }
+    if (s->aqi24 < 0) {
+        if (!json_append(buf, cap, &used, "\"aqi24\":null,", 12)) return 0;
+    } else if (!json_append_format(buf, cap, &used, "\"aqi24\":%d,", s->aqi24)) {
+        return 0;
+    }
+    if (!json_append(buf, cap, &used, "\"aqibasis\":", sizeof("\"aqibasis\":") - 1) ||
+        !json_append_string(buf, cap, &used, s->aqibasis ? s->aqibasis : "60s") ||
+        !json_append(buf, cap, &used, ",", 1)) {
+        return 0;
+    }
+
+
     if (!json_append_format(
         buf, cap, &used,
         "\"pressure\":%.1f,\"ptrend\":%.2f,"

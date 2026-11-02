@@ -61,6 +61,10 @@ idf_component_register(
         # float32 entry point in disaster_risk_engine.c.
         "${CORE_DIR}/nn_risk_model_int8.c"
         "${CORE_DIR}/pm25_correction.c"
+        # 24-hour PM2.5 averaging. The EPA AQI is defined on a 24-h mean, not on
+        # the 60 s rolling mean the correction publishes, so the standards-based
+        # number needs its own accumulator.
+        "${CORE_DIR}/pm25_aqi_avg.c"
         "${CORE_DIR}/clinical_vitals_engine.c"
         # Both of these were written and unit-exercised in the host harness but
         # were never added here, so on the device NEWS2 ran with its respiratory

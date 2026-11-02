@@ -31,6 +31,7 @@
 #include "disaster_risk_engine.h"
 #include "nn_risk_model_int8.h"
 #include "pm25_correction.h"
+#include "pm25_aqi_avg.h"
 #include "clinical_vitals_engine.h"
 #include "ppg_sqi.h"
 #include "ppg_respiratory_rate.h"
@@ -130,6 +131,11 @@ static tmp117_t s_tmp117;
 /* True when the last published skin temperature came from the TMP117 probe
  * rather than the die model. Drives SKIN_SRC_* in the status JSON. */
 static bool s_skin_probe_valid = false;
+
+/* 24-hour PM2.5 accumulator for the standards-based AQI. The EPA AQI is
+ * defined on a 24-hour mean; the live 60 s mean is far noisier and peaks
+ * higher, so deriving an AQI from it overstates the hazard. */
+static pm25_aqi_avg_t s_pm25_avg;
 static skin_estimate_t s_skin_est;
 static pms5003_t s_pms5003;
 static ssd1306_t s_ssd1306;
@@ -1878,6 +1884,11 @@ static float s_last_pm10 = 0.0f;   /* coarse-particle proxy for dust detection *
                        ? -1.0f
                        : pm25_reading.corrected;
 
+        /* Feed the 24-hour accumulator with the same corrected value the tile
+         * shows. -1 propagates through as "no reading" and is ignored there, so
+         * a sensor dropout cannot drag the daily mean toward clean air. */
+        pm25_aqi_avg_push(&s_pm25_avg, env.pm25, env_now_ms);
+
         /* The "raw" value we publish is the one the correction was actually
          * applied to - the 60 s mean of the PMS5003 readings - and -1 when
          * there is no reading at all. Showing the last single sample instead
@@ -2443,6 +2454,24 @@ static float s_last_pm10 = 0.0f;   /* coarse-particle proxy for dust detection *
             /* Structured copy for the page tiles: the device is the single
              * source of truth, the browser only renders. */
             st.aqi      = disaster_epa_pm25_aqi(env.pm25);   /* -1 = not assessed */
+            /* The standards-based numbers. Only published as an AQI when the
+             * 24-hour mean actually exists; otherwise aqi24 stays -1 and
+             * aqibasis says "60s" so the page can label the short-term figure
+             * instead of passing it off as a 24-hour AQI. */
+            {
+                float mean24 = -1.0f;
+                uint8_t hours24 = 0;
+                if (pm25_aqi_avg_24h(&s_pm25_avg, &mean24, &hours24) &&
+                    pm25_aqi_avg_ready(&s_pm25_avg)) {
+                    st.pm25_24h = mean24;
+                    st.aqi24    = disaster_epa_pm25_aqi(mean24);
+                    st.aqibasis = "24h";
+                } else {
+                    st.pm25_24h = -1.0f;
+                    st.aqi24    = -1;
+                    st.aqibasis = "60s";
+                }
+            }
             st.aqi_cat  = disaster_epa_pm25_category((int)st.aqi);
             st.heat_c   = disaster_calculate_heat_index_c(env.ambient_temp_c, env.humidity_pct);
             st.heat_cat = disaster_nws_heat_category(st.heat_c);

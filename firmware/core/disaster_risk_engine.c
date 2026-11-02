@@ -229,12 +229,17 @@ void disaster_environment_condition_text(const env_sensors_t *env,
         return;
     }
 
+    /* This is a SHORT-TERM multiple. env->pm25 is the 60 s rolling mean, so
+     * comparing it to a 24-hour guideline characterises an instantaneous level
+     * against a daily one - useful as a magnitude, not as compliance with a
+     * daily standard. The text below says "short-term" for exactly that reason.
+     * A true 24-hour AQI is accumulated separately (pm25_aqi_avg.c). */
     float who_x = (who_24h > 0.0f) ? env->pm25 / who_24h : 0.0f;
 
     if (!heat_valid) {
         snprintf(out, cap,
                  "PM2.5 %.1f ug/m3: %s (EPA AQI %d, 2024). "
-                 "WHO 2021 24-h guideline 15 ug/m3 %s (%.1fx). "
+                 "Short-term mean is %s the WHO 24-h guideline of 15 ug/m3 (%.1fx). "
                  "Heat index not assessed (ambient sensor unavailable).",
                  (double)env->pm25, pcat, aqi,
                  (who_x > 1.0f) ? "exceeded" : "met", (double)who_x);
@@ -243,7 +248,7 @@ void disaster_environment_condition_text(const env_sensors_t *env,
 
     snprintf(out, cap,
              "PM2.5 %.1f ug/m3: %s (EPA AQI %d, 2024). "
-             "WHO 2021 24-h guideline 15 ug/m3 %s (%.1fx). "
+             "Short-term mean is %s the WHO 24-h guideline of 15 ug/m3 (%.1fx). "
              "Heat index %.1f C: %s (NWS).",
              (double)env->pm25, pcat, aqi,
              (who_x > 1.0f) ? "exceeded" : "met", (double)who_x,

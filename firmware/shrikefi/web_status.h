@@ -116,6 +116,18 @@ typedef struct {
      * render that as a clean atmosphere. */
     float    pm25_raw;
     const char *pm25_conf;
+    /* 24-hour PM2.5 mean and the standards-based AQI derived from it.
+     *
+     * EPA's PM2.5 AQI is defined on a 24-HOUR average. The live tile shows a
+     * 60 s mean, which is far noisier and peaks higher, so an AQI computed from
+     * it overstates the hazard. pm25_24h is -1 until enough complete hours
+     * exist; aqi24 is -1 in the same condition. When they ARE available, they
+     * are the defensible numbers; when they are not, aqibasis says 60s so no
+     * page can present a one-minute mean as a 24-hour AQI. */
+    float    pm25_24h;
+    int      aqi24;
+    const char *aqibasis;
+
     /* Literature-based environmental condition sentence (EPA AQI / WHO 2021 /
      * NWS heat index). Pointer to static storage owned by the publisher. */
     const char *env;
