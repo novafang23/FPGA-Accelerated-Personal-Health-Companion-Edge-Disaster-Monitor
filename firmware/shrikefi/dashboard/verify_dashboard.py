@@ -39,7 +39,27 @@ except AttributeError:
     pass
 
 SRC = Path(__file__).resolve().with_name("valor_dashboard.html")
+GZ_HEADER = Path(__file__).resolve().parents[1] / "valor_dashboard_gz.h"
 CHROME = os.environ.get("CHROME", r"C:\Program Files\Google\Chrome\Application\chrome.exe")
+
+
+def verify_gzip_header_sync():
+    """Assert byte-exact match between valor_dashboard.html and decompressed valor_dashboard_gz.h."""
+    import gzip
+    if not GZ_HEADER.exists():
+        raise RuntimeError("Missing gzip header at %s" % GZ_HEADER)
+    header_text = GZ_HEADER.read_text(encoding="utf-8")
+    hex_bytes = bytes(int(x, 16) for x in re.findall(r"0x([0-9a-fA-F]{2})", header_text))
+    decompressed = gzip.decompress(hex_bytes)
+    expected = SRC.read_bytes()
+    if decompressed != expected:
+        raise RuntimeError(
+            "valor_dashboard_gz.h is out of sync with valor_dashboard.html! "
+            "(decompressed: %d bytes vs original: %d bytes). Run scripts/bundle_desktop_dashboard.py."
+            % (len(decompressed), len(expected))
+        )
+    print("Gzip header sync: %d bytes match valor_dashboard.html (PASS)" % len(decompressed))
+
 
 PROBE = """
 <script>
@@ -253,6 +273,85 @@ window.onerror = function (m) { window.__err = String(m); };
       handleLine = originalHandleLine;
       snap.serialCalls = calls;
     }
+    if (caseName === 'wifi') {
+      /* Standalone Wi-Fi SoftAP mode test: mock window.fetch for /status.json,
+         /api/history, /ppg.json, and /api/emergency/trigger. */
+      const calls = [];
+      let mockContact = true;
+      window.fetch = async function (url, opts) {
+        opts = opts || {};
+        const method = (opts.method || 'GET').toUpperCase();
+        const u = String(url);
+        calls.push([u, method, opts.body || '']);
+        if (u.indexOf('/status.json') >= 0) {
+          const s = {
+            hr: mockContact ? 78.0 : 0.0,
+            spo2: mockContact ? 98.2 : 0.0,
+            rr: mockContact ? 16.0 : 0.0,
+            sqi: mockContact ? 0.88 : 0.0,
+            rmssd: mockContact ? 35.0 : 0.0,
+            temp: 24.5, hum: 45.0, pm25: 10.0,
+            skintemp: mockContact ? 34.0 : null,
+            pressure: 1013.2, ptrend: 0.0,
+            news2: 0, level: 0, flags: 0,
+            risk: mockContact ? 'NORMAL' : 'UNKNOWN',
+            storm: 'NORMAL', sos: 'IDLE', trigger: 'none',
+            loc: 'UNSET', motion: 0.1, fall: 'MONITORING',
+            contact: mockContact, up: 100
+          };
+          return { ok: true, status: 200, json: async () => s };
+        }
+        if (u.indexOf('/ppg.json') >= 0) {
+          const samples = mockContact ? [262000, 263000] : [0, 0];
+          return { ok: true, status: 200, json: async () => ({ n: samples.length, fs: 25, samples: samples }) };
+        }
+        if (u.indexOf('/api/history') >= 0 || u.indexOf('/history.json') >= 0) {
+          return { ok: true, status: 200, json: async () => ({ history: [] }) };
+        }
+        if (u.indexOf('/api/emergency/trigger') >= 0 || u.indexOf('/api/emergency/cancel') >= 0) {
+          return { ok: true, status: 200, json: async () => ({ status: 'ok' }) };
+        }
+        return { ok: true, status: 200, json: async () => ({}) };
+      };
+
+      const pushedSamples = [];
+      const origPush = PPG.push;
+      PPG.push = function (v) {
+        pushedSamples.push(v);
+        return origPush.apply(this, arguments);
+      };
+
+      await connectWifi('http://192.168.4.1');
+      if (wifiPollingInterval) { clearInterval(wifiPollingInterval); wifiPollingInterval = null; }
+      if (wifiHistoryInterval) { clearInterval(wifiHistoryInterval); wifiHistoryInterval = null; }
+      if (wifiPpgInterval) { clearInterval(wifiPpgInterval); wifiPpgInterval = null; }
+
+      render();
+      drainWifiPpg(50);
+      snap.wifiLive = {
+        hr: txt('v-hr'),
+        spo2: txt('v-spo2'),
+        contact: V.contact,
+        ppgVal: (pushedSamples.length > 0) ? pushedSamples[pushedSamples.length - 1] : 0
+      };
+
+      mockContact = false;
+      wifiPpgQueue = [];
+      await pollWifiStatus();
+      await pollWifiPPG();
+      drainWifiPpg(50);
+      render();
+      snap.wifiNoContact = {
+        hr: txt('v-hr'),
+        spo2: txt('v-spo2'),
+        contact: V.contact,
+        flatlineVal: (pushedSamples.length > 0) ? pushedSamples[pushedSamples.length - 1] : 0
+      };
+
+      await sendEmergencySos('trigger');
+      snap.wifiSosCalls = calls.filter(c => c[0].indexOf('/api/emergency/trigger') >= 0);
+      PPG.push = origPush;
+    }
     const pre = document.createElement('pre');
     pre.id = 'probe';
     pre.textContent = JSON.stringify(Object.assign({ error: window.__err }, snap));
@@ -342,6 +441,7 @@ def check(case, r, expect):
     return bad
 
 
+verify_gzip_header_sync()
 failures = []
 for case in ("zero", "healthy", "hrv_settle", "device_pts", "ai_declined", "ai_scored", "nofinger", "sensor_missing", "ambient", "freezing", "pi", "stale",
              "pm_published", "pm_nodata", "pm_humid"):
@@ -477,6 +577,7 @@ state_cases = [
     ("profile", {"sim": "1", "profile": "Cardiopulmonary ICU Emergency"}),
     ("tooltip", None),
     ("serial", None),
+    ("wifi", None),
 ]
 for case, extra in state_cases:
     try:
@@ -588,6 +689,28 @@ for case, extra in state_cases:
             bad.append("  serial: expected %r, got %r" % (want_calls, calls))
         if any("\r" in c for c in (calls or [])):
             bad.append("  serial: a trailing CR survived line reassembly")
+    elif case == "wifi":
+        live = r.get("wifiLive") or {}
+        if live.get("hr") != "78":
+            bad.append("  wifi: expected live HR 78, got %r" % live.get("hr"))
+        if live.get("spo2") != "98.2":
+            bad.append("  wifi: expected live SpO2 98.2, got %r" % live.get("spo2"))
+        if not live.get("contact"):
+            bad.append("  wifi: expected contact true in live phase")
+        if not live.get("ppgVal"):
+            bad.append("  wifi: expected non-zero PPG sample during contact")
+
+        nocontact = r.get("wifiNoContact") or {}
+        if nocontact.get("hr") not in ("\u2014", "--"):
+            bad.append("  wifi: expected dash for no-contact HR, got %r" % nocontact.get("hr"))
+        if nocontact.get("contact"):
+            bad.append("  wifi: expected contact false in no-contact phase")
+        if nocontact.get("flatlineVal") != 0:
+            bad.append("  wifi: expected flatline PPG (0) during no-contact, got %r" % nocontact.get("flatlineVal"))
+
+        sos = r.get("wifiSosCalls") or []
+        if not any(call[1] == "POST" and "/api/emergency/trigger" in call[0] for call in sos):
+            bad.append("  wifi: sendEmergencySos('trigger') did not POST to /api/emergency/trigger")
 
     if bad:
         print("\n".join(bad))

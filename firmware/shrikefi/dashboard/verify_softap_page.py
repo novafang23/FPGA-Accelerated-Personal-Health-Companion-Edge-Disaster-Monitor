@@ -113,6 +113,14 @@ if re.search(r"\son[a-z]+\s*=", page, re.I) or re.search(r"(?:src|href)\s*=\s*['
 if "Access-Control-Allow-Origin" in source:
     raise RuntimeError("wildcard CORS header must not expose patient history")
 
+uri_regs = len(re.findall(r"httpd_register_uri_handler\s*\(", source))
+max_hdr_m = re.search(r"max_uri_handlers\s*=\s*(\d+)", source)
+if not max_hdr_m or int(max_hdr_m.group(1)) < uri_regs:
+    raise RuntimeError("max_uri_handlers (%s) too small for %d registered handlers"
+                       % (max_hdr_m.group(1) if max_hdr_m else "missing", uri_regs))
+if '"/desktop"' not in source or '"/dashboard"' not in source or "VALOR_DASHBOARD_GZ" not in source:
+    raise RuntimeError("Gzipped /desktop route missing from web_status.c")
+
 healthy = {
     "hr": 72.0, "spo2": 98.4, "rr": 15.0, "sqi": 0.87, "rmssd": 42.0,
     "temp": -3.5, "hum": 0.0, "pm25": 0.0, "skintemp": 33.4,
