@@ -8,7 +8,7 @@
 [![Verification](https://img.shields.io/badge/Verification-100%25%20Passing-brightgreen.svg)](hardware/zynq/tb_ppg_system.v)
 [![TinyML Engine](https://img.shields.io/badge/AI%20Engine-TinyML%20(6%E2%86%9224%E2%86%9216%E2%86%923)-purple.svg)](firmware/core/nn_risk_model_int8.c)
 [![Validation Accuracy](https://img.shields.io/badge/AI%20Accuracy-88.39%25%20(INT8)%20teacher%20agreement-brightgreen.svg)](firmware/core/nn_risk_model_int8.c)
-[![MIMIC-III Benchmark](https://img.shields.io/badge/MIMIC--III%20Benchmark-94.11%25%20(demo%20subset)-blueviolet.svg)](#reproducible-claims)
+[![MIMIC-III Benchmark](https://img.shields.io/badge/MIMIC--III-sens%2058.18%25%20%C2%B7%20spec%2098.19%25%20(94.11%25%20acc)-blueviolet.svg)](#reproducible-claims)
 [![GUI Dashboard](https://img.shields.io/badge/GUI%20Dashboard-Web%20Serial%20%2B%20Win32-cyan.svg)](launch_dashboard.bat)
 
 An end-to-end heterogeneous edge System-on-Chip (SoC) pairing **synthesizable Verilog hardware acceleration** (Renesas ForgeFPGA & Xilinx Zynq-7000) with **dual-core ESP32-S3 FreeRTOS firmware** and an **on-device INT8 TinyML neural network**. Designed to operate 100% offline in communication-denied disaster environments, it delivers 20 ns cycle-accurate PPG jitter elimination, real-time mNEWS2 clinical triage, and multi-hazard environmental risk assessment (heatwaves, toxic smog, and floods).
@@ -36,7 +36,7 @@ Every headline number below is reproducible from a committed command. Where a cl
 | ShrikeFi RTL — SPI link testbench (`hardware/shrikefi/tb_forgefpga_system.v`) | `hardware/shrikefi/build_shrikefi_sim.bat` | `RESULTS: 13 passed, 0 failed (out of 13 checks)` |
 | Firmware unit tests (incl. FP32↔INT8 parity) | `make -C firmware/zynq test` | `ALL TESTS PASSED.` |
 | INT8 model regeneration | `python3 firmware/core/train_nn_risk_model.py` | `88.47%` FP32 / `88.39%` INT8 teacher agreement, `619` params, INT8 max error `0.091` |
-| Clinical triage metrics | build & run `firmware/core/accuracy_evaluator.c` on `data/mimic/mimic_eval_feed.csv` | accuracy `94.11%`, TP `971` / FP `267` / TN `14451` / FN `698` |
+| Clinical triage metrics | build & run `firmware/core/accuracy_evaluator.c` on `data/mimic/mimic_eval_feed.csv` | sensitivity `58.18%`, specificity `98.19%` (accuracy `94.11%`), TP `971` / FP `267` / TN `14451` / FN `698` |
 | MIMIC cohort scan | build & run `firmware/core/mimic_harness.c` on `data/mimic/mimic_vital_feed.csv` | 16,387 records over 98 subjects |
 | Zynq resource/timing reports | `hardware/zynq/synthesis_evidence/*.rpt` | see that directory's README |
 | ForgeFPGA resource report | `hardware/shrikefi/synthesis_evidence/resource_utilization_spi_link.log` | 515/1120 LUT5s, 303 FFs (see that directory's README) |
@@ -540,7 +540,7 @@ For an in-depth mathematical defense, signal processing equations, and clinical 
 │   │   ├── disaster_risk_engine.c  # Moran PSI, Steadman/Rothfusz HI, PM2.5-HRV heuristic, project-trained PM2.5 NN
 │   │   ├── nn_risk_model.c / .h    # Float32 feedforward TinyML model (6→24→16→3)
 │   │   ├── nn_risk_model_int8.c    # INT8 Quantized TinyML engine (619 bytes SRAM, 88.39% teacher agreement)
-│   │   ├── accuracy_evaluator.c    # MIMIC-III triage metrics (94.11% acc, confusion matrix)
+│   │   ├── accuracy_evaluator.c    # MIMIC-III triage metrics (94.11% acc / 58.18% sens, confusion matrix)
 │   │   └── mimic_harness.c         # MIMIC-III cohort scan (triage level counts + latency only)
 │   ├── zynq/                       # Zynq PS application, sensor drivers & harnesses
 │   │   ├── main_simulation.c       # Interactive multi-disaster console demo

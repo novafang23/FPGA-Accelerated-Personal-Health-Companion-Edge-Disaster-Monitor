@@ -139,10 +139,26 @@ The SSD1306 OLED, MAX30102/MAX30100 optical pulse sensor, BME280 environmental s
    * `ADD0 / ADDR` $\to$ **GND** for `0x48` (leave open on a breakout that already pulls it low)
    * `ALERT` $\to$ *Leave unconnected (open-drain alert output)*
    * *I2C Address:* `0x48` (`0x49`/`0x4A`/`0x4B` for the other ADD0 states; the driver probes all four)
-   * *Clinical temperature architecture:*
-     * **TMP117 only:** the skin temperature comes from this probe and from nothing else. The MAX30102 on-chip **die** temperature is deliberately **not** read — it is dominated by LED self-heating and is not a body temperature, so the read was deleted from `max30102.c` (see the note there).
-     * **No settled reading:** the value stays `0.0f` (unavailable). There is no fallback to the die sensor and no ambient proxy masquerading as skin temperature.
-     * *NEWS2 Integration:* Feeds the Royal College of Physicians NEWS2 physiological scoring engine ($\le 35.0^\circ\text{C} \implies +3$ points `ALERT_HYPOTHERMIA`, $\ge 39.1^\circ\text{C} \implies +2$ points high fever).
+   * *Clinical temperature architecture (corrected 2026-11-01):*
+     * **Two sources, probe preferred.** `tmp117.c` is the clinical probe driver
+       (±0.1 °C, 16-bit result in 1/128 °C steps). When the probe answers, its
+       reading **is** the published skin temperature and the status page labels
+       it `(TMP117 probe)` with `skinsrc:"TMP117"`, `skincal:true`.
+     * **Fallback estimate.** When no probe answers, the MAX30102 on-die
+       thermometer **is** read every second (`main_shrikefi.c`, via
+       `max30102_read_die_temp()`), fed to `skin_estimate_update()`, and
+       published as an explicitly **uncalibrated estimate**
+       (`skinsrc:"ESTIMATED"`, `skincal:false`, plus `skindie` and `skinweak`).
+       An earlier revision of this document claimed the die read "was deleted
+       from `max30102.c`"; **that was wrong** — the function is present at
+       `max30102.c` and is called on every 1 Hz assessment tick.
+     * **NEWS2 temperature term stays uninstrumented.** NEWS2 scores core /
+       tympanic temperature. A fingertip probe reads 30–34 °C, which would score
+       +3 hypothermia on every healthy subject. Even with the TMP117 fitted, the
+       probe value is published as a measurement but is **not** fed to the NEWS2
+       temperature term until a core-equivalent site is instrumented.
+     * *NEWS2 scoring reference:* ≤ 35.0 °C → +3 (`ALERT_HYPOTHERMIA`),
+       35.1–36.0 °C → +1, 36.1–38.0 °C → 0, 38.1–39.0 °C → +1, ≥ 39.1 °C → +2.
 
 ---
 

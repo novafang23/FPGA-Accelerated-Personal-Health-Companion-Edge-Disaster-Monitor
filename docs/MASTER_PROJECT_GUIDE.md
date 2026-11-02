@@ -589,7 +589,7 @@ It exists precisely because humans are bad at mentally integrating multiple mild
 | What's actually tested | The triage engine consuming HR/SpO₂/RMSSD — **not** the SpO₂ engine or the PPG front end |
 
 > [!IMPORTANT]
-> **Say this:** "94.11% accuracy, 98.19% specificity on 16,387 real ICU rows. But I want to be precise about what that means: the heart rate and SpO₂ are real recorded values, the RMSSD column is synthesised because MIMIC-III has no waveforms, and the labels come from a rule we wrote. So this is *agreement with our own triage rule*, not independent clinical validation. The pipeline is real and reproducible; the clinical claim is bounded."
+> **Say this:** "58.18% sensitivity and 98.19% specificity on 16,387 real ICU rows — 94.11% accuracy, which sounds better than it is because only 10.2% of the labels are positive. I give the sensitivity first because it's the honest order: we catch 58% of our own emergency labels and miss 42%. But I want to be precise about what that means: the heart rate and SpO₂ are real recorded values, the RMSSD column is synthesised because MIMIC-III has no waveforms, and the labels come from a rule we wrote. So this is *agreement with our own triage rule*, not independent clinical validation. The pipeline is real and reproducible; the clinical claim is bounded."
 >
 > That paragraph will do more for your score than any badge, because it shows you understand the difference between a benchmark and a validation.
 
@@ -888,7 +888,7 @@ A standalone Win32 GDI application — no Python, no browser, no dependencies. I
 
 **Q12. "What clinical datasets was this tested against?"**
 
-- **Elevator:** "MIMIC-III v1.4, 16,387 ICU time-steps across 98 patients — 94.11% triage accuracy and 98.19% specificity."
+- **Elevator:** "MIMIC-III v1.4, 16,387 ICU time-steps across 98 patients — 58.18% sensitivity and 98.19% specificity, 94.11% triage accuracy."
 - **Technical:** "We evaluate the triage engine against labelled ICU vitals, comparing predicted HIGH/CRITICAL against a ground-truth crisis label. Train/validation separation is explicit for the neural model."
 - **Evidence:** "`accuracy_evaluator.c` prints a full confusion matrix (TP 971 / FP 267 / TN 14,451 / FN 698). Caveats we volunteer: HR and SpO₂ are real chart events; **RMSSD is synthesised** because MIMIC-III has no waveforms; the labels are derived by an in-tree rule, so this measures agreement with our rule, not independent clinical validation."
 
@@ -983,10 +983,10 @@ A standalone Win32 GDI application — no Python, no browser, no dependencies. I
 | **Timing** | Peak detection and IBI at 50 MHz (**20 ns** per tick). The FPGA returns the 32-bit cycle count in the post-beat burst; the MCU falls back to `esp_timer_get_time()` (**1 µs**) only for older bitstreams |
 | **AI** | 6→24→16→3, INT8, **619 bytes / 576 MACs**, error 0.0079 mean / 0.091 max, **97.32%** tier agreement |
 | **Clinical** | mNEWS2, Moran PSI, AHA autonomic strain, Charlton RSA respiration, Elgendi/Karlen SQI |
-| **MIMIC-III** | 16,387 rows / 98 patients — **94.11% accuracy, 98.19% specificity**, TP971/FP267/TN14451/FN698 |
+| **MIMIC-III** | 16,387 rows / 98 patients — **sensitivity 58.18%, specificity 98.19%** (accuracy 94.11%), TP971/FP267/TN14451/FN698 |
 | **Timing budget** | 0.44 µs per INT8 inference, **x86-64 host measured**; ESP32 target not yet measured |
 | **Image** | 945,520 B in a **7 MB app partition** (`0x700000` at `0x10000`) on **8 MB flash** — ~6.39 MB (~87%) free, debug build |
-| **Tests** | Zynq 6/6 · ShrikeFi 13/13 · firmware unit tests pass · MIMIC gate 94.11% |
+| **Tests** | Zynq 6/6 · ShrikeFi 13/13 · firmware unit tests pass · MIMIC gate 58.18% sens / 98.19% spec |
 | **Never say** | "95.40% specificity" · "240 MHz" · "443 LUTs" · "4-bit parallel link" · "no SPI/nibble command map" · "9.8% free" · "FPGA definitely needs no programming" |
 
 > [!IMPORTANT]
@@ -1004,7 +1004,7 @@ A standalone Win32 GDI application — no Python, no browser, no dependencies. I
 | 185 LUT / +5.603 ns baseline | Tag `v1.0-zynq-SIH` |
 | 198 LUT / 267 FF re-run | `hardware/zynq/synthesis_evidence/ooc_utilization_synth.rpt` |
 | 88.39% validation agreement (INT8 model the firmware runs; 88.47% for the float32 reference) | `python3 firmware/core/train_nn_risk_model.py` |
-| 94.11% MIMIC accuracy | `accuracy_evaluator.c` on `data/mimic/mimic_eval_feed.csv` |
+| 58.18% sensitivity / 98.19% specificity (94.11% accuracy) MIMIC | `accuracy_evaluator.c` on `data/mimic/mimic_eval_feed.csv` |
 | 619 bytes / 0.0079 MAE | `nn_risk_model_int8.c.inc` + the training script |
 | 945,520 B image | `idf.py build` |
 | RMSSD is synthetic | `data/mimic/*.csv` vs MIMIC-III v1.4 table list |

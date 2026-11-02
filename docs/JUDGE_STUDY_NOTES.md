@@ -139,7 +139,7 @@ This is one of the most likely judge questions. Keep the answer simple:
 | `0x57` | MAX30102 | Red + IR PPG |
 | `0x68` | MPU6050 | acceleration / gyro |
 | `0x76` | BME280 | temperature / humidity / pressure |
-| `0x48` | optional MAX30205 | not fitted on this build |
+| `0x48` | TMP117 skin probe (**driver present**) | optional; `/status.json` reports `skinsrc` as `"NONE"` / `"ESTIMATED"` / `"TMP117"` so the page says which source is live |
 
 Why 100 kHz instead of 400 kHz? Multi-drop breadboard wiring and several breakouts can produce NACKs at higher speed. The sensor bandwidth does not need 400 kHz.
 
@@ -491,7 +491,7 @@ We use it as a **triage/advisory** score, not a diagnosis. Body temperature is c
 |---|---|---|
 | **Heat** | NOAA heat index, humidity, HR, RMSSD, Moran PSI | physiological heat strain, not just air temperature |
 | **Pollution** | PM2.5, SpO₂, HR, RMSSD, AHA autonomic strain | smog / particulate exposure |
-| **Flood / cold** | pressure trend, ambient cold-stress proxy, HR, RMSSD | exposure risk; no skin-temperature sensor, so capped at HIGH |
+| **Flood / cold** | pressure trend, ambient cold-stress proxy, HR, RMSSD | exposure risk; no **core-equivalent** temperature probe, so capped at HIGH |
 | **Cyclone / storm** | barometric pressure **rate of fall** | falling pressure precedes a storm; a rise is not scored |
 
 ### Air quality - why the PM2.5 number is not the sensor's raw number
@@ -712,7 +712,7 @@ Be precise. Judges reward this.
 | HRV / RMSSD | **Not clinically validated**; split-pair signature gone in the 302 s still capture, but RMSSD needs ~3 min to settle and is still higher than expected — ECG comparison pending |
 | SpO₂ accuracy | **Rough two-point calibration**, not clinical |
 | Respiratory rate | **Often unresolved**; RSA from finger PPG is weak |
-| Skin temperature | **Not fitted**; flood/hypothermia uses ambient proxy, capped at HIGH |
+| Skin temperature | **Estimated, not clinically calibrated.** Two independent sources: the MAX30102 die temperature (read directly, LED self-heating offset measured on the bench at **4.39 °C**, warm die 28.44 °C vs ambient 24.05 °C) feeds `firmware/core/skin_estimate.c`; optionally a TMP117 at 0x48–0x4B is probed at boot by `firmware/shrikefi/tmp117.c` (16/16 host tests pass) and takes over when present. NEWS2 temperature points stay **withheld** (see §14.3). |
 | Fall detection | **5-state FSM; 16/16 host tests; 1/1 physical drop trial passed**; false-positive rate not characterised |
 | SOS escalation | **4-state FSM implemented**; 10 s fall grace + 5 s cancel hold; countdown + buzzer + cancel verified in the physical trial |
 | 24-hour history | **NVS-persisted device-hours** (24 slots, reboot-safe); wrap + oldest-slot eviction exercised on hardware with a compressed-hour bench build; **not a calendar record** |
@@ -739,10 +739,10 @@ Do not say “HRV is fixed” or “HRV is accurate” yet.
 
 - **Live hardware mode:** the dashboard connects to **COM4** over Web Serial; values come from `[TELEMETRY]`/`[TRIAGE]` lines produced by the board.
 - **Simulation mode:** the dashboard has six synthetic disaster profiles. They are for UI demonstration and are labelled as simulated. Do not present a simulation profile as live sensor data.
-- **MIMIC evidence:** the 94.11% figure is agreement with our triage rule on 16,387 ICU rows. HR and SpO₂ are real chart values; **RMSSD is synthesised** because MIMIC-III v1.4 has no waveform data; the labels are rule-derived. It is **not** independent clinical validation of the wearable.
+- **MIMIC evidence:** the 94.11% figure is agreement with our triage rule on 16,387 ICU rows. HR and SpO₂ are real chart values; **RMSSD is synthesised** because MIMIC-III v1.4 has no waveform data; the labels are rule-derived. It is **not** independent clinical validation of the wearable. **State the sensitivity first, not the accuracy:** 94.11 % accuracy hides **58.18 % sensitivity** / 98.19 % specificity / PPV 78.43 % / NPV 95.39 % / F1 66.80 %. With a 10.2 % positive-label rate, a rule that leans toward "normal" scores high accuracy while missing ~4 in 10 emergencies; the 94.11 % headline alone is misleading, so always give the pair.
 - **24-hour chart:** the 24 hourly slots are device-hours persisted to NVS, not a calendar history; empty lanes show as gaps, not zero.
 
-### 14.3 Physical build status — what is not fitted yet
+### 14.3 Physical build status — what is and is not fitted yet
 
 | Item | Status |
 |---|---|
@@ -750,7 +750,8 @@ Do not say “HRV is fixed” or “HRV is accurate” yet.
 | Battery / charger | **Not fitted**; USB-powered |
 | GPIO5 SOS cancel button | Firmware path ready; **physical button still pending** |
 | MAX30102 reflective cradle | **Not printed**; SpO₂ uses a rough two-point calibration |
-| TMP117 / skin-temperature sensor | **Not fitted**; flood/hypothermia uses ambient proxy, capped at HIGH |
+| TMP117 skin probe | **Driver shipped, optional hardware.** `tmp117.c` probes 0x48–0x4B at boot after the BME280; 16/16 host tests pass. A TMP117 breakout on the zero-PCB answers; otherwise the code falls back to the MAX30102 die-temperature estimate. Either way the dashboard labels the source (`TMP117 probe` / `estimated` / `--`), never a bare number. |
+| Core-equivalent temperature | **Still missing — this is why NEWS2 temp stays 0 points.** NEWS2's temperature row is defined on **core/tympanic** values. A fingertip probe reads 30–34 °C, which would score **+3 hypothermia on every healthy subject**; feeding it through unmodified would manufacture a critical alert on a well patient. The probe reading is published as a **measurement**; the NEWS2 temperature term stays uninstrumented until a core-equivalent site is available. |
 | ECG / chest-strap reference | **Pending**; needed for HRV validation |
 | Physical drop/fall test | **1/1 passed (2026-10-19)**; countdown + buzzer + cancel verified; multi-trial and false-positive testing still open |
 | NVS history | **Implemented** — 24 device-hour slots written to NVS as a checksummed blob and restored after reboot; a calendar time source is still missing |

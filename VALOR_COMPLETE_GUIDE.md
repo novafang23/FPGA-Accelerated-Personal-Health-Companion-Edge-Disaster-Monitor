@@ -4,6 +4,14 @@
 **Project Identifier:** SIH26181 — VALOR (*Vital and Atmospheric Logic for Offline Rescue*)  
 **System Classification:** Heterogeneous Edge SoC (FPGA Verilog RTL + ESP32-S3 FreeRTOS C11 Firmware + Zero-Cloud INT8 TinyML)
 
+> **Companion documents (keep these honest against each other).** This guide is the long-form study text. Three shorter, more frequently updated documents carry the latest hardware state and the demo script — read them alongside, and trust them where they disagree with this file:
+> - [`docs/DEMO_SHEET.md`](docs/DEMO_SHEET.md) — one-page pitch, architecture, RTL/FSM walkthrough, AI and clinical numbers, Q&A bank, live demo script, cheat card. **Newest and most current.**
+> - [`docs/JUDGE_QA.md`](docs/JUDGE_QA.md) — adversarial question bank.
+> - [`docs/DEMO_RUNBOOK.md`](docs/DEMO_RUNBOOK.md) — minute-by-minute run of show.
+> - [`docs/SHRIKEFI_HARDWARE_CONNECTIONS.md`](docs/SHRIKEFI_HARDWARE_CONNECTIONS.md) — authoritative pin map and sensor inventory.
+>
+> **Reporting rule for every number in this guide:** state MIMIC-III as **58.18 % sensitivity / 98.19 % specificity** (94.11 % accuracy hides that pair because only 10.2 % of labels are positive), and never present a skin-temperature estimate as a core temperature.
+
 ---
 
 ## 0. How to Read This Guide
@@ -1182,23 +1190,29 @@ VALOR uses a **hybrid safety envelope** architecture:
 | **u-blox NEO-M8N / Quectel L89HS**| Multi-constellation satellite navigation RF signals (GPS/GLONASS) | UART2 (9600 baud, 1 Hz NMEA) | Decodes latitude and longitude coordinates for display on the emergency card and web dashboard. |
 | **SSD1306** | Monochrome $128 \times 64$ visual OLED display | $\text{I}^2\text{C}$ (Shared I2C Bus, 1 Hz) | Displays live vitals, system alerts, and full-screen emergency medical assistance cards. |
 
-### The Skin-Temperature Approach: TMP117 Failure and Baseline-Relative Solution
-- **The Ideal Sensor:** A dedicated clinical skin-contact sensor (TI TMP117, medical grade $\pm 0.1^\circ\text{C}$, ASTM E1112 compliant) was designed to sit on the shared $\text{I}^2\text{C}$ bus.
-- **The Bench Failure:** As documented in `docs/I2C_BUS_BENCH_REPORT.md`, during hardware bench testing on 21 October 2026, the physical TMP117 breakout module failed to respond on the bus, returning raw read errors. Oscilloscope measurements proved the $\text{I}^2\text{C}$ bus itself was healthy (3.18V, with all other 4 sensors answering cleanly). The breakout module suffered from damaged solder joints or a dead silicon IC.
-- **The Static Formula Trap:** Naively substituting the MAX30102 on-chip junction temperature into a static absolute linear equation ($T_{skin} = b_0 + b_1 T_{die} + b_2 T_{amb}$) fails catastrophically. The onboard high-current optical LEDs ($11.0\text{ mA}$) and ESP32 PCB heat the idle die to $38.6^\circ\text{C} - 41.5^\circ\text{C}$, which would falsely diagnose every patient with a $39^\circ\text{C} - 44^\circ\text{C}$ fever.
-- **The Pre-Contact Baseline-Relative Model (`skin_estimate.c`):** The engineering team solved this by developing a baseline-relative thermal excursion model. The firmware continuously tracks the idle sensor equilibrium ($T_{die\_idle}$) while no finger is present. When finger contact is detected, the baseline is frozen, and skin temperature is computed from the relative contact temperature step:
-  $$T_{skin} = T_{base} + k_{contact} \cdot (T_{die\_pred} - T_{die\_baseline}) + k_{amb} \cdot (T_{amb} - 27.5)$$
-  with bidirectional Newton thermal lead compensation ($\tau = 4.0\text{ s}$). This provides a smooth, uncalibrated heuristic skin temperature trend estimate ($T_{base} = 34.50^\circ\text{C}$ nominal) displayed on the OLED screen (`Skin: 35.7 C`) and web dashboard, while strictly withholding temperature points ($0\text{ points}$) from mNEWS2 core triage because it has not undergone clinical gold-standard thermometer calibration.
+### The Skin-Temperature Approach: Two-Source Estimate, Honest Labelling
 
-> **In one line:** All sensors communicate over standard $\text{I}^2\text{C}$ or UART buses; when the TMP117 skin probe failed on the bench, the team transparently documented it and refused to fake body temperature using the self-heating MAX30102 die.
+- **Two sources, one label.** Skin temperature can come from either the MAX30102 on-die sensor (always present) or a TI TMP117 contact probe (optional, on the shared $\text{I}^2\text{C}$ bus at `0x48`–`0x4B`). The firmware reports *which* source produced the number in `/status.json` as `skinsrc` — one of `"NONE"`, `"ESTIMATED"` or `"TMP117"` — and the dashboard renders `Skin XX.XX °C (TMP117 probe)` for a measurement versus `Skin ≈ XX.X °C` for an estimate. There is never a bare number with no provenance.
+- **TMP117 support shipped.** `firmware/shrikefi/tmp117.c` is a full driver (±0.0078125 °C LSB, device-ID check `0x0117`, range −20…60 °C) with 16/16 passing host tests; it probes four addresses at boot after the BME280 and is non-fatal if absent. An earlier bench session (21 Oct 2026, `docs/I2C_BUS_BENCH_REPORT.md`) had this specific breakout fail to answer on a demonstrably healthy bus (3.18 V, other four devices clean) — a defective module, not a bus fault. The driver was consequently written so a missing probe degrades to the die estimate rather than blanking the field.
+- **The die temperature IS read, and the LED offset is measured, not assumed.** `max30102_read_die_temp()` reads the on-chip junction sensor properly: bounded conversion polling, explicit completion check, and it rejects `ti==0 && (tf&0x0F)==0` as "not converted yet" instead of accepting 0.0 °C as a reading. The self-heating offset is then **measured on the bench rather than asserted**: `[SKINCAL] LED self-heating MEASURED: die_warm=28.44 amb=24.05 -> offset=4.39 C`. An earlier hand-guessed `amb + 5.5` guard sat *above* the observed peak die temperature (30.90 vs 30.07), which silently forced the estimator to contribute exactly 0.00 °C — a real bug the measurement exposed.
+- **The Static Formula Trap.** Naively substituting the die temperature into a static absolute linear equation ($T_{skin} = b_0 + b_1 T_{die} + b_2 T_{amb}$) fails badly: the high-current LEDs (~128,700 IR counts at the shipped LED setting) and ESP32 PCB heat the idle die well above ambient. Hence the baseline-relative model below.
+- **The Pre-Contact Baseline-Relative Model (`firmware/core/skin_estimate.c`):** The firmware tracks the idle sensor equilibrium ($T_{die\_idle}$) while no finger is present. On contact the baseline freezes, and skin temperature is the relative contact step:
+  $$T_{skin} = 34.10 + 0.55 \cdot (T_{die\_pred} - T_{die\_baseline}) + 0.12 \cdot (T_{amb} - 27.5)$$
+  with a 0.28 °C/s slew limit, a 5-sample median spike filter and monotonic drift rejection. It publishes 3 s after contact and settles at 12 s, so there is **no 4 s lead compensation and no 34.50 °C `T_base`** — those were removed for stability.
+- **What it is worth.** Tested against a known reference, the nominal model prints `[KNOWN GAP] neutral finger: model 34.87 C vs reference 36.10 C (error -1.23 C)`. That gap is why the tile says **(uncalibrated)** and why NEWS2 temperature points stay **withheld at 0**. A fingertip reads 30–34 °C while NEWS2's temperature row is defined on **core/tympanic** values: passing skin through unmodified would score **+3 hypothermia on every healthy subject**, manufacturing a critical alert on a well patient. The probe value is published as a *measurement*; only a probe at a core-equivalent site (tympanic/axillary with a documented offset) may feed the score.
+- **Calibration is blocked on data, not code.** `tools/skin_calib_session.json` currently holds two points both at `t_ref = 36.1 °C`, which is degenerate and cannot yield $b_0$/$b_1$. A real fit needs ~100 paired readings against a tympanic reference across 6+ sessions. Until then, two intercept/slope constants exist (`SKIN_CAL_INTERCEPT`/`SLOPE`) and are deliberately not wired to NVS.
+
+> **In one line:** We support both a contact probe and the on-die sensor, we measured the LED self-heating offset rather than guessing it, we label every number with its source, and we withhold the NEWS2 temperature row because a fingertip is the wrong anatomical site for a core-temperature score.
 
 ::: tip Judge might ask
-- **Q:** *Why did you report the TMP117 failure instead of hiding it?*  
-  **A:** Engineering integrity is non-negotiable. Hiding a dead sensor would mean presenting fabricated data. Explaining our bench diagnosis, oscilloscope traces, and clinical fallback demonstrates genuine engineering rigor.
-- **Q:** *Why not use the MAX30102 on-die temperature sensor for fever detection?*  
-  **A:** The MAX30102 die temperature measures internal silicon heat (typically 32–34°C inside a plastic enclosure), not core body temperature. Using it would trigger false hypothermia alerts.
+- **Q:** *Do you have a skin-temperature sensor?*  
+  **A:** Yes — two paths. The MAX30102's die sensor is always available and its LED self-heating offset was measured on the bench at 4.39 °C (28.44 °C warm die vs 24.05 °C ambient). A TMP117 contact probe is optionally supported by a shipped driver that probes `0x48`–`0x4B` at boot; if it answers, it takes over and the dashboard labels it `TMP117 probe`. If not, the estimate stands in and is labelled `estimated`.
+- **Q:** *So what is your body-temperature reading?*  
+  **A:** We report an **uncalibrated peripheral skin estimate** and say so on the tile. We do not publish a core temperature, because a fingertip is not a core site and our nominal model runs 1.23 °C low against a known reference. Giving NEWS2 temperature points from that number would add +3 hypothermia to every healthy person.
+- **Q:** *Why not just use the die temperature for fever detection?*  
+  **A:** The die measures its own silicon temperature, not the patient's core. With the LEDs drawing current it sits well above ambient, and the relationship to skin is only meaningful as a *relative* step from the pre-contact baseline — which is what `skin_estimate.c` encodes. Absolute thresholding would false-alarm.
 - **Q:** *How does VALOR prevent optical motion artifacts from corrupting vital calculations?*  
-  **A:** The firmware evaluates Karlen Signal Quality Index (SQI) and MPU6050 motion energy. If excessive motion or poor capillary perfusion is detected, the device enters `ACQUIRING` mode and withholds HRV and clinical scores until a stable signal is re-established.
+  **A:** The firmware evaluates the signal quality index (skewness term, Elgendi 2016, plus project perfusion/IBI terms) and MPU6050 motion energy. If motion or poor perfusion is detected, the device enters `ACQUIRING` mode and withholds HRV and clinical scores until a stable signal is re-established.
 :::
 
 ---
@@ -1248,7 +1262,7 @@ Every technical claim in VALOR is backed by automated tests, physical hardware b
 | **Clinical Rules Engine**| Unit test suite (`test_disaster_risk_engine.c`)| 34 boundary sweep tests passing (SpO2, Heat Index, Cyclone pressure regression) | **100% Passing** |
 | **Fall Detection FSM** | Host unit tests + bench drop trial | 16 FSM unit tests passing; 1/1 physical breadboard drop trial passed on 2026-10-19 | **Verified on Hardware** |
 | **GNSS NMEA Parser** | Host unit tests (`test_gps_l89hs.c`) | 12/12 unit tests passing (checksums, coordinate signs, packet corruption rejection) | **Verified in Code & UAT** |
-| **$\text{I}^2\text{C}$ Shared Bus**| Bench Oscilloscope & Continuity Report | 4 of 5 devices answer cleanly at 100 kHz; steady 3.18 V rail | **Bus Healthy; TMP117 failed** |
+| **$\text{I}^2\text{C}$ Shared Bus**| Bench Oscilloscope & Continuity Report | 4 of 5 devices answer cleanly at 100 kHz; steady 3.18 V rail | **Bus Healthy (one breakout module defective)** |
 
 > **In one line:** Claims are supported by automated test suites, Vivado and ForgeFPGA timing closure logs, and 16,387 records of MIMIC-III data, with bench gaps openly recorded.
 
@@ -1411,14 +1425,14 @@ Follow this step-by-step script from `DEMO_RUNBOOK.md` during live judging.
     - *Don't Say:* "The wires melt." (The issue is digital oversampling limits in the FPGA RTL).
 
 ### Group 4: Sensors & Physical Interfaces
-13. **Why did the TMP117 skin temperature sensor fail during bench testing?**
-    - *20-Second Answer:* The breakout module failed to respond at any $\text{I}^2\text{C}$ address during bench testing. Measurements showed a healthy bus (3.18V), pointing to defective solder joints or a damaged IC.
-    - *Follow-Up Detail:* Rather than faking body temperature with the self-heating MAX30102 die sensor, we honestly set skin temperature to unavailable (`0.0f`) and used ambient cold-stress proxies.
-    - *Don't Say:* "We didn't have time to wire it." (All 5 wires were connected and bench-tested; the physical IC was dead).
+13. **What is the status of the TMP117 skin probe?**
+    - *20-Second Answer:* The driver ships (`firmware/shrikefi/tmp117.c`, 16/16 host tests) and probes `0x48`–`0x4B` at boot. One bench breakout module never answered on a demonstrably healthy bus (3.18 V, four other devices clean) — a defective module, not a bus or firmware fault. A working probe takes over automatically; absent, the die-temperature estimate stands in.
+    - *Follow-Up Detail:* Either way the source is labelled in `/status.json` as `skinsrc` (`"NONE"` / `"ESTIMATED"` / `"TMP117"`) and on the dashboard — a measured probe reads `Skin XX.XX °C (TMP117 probe)` while an estimate reads `Skin ≈ XX.X °C` with an explicit approximation mark. A missing probe degrades the number's *provenance*, never its honesty.
+    - *Don't Say:* "We gave up on it." (The driver was written *because* the module failed, so the failure cannot recur silently.)
 14. **Why not read body temperature from the MAX30102 die sensor?**
-    - *20-Second Answer:* The MAX30102 die temperature sensor measures the temperature of the silicon chip itself, which is heated by its onboard optical LEDs. It reads $38^\circ\text{C}$ to $41^\circ\text{C}$, causing false fever alarms.
-    - *Follow-Up Detail:* Clinical skin temperature requires an isolated thermistor or dedicated probe (like TMP117) thermally isolated from high-current LEDs.
-    - *Don't Say:* "The MAX30102 doesn't have a temperature sensor." (It does have an on-chip sensor read via `max30102_read_die_temp()` in `max30102.c`; we poll it every 1 second in `main_shrikefi.c` to track silicon equilibrium for our baseline-relative thermal model, but never use raw die temperature directly as core body temperature).
+    - *20-Second Answer:* The die sensor measures the silicon, which the optical LEDs heat. In absolute terms it is useless for clinical temperature — but the *relative step* from a pre-contact baseline is meaningful, and we measured the self-heating offset on the bench at **4.39 °C** (28.44 °C warm die vs 24.05 °C ambient) instead of guessing it.
+    - *Follow-Up Detail:* The die sensor **is** read: `max30102_read_die_temp()` performs bounded conversion polling and rejects an unconverted register as "not converted yet" rather than accepting 0.0 °C. What we refuse to do is convert that number into a NEWS2 temperature score, because a fingertip is not a core site — doing so scores +3 hypothermia on every healthy subject. Our nominal estimate also runs 1.23 °C low against a known reference, which is why the tile says *(uncalibrated)*.
+    - *Don't Say:* "The MAX30102 doesn't have a temperature sensor." (It does, and `main_shrikefi.c` polls it every second to track silicon equilibrium for the baseline-relative model.)
 15. **How does the barometric cyclone engine detect storms without false alarms?**
     - *20-Second Answer:* It computes the linear regression slope of atmospheric pressure over a 180-minute rolling window. A fall rate exceeding $1\text{ hPa/hr}$ with a minimum $0.5\text{ hPa}$ drop triggers an alert.
     - *Follow-Up Detail:* Using rate-of-fall instead of absolute pressure prevents altitude changes from causing false alarms, while the 180-minute window filters out short-term sensor noise.
@@ -1509,7 +1523,7 @@ To survive a rigorous defense panel, you must state your project's boundaries cl
 ```
 
 1. **Not a Certified Medical Diagnostic Device:** VALOR is an emergency screening and disaster triage tool. It has not undergone clinical trials, FDA 510(k) clearance, or CDSCO medical device certification. It provides early warning alerts, not medical diagnoses.
-2. **Missing Physical Skin Temperature Sensor:** The TI TMP117 skin-contact probe failed on the test bench. The device currently has no body temperature probe fitted. The BME280 measures ambient air only. Cold stress is scored as an exposure proxy capped at HIGH risk, and NEWS2 temperature sub-scores stay at 0.
+2. **No Core-Equivalent Temperature Probe:** A **fingertip** skin estimate exists (two sources: the MAX30102 die sensor with a bench-measured 4.39 °C LED self-heating offset, plus an optional TMP117 contact probe supported by a shipped driver at `0x48`–`0x4B`). What we do **not** have is a probe at a core-equivalent site (tympanic/axillary with a documented offset) or a calibration against a gold-standard thermometer — our nominal model runs 1.23 °C low against a known reference. Because NEWS2's temperature row is defined on core/tympanic values and a healthy fingertip reads 30–34 °C, passing skin through unmodified would score +3 hypothermia on every well subject. So cold stress is scored as an exposure proxy capped at HIGH risk, and NEWS2 temperature sub-scores deliberately stay at 0.
 3. **Synthetic RMSSD in MIMIC-III Validation:** While the 16,387 heart rate and $\text{SpO}_2$ records in our MIMIC-III ICU validation are real patient recordings, the RMSSD (HRV) column was synthetically generated because MIMIC-III v1.4 does not ship raw waveform tables.
 4. **Motion Artifact Sensitivity on Fingertip PPG:** The MAX30102 uses optical photoplethysmography. While Karlen SQI gates out corrupted samples, vigorous arm motion or running will corrupt the optical signal, forcing the device to withhold vitals until the wearer is still.
 5. **No Onboard Battery Fitted in Demo:** The current prototype is powered over USB-C. A mass-production unit requires a custom 4-layer rigid-flex PCB with an integrated LiPo charge controller and power-management IC.
@@ -1591,9 +1605,9 @@ Based on the three spoken roles defined in `docs/DEMO_RUNBOOK.md`, every teammat
 
 | Team Member | Official Assigned Role | Core Sections to Master | Key Defense Topics to Own |
 |---|---|---|---|
-| **Teammate 1** | **Live Hardware Demonstration & Sensor Manipulation** | Sections 0, 1, 2, 3, 6, 15, 16, 18 | • Step-by-step live demo walkthrough<br>• Sensor wiring & $\text{I}^2\text{C}$ bus behavior<br>• Wi-Fi SoftAP and zero-install web dashboard<br>• TMP117 bench failure explanation<br>• Fall detection trigger & cancellation procedure<br>• Indoor GPS fallback to NVS flash storage |
+| **Teammate 1** | **Live Hardware Demonstration & Sensor Manipulation** | Sections 0, 1, 2, 3, 6, 15, 16, 18 | • Step-by-step live demo walkthrough<br>• Sensor wiring & $\text{I}^2\text{C}$ bus behavior<br>• Wi-Fi SoftAP and zero-install web dashboard<br>• Skin-temperature two-source story (die + optional TMP117, honest labelling)<br>• Fall detection trigger & cancellation procedure<br>• Indoor GPS fallback to NVS flash storage |
 | **Teammate 2** | **RTL & Digital Hardware Architecture Explanation** | Sections 4, 5, 7, 8, 9, 10, 11, 17 | • Zynq baseline vs. ShrikeFi ForgeFPGA port<br>• 4-wire SPI link & retired nibble bus history<br>• Clock Domain Crossing (CDC) & metastability<br>• 8-tap moving average filter & free division by 8<br>• Peak detector Moore FSM cycle-by-cycle behavior<br>• 250 ms refractory window calculation<br>• Timing closure (WNS +7.316 ns) & 0 DSP/BRAM usage |
-| **Teammate 3** | **Clinical Triage & Zero-Cloud TinyML Model Explanation** | Sections 12, 13, 14, 17, 19, 20 | • FreeRTOS multi-core task pinning (Core 0 vs Core 1)<br>• INT8 TinyML MLP (6 $\to$ 24 $\to$ 16 $\to$ 3, 619 bytes)<br>• Removal of unvalidated PM2.5 neural net<br>• MIMIC-III ICU 94.11% accuracy & synthetic HRV caveat<br>• mNEWS2 clinical early warning rules<br>• Barometric cyclone regression slope threshold<br>• Hybrid safety envelope (Rule overrides over AI) |
+| **Teammate 3** | **Clinical Triage & Zero-Cloud TinyML Model Explanation** | Sections 12, 13, 14, 17, 19, 20 | • FreeRTOS multi-core task pinning (Core 0 vs Core 1)<br>• INT8 TinyML MLP (6 $\to$ 24 $\to$ 16 $\to$ 3, 619 bytes)<br>• Removal of unvalidated PM2.5 neural net<br>• MIMIC-III ICU 94.11% accuracy — **always pair it with 58.18% sensitivity / 98.19% specificity** and the synthetic HRV caveat<br>• mNEWS2 clinical early warning rules<br>• Barometric cyclone regression slope threshold<br>• Hybrid safety envelope (Rule overrides over AI) |
 
 ---
 
@@ -1621,8 +1635,10 @@ In accordance with strict engineering integrity guidelines, the following archit
 4. **Status of Hardware GNSS Receiver:**
    - *Hardware Reality:* GPS hardware support is fully implemented in code (`gnss_nmea.c`, `gps_l89hs.c`, UART2 serial port) and verified with 12/12 passing unit tests. When operating indoors or in disaster shelters where satellites are occluded, the system automatically falls back to text deployment locations stored in NVS flash (via `location.c`) or updated over the air by rescue workers via the local web dashboard.
 
-5. **Skin Temperature Sensor Hardware & Baseline-Relative Estimator:**
-   - *Hardware Reality:* The physical TI TMP117 probe failed on the test bench on 21 October 2026 (`docs/I2C_BUS_BENCH_REPORT.md`); oscilloscope traces confirmed the I2C bus was healthy (3.18 V), pointing to defective breakout board soldering. Rather than leaving the display blank or using static linear formulas that cause runaway 40°C false fevers due to LED heating, the firmware implements the Pre-Contact Baseline-Relative Thermal Model in `firmware/core/skin_estimate.c`. It subtracts the idle LED pre-heating baseline to display an estimated fingertip skin temperature (35.7°C on OLED) while deliberately withholding core temperature points ($0	ext{ points}$) from mNEWS2 triage.
+5. **Skin Temperature: Two Sources, One Honest Label:**
+   - *Hardware Reality:* Two independent paths exist. (a) The MAX30102 die sensor is always present; `max30102_read_die_temp()` reads it with bounded conversion polling and rejects unconverted registers, and its LED self-heating offset was **measured** on the bench at 4.39 °C (28.44 °C warm die vs 24.05 °C ambient). (b) `firmware/shrikefi/tmp117.c` is a complete TMP117 driver (±0.0078125 °C LSB, device-ID check, 16/16 host tests) that probes `0x48`–`0x4B` at boot and takes over when a probe answers. An earlier breakout module failed on 21 October 2026 (`docs/I2C_BUS_BENCH_REPORT.md`) on a bus that oscilloscope traces showed healthy (3.18 V) — a defective module, not a firmware fault.
+   - *How the value is produced:* `firmware/core/skin_estimate.c` implements the Pre-Contact Baseline-Relative Thermal Model — it freezes the idle LED pre-heating baseline and computes the relative contact step, avoiding static linear formulas that cause runaway 40 °C false fevers. It publishes 3 s after contact and settles at 12 s, with a 0.28 °C/s slew limit and 5-sample median spike rejection.
+   - *What we disclose:* An estimate is rendered with an explicit approximation mark (`Skin ≈ XX.X °C`), never as a plain measurement, and the source is published in `/status.json` as `skinsrc` (`"NONE"` / `"ESTIMATED"` / `"TMP117"`). The nominal model runs **1.23 °C low** against a known reference (`[KNOWN GAP] model 34.87 C vs reference 36.10 C`), and NEWS2 temperature points stay **withheld at 0** because NEWS2's temperature row is defined on core/tympanic values — a healthy fingertip reads 30–34 °C, which would score +3 hypothermia on every well subject.
 
 6. **MIMIC-III Dataset Waveform Disclosure:**
    - *Dataset Reality:* The 16,387 records in `data/mimic/mimic_vital_feed.csv` contain authentic hospital chart recordings for Heart Rate and $	ext{SpO}_2$. The RMSSD (HRV) column was mathematically synthesized because MIMIC-III v1.4 clinical tables store periodic vital summaries rather than raw high-frequency waveforms.
