@@ -3229,7 +3229,24 @@ void app_main(void) {
         }
     }
 
-    if (s_max30102.initialized) {
+    /* MAX30102 die self-heating calibration — FALLBACK PATH ONLY.
+     *
+     * This block calibrates skin_estimate.c's die-based estimate, which is
+     * published ONLY when no TMP117 probe answers. When the probe is fitted its
+     * reading IS the published skin temperature and this estimate is discarded
+     * (skinsrc reports TMP117, skindie is forced to 0), so the measurement would
+     * be dead work costing ~5 s of boot time for a value nothing reads.
+     *
+     * It is deliberately NOT an "LED self-heating" calibration of the probe:
+     * the TMP117 has no emitters. The only part here that self-heats is the
+     * MAX30102, and the offset being computed is (MAX30102 die - BME280
+     * ambient), i.e. how far the PPG sensor's own junction runs above room
+     * temperature. Logged with that wording because the old "LED self-heating"
+     * phrasing invited exactly the wrong question: why would a thermometer with
+     * no LEDs have LED self-heating?
+     *
+     * If the probe is absent, this still runs and keeps the fallback honest. */
+    if (s_max30102.initialized && !s_tmp117.initialized) {
         /* Let the part settle after max30102_init() before the first
          * temperature conversion.
          *
@@ -3278,11 +3295,12 @@ void app_main(void) {
             if (warm_ok && amb_now >= 5.0f && amb_now <= 65.0f) {
                 float offset = die_warm - amb_now;
                 if (skin_estimate_set_led_offset(&s_skin_est, offset)) {
-                    ESP_LOGI(TAG, "[SKINCAL] LED self-heating MEASURED: "
-                                  "die_warm=%.2f amb=%.2f die_on=%.2f -> offset=%.2f C",
-                             die_warm, amb_now, die_leds_on, offset);
+                    ESP_LOGI(TAG, "[SKINCAL] MAX30102 die self-heating (FALLBACK "
+                                  "estimator only; TMP117 probe not fitted): "
+                                  "die=%.2f amb=%.2f -> +%.2f C above ambient",
+                             die_warm, amb_now, offset);
                 } else {
-                    ESP_LOGW(TAG, "[SKINCAL] offset %.2f C implausible "
+                    ESP_LOGW(TAG, "[SKINCAL] die offset %.2f C implausible "
                                   "(die_warm=%.2f amb=%.2f); using die idle level",
                              offset, die_warm, amb_now);
                 }
@@ -3292,9 +3310,15 @@ void app_main(void) {
                          warm_ok, die_warm, amb_now);
             }
         }
+    } else if (s_max30102.initialized && s_tmp117.initialized) {
+        /* Nothing to calibrate: the probe is the published source. Say so, so a
+         * reader of the boot log can see the fallback path was deliberately
+         * skipped rather than silently failing. */
+        ESP_LOGI(TAG, "[SKINCAL] MAX30102 die calibration SKIPPED: TMP117 probe at "
+                      "0x%02X supplies the published skin temperature (probe beats "
+                      "estimate; die fallback stays uncalibrated but unused)",
+                 (unsigned)s_tmp117.addr);
     }
-
-    /* Initialize PMS5003 (PM2.5 sensor) on UART1 */
     if (pms5003_init(&s_pms5003, UART_NUM_1) != 0) {
         ESP_LOGE(TAG, "PMS5003 initialization failed!");
     } else {
