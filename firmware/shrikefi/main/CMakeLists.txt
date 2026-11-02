@@ -38,6 +38,10 @@ idf_component_register(
         "${SHRIKEFI_DIR}/esp32_i2c_hal.c"
         "${SHRIKEFI_DIR}/max30102.c"
         "${SHRIKEFI_DIR}/bme280.c"
+        # Clinical skin-temperature probe (TI TMP117, +/-0.1 C). The driver was
+        # missing entirely: the pads existed, the docs described the part, and
+        # nothing ever read it.
+        "${SHRIKEFI_DIR}/tmp117.c"
         "${CORE_DIR}/skin_estimate.c"
         "${SHRIKEFI_DIR}/pms5003.c"
         "${SHRIKEFI_DIR}/ssd1306.c"
