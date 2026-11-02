@@ -37,7 +37,12 @@
 #define I2C_ADDR_SSD1306     0x3C  /* OLED display (alt: 0x3D if ADDR pin = HIGH) */
 #define I2C_ADDR_SSD1306_ALT 0x3D
 #define I2C_ADDR_MAX30102    0x57  /* PPG + SpO2 sensor (fixed, non-configurable)  */
-/* TMP117 removed - skin temp estimated from MAX30102 die temp + BME280 */
+/* TMP117 clinical skin probe. Optional: when fitted, its reading is the
+ * published skin temperature (tmp117.c); when absent, the MAX30102 die estimate
+ * is used and labelled uncalibrated. ADD0 selects 0x48..0x4B and the driver
+ * probes all four. */
+#define I2C_ADDR_TMP117      0x48
+#define I2C_ADDR_MPU6050     0x68  /* 6-axis IMU (AD0 low)                        */
 #define I2C_ADDR_BME280      0x76  /* Environmental sensor (SDO=GND → 0x76)       */
 #define I2C_ADDR_BME280_ALT  0x77  /* (SDO=3.3V → 0x77)                           */
 
@@ -55,6 +60,19 @@
 #define PIN_PMS5003_TX       18   /* GPIO18 — UART1 TX (PMS5003 RXD pin, left unwired) */
 #define PMS5003_UART_NUM     1    /* UART peripheral number (UART_NUM_1) */
 #define PMS5003_BAUD         9600
+
+/* =========================================================================
+ * ForgeFPGA clock
+ * =========================================================================
+ * The IBI counter runs on the FPGA's own clock, so converting cycles to
+ * milliseconds is only correct if this number is right. It is assumed to be
+ * 50 MHz (the frequency the design is constrained and timing-closed at), NOT
+ * measured. If the actual source is 48 MHz every IBI is 4% short, which biases
+ * HR by 4% and every HRV ratio with it. Verify with a frequency counter or by
+ * comparing a known ECG/HR reference before quoting HRV numbers.
+ * ========================================================================= */
+#define SHRIKEFI_FPGA_CLK_HZ        50000000u
+#define SHRIKEFI_NS_PER_FPGA_CYCLE  (1000000000.0f / (float)SHRIKEFI_FPGA_CLK_HZ)
 
 /* UART2 — GNSS receiver (u-blox NEO-M8N / Quectel L89HS) */
 #define PIN_GPS_RX           16

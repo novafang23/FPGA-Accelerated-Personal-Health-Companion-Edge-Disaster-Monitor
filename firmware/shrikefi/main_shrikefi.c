@@ -1166,7 +1166,12 @@ static void task_ppg_accelerator(void *pvParameters) {
                  * spurious beat flag is the far lesser risk. */
                 s_last_fpga_beat_ms = now_ms;
 
-                float cycle_ibi_ms = (float)ibi_cycles * (20.0f / 1000000.0f); // 50 MHz clock
+                /* IBI is counted in FPGA clock cycles. The conversion is only correct if the
+                 * FPGA really runs at SHRIKEFI_FPGA_CLK_HZ; a 48 MHz part would make every
+                 * IBI 4% wrong, which shifts HR by 4% and biases every HRV ratio. The
+                 * constant lives in one place so it can be checked and corrected rather
+                 * than being a literal buried in an expression. */
+                float cycle_ibi_ms = (float)ibi_cycles * SHRIKEFI_NS_PER_FPGA_CYCLE / 1000000.0f;
                 /* Use crystal-locked MAX30102 FIFO sample counter (10.0 ms/sample at 100 Hz)
                  * to eliminate +/-10-30 ms FreeRTOS/I2C multi-sample FIFO burst jitter. */
                 float sample_ibi_ms = (s_last_fpga_peak_sample > 0 && s_total_samples > s_last_fpga_peak_sample)
@@ -1937,6 +1942,7 @@ static float s_last_pm10 = 0.0f;   /* coarse-particle proxy for dust detection *
         const uint32_t  probe_now_ms = (uint32_t)(xTaskGetTickCount() * portTICK_PERIOD_MS);
         float probe_c = 0.0f;
         bool  probe_ok = false;
+        bool  probe_held = false;   /* value carried from the last good read */
         if (s_tmp117.initialized && tmp117_read_temp(&s_tmp117, &probe_c) == 0) {
             probe_ok = true;
             s_probe_last_ok_ms = probe_now_ms ? probe_now_ms : 1u;
@@ -1945,6 +1951,22 @@ static float s_last_pm10 = 0.0f;   /* coarse-particle proxy for dust detection *
                    s_tmp117.last_c > TMP117_MIN_VALID_C && s_tmp117.last_c < TMP117_MAX_VALID_C) {
             probe_c  = s_tmp117.last_c;
             probe_ok = true;
+            /* Held, not fresh. Publishing it is right - a twitch must not
+             * blank the display - but it must be distinguishable from a live
+             * reading, or a disconnected probe keeps showing a plausible number
+             * for ten seconds with no indication that it is frozen. */
+            probe_held = true;
+        }
+        /* Tell the log once when the probe stops answering and we start holding,
+         * so a disconnected sensor is diagnosable without watching the page. */
+        {
+            static bool s_stale_logged = false;
+            if (probe_held && !s_stale_logged) {
+                ESP_LOGW(TAG, "TMP117 stopped answering; holding last reading (max 10 s)");
+                s_stale_logged = true;
+            } else if (!probe_held && probe_ok) {
+                s_stale_logged = false;
+            }
         }
         s_skin_probe_valid = probe_ok;
         const float pub_skin_temp = probe_ok
@@ -2548,6 +2570,10 @@ static float s_last_pm10 = 0.0f;   /* coarse-particle proxy for dust detection *
              * they are only published for the estimate path. */
             st.skin_die_delta = s_skin_probe_valid ? 0.0f : s_skin_est.die_delta_c;
             st.skin_weak      = s_skin_probe_valid ? false : s_skin_est.weak_signal;
+            /* A held probe reading is published (a twitch must not blank the
+             * display) but flagged, so the page can show it as held rather than
+             * presenting a frozen value as a live measurement. */
+            st.skin_stale = probe_held;
             /* Peripheral thermal state. Only ever a TREND from this subject's
              * own settled baseline: a fingertip sits 3-7 C below core and that
              * gap is vasoconstriction, not a calibratable offset, so we report

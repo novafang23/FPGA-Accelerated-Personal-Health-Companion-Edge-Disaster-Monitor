@@ -83,6 +83,12 @@ typedef struct {
      * own settled baseline, never a core-temperature estimate: skin sits 3-7 C
      * below core and that gap is vasoconstriction, not a calibratable offset.
      * A page must not present skin_trend_c as a temperature in its own right. */
+    /* True when the published skin value was HELD from the last good probe read
+     * rather than read fresh this cycle. A held value is still published (a
+     * twitch must not blank the display) but it must not be presented with the
+     * same authority as a live one. Cleared after 10 s, at which point the
+     * reading becomes absent instead. */
+    bool     skin_stale;
     const char *skin_therm_state;    /* Signed change since the baseline frozen at contact settle (C). Negative
      * means the periphery is cooling. Valid only when skin_therm_ok is true. */
     float    skin_trend_c;

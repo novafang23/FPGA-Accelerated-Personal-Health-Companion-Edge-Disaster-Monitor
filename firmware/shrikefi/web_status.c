@@ -424,10 +424,10 @@ size_t web_status_json(const valor_status_t *s, char *buf, size_t cap) {
     buf[0] = '\0';
     if (!json_append_format(
         buf, cap, &used,
-        "{\"hr\":%.1f,\"spo2\":%.1f,\"rr\":%.1f,\"sqi\":%.2f,\"rmssd\":%.1f,\"hrvn\":%d,"
+        "{\"hr\":%.1f,\"spo2\":%.1f,\"rr\":%.1f,\"sqi\":%.2f,\"rmssd\":%.1f,\"prv\":%.1f,\"hrvn\":%d,"
         "\"rrconf\":%.2f,\"rrdepth\":%.1f,\"pi\":%.2f,",
         (double)s->hr, (double)s->spo2, (double)s->rr, (double)s->sqi,
-        (double)s->rmssd, s->hrv_n < 0 ? 0 : s->hrv_n,
+        (double)s->rmssd, (double)s->rmssd, s->hrv_n < 0 ? 0 : s->hrv_n,
         (double)s->rr_conf, (double)s->rr_depth_ms, (double)s->pi)) return 0;
 
     if (s->temp < -40.0f || s->temp > 85.0f) {
@@ -447,6 +447,7 @@ size_t web_status_json(const valor_status_t *s, char *buf, size_t cap) {
     if (!json_append(buf, cap, &used, "\"skinsrc\":", sizeof("\"skinsrc\":") - 1) ||
         !json_append_string(buf, cap, &used,
                             s->skin_source ? s->skin_source : SKIN_SRC_NONE) ||
+        !json_append_format(buf, cap, &used, "\"skinstale\":%s,", s->skin_stale ? "true" : "false") ||
         !json_append_format(buf, cap, &used,
                             ",\"skincal\":%s,\"skindie\":%.2f,\"skinweak\":%s,",
                             s->skin_calibrated ? "true" : "false",
