@@ -16,3 +16,16 @@ echo.
 echo.
 if not "%1"=="--no-pause" if "%CI%"=="" pause
 
+echo ================================================================
+echo   STATUS-JSON VALIDITY (the dashboard does JSON.parse on this)
+echo ================================================================
+gcc -Wall -Wextra -Werror -pedantic -std=c11 -I. -I../../firmware/core -o "%TEMP%\valor_json_test.exe" test_status_json.c web_status.c location.c sos.c skin_calib.c -lm
+if %errorlevel% neq 0 (
+    echo [ERROR] JSON validity test failed to compile!
+    exit /b 1
+)
+"%TEMP%\valor_json_test.exe"
+if %errorlevel% neq 0 (
+    echo [ERROR] status.json is not valid JSON - the dashboard will show RECONNECTING
+    exit /b 1
+)

@@ -453,7 +453,7 @@ size_t web_status_json(const valor_status_t *s, char *buf, size_t cap) {
     if (!json_append(buf, cap, &used, "\"skinsrc\":", sizeof("\"skinsrc\":") - 1) ||
         !json_append_string(buf, cap, &used,
                             s->skin_source ? s->skin_source : SKIN_SRC_NONE) ||
-        !json_append_format(buf, cap, &used, "\"skinstale\":%s,", s->skin_stale ? "true" : "false") ||
+        !json_append_format(buf, cap, &used, ",\"skinstale\":%s", s->skin_stale ? "true" : "false") ||
         !json_append_format(buf, cap, &used,
                             ",\"skincal\":%s,\"skindie\":%.2f,\"skinweak\":%s,",
                             s->skin_calibrated ? "true" : "false",
@@ -470,7 +470,7 @@ size_t web_status_json(const valor_status_t *s, char *buf, size_t cap) {
     if (!s->skin_therm_ok || !s->skin_therm_state) {
         if (!json_append(buf, cap, &used, "null,", 5)) return 0;
     } else if (!json_append_string(buf, cap, &used, s->skin_therm_state) ||
-               !json_append_format(buf, cap, &used, ",\"skintrend\":%+.2f,\"skinrate\":%.2f,",
+               !json_append_format(buf, cap, &used, ",\"skintrend\":%.2f,\"skinrate\":%.2f,",
                                    (double)s->skin_trend_c,
                                    (double)s->skin_rate_c_per_min)) {
         return 0;
@@ -526,12 +526,12 @@ size_t web_status_json(const valor_status_t *s, char *buf, size_t cap) {
      * field exists to prevent. aqibasis tells the page which basis it is
      * looking at, so a short-term number can never be rendered as a 24-h one. */
     if (!(s->pm25_24h > 0.0f)) {
-        if (!json_append(buf, cap, &used, "\"pm2524h\":null,", 13)) return 0;
+        if (!json_append(buf, cap, &used, "\"pm2524h\":null,", sizeof("\"pm2524h\":null,") - 1)) return 0;
     } else if (!json_append_format(buf, cap, &used, "\"pm2524h\":%.1f,", (double)s->pm25_24h)) {
         return 0;
     }
     if (s->aqi24 < 0) {
-        if (!json_append(buf, cap, &used, "\"aqi24\":null,", 12)) return 0;
+        if (!json_append(buf, cap, &used, "\"aqi24\":null,", sizeof("\"aqi24\":null,") - 1)) return 0;
     } else if (!json_append_format(buf, cap, &used, "\"aqi24\":%d,", s->aqi24)) {
         return 0;
     }
