@@ -202,3 +202,40 @@ pnpm-debug.log*
 .directory
 .fuse_hidden*
 
+
+# ---- Repository hygiene (added 2026-11-02) --------------------------------
+# Binaries and generated artefacts do not belong in a source repository: they
+# bloat the clone, cannot be reviewed in a diff, and drift from the sources that
+# produced them. They stay on disk; they are simply not tracked.
+*.pdf
+*.pptx
+*.ppt
+*.docx
+*.key
+*.mp4
+*.mov
+*.zip
+
+# Presentation build workspace (slide renders, drafts, candidate decks)
+.codex-deck-work/
+
+# Raster imagery: CAD renders, photos, screenshots. Diagrams that ARE
+# documentation are kept as SVG, which is text and diffs properly.
+*.jpg
+*.jpeg
+*.png
+*.bmp
+*.gif
+
+# Judge preparation notes are for the team, not for the public repository.
+docs/JUDGE_QA.md
+docs/JUDGE_STUDY_NOTES.md
+docs/DEMO_SHEET.md
+docs/DEMO_RUNBOOK.md
+VERIFICATION_REPORT.md
+docs/archive/
+
+*.3mf
+*.stl
+generate_assignment_pdf.py
+
