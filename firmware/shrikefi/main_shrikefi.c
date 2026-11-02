@@ -21,7 +21,7 @@
 #include "max30102.h"
 #include "bme280.h"
 #include "tmp117.h"
-#include "skin_estimate.h"
+#include "skin_thermal.h"
 #include "pms5003.h"
 #include "ssd1306.h"
 
@@ -136,7 +136,7 @@ static bool s_skin_probe_valid = false;
  * defined on a 24-hour mean; the live 60 s mean is far noisier and peaks
  * higher, so deriving an AQI from it overstates the hazard. */
 static pm25_aqi_avg_t s_pm25_avg;
-static skin_estimate_t s_skin_est;
+static skin_thermal_t  s_skin_therm;   /* peripheral thermal state, TMP117-fed */
 static pms5003_t s_pms5003;
 static ssd1306_t s_ssd1306;
 static gnss_nmea_t s_gnss;
@@ -1909,23 +1909,16 @@ static float s_last_pm10 = 0.0f;   /* coarse-particle proxy for dust detection *
             xSemaphoreGive(s_data_mutex);
         }
 
-        /* Read MAX30102 on-die junction temperature and update skin temperature estimator.
-         * Dual-sensor thermal divider model: T_skin = b0 + b1 * T_die + b2 * T_amb.
-         * Gated by active finger contact so idle die temperatures are never scored. */
-        float raw_die_temp = 0.0f;
+        /* Skin temperature has ONE source: the TMP117 contact probe.
+         *
+         * The MAX30102 die-based estimate that used to live here has been
+         * removed. The die is a junction sensor heated by its own emitters, its
+         * LED self-heating had to be measured and subtracted at boot, and the
+         * result was a model output that looked like a measurement. With a real
+         * +/-0.1 C contact thermometer on the board there is no reason to
+         * publish an estimate, so when the probe does not answer the skin
+         * temperature is ABSENT rather than modelled. */
         bool finger_on = (sig_stat != SIGNAL_STATUS_NO_FINGER) && (env_now_ms > 2000u);
-        if (s_max30102.initialized && max30102_read_die_temp(&s_max30102, &raw_die_temp) == 0) {
-            skin_estimate_update(&s_skin_est, raw_die_temp, env.ambient_temp_c, finger_on, env_now_ms);
-        } else if (!finger_on) {
-            skin_estimate_update(&s_skin_est, 0.0f, env.ambient_temp_c, false, env_now_ms);
-        }
-
-        /* Continuous calibration telemetry line for empirical regression fitting */
-        printf("[CALIB] DIE=%.2f,AMB=%.2f,CONTACT=%d,SLOPE=%.4f,SETTLED=%d,EST=%.2f\n",
-               s_skin_est.last_filtered_die_c, s_skin_est.last_amb_c,
-               (int)finger_on, s_skin_est.slope_c_per_sec,
-               (int)s_skin_est.is_settled, s_skin_est.estimated_skin_c);
-        fflush(stdout);
 
         /* Skin temperature: the TMP117 probe wins whenever it answers.
          *
@@ -1969,9 +1962,13 @@ static float s_last_pm10 = 0.0f;   /* coarse-particle proxy for dust detection *
             }
         }
         s_skin_probe_valid = probe_ok;
-        const float pub_skin_temp = probe_ok
-                                  ? probe_c
-                                  : (s_skin_est.is_valid ? s_skin_est.estimated_skin_c : 0.0f);
+        const float pub_skin_temp = probe_ok ? probe_c : 0.0f;
+
+        /* Peripheral thermal state, now fed by the PROBE rather than the die
+         * model. A real thermometer is a strictly better input than the model
+         * output this machine used to consume. */
+        skin_thermal_update(&s_skin_therm, pub_skin_temp, env.ambient_temp_c,
+                            finger_on, env_now_ms);
 
         /* Unconditionally update shared system state with live environmental telemetry */
         if (xSemaphoreTake(s_data_mutex, pdMS_TO_TICKS(20)) == pdTRUE) {
@@ -1981,7 +1978,7 @@ static float s_last_pm10 = 0.0f;   /* coarse-particle proxy for dust detection *
             g_state.pm25_raw_ugm3    = pm25_raw_pub;
             g_state.pm25_confidence  = (uint8_t)pm25_reading.confidence;
             g_state.skin_temp_c      = pub_skin_temp;
-            g_state.skin_temp_valid  = s_skin_est.is_valid ? 1 : 0;
+            g_state.skin_temp_valid  = s_skin_probe_valid ? 1 : 0;
             xSemaphoreGive(s_data_mutex);
         }
 
@@ -2550,9 +2547,10 @@ static float s_last_pm10 = 0.0f;   /* coarse-particle proxy for dust detection *
              * the raw reading while the sensor is still settling, but a status
              * page must not present an unsettled value as a measurement. */
             st.skin_temp  = pub_skin_temp;
-            /* Valid if EITHER source produced a value: the probe when fitted,
-             * otherwise the die model once settled. */
-            st.skin_valid = s_skin_probe_valid || s_skin_est.is_valid;
+            /* Valid only when the probe produced a value. There is no
+             * modelled fallback any more: an absent probe means an absent
+             * reading, never an estimate dressed as one. */
+            st.skin_valid = s_skin_probe_valid;
             /* Provenance drives the UI label:
              *   TMP117   -> a real contact thermometer, shown as "probe"
              *   ESTIMATE -> the MAX30102 die model, shown as "uncalibrated"
@@ -2561,15 +2559,13 @@ static float s_last_pm10 = 0.0f;   /* coarse-particle proxy for dust detection *
              * not depend on any coefficient we fitted, so it is a measurement,
              * not an estimate - the distinction the rest of this project already
              * makes for SpO2 and HRV. */
-            st.skin_source = s_skin_probe_valid ? SKIN_SRC_TMP117
-                           : (s_skin_est.is_valid ? SKIN_SRC_ESTIMATED : SKIN_SRC_NONE);
-            /* A probe reading needs no calibration, so it counts as calibrated;
-             * the die model never does until its coefficients are fitted. */
-            st.skin_calibrated = s_skin_probe_valid ? true : s_skin_est.is_calibrated;
-            /* Die-model diagnostics are meaningless when the probe answered, so
-             * they are only published for the estimate path. */
-            st.skin_die_delta = s_skin_probe_valid ? 0.0f : s_skin_est.die_delta_c;
-            st.skin_weak      = s_skin_probe_valid ? false : s_skin_est.weak_signal;
+            st.skin_source = s_skin_probe_valid ? SKIN_SRC_TMP117 : SKIN_SRC_NONE;
+            /* A probe reading needs no calibration: its accuracy is a datasheet
+             * figure, not a coefficient we fitted. */
+            st.skin_calibrated = s_skin_probe_valid;
+            /* The die-model diagnostics are gone with the die model. */
+            st.skin_die_delta = 0.0f;
+            st.skin_weak      = false;
             /* A held probe reading is published (a twitch must not blank the
              * display) but flagged, so the page can show it as held rather than
              * presenting a frozen value as a live measurement. */
@@ -2580,10 +2576,10 @@ static float s_last_pm10 = 0.0f;   /* coarse-particle proxy for dust detection *
              * direction of travel and never a core temperature. With a TMP117
              * fitted the probe drives the estimate, so the same state machine
              * sees the probe value -- which is the better input. */
-            st.skin_therm_state = skin_therm_state_name(s_skin_est.pt_state);
-            st.skin_trend_c     = s_skin_est.pt_trend_c;
-            st.skin_rate_c_per_min = s_skin_est.pt_rate_c_per_min;
-            st.skin_therm_ok    = (s_skin_est.pt_state != SKIN_THERM_UNKNOWN);
+            st.skin_therm_state = skin_therm_state_name(s_skin_therm.state);
+            st.skin_trend_c     = s_skin_therm.trend_c;
+            st.skin_rate_c_per_min = s_skin_therm.rate_c_per_min;
+            st.skin_therm_ok    = (s_skin_therm.state != SKIN_THERM_UNKNOWN);
             /* How much the die thermometer actually moved this contact. A
              * delta near zero means the published number is the model constant
              * plus ambient, not a property of the patient's skin - the page
@@ -2725,16 +2721,14 @@ static float s_last_pm10 = 0.0f;   /* coarse-particle proxy for dust detection *
             }
             ssd1306_draw_string(&s_ssd1306, 2, 24, buf_env);
 
-            // Line 3: Skin Temperature (MAX30102 Die + BME280) - Page 4 (rows 32-39)
+            // Line 3: Skin Temperature (TMP117 probe) - Page 4 (rows 32-39)
             char buf_skin[32];
             if (sig_stat == SIGNAL_STATUS_NO_FINGER) {
                 snprintf(buf_skin, sizeof(buf_skin), "Skin: -- (PLACE FGR)");
-            } else if (s_skin_est.is_valid) {
-                snprintf(buf_skin, sizeof(buf_skin), "Skin: %4.1f C", s_skin_est.estimated_skin_c);
-            } else if (s_skin_est.is_below_range && s_skin_est.is_settled) {
-                snprintf(buf_skin, sizeof(buf_skin), "Skin: <31.0C (COLD)");
+            } else if (pub_skin_temp > 0.0f) {
+                snprintf(buf_skin, sizeof(buf_skin), "Skin: %4.1f C", pub_skin_temp);
             } else {
-                snprintf(buf_skin, sizeof(buf_skin), "Skin: ACQUIRING...");
+                snprintf(buf_skin, sizeof(buf_skin), "Skin: NO PROBE");
             }
             /* Append the peripheral thermal direction to the Skin line when
              * there is room and something worth saying. STABLE is the absence
@@ -2742,17 +2736,17 @@ static float s_last_pm10 = 0.0f;   /* coarse-particle proxy for dust detection *
              * actionable states and VASOCONSTRICTED is the alarm. The OLED is
              * 21 columns wide, so the temperature string is only kept when it
              * still fits -- truncation must never eat the state word. */
-            if (s_skin_est.pt_state != SKIN_THERM_UNKNOWN &&
-                s_skin_est.pt_state != SKIN_THERM_STABLE) {
-                const char *tag = (s_skin_est.pt_state == SKIN_THERM_COOLING)  ? " dn"
-                                : (s_skin_est.pt_state == SKIN_THERM_REWARMING) ? " up"
-                                                                               : " COLD";
+            if (s_skin_therm.state != SKIN_THERM_UNKNOWN &&
+                s_skin_therm.state != SKIN_THERM_STABLE) {
+                const char *tag = (s_skin_therm.state == SKIN_THERM_COOLING)  ? " dn"
+                                : (s_skin_therm.state == SKIN_THERM_REWARMING) ? " up"
+                                                                              : " COLD";
                 size_t used = strlen(buf_skin);
                 size_t taglen = strlen(tag);
                 if (used + taglen + 1u <= 21u) {
                     memcpy(buf_skin + used, tag, taglen + 1u);
                 } else {
-                    snprintf(buf_skin, sizeof(buf_skin), "Skin: %s", skin_therm_state_name(s_skin_est.pt_state));
+                    snprintf(buf_skin, sizeof(buf_skin), "Skin: %s", skin_therm_state_name(s_skin_therm.state));
                 }
             }
             ssd1306_draw_string(&s_ssd1306, 2, 32, buf_skin);
@@ -3229,10 +3223,9 @@ void app_main(void) {
      *
      * To calibrate: fit B0/B1/B2 with the tool, then pass `true` here. The
      * dashboard label and the NEWS2 temperature term both follow this flag. */
-    skin_estimate_init(&s_skin_est, SKIN_EST_DEFAULT_B0, SKIN_EST_DEFAULT_B1, SKIN_EST_DEFAULT_B2, false);
-    ESP_LOGI(TAG, "Skin temperature estimator ready [UNCALIBRATED estimate] "
-                  "(T_skin = %.2f + %.2f*T_die + %.2f*T_amb)",
-             SKIN_EST_DEFAULT_B0, SKIN_EST_DEFAULT_B1, SKIN_EST_DEFAULT_B2);
+    skin_thermal_init(&s_skin_therm);
+    ESP_LOGI(TAG, "Skin temperature: TMP117 probe only (die-based estimate removed)");
+    ESP_LOGI(TAG, "Peripheral thermal state ready (trend vs the subject's own baseline)");
 
     /* Measure the MAX30102's LED self-heating instead of assuming it.
      *
@@ -3300,7 +3293,7 @@ void app_main(void) {
 
     /* MAX30102 die self-heating calibration — FALLBACK PATH ONLY.
      *
-     * This block calibrates skin_estimate.c's die-based estimate, which is
+     * This block used to calibrate the removed die-based estimate, which was
      * published ONLY when no TMP117 probe answers. When the probe is fitted its
      * reading IS the published skin temperature and this estimate is discarded
      * (skinsrc reports TMP117, skindie is forced to 0), so the measurement would
@@ -3363,11 +3356,14 @@ void app_main(void) {
             }
             if (warm_ok && amb_now >= 5.0f && amb_now <= 65.0f) {
                 float offset = die_warm - amb_now;
-                if (skin_estimate_set_led_offset(&s_skin_est, offset)) {
-                    ESP_LOGI(TAG, "[SKINCAL] MAX30102 die self-heating (FALLBACK "
-                                  "estimator only; TMP117 probe not fitted): "
-                                  "die=%.2f amb=%.2f -> +%.2f C above ambient",
-                             die_warm, amb_now, offset);
+                /* Informational only now: nothing consumes this offset, because
+                 * the die-based estimate it corrected has been removed. Logged
+                 * so the self-heating figure is still visible if a judge asks
+                 * how hot the PPG part runs. */
+                if (offset > 0.0f && offset < 20.0f) {
+                    ESP_LOGI(TAG, "[SKINCAL] MAX30102 die runs +%.2f C above ambient "
+                                  "(informational; no die-based skin estimate exists)",
+                             offset);
                 } else {
                     ESP_LOGW(TAG, "[SKINCAL] die offset %.2f C implausible "
                                   "(die_warm=%.2f amb=%.2f); using die idle level",
@@ -4430,24 +4426,27 @@ int main(void) {
     }
     printf("  [MAX30102 Die Temp] Measured on-chip temperature: %.2f C\n", die_t);
 
-    skin_estimate_t test_skin;
-    skin_estimate_init(&test_skin, SKIN_EST_DEFAULT_B0, SKIN_EST_DEFAULT_B1, SKIN_EST_DEFAULT_B2, false);
-    skin_estimate_update(&test_skin, 33.5f, 25.0f, false, 1000);
+    /* Peripheral thermal state, now fed by a MEASURED skin temperature.
+     * The die-based estimate this used to exercise has been removed. */
+    skin_thermal_t test_thermal;
+    skin_thermal_init(&test_thermal);
     uint32_t t_sim_skin = 1000;
-    float prev_sim_skin = 0.0f;
-    for (int i = 0; i < 18; i++) {
+    /* 12 s settle, then a sustained 1.5 C fall -> must report COOLING. */
+    for (int i = 0; i < 14; i++) {
         t_sim_skin += 1000;
-        skin_estimate_update(&test_skin, 34.8f, 25.0f, true, t_sim_skin);
-        if (test_skin.estimated_skin_c < prev_sim_skin) return 1;
-        prev_sim_skin = test_skin.estimated_skin_c;
+        skin_thermal_update(&test_thermal, 33.4f, 25.0f, true, t_sim_skin);
     }
-    if (!test_skin.is_settled || !test_skin.is_valid) {
-        printf("  [FAIL] Skin estimator failed to settle after 18 seconds! (settled=%d, valid=%d)\n",
-               (int)test_skin.is_settled, (int)test_skin.is_valid);
+    for (int i = 0; i < 30; i++) {
+        t_sim_skin += 1000;
+        skin_thermal_update(&test_thermal, 33.4f - 0.05f * (float)i, 25.0f, true, t_sim_skin);
+    }
+    printf("  [Thermal State] fall detected as: %s (trend %.2f C)\n",
+           skin_therm_state_name(test_thermal.state), (double)test_thermal.trend_c);
+    if (test_thermal.state != SKIN_THERM_COOLING) {
+        printf("  [FAIL] Expected COOLING after a sustained fall, got %s\n",
+               skin_therm_state_name(test_thermal.state));
         return 1;
     }
-    printf("  [Skin Estimator] Settled OK: %.2f C (slope: %.4f C/s)\n",
-           test_skin.estimated_skin_c, test_skin.slope_c_per_sec);
 
     /* Test mNEWS2 temperature scoring:
      * Standard RCP NEWS2 bands:

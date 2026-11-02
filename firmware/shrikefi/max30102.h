@@ -72,9 +72,26 @@ extern "C" {
 #define MAX30102_MODE_RESET         0x40
 #define MAX30102_MODE_SHDN          0x80
 
-/* Calibrated stable MAX30102 LED configuration (~11.0 mA for clear capillary penetration without 1.8V brownout).
- * Runtime LED hunting remains disabled so recovery cannot repeatedly rewrite these registers. */
-#define MAX30102_DEFAULT_LED_PA     0x36
+/* LED drive current for the enclosed shroud.
+ *
+ * 0x36 (~11 mA) was calibrated with the finger on the bare sensor. Inside the
+ * 3D-printed shroud the black inner tape reflects the emitters straight back
+ * into the photodiode, so the same current produces far more signal:
+ *
+ *   bare sensor, finger : IR 163,000  Red 138,000   (works)
+ *   shroud,     finger  : IR 226,700  Red 225,500   (86 % of full scale)
+ *
+ * At 226k the ADC is close to its 262,143 ceiling and the AC reading blows up
+ * to 73,634 counts - the waveform is compressing, not describing a pulse, and
+ * SpO2 cannot latch because Red no longer sits clearly below IR (a saturated
+ * pair loses the absorption difference that R is computed from).
+ *
+ * 0x24 (~7.2 mA) brings the enclosed reading back into the linear region
+ * while staying well above the empty-cavity reflection, so the contact gate
+ * still separates "finger" from "not finger".
+ *
+ * Runtime LED hunting remains disabled; this is an init-time constant. */
+#define MAX30102_DEFAULT_LED_PA     0x24
 
 /* SPO2 Configuration */
 #define MAX30102_SPO2_ADC_RANGE_4096    (0x01 << 5)
@@ -174,10 +191,20 @@ int max30102_read_fifo(max30102_t *dev, max30102_sample_t *buf, int max_samples)
  * follow the ~1 Hz pulse, fast enough to track finger pressure and perfusion.
  */
 #define MAX30102_AC_CENTRE 120  /* Must match the FPGA's dyn_threshold (8'd120) */
-#define MAX30102_AC_DIV      8  /* AC gain: swing = ac / MAX30102_AC_DIV.
-                                 * Raise for headroom on strong signals, lower for
-                                 * sensitivity on weak ones. At 8, an AC of 1000
-                                 * counts spans roughly 120 +/- 62. */
+/* AC gain: swing = ac / MAX30102_AC_DIV.
+ *
+ * Raise for headroom on strong signals, lower for sensitivity on weak ones.
+ * At 8, an AC of 1000 counts spans roughly 120 +/- 62.
+ *
+ * Lowered to 4 together with the LED current reduction (0x36 -> 0x24) for the
+ * enclosed shroud. The lower drive brought the DC back out of saturation
+ * (226k -> 128k) but also shrank the pulsatile AC, and at DIV 8 the 8-bit IR
+ * byte handed to the FPGA no longer crossed its crest threshold of 120:
+ * the link stayed alive (FG frames flowing) while the detector reported
+ * beats=0 and HR never left 0.0 BPM. Halving the divider restores the AC
+ * swing to the level the peak detector was tuned for, without raising the
+ * LED current back toward saturation. */
+#define MAX30102_AC_DIV      4  /* AC gain: swing = ac / MAX30102_AC_DIV. */
 
 static inline uint8_t max30102_scale_to_8bit_ch(uint32_t raw_18bit, uint32_t *baseline) {
     if (baseline == NULL) {

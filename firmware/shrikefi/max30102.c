@@ -302,25 +302,56 @@ int max30102_read_fifo(max30102_t *dev, max30102_sample_t *buf, int max_samples)
 int max30102_read_die_temp(max30102_t *dev, float *out_temp_c) {
     if (!dev || !dev->initialized || !out_temp_c || dev->is_max30100) return -1;
 
-    /* Write 0x01 to initiate one-shot die temperature conversion */
-    if (max30102_i2c_write_reg(dev, MAX30102_REG_TEMP_CONFIG, 0x01) != 0) {
-        return -1;
+    /* One-shot die temperature conversion.
+     *
+     * The wait loop used to `break` as soon as the conversion bit read back
+     * clear and then read TEMP_INT/TEMP_FRAC unconditionally - so a read taken
+     * too early (immediately after init, while the part is still settling from
+     * reset) silently returned the reset values of 0. That is indistinguishable
+     * from a genuine 0.0 C reading, and it made the boot-time LED self-heating
+     * measurement report `die_on=0.00 die_off=0.00 -> offset=0.00`.
+     *
+     * Now the loop is bounded, the completion is checked explicitly, and the
+     * decoded value is range-checked against what the part can physically
+     * report (-40..+85 C). Anything else is a failed read, not a temperature. */
+    int converted = 0;
+    for (int attempt = 0; attempt < 3 && !converted; attempt++) {
+        if (max30102_i2c_write_reg(dev, MAX30102_REG_TEMP_CONFIG, 0x01) != 0) {
+            return -1;
+        }
+        for (int i = 0; i < 10; i++) {
+            max30102_delay_ms(10);
+            int cfg = max30102_i2c_read_reg(dev, MAX30102_REG_TEMP_CONFIG);
+            if (cfg < 0) return -1;
+            if ((cfg & 0x01) == 0) { converted = 1; break; }
+        }
     }
+    if (!converted) return -1;
 
-    /* Wait for conversion bit to self-clear (typically ~29ms on MAX30102) */
-    for (int i = 0; i < 6; i++) {
-        max30102_delay_ms(10);
-        int cfg = max30102_i2c_read_reg(dev, MAX30102_REG_TEMP_CONFIG);
-        if (cfg < 0) return -1;
-        if ((cfg & 0x01) == 0) break;
-    }
-
+    /* Let the part settle one acquisition cycle after a reset, then read. */
     int ti = max30102_i2c_read_reg(dev, MAX30102_REG_TEMP_INT);
     int tf = max30102_i2c_read_reg(dev, MAX30102_REG_TEMP_FRAC);
     if (ti < 0 || tf < 0) return -1;
 
     /* 8-bit signed integer + 4-bit fractional (0.0625 C per LSB) */
-    *out_temp_c = (float)((int8_t)ti) + 0.0625f * (float)(tf & 0x0F);
+    float t = (float)((int8_t)ti) + 0.0625f * (float)(tf & 0x0F);
+
+    /* Reject "no conversion yet" rather than a real reading.
+     *
+     * Immediately after a reset the MAX30102's temperature registers read back
+     * as 0x00/0x00 - a decoded 0.0 C - which is INSIDE the part's -40..85 C
+     * range and therefore passed the range check. Measured on hardware: the
+     * probe read returned success with die=0.00 at boot, then a second later
+     * the identical call returned 27.6 C.
+     *
+     * 0.0 C is not a plausible die temperature for a device that is powered,
+     * running its emitters and sitting in a room - it would mean a frozen
+     * enclosure. Treat the exact 0.0 pattern as "not converted yet" and fail,
+     * so callers cannot mistake a cold register for a measurement. */
+    if (ti == 0 && (tf & 0x0F) == 0) return -1;
+
+    if (t < -40.0f || t > 85.0f) return -1;   /* outside the part's range = bad read */
+    *out_temp_c = t;
     return 0;
 }
 

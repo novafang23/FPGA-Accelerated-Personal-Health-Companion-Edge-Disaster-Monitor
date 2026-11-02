@@ -45,7 +45,7 @@ idf_component_register(
         # Per-session core-offset calibration against an oral reference. A
         # fingertip probe cannot report core temperature without one.
         "${SHRIKEFI_DIR}/skin_calib.c"
-        "${CORE_DIR}/skin_estimate.c"
+        "${CORE_DIR}/skin_thermal.c"
         "${SHRIKEFI_DIR}/pms5003.c"
         "${SHRIKEFI_DIR}/ssd1306.c"
         "${CORE_DIR}/hrv_analysis.c"

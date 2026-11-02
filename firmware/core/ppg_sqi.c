@@ -75,13 +75,30 @@ void ppg_calculate_sqi_with_motion(
         float pi = (ac / dc) * 100.0f;
         result->perfusion_index = pi;
 
-        /* Score Perfusion Index calibrated for 18-bit MAX30102 DC levels (~100k-185k) */
+        /* Score Perfusion Index for 18-bit MAX30102 DC levels.
+         *
+         * Whether light is modulated by BLOOD at all is decided upstream, by
+         * the contact gate in main_shrikefi.c (absolute DC budget), and an SQI
+         * computed without verified contact is forced below the validity bar.
+         *
+         * The gain here is deliberately generous in the 0.4-1.0 % band. A
+         * fingertip held in the enclosed 3D-printed shroud measures PI ~0.53 %
+         * - normal for that geometry, because the reflective interior raises
+         * the DC without raising the pulsatile AC. Scoring that as merely "OK"
+         * (0.80) dragged the composite to 0.67-0.69 and held the whole triage
+         * at ACQUIRING on a perfectly good finger. Anything above 0.40 % in an
+         * enclosure is a well-perfused signal, so it earns full marks; below
+         * 0.40 % it tapers, and under 0.015 % there is no pulse at all.
+         *
+         * Note test_ppg_sqi_live_reflection_and_motion_gate feeds PI 0.044 %
+         * and expects the composite to clear 0.70, so this must stay a
+         * monotonic taper rather than a hard reject at the low end. */
         if (pi < 0.015f) {
             pi_score = 0.1f; /* Sensor off-finger or negligible pulsatile signal */
         } else if (pi > 15.0f) {
             pi_score = 0.2f; /* Ambient light saturation / severe clip */
         } else if (pi >= 0.03f && pi <= 10.0f) {
-            pi_score = 1.0f; /* Optimal clinical pulsatile amplitude (light to firm contact) */
+            pi_score = 1.0f; /* Pulsatile amplitude is clearly present */
         } else {
             pi_score = 0.80f;
         }

@@ -39,7 +39,7 @@ def build_fixture_page(page, data, *, lose_link=False, click_sos=False):
     payload = json.dumps(data, separators=(",", ":"))
     fail_after_first = "true" if lose_link else "false"
     shim = (
-        "window.__calls=[];window.__polls=0;window.fetch=function(u,o){"
+        "window.__calls=[];window.__polls=0;window.__bodies=[];window.prompt=function(){return \'4821\'};window.fetch=function(u,o){window.__bodies.push([u,(o&&o.body)||\'\']);"
         "window.__calls.push([u,o&&o.method||'GET']);"
         "if(u==='/status.json'&&" + fail_after_first + "&&++window.__polls>1)"
         "return Promise.reject(new Error('offline'));"
@@ -52,13 +52,19 @@ def build_fixture_page(page, data, *, lose_link=False, click_sos=False):
     main_hash = sha256_source(test_script)
     probe = """(async function(){await new Promise(function(r){setTimeout(r,80)});
 if(location.search.indexOf('sos=1')>=0){document.getElementById('sos-trigger').click();await new Promise(function(r){setTimeout(r,80)})}
+if(location.search.indexOf('cancel=1')>=0){
+var cb=document.getElementById('sos-cancel');
+cb.dispatchEvent(new Event('pointerdown'));
+await new Promise(function(r){setTimeout(r,3300)});
+cb.dispatchEvent(new Event('pointerup'));
+await new Promise(function(r){setTimeout(r,120)})}
 if(location.search.indexOf('lose=1')>=0){await new Promise(function(r){setTimeout(r,1100)})}
 var o={hr:document.getElementById('hr').textContent,spo2:document.getElementById('spo2').textContent,
 temp:document.getElementById('temp').textContent,
 skin:document.getElementById('skin').textContent,
 hum:document.getElementById('hum').textContent,pm:document.getElementById('pm').textContent,
 link:document.getElementById('link').textContent,risk:document.getElementById('risk').textContent,
-sos:document.getElementById('sos-note').textContent,calls:window.__calls};
+sos:document.getElementById('sos-note').textContent,calls:window.__calls,bodies:window.__bodies};
 var p=document.createElement('pre');p.id='softap-probe';p.textContent=JSON.stringify(o);document.body.appendChild(p)})();"""
     probe_hash = sha256_source(probe)
     page, count = re.subn(
@@ -72,14 +78,14 @@ var p=document.createElement('pre');p.id='softap-probe';p.textContent=JSON.strin
     return page.replace("</body>", "<script>" + probe + "</script></body>")
 
 
-def render(page, query):
+def render(page, query, budget_ms=3000):
     with tempfile.NamedTemporaryFile("w", suffix=".html", delete=False, encoding="utf-8") as fh:
         fh.write(page)
         path = Path(fh.name)
     try:
         proc = subprocess.run(
             [CHROME, "--headless=new", "--disable-gpu", "--no-sandbox",
-             "--virtual-time-budget=3000", "--dump-dom", path.as_uri() + query],
+             "--virtual-time-budget=%d" % budget_ms, "--dump-dom", path.as_uri() + query],
             capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=60,
         )
         match = re.search(r'<pre id="softap-probe">(.*?)</pre>', proc.stdout, re.S)
@@ -123,6 +129,17 @@ assert ["/api/emergency/trigger", "POST"] in live["calls"], live
 # it since the driver landed, but the tile was never bound to it.
 assert live["skin"] == "33.4", live
 print("SoftAP live values, skin temperature and SOS button: PASS")
+# The cancel case holds the button for 3 s, so it needs a larger virtual-time
+# budget than the default; 3000 ms expired before the probe could read the page.
+cancel = render(build_fixture_page(page, healthy, click_sos=False),
+                "?case=cancel&cancel=1", budget_ms=8000)
+cancel_posts = [(u, b) for (u, b) in cancel["bodies"] if u.endswith('/api/emergency/cancel')]
+assert cancel_posts, "cancel was never posted: " + json.dumps(cancel)[:300]
+_u, _body = cancel_posts[0]
+assert "pin=" in _body, "cancel body carries no PIN: " + repr(_body)
+assert "hold_ms=3000" in _body, "cancel body lost hold_ms: " + repr(_body)
+assert "pin=4821" in _body, "cancel body did not use the prompted PIN: " + repr(_body)
+print("SoftAP SOS cancel sends the control PIN: PASS")
 
 no_finger = dict(healthy, hr=0.0, spo2=0.0, rr=0.0, sqi=0.0, rmssd=0.0,
                  risk="UNKNOWN", storm="NORMAL", contact=False, skintemp=None)
