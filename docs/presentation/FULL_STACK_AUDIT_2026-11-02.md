@@ -395,6 +395,10 @@ To validate the triage algorithms against real human physiological distributions
 > **LAYER 2 CERTIFICATION VERDICT: FULLY CERTIFIED**  
 > All digital signal processing routines, clinical vital assessment engines, environmental compensation models, and the TinyML INT8 neural network in `firmware/core/` and `firmware/zynq/` satisfy every architectural invariant specified in `AGENTS.md`. The implementation demonstrates 100% scenario tier parity, 29/29 passed checks in PM2.5 humidity correction, 99.95% FP32 vs INT8 agreement across 16,387 MIMIC-III ICU records, 94.11% overall accuracy, and proven no-contact / 30-beat settlement gating. Core clinical math remains strictly frozen and verified.
 
+- **Verification Toolchain**: MSYS2 UCRT64 GCC 15.2.0 (`-std=c11`, `-O2`, `-Wall -Wextra -Werror -pedantic`) & Python 3.12 (`train_nn_risk_model.py`).
+- **Key Evidence Artifacts**: `accuracy_evaluator.c` (16,387-record MIMIC-III feed), `compare_harness.c` (disaster profile parity), `test_pm25_correction.c` (29/29 AirGradient regression checks).
+- **Zero-Drift Constraint**: Zero edits committed to core clinical math files (`firmware/core/*.c|h` bit-frozen).
+
 ---
 
 ## Section 4: Layer 3 — ESP32-S3 Firmware, Concurrency & Memory Safety Audit
