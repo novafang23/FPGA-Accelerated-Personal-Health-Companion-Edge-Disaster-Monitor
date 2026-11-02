@@ -1,15 +1,6 @@
 # SIH26181: VALOR (Vital and Atmospheric Logic for Offline Rescue)
 ### FPGA-Accelerated Personal Health Companion & Edge Disaster Monitor
 
-[![Verilog Core](https://img.shields.io/badge/Hardware-Verilog%202001-blue.svg)](hardware/common/)
-[![Target MCU](https://img.shields.io/badge/MCU-ESP32--S3-red.svg)](firmware/shrikefi/)
-[![Target FPGA](https://img.shields.io/badge/FPGA-Renesas%20ForgeFPGA-yellow.svg)](hardware/shrikefi/)
-[![Bus Protocol](https://img.shields.io/badge/Interconnect-SPI2%20Full--Duplex-orange.svg)](docs/SHRIKEFI_LINK_PROTOCOL.md)
-[![Verification](https://img.shields.io/badge/Verification-100%25%20Passing-brightgreen.svg)](hardware/zynq/tb_ppg_system.v)
-[![TinyML Engine](https://img.shields.io/badge/AI%20Engine-TinyML%20(6%E2%86%9224%E2%86%9216%E2%86%923)-purple.svg)](firmware/core/nn_risk_model_int8.c)
-[![Validation Accuracy](https://img.shields.io/badge/AI%20Accuracy-88.39%25%20(INT8)%20teacher%20agreement-brightgreen.svg)](firmware/core/nn_risk_model_int8.c)
-[![MIMIC-III Benchmark](https://img.shields.io/badge/MIMIC--III-sens%2058.18%25%20%C2%B7%20spec%2098.19%25%20(94.11%25%20acc)-blueviolet.svg)](#reproducible-claims)
-[![GUI Dashboard](https://img.shields.io/badge/GUI%20Dashboard-Web%20Serial%20%2B%20Win32-cyan.svg)](launch_dashboard.bat)
 
 An end-to-end heterogeneous edge System-on-Chip (SoC) pairing **synthesizable Verilog hardware acceleration** (Renesas ForgeFPGA & Xilinx Zynq-7000) with **dual-core ESP32-S3 FreeRTOS firmware** and an **on-device INT8 TinyML neural network**. Designed to operate 100% offline in communication-denied disaster environments, it delivers 20 ns cycle-accurate PPG jitter elimination, real-time mNEWS2 clinical triage, and multi-hazard environmental risk assessment (heatwaves, toxic smog, and floods).
 
@@ -74,7 +65,6 @@ CI (`.github/workflows/ci.yml`) runs the Zynq testbench, the ShrikeFi testbench,
 The system operates across four coordinated processing tiers, moving from raw physical sensor acquisition to hardware-accelerated DSP, on-device TinyML inference, and local offline hazard advisory:
 
 
-![System Architecture & Dataflow](docs/images/data_flow.png)
 
 ### 2. Heterogeneous Hardware / Firmware Architecture
 
@@ -130,7 +120,6 @@ To eliminate optical baseline wandering and high-frequency motion artifacts from
 ### 2. 4-State Systolic Peak Detector & Refractory FSM (`ppg_peak_detector.v`)
 To extract precise beat-to-beat timing intervals without CPU overhead, a dedicated finite state machine tracks the pulse waveform morphology in hardware:
 
-![4-State Systolic Peak Detector FSM](docs/images/fsm.png)
 
 #### FSM State Machine Breakdown:
 | State | Binary | Functional Description | Exit Condition |
@@ -199,7 +188,6 @@ The intelligence layer features an ultra-compact 2-hidden-layer feedforward arti
 ### 1. Cycle-Accurate GTKWave Timing Simulation (`tb_ppg_system.v`)
 The GTKWave trace below demonstrates the decoupled ARM AMBA AXI4-Lite slave handshakes, the filtered analog pulse tracking, the single-cycle systolic interrupt pulse, and the latching of the 32-bit IBI cycle register:
 
-![GTKWave Timing Simulation](docs/images/waveform_snapshot.png)
 
 #### Timing Trace Walkthrough:
 * **Decoupled AXI Write:** Independent `AW` (Address Write) and `W` (Data Write) channels complete in separate clock cycles without stalling the master interconnect.
@@ -212,8 +200,6 @@ The GTKWave trace below demonstrates the decoupled ARM AMBA AXI4-Lite slave hand
 ### 2. Vivado Cycle-Accurate RTL Waveforms
 Full functional verification of `tb_ppg_system.v` in AMD Xilinx Vivado ML (6/6 self-checking test vectors passing):
 
-![Vivado Simulation Waveform 1](docs/images/waveform_1.png)
-![Vivado Simulation Waveform 2](docs/images/waveform_2.png)
 
 ---
 
@@ -257,19 +243,14 @@ These two runs measure different things and are **not** a regression of one anot
 ### Detailed Vivado Synthesis Reports & Schematics:
 
 #### Timing Summary Report (baseline run, +5.603 ns WNS Closure):
-![Vivado Timing Summary](docs/images/timing_summary.png)
 
 #### FPGA Fabric Utilization Breakdown (baseline run, 185 LUTs / 0 DSPs):
-![Vivado Utilization Percentage](docs/images/utilization_percentage.png)
 
 #### On-Chip Power Dissipation Summary:
-![Vivado Power Summary](docs/images/power_summary.png)
 
 #### Synthesized RTL Schematic (Gate-Level Netlist):
-![Vivado RTL Schematic](docs/images/rtl_schematic.png)
 
 #### Device Floorplan & Placement:
-![Vivado Device Floorplan](docs/images/device_floorplan.png)
 
 ---
 
@@ -321,7 +302,6 @@ The ShrikeFi board has no on-chip AXI bus and the ForgeFPGA has no processor, so
 
 Post-synthesis compilation results from **Renesas ForgeFPGA Workshop v6.55** targeting the `SLG47910C` (1120 5-input LUTs):
 
-![Renesas ForgeFPGA Resource Footprint](docs/images/forgefpga_utilization.png)
 
 * **Logic LUT5 Usage:** **515 / 1120 CLB LUT5s (45.98%)** — **54.02% of logic fabric remains free** for expanded DSP and filtering.
 * **Registers / Flip-Flops:** **303 Flip-Flops** (298 CLB FFs @ 26.61% + 5 IOB FFs @ 0.68%).
@@ -338,16 +318,12 @@ Post-synthesis compilation results from **Renesas ForgeFPGA Workshop v6.55** tar
 > history (including the pre-burst 362-LUT figure) is in the evidence README.
 
 #### ForgeFPGA Workshop GUI Synthesis Evidence:
-![Renesas ForgeFPGA Workshop Resources Report](docs/images/forgefpga_resources_report.png)
 
 #### Synthesized SLG47910C Macrocell Top-Level Core Schematic:
-![Renesas ForgeFPGA SLG47910C Schematic](docs/images/forgefpga_chip_schematic.png)
 
 #### Device Floorplan & Block Placement:
-![Renesas ForgeFPGA Device Floorplan](docs/images/forgefpga_floorplan.png)
 
 #### RTL Simulation Waveform (PPG Peak Detection)
-![Renesas ForgeFPGA RTL Waveform](docs/images/forgefpga_waveform.png)
 
 The waveform above validates the hardware-accelerated PPG systolic peak detection algorithm executing on the ShrikeFi FPGA. Key observations from the simulation:
 * **Digital Filtering:** The raw PPG input (`reg_red_raw`) is processed by the hardware filter to yield a smoother `red_filtered` signal.
@@ -623,11 +599,9 @@ readout blank — and fills in only once you connect a device or explicitly star
 simulation. An unconnected dashboard showing a plausible heart rate would be worse
 than one showing nothing.
 
-![VALOR web dashboard, first run](docs/images/valor_dashboard_idle.png)
 
 | Normal baseline | Heat wave & dehydration | Cardiopulmonary ICU emergency |
 |---|---|---|
-| ![Normal](docs/images/valor_dashboard_normal.png) | ![Heat wave](docs/images/valor_dashboard_heatwave.png) | ![ICU](docs/images/valor_dashboard_icu.png) |
 
 *Live optical PPG scope with sweep and glow, mNEWS2 triage, per-vital cards, environmental panel, and the INT8 multi-hazard gauges.*
 
@@ -650,7 +624,6 @@ than one showing nothing.
 
 The companion includes a high-performance, native Windows desktop GUI application (`shrikefi_dashboard.exe`) written in pure C using Win32 GDI graphics (0 external runtime dependencies, 60 FPS refresh rate):
 
-![GUI Dashboard](docs/images/valor_dashboard_gui.png)
 
 ### Key Dashboard Capabilities:
 * **Dual-Mode Operation:**

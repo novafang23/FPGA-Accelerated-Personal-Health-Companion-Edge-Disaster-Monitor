@@ -69,20 +69,16 @@ Measured post-synthesis results from **Renesas ForgeFPGA Workshop v6.55**:
 > evidence README.
 
 ### Renesas ForgeFPGA Workshop GUI Synthesis Evidence & Project Tree:
-![Renesas ForgeFPGA Resources Report](images/forgefpga_resources_report.png)
 
 ### Renesas SLG47910C Top-Level FPGA Core Schematic:
-![Renesas ForgeFPGA Chip Schematic](images/forgefpga_chip_schematic.png)
 
 ### Fabric Utilization Chart:
-![Renesas ForgeFPGA Resource Footprint](images/forgefpga_utilization.png)
 
 ---
 
 ## Hardware Interconnect & Link Verification
 
 ### 1. Interconnect Architecture & Pinout
-![ShrikeFi Pinout & Interconnect Diagram](images/shrikefi_pinout.png)
 
 ### 2. SPI Link Framing
 
