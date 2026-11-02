@@ -13,6 +13,7 @@
 #include <math.h>
 #ifdef ESP_PLATFORM
 #include "esp_log.h"
+#include "esp_random.h"
 #endif
 
 #include <stdbool.h>
@@ -36,6 +37,79 @@ static valor_status_t s_snap;
  * trustworthy (see skin_calib.c). */
 static skin_calib_t s_temp_calib;
 static bool         s_temp_calib_inited = false;
+
+/* -------------------------------------------------------------------------
+ * Control PIN — authorisation for state-changing endpoints.
+ *
+ * The access point is OPEN by design: a rescuer must be able to join it with no
+ * password, no app and no laptop, which is the whole point of the local page.
+ * But open means anyone within radio range can also POST, and the endpoints
+ * that do not merely display data are:
+ *
+ *     POST /api/emergency/cancel   silences an emergency
+ *     POST /location               rewrites the deployment location
+ *
+ * Without a credential, a bystander (or a malicious neighbour) can cancel an
+ * SOS. The same-origin check and the 3-second hold stop accidental taps, but
+ * neither is authentication - the code said so and it was right.
+ *
+ * The fix keeps zero-install: a 4-digit PIN is generated at boot and shown on
+ * the OLED and in the serial log, so the person physically holding the device
+ * can read it and type it. It is not strong crypto against a determined
+ * attacker who can see the screen, but it removes the "anyone on the AP" hole
+ * and costs the user four keystrokes.
+ *
+ * Read-only endpoints (/status.json, /desktop, /ppg.json) stay open so the
+ * dashboard still loads with no friction.
+ * ------------------------------------------------------------------------- */
+static char s_control_pin[5] = {0};
+
+static void control_pin_init(void)
+{
+    if (s_control_pin[0] != '\0') return;
+#ifdef ESP_PLATFORM
+    /* esp_random() is seeded from the RF subsystem; at boot it is good enough
+     * for a local-only 4-digit code and needs no entropy source of our own. */
+    uint32_t r = esp_random() % 10000u;
+    snprintf(s_control_pin, sizeof(s_control_pin), "%04u", (unsigned)r);
+    /* Logged in web_status_start(), where TAG and the log macros are in scope. */
+#else
+    /* Host build: no radio entropy, and the value is only exercised by tests.
+     * Keep it fixed so the tests are deterministic. */
+    snprintf(s_control_pin, sizeof(s_control_pin), "%04u", (unsigned)1234u);
+#endif
+}
+
+const char *web_status_control_pin(void)
+{
+    control_pin_init();
+    return s_control_pin;
+}
+
+/* Accept a PIN from a query string, a form body, or a JSON-ish body.
+ * Deliberately permissive about WHERE it appears: the page and any client can
+ * send ?pin=, pin=, or "pin": "1234". It is NOT permissive about the value.
+ *
+ * Public rather than static so the parsing rules are unit-testable on the host,
+ * where httpd_req_t does not exist. */
+bool web_status_control_pin_matches(const char *haystack)
+{
+    control_pin_init();
+    if (!haystack) return false;
+    const char *p = strstr(haystack, "pin");
+    if (!p) return false;
+    /* Advance to the digits that follow 'pin', skipping =, :, quotes, spaces. */
+    p += 3;
+    while (*p && (*p == '=' || *p == ':' || *p == '"' || *p == '\'' || *p == ' ' ||
+                  *p == '\t' || *p == '&')) {
+        if (*p == '&') return false;   /* 'pin' present but no value attached */
+        p++;
+    }
+    if (strlen(p) < 4) return false;
+    return strncmp(p, s_control_pin, 4) == 0;
+}
+
+
 
 /* Spinlock protecting the decimated PPG ring. Declared here because the
  * producer (PPG task) and the consumer (HTTP task) are on different cores. */
@@ -1363,6 +1437,17 @@ static esp_err_t h_sos_trigger(httpd_req_t *req) {
     return httpd_resp_send(req, resp, HTTPD_RESP_USE_STRLEN);
 }
 
+/* Look for the PIN in the query string, then in the body already read. */
+static bool control_pin_authorised(httpd_req_t *req, const char *body)
+{
+    char q[96];
+    if (httpd_req_get_url_query_str(req, q, sizeof(q)) == ESP_OK &&
+        web_status_control_pin_matches(q)) {
+        return true;
+    }
+    return web_status_control_pin_matches(body);
+}
+
 static esp_err_t h_sos_cancel(httpd_req_t *req) {
     if (!location_request_is_same_origin(req)) {
         return httpd_resp_send_err(req, HTTPD_403_FORBIDDEN, "same-origin request required");
@@ -1382,6 +1467,13 @@ static esp_err_t h_sos_cancel(httpd_req_t *req) {
         return httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "incomplete body");
     }
     body[len] = '\0';
+    /* Authorisation BEFORE acting. The hold_ms check alone only stopped
+     * accidental taps; this stops anyone on the open AP from silencing an
+     * emergency. PIN is visible on the OLED/serial for whoever holds the unit. */
+    if (!control_pin_authorised(req, body)) {
+        return httpd_resp_send_err(req, HTTPD_403_FORBIDDEN,
+                                   "PIN required - read it on the device display");
+    }
     char *eq = strchr(body, '=');
     int hold_ms = atoi(eq ? eq + 1 : body);
     if (hold_ms < 3000) {
@@ -1436,6 +1528,14 @@ static esp_err_t h_set_location(httpd_req_t *req) {
     }
     body[got] = '\0';
 
+    /* Authorisation before the location is rewritten: the location is what a
+     * rescue team is sent to, so it must not be editable by anyone who merely
+     * joined the open AP. */
+    if (!control_pin_authorised(req, body)) {
+        return httpd_resp_send_err(req, HTTPD_403_FORBIDDEN,
+                                   "PIN required - read it on the device display");
+    }
+
     char clean[LOCATION_MAX_LEN];
     if (!location_parse_form(body, clean, sizeof(clean)) || !location_set(clean)) {
         return httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST,
@@ -1461,6 +1561,12 @@ esp_err_t web_status_start(void) {
     /* Every failure below is returned, never ESP_ERROR_CHECK'd. The health
      * monitor is the product; the status page is a convenience. A radio that
      * will not come up must leave the device measuring. */
+    /* Generate and publish the control PIN first: every state-changing endpoint
+     * depends on it, and the boot log is where the operator reads it from. */
+    (void)web_status_control_pin();
+    ESP_LOGI(TAG, "Control PIN for SOS-cancel / location: %s (shown on OLED)",
+             s_control_pin);
+
     if (!ensure_lock()) {
         ESP_LOGE(TAG, "status mutex allocation failed; status page disabled");
         return ESP_ERR_NO_MEM;

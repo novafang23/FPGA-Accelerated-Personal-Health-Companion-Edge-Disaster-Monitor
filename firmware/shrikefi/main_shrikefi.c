@@ -2740,6 +2740,20 @@ static float s_last_pm10 = 0.0f;   /* coarse-particle proxy for dust detection *
                 snprintf(buf_cond, sizeof(buf_cond), "CONDITION: %s", risk_str);
             }
             ssd1306_draw_string(&s_ssd1306, 2, 56, buf_cond);
+
+            /* Row 48 was unused. Put the control PIN there.
+             *
+             * The access point is open by design, so the endpoints that CHANGE
+             * state (cancel an SOS, rewrite the rescue location) require a PIN.
+             * The person physically holding the device is the one who needs to
+             * read it, so it belongs on the display rather than buried in a log
+             * that needs a laptop and a cable - the exact dependency the local
+             * page exists to remove. */
+            {
+                char buf_pin[22];
+                snprintf(buf_pin, sizeof(buf_pin), "PIN: %s", web_status_control_pin());
+                ssd1306_draw_string(&s_ssd1306, 2, 48, buf_pin);
+            }
             }   /* end normal dashboard */
 
             static uint8_t oled_write_failures = 0;

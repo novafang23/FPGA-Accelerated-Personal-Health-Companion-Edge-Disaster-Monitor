@@ -344,7 +344,31 @@ esp_err_t web_status_start(void);
 /* SSID actually in use, for the boot log and the OLED, or "" if not up. */
 const char *web_status_ap_ssid(void);
 bool web_status_ap_active(void);
+
+
 #endif
+
+
+/* ---- Control PIN (available on host too, for tests) ----------------------
+ *
+ * The access point is OPEN by design so a rescuer can join with no app. That
+ * means the endpoints which CHANGE state must be authorised, or anyone in radio
+ * range could silence an SOS:
+ *
+ *     POST /api/emergency/cancel
+ *     POST /location
+ *
+ * A four-digit PIN is generated at boot and shown on the OLED and in the serial
+ * log. Read-only endpoints stay open, so the dashboard still loads with no
+ * friction. Both functions are available on the host build so the gate is
+ * unit-testable. */
+
+/* Never NULL. Four characters. */
+const char *web_status_control_pin(void);
+
+/* True when `haystack` (query string, form body or JSON fragment) carries the
+ * current PIN. Permissive about WHERE it appears, strict about its value. */
+bool web_status_control_pin_matches(const char *haystack);
 
 #ifdef __cplusplus
 }
