@@ -47,6 +47,32 @@ module ppg_peak_detector #(
     reg [31:0] interval_cnt;
     reg        first_beat_seen;            // guard: IBI is only valid from the 2nd beat
 
+    /* ---- Crest timestamps -------------------------------------------------
+     * IBI used to be interval_cnt latched at STATE_PEAK_FOUND, i.e. at the
+     * moment the downstroke had fallen crest_fall_min below the running peak.
+     * That is the CONFIRMATION, not the crest, and the delay between them
+     * depends on how steep the downstroke is - which varies with heart rate and
+     * pulse morphology. It partly cancels between two consecutive beats, but
+     * only partly, so the old interval carried a rate-dependent bias on top of
+     * the 10 ms sample quantisation.
+     *
+     * Now the crest itself is timestamped: peak_cycle records the cycle at
+     * which peak_val last advanced, and the IBI is the difference between
+     * successive crest timestamps. The confirmation latency still exists, but
+     * it no longer enters the measurement.
+     *
+     * cycle_now is free-running (never reset) so the delta is well defined
+     * across the interval_cnt reset that happens on every confirmation. */
+    reg [31:0] cycle_now;
+    reg [31:0] peak_cycle;                 // cycle of the most recent crest
+    reg [31:0] prev_peak_cycle;            // cycle of the previous crest
+    reg        peak_cycle_valid;           // a crest has been timestamped before
+    reg        prev_peak_valid;            // prev_peak_cycle holds a real crest */
+
+    /* Number of 20 ns cycles in one 100 Hz sample period, for the diagnostic
+     * output below. 50 MHz / 100 Hz = 500_000. */
+    localparam [31:0] CYCLES_PER_SAMPLE = 32'd500000;
+
     // Required drop from peak_val to confirm a crest.
     //   peak > 48 : peak/4 -- 25 %. The earlier peak/8 (12.5 %) rule still
     //               confirmed the first systolic maximum when the dicrotic
@@ -75,6 +101,11 @@ module ppg_peak_detector #(
             ibi_cycles      <= 32'd0;
             beat_detected   <= 1'b0;
             first_beat_seen <= 1'b0;
+            cycle_now       <= 32'd0;
+            peak_cycle      <= 32'd0;
+            prev_peak_cycle <= 32'd0;
+            peak_cycle_valid<= 1'b0;
+            prev_peak_valid <= 1'b0;
         end else begin
             current_state <= next_state;
 
@@ -82,6 +113,11 @@ module ppg_peak_detector #(
             if (interval_cnt != 32'hFFFF_FFFF) begin
                 interval_cnt <= interval_cnt + 32'd1;
             end
+
+            // Free-running cycle counter: the timebase for crest stamps. It is
+            // deliberately NOT reset, so successive crest timestamps remain
+            // comparable even though interval_cnt restarts on every beat.
+            cycle_now <= cycle_now + 32'd1;
 
             if (sample_valid) begin
                 prev_sample <= sample_in;
@@ -94,24 +130,44 @@ module ppg_peak_detector #(
                     // rise starts measuring from this sample rather than from the
                     // previous beat's crest.
                     if (sample_valid) begin
-                        peak_val <= sample_in;
+                        peak_val   <= sample_in;
+                        // The re-seeded sample is the first candidate crest of the
+                        // new rise, so stamp it. Without this the first crest after
+                        // a re-arm would inherit the previous beat's timestamp.
+                        peak_cycle <= cycle_now;
                     end
                 end
 
                 STATE_RISING: begin
                     beat_detected <= 1'b0;
                     if (sample_valid && (sample_in > peak_val)) begin
-                        peak_val <= sample_in;
+                        peak_val   <= sample_in;
+                        // This is the crest as far as the signal has shown so far.
+                        // Stamping here - rather than at the confirmation below -
+                        // is what removes the downstroke-slope dependence from the
+                        // interval.
+                        peak_cycle <= cycle_now;
                     end
                 end
 
                 STATE_PEAK_FOUND: begin
-                    if (first_beat_seen) begin
-                        beat_detected  <= 1'b1;
-                        ibi_cycles     <= interval_cnt;
+                    /* First crest of the session: establish a reference and emit
+                     * nothing, because an interval needs two crests. */
+                    if (!peak_cycle_valid) begin
+                        beat_detected    <= 1'b0;
+                        first_beat_seen  <= 1'b1;
+                        prev_peak_cycle  <= peak_cycle;
+                        prev_peak_valid  <= 1'b1;
+                        peak_cycle_valid <= 1'b1;
                     end else begin
-                        beat_detected   <= 1'b0;
-                        first_beat_seen <= 1'b1;
+                        beat_detected    <= 1'b1;
+                        /* Crest-to-crest, both stamped at the sample where the
+                         * running peak last advanced. */
+                        ibi_cycles       <= peak_cycle - prev_peak_cycle;
+                        prev_peak_cycle  <= peak_cycle;
+                        prev_peak_valid  <= 1'b1;
+                        peak_cycle_valid <= 1'b1;
+                        first_beat_seen  <= 1'b1;
                     end
                     interval_cnt   <= 32'd0;
                     refractory_cnt <= REFRACTORY_CYC[31:0];
