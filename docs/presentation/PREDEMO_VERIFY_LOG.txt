@@ -1,0 +1,30 @@
+﻿==========================================================
+   SIH26181 VALOR: PRE-DEMO A-to-Z VERIFICATION GATES
+==========================================================
+Timestamp: 2026-11-02 23:08:39
+Commit: cf15516 (presentation-2026-10-30-35-gcf15516)
+Temp directory: C:\Users\abhin\AppData\Local\Temp\predemo_verify_127644620
+
+PASS: verilator-zynq 
+PASS: verilator-shrikefi 
+FAIL: flat-source error: stale generated file(s): hardware\shrikefi\forgefpga_project\ffpga\src\forgefpga_ppg_top.v        re-run hardware/shrikefi/gen_flat_source.py
+PASS: tb-zynq 
+PASS: tb-common 
+PASS: tb-shrikefi 
+FAIL: fp32-hygiene cc1.exe: fatal error: firmware/core/skin_estimate.c: No such file or directory compilation terminated.
+FAIL: unit-engine Compilation failed: firmware/zynq/test_disaster_risk_engine.c:13:10: fatal error: skin_estimate.h: No such file or directory    13 | #include "skin_estimate.h"       |          ^~~~~~~~~~~~~~~~~ compilation terminated. cc1.exe: fatal error: firmware/core/skin_estimate.c: No such file or directory compilation terminated.
+PASS: unit-fall 
+PASS: unit-gnss 
+FAIL: shrikefi-host Compilation failed: cc1.exe: fatal error: firmware/core/skin_estimate.c: No such file or directory compilation terminated.
+PASS: compare-harness 
+PASS: test-pm25 
+PASS: mimic-gate acc=94.11% int8_agree=99.95%
+PASS: nn-train (Arch 6-24-16-3, 619 bytes verified)
+PASS: dash-softap 
+PASS: dash-desktop 
+PASS: secrets 
+PASS: fw-build (Built cleanly)
+
+==========================================================
+   SUMMARY: 15/19 PASS, 0 WARN, 4 FAIL
+==========================================================
