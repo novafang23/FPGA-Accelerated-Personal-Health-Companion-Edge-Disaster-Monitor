@@ -239,3 +239,8 @@ docs/archive/
 *.stl
 generate_assignment_pdf.py
 
+
+# Throwaway helpers and exported HTML, not project source
+scratch/
+docs/media/
+
