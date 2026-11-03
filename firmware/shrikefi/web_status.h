@@ -56,11 +56,12 @@ typedef struct {
     /* Where skin_temp came from. This exists so the page can label the number
      * honestly instead of implying a clinical contact thermometer:
      *   SKIN_SRC_NONE       no reading (sensor absent / not settled)
-     *   SKIN_SRC_ESTIMATED  modelled from MAX30102 die temp + BME280 ambient
+     *   SKIN_SRC_ESTIMATED  RETIRED - the die-based estimate was deleted on
+     *                       2026-11-02; the constant stays for wire
+     *                       compatibility but is never produced
      *   SKIN_SRC_TMP117     measured by the dedicated clinical probe
-     * An estimate must never be rendered with the same authority as a
-     * measurement; it is also excluded from the NEWS2 temperature term, whose
-     * temperature sub-score stays unpopulated unless a real probe is fitted. */
+     * Nothing is published unless it was measured, so the NEWS2 temperature
+     * term stays unpopulated unless a real probe is fitted. */
     const char *skin_source;
     /* True when the value came from a real contact thermometer, which needs no
      * calibration: its accuracy is a datasheet figure, not a coefficient we

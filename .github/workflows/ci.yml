@@ -150,7 +150,7 @@ jobs:
             firmware/core/ppg_sqi.c firmware/core/disaster_risk_engine.c \
             firmware/core/pressure_trend.c firmware/core/ppg_respiratory_rate.c \
             firmware/core/ppg_baseline_rr.c firmware/shrikefi/web_status.c \
-            firmware/core/skin_estimate.c
+            firmware/core/skin_thermal.c
 
       - name: Build & run firmware unit tests (incl. FP32 vs INT8 parity)
         run: |
@@ -162,7 +162,7 @@ jobs:
             firmware/core/clinical_vitals_engine.c firmware/core/spo2_engine.c \
             firmware/core/ppg_sqi.c firmware/core/disaster_risk_engine.c \
             firmware/core/pressure_trend.c firmware/core/ppg_respiratory_rate.c \
-            firmware/core/ppg_baseline_rr.c firmware/core/skin_estimate.c \
+            firmware/core/ppg_baseline_rr.c firmware/core/skin_thermal.c \
             firmware/shrikefi/sos.c firmware/shrikefi/location.c firmware/shrikefi/web_status.c \
             -lm -o test_engine
           ./test_engine
@@ -174,7 +174,7 @@ jobs:
           ./test_gnss
           gcc -Wall -Wextra -Werror -pedantic -Wdouble-promotion -std=c11 \
             -Ifirmware/core -Ifirmware/shrikefi \
-            -fsyntax-only firmware/core/skin_estimate.c
+            -fsyntax-only firmware/core/skin_thermal.c
 
           gcc -Wall -Wextra -Werror -pedantic -std=c11 \
             -Ifirmware/shrikefi -Ifirmware/core \
@@ -186,7 +186,7 @@ jobs:
             firmware/core/clinical_vitals_engine.c \
             firmware/core/nn_risk_model.c firmware/core/nn_risk_model_int8.c firmware/core/pm25_correction.c \
             firmware/core/ppg_sqi.c firmware/core/ppg_respiratory_rate.c \
-            firmware/core/ppg_baseline_rr.c firmware/core/skin_estimate.c \
+            firmware/core/ppg_baseline_rr.c firmware/core/skin_thermal.c \
             firmware/core/pressure_trend.c firmware/shrikefi/location.c firmware/shrikefi/sos.c firmware/shrikefi/web_status.c \
             -lm -o shrikefi_host
           ./shrikefi_host
@@ -195,6 +195,24 @@ jobs:
             firmware/core/spo2_engine.c firmware/core/disaster_risk_engine.c \
             firmware/core/nn_risk_model.c firmware/core/nn_risk_model_int8.c -lm
           ./compare_harness
+
+      - name: Clinical biomarker indices (Moran PSI & PM2.5 autonomic strain)
+        # Neither index had a single assertion behind it: both were printed in a
+        # host profile and never compared against an expected value, which is how
+        # a constant +0.83 offset on a rested subject and a hard +0.25 step at
+        # 35 ug/m3 both survived. This step is that missing assertion.
+        run: |
+          gcc -Wall -Wextra -Werror -pedantic -std=c11 \
+            -Ifirmware/core \
+            firmware/core/test_moran_aha.c \
+            firmware/core/disaster_risk_engine.c firmware/core/nn_risk_model.c \
+            firmware/core/nn_risk_model_int8.c firmware/core/hrv_analysis.c \
+            firmware/core/pm25_correction.c firmware/core/clinical_vitals_engine.c \
+            firmware/core/spo2_engine.c firmware/core/ppg_sqi.c \
+            firmware/core/ppg_respiratory_rate.c firmware/core/ppg_baseline_rr.c \
+            firmware/core/pressure_trend.c firmware/core/skin_thermal.c \
+            -lm -o test_moran_aha
+          ./test_moran_aha
 
       - name: Clinical triage accuracy gate (MIMIC-III)
         run: |

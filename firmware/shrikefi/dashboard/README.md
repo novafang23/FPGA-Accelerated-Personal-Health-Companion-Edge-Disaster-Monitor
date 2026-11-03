@@ -124,6 +124,15 @@ computed in the host test harness and never on the live path: **Moran PSI**
 (Moran 1998) and the **AHA autonomic strain** (Brook et al., *Circulation* 2010)
 are now calculated for real on-device.
 
+> **Note on the PSI figure (2026-11-03).** The PSI formula was corrected after an
+> audit: the estimator started from a 37.0 °C resting core temperature while the
+> formula's baseline was 36.5 °C, which put a constant **+0.83** on every rested
+> subject. Both now use 37.0 °C. The sample above is a historical capture, so its
+> digits are left alone; the documented reference scenario (44 °C, 60% RH,
+> 145 bpm) reads **6.51** where it previously read **6.70**. Neither index had a
+> single assertion behind it, which is why this survived — `test_moran_aha.c` now
+> pins 29 checks on both.
+
 `LEVEL` is the `clinical_risk_level_t` ordinal and `FLAGS` is the
 `clinical_alert_flags_t` bitmask — enum mirrors, not derived logic.
 `HRPTS`, `SPO2PTS` and `RRPTS` are the engine's own NEWS2 points for HR, SpO₂

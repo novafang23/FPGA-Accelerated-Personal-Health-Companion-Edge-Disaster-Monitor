@@ -1068,9 +1068,37 @@ void disaster_assess_nn_int8(const hrv_state_t *hrv, float spo2, float bpm,
  * temperature it needs is NOT measured, so it is estimated with a simple
  * heuristic below. Buller et al. (2013) is cited only for the HR-based
  * estimation idea - their published method is a Kalman filter, not this linear
- * model. */
+ * model.
+ *
+ * Returns 0 when the index is not computable (no heart rate, or no plausible
+ * ambient/humidity reading). 0 is the sentinel this file uses for "not
+ * measured"; a caller that needs to distinguish "no strain" from "no data" must
+ * check the inputs it passed in. */
 float disaster_calculate_moran_psi(float bpm, float ambient_temp_c, float humidity_pct) {
-    if (bpm <= 30.0f) return 0.0f;
+    /* Non-finite inputs must never reach the arithmetic below: every comparison
+     * with NaN is false, so the clamps would pass NaN straight through and the
+     * status JSON would serialise "psi":nan.
+     *
+     * Note what is NOT done here: NaN is not coerced to 0. Doing that would turn
+     * a missing ambient reading into a valid 0 C one, which is a real winter
+     * temperature. The firmware uses -100 C as its "never sampled" sentinel (see
+     * s_last_temp in main_shrikefi.c), and 0 C is a legitimate reading. */
+    if (!isfinite(bpm) || !isfinite(ambient_temp_c) || !isfinite(humidity_pct)) {
+        return 0.0f;
+    }
+
+    /* bpm == 0 is the "no heart rate" sentinel. A genuinely slow heart rate is
+     * still a real measurement, so it is NOT rejected here: it simply
+     * contributes zero cardiovascular strain, which is what PSI means. Rejecting
+     * bpm <= 30 used to report 0.00 for a 25 bpm bradycardia sitting in 44 C. */
+    if (bpm <= 0.0f) return 0.0f;
+
+    /* The thermal half of PSI needs a real ambient reading. Without one the
+     * estimate would be invented from heart rate alone and reported as if it
+     * had been measured. */
+    if (ambient_temp_c <= COLD_AMBIENT_VALID_MIN_C ||
+        ambient_temp_c >= COLD_AMBIENT_VALID_MAX_C) return 0.0f;
+    if (humidity_pct < 0.0f || humidity_pct > 100.0f) return 0.0f;
 
     /* Heuristic core-temperature estimate (NOT the Buller 2013 model). This
      * heat_index is also a crude ambient+humidity proxy, not the NWS Rothfusz
@@ -1080,21 +1108,27 @@ float disaster_calculate_moran_psi(float bpm, float ambient_temp_c, float humidi
         heat_index = ambient_temp_c + 0.5f * (humidity_pct - 40.0f) * 0.1f;
     }
 
-    float t_core_est = 37.0f;
-    if (bpm > 75.0f) {
-        t_core_est += 0.015f * (bpm - 75.0f);
+    float t_core_est = PSI_T_CORE_REST_C;
+    if (bpm > PSI_HR_REST_BPM) {
+        t_core_est += 0.015f * (bpm - PSI_HR_REST_BPM);
     }
     if (heat_index > 28.0f) {
         t_core_est += 0.025f * (heat_index - 28.0f);
     }
-    if (t_core_est > 41.5f) t_core_est = 41.5f;
-    if (t_core_est < 36.5f) t_core_est = 36.5f;
+    if (t_core_est > PSI_T_CORE_MAX_C) t_core_est = PSI_T_CORE_MAX_C;
 
     /* Moran's exact PSI formula:
      * PSI = 5 * (T_core - T_core_0)/(39.5 - T_core_0) + 5 * (HR - HR_0)/(180 - HR_0)
-     * Baseline T_core_0 = 36.5 C, HR_0 = 70 bpm */
-    float t_strain = 5.0f * (t_core_est - 36.5f) / (39.5f - 36.5f);
-    float hr_strain = 5.0f * (bpm - 70.0f) / (180.0f - 70.0f);
+     *
+     * T_core_0 is the subject's RESTING core temperature, so it must equal the
+     * resting value the estimate above starts from. It previously did not: the
+     * estimate started at 37.0 C while T_core_0 was 36.5 C, which put a constant
+     * +0.83 on every rested subject. A person sitting at 70 bpm in a 24 C room
+     * scored 0.83/10 instead of 0. */
+    float t_strain = 5.0f * (t_core_est - PSI_T_CORE_REST_C) /
+                     (PSI_T_CORE_LIMIT_C - PSI_T_CORE_REST_C);
+    float hr_strain = 5.0f * (bpm - PSI_HR_REST_BPM) /
+                      (PSI_HR_LIMIT_BPM - PSI_HR_REST_BPM);
 
     if (t_strain < 0.0f) t_strain = 0.0f;
     if (hr_strain < 0.0f) hr_strain = 0.0f;
@@ -1108,25 +1142,42 @@ float disaster_calculate_moran_psi(float bpm, float ambient_temp_c, float humidi
 /* Heuristic autonomic-strain index MOTIVATED by the American Heart Association
  * statement (Brook et al., Circulation 2010): PM2.5 is associated with acute
  * autonomic dysfunction. The AHA statement does not define this formula; the
- * weights below are the project's. Returns [0.0, 1.0]. */
+ * weights below are the project's. Returns [0.0, 1.0], and 0 when the index is
+ * not computable. */
 float disaster_calculate_aha_autonomic_strain(float pm25, float rmssd) {
-    if (pm25 <= 15.0f || rmssd <= 0.0f) return 0.0f;
+    pm25  = finite_or_zero(pm25);
+    rmssd = finite_or_zero(rmssd);
+
+    /* pm25 == 0 is the "no particulate sensor" sentinel; it must not be treated
+     * as clean air. rmssd == 0 means no usable HRV. */
+    if (pm25 <= AHA_PM25_CLEAN_UGM3) return 0.0f;
+    if (rmssd <= 0.0f || rmssd > AHA_RMSSD_MAX_MS) return 0.0f;
 
     /* Baseline healthy RMSSD ~ 45-50 ms. When PM2.5 > 35 ug/m3 and RMSSD < 20 ms,
      * autonomic strain increases sharply towards 1.0 */
-    float pm_factor = (pm25 - 15.0f) / 135.0f; /* 15 -> 0, 150 -> 1.0 */
+    float pm_factor = (pm25 - AHA_PM25_CLEAN_UGM3) /
+                      (AHA_PM25_SATURATED_UGM3 - AHA_PM25_CLEAN_UGM3);
     if (pm_factor > 1.0f) pm_factor = 1.0f;
 
     float hrv_suppression = 0.0f;
-    if (rmssd < 35.0f) {
-        hrv_suppression = (35.0f - rmssd) / 30.0f;
+    if (rmssd < AHA_RMSSD_HEALTHY_MS) {
+        hrv_suppression = (AHA_RMSSD_HEALTHY_MS - rmssd) /
+                          (AHA_RMSSD_HEALTHY_MS - AHA_RMSSD_FLOOR_MS);
         if (hrv_suppression > 1.0f) hrv_suppression = 1.0f;
     }
 
-    float strain = pm_factor * 0.50f + hrv_suppression * 0.50f;
-    if (pm25 > 35.0f && rmssd < 20.0f) {
-        strain += 0.25f; /* Acute AHA autonomic depression trigger */
-    }
+    /* Continuous interaction term. This used to be a hard +0.25 switch at
+     * pm25 > 35, so 35.0 read 0.341 and 35.1 read 0.591 - a quarter of the scale
+     * for a 0.1 ug/m3 change, which is visible as a jump on the gauge. Ramping it
+     * from zero keeps the function continuous and still reaches the same maximum
+     * at saturation. */
+    float pm_over = (pm25 - AHA_PM25_ACUTE_UGM3) /
+                    (AHA_PM25_SATURATED_UGM3 - AHA_PM25_ACUTE_UGM3);
+    if (pm_over < 0.0f) pm_over = 0.0f;
+    if (pm_over > 1.0f) pm_over = 1.0f;
+
+    float strain = pm_factor * 0.50f + hrv_suppression * 0.50f +
+                   0.25f * pm_over * hrv_suppression;
 
     if (strain > 1.0f) strain = 1.0f;
     if (strain < 0.0f) strain = 0.0f;

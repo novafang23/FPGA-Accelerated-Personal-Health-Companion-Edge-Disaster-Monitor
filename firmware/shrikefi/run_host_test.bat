@@ -29,3 +29,24 @@ if %errorlevel% neq 0 (
     echo [ERROR] status.json is not valid JSON - the dashboard will show RECONNECTING
     exit /b 1
 )
+
+echo ================================================================
+echo   CLINICAL BIOMARKER INDICES (Moran PSI ^& PM2.5 autonomic strain)
+echo ================================================================
+gcc -Wall -Wextra -Werror -pedantic -std=c11 -I../../firmware/core -o "%TEMP%\test_moran_aha.exe" ^
+  ../../firmware/core/test_moran_aha.c ../../firmware/core/disaster_risk_engine.c ^
+  ../../firmware/core/nn_risk_model.c ../../firmware/core/nn_risk_model_int8.c ^
+  ../../firmware/core/hrv_analysis.c ../../firmware/core/pm25_correction.c ^
+  ../../firmware/core/clinical_vitals_engine.c ../../firmware/core/spo2_engine.c ^
+  ../../firmware/core/ppg_sqi.c ../../firmware/core/ppg_respiratory_rate.c ^
+  ../../firmware/core/ppg_baseline_rr.c ../../firmware/core/pressure_trend.c ^
+  ../../firmware/core/skin_thermal.c -lm
+if %errorlevel% neq 0 (
+    echo [ERROR] Clinical biomarker test failed to compile!
+    exit /b 1
+)
+"%TEMP%\test_moran_aha.exe"
+if %errorlevel% neq 0 (
+    echo [ERROR] Moran PSI / AHA strain regression - see failures above
+    exit /b 1
+)

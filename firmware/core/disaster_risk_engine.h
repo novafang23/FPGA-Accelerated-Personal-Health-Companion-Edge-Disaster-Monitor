@@ -274,10 +274,39 @@ void disaster_assess_nn_int8(
     nn_output_t         *raw_out
 );
 
-/* Peer-Reviewed Clinical Biomarker Models:
- * 1. Moran et al. (1998) / Buller et al. (2013) - Physiological Strain Index (PSI) [0.0 - 10.0]
- * 2. Brook et al. AHA Scientific Statement (2010) - PM2.5 Autonomic Depression Index [0.0 - 1.0]
+/* Clinical biomarker models.
+ *
+ * 1. Moran et al. (1998) Physiological Strain Index (PSI), scale [0.0, 10.0].
+ *    The formula is Moran's. The core temperature it requires is NOT measured by
+ *    this device - only skin temperature and ambient air are - so it is
+ *    estimated from heart rate and ambient conditions. PSI_T_CORE_REST_C is the
+ *    subject's resting core temperature and MUST stay equal to the resting value
+ *    the estimator starts from; when these two disagreed, the index carried a
+ *    constant +0.83 on a rested subject.
+ *
+ * 2. PM2.5 autonomic strain, scale [0.0, 1.0], MOTIVATED by the American Heart
+ *    Association statement (Brook et al., Circulation 2010) that particulate
+ *    exposure is associated with acute autonomic dysfunction. The AHA statement
+ *    does not define an index or its weights; those below are the project's, so
+ *    this must be described as a heuristic, never as an AHA formula.
+ *
+ * Both functions return 0 for "not computable" (no heart rate, no plausible
+ * ambient reading, no particulate reading, no usable RMSSD). 0 is also a real
+ * score, so a caller that needs to tell the two apart must check its inputs.
  */
+#define PSI_T_CORE_REST_C    37.0f  /* resting core temperature (deg C)       */
+#define PSI_T_CORE_LIMIT_C   39.5f  /* Moran's heat-tolerance limit (deg C)   */
+#define PSI_T_CORE_MAX_C     41.5f  /* clamp on the heuristic estimate        */
+#define PSI_HR_REST_BPM      70.0f  /* resting heart rate (bpm)               */
+#define PSI_HR_LIMIT_BPM    180.0f  /* Moran's effort limit (bpm)             */
+
+#define AHA_PM25_CLEAN_UGM3      15.0f /* WHO 24-h guideline: no strain      */
+#define AHA_PM25_ACUTE_UGM3      35.0f /* EPA 24-h standard: acute band      */
+#define AHA_PM25_SATURATED_UGM3 150.0f /* particulate factor saturates here  */
+#define AHA_RMSSD_HEALTHY_MS     35.0f /* below this, autonomic suppression  */
+#define AHA_RMSSD_FLOOR_MS        5.0f /* suppression saturates here         */
+#define AHA_RMSSD_MAX_MS        500.0f /* implausible above this -> unusable */
+
 float disaster_calculate_moran_psi(float bpm, float ambient_temp_c, float humidity_pct);
 float disaster_calculate_aha_autonomic_strain(float pm25, float rmssd);
 

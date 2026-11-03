@@ -362,7 +362,7 @@ tf_cl.word_wrap = True
 add_bullet(tf_cl, "mNEWS2 Triage Protocol", "Royal College of Physicians clinical early warning system scoring respiration, blood oxygen, and heart rate for hospital-grade triage.", first=True)
 add_bullet(tf_cl, "Karlen & Elgendi SQI (Signal Quality)", "Algorithms compute skewness, perfusion index, and waveform entropy to eliminate false alarms from arm motion.", first=False)
 add_bullet(tf_cl, "Moran's Physiological Strain Index (PSI)", "Gold-standard cardio-thermal formula quantifying heat exhaustion strain on a scale of 0-10.", first=False)
-add_bullet(tf_cl, "AHA Brook Autonomic Stress Model", "American Heart Association scientific formula linking acute fine particulate (PM2.5) exposure to vagal heart rate suppression.", first=False)
+add_bullet(tf_cl, "PM2.5 Autonomic Strain (AHA-motivated)", "Project heuristic motivated by the AHA 2010 statement linking fine particulate exposure to autonomic dysfunction. The AHA statement defines no formula; the weights are ours and this is presented as an index, not a clinical standard.", first=False)
 
 # =============================================================================
 # SLIDE 6: WORKING PROTOTYPE & LIVE DASHBOARD
