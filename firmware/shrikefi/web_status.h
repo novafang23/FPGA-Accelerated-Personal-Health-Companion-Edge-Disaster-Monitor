@@ -186,6 +186,14 @@ typedef struct {
      * absence, not calm - the page gates them on contact. */
     float psi;
     float aha;
+    /* Where psi came from, so a reader can tell an anchored value from a guess:
+     *   PSI_SRC_CORE  core temperature anchored to a reference thermometer
+     *   PSI_SRC_EST   heart-rate + ambient heuristic (Moran PSI needs a core
+     *                 temperature this device cannot measure directly)
+     *   PSI_SRC_NONE  not computable this cycle
+     * Without this tag the two are indistinguishable on the page, which is the
+     * difference between an index and an estimate dressed as one. */
+    const char *psi_source;
 
     /* Device identity, so a phone on the SoftAP can confirm which unit it is
      * talking to when more than one VALOR is in range. */
@@ -218,6 +226,13 @@ bool web_status_temp_core(const valor_status_t *s, float *out_core_c,
                           const char **out_status, float *out_ref_c,
                           const char **out_site);
 
+/* Same question without needing a snapshot: give it a measured skin value.
+ * Returns false when no calibration is active, the reading is unusable, or the
+ * calibration has expired. Used by the strain-index path, which has the skin
+ * reading before the status snapshot is assembled. */
+bool web_status_core_from_skin(float skin_c, float *out_core_c,
+                               const char **out_status);
+
 /* Publish a new snapshot. Called at 1 Hz from the monitor task; the HTTP server
  * reads it from its own task, so the copy is internally locked. The pointed-to
  * strings must outlive the call - all three come from static name tables. */
@@ -232,6 +247,11 @@ void web_status_snapshot(valor_status_t *out);
 #define SKIN_SRC_NONE      "NONE"
 #define SKIN_SRC_ESTIMATED "ESTIMATED"
 #define SKIN_SRC_TMP117    "TMP117"
+
+/* Provenance of the Moran PSI value. See psi_source in valor_status_t. */
+#define PSI_SRC_CORE "CORE"  /* core temperature anchored to a reference     */
+#define PSI_SRC_EST  "EST"   /* heart-rate + ambient heuristic               */
+#define PSI_SRC_NONE "NONE"  /* not computable this cycle                    */
 
 /* ------------------------------------------------------------------------- */
 /* Live PPG waveform transport (Wi-Fi dashboard oscilloscope)                 */

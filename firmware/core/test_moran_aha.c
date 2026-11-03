@@ -203,6 +203,56 @@ int main(void)
     CHECK(disaster_calculate_aha_autonomic_strain(120.0f, 900.0f) == 0.0f,
           "Implausible RMSSD above 500 ms is rejected");
 
+    /* ---- Moran PSI against an anchored core temperature ---------------- */
+    /* 37.0 C at rest is the baseline, so it must score 0 by construction. */
+    CHECK(disaster_calculate_moran_psi_core(70.0f, 37.0f) == 0.0f,
+          "Anchored core of 37.0 C at rest scores 0");
+
+    /* 38.5 C / 145 bpm:
+     *   t_strain = 5*(38.5-37)/(39.5-37) = 3.000
+     *   hr_strain = 5*75/110             = 3.409
+     * PSI = 6.409 */
+    CHECK(near(disaster_calculate_moran_psi_core(145.0f, 38.5f), 6.41f, 0.02f),
+          "Anchored core 38.5 C at 145 bpm scores 6.41");
+
+    /* 40.0 C at rest is a high fever with no cardiac strain: 5*3/2.5 = 6.0. */
+    CHECK(near(disaster_calculate_moran_psi_core(70.0f, 40.0f), 6.0f, 0.02f),
+          "Anchored core 40 C at rest scores 6.0 from temperature alone");
+
+    /* ---- why a raw fingertip reading must never be used as core -------- */
+    /* A healthy fingertip is 30-34 C, so feeding it to the same formula during a
+     * 44 C heat exposure reports far LESS strain than the heuristic does. That is
+     * the whole reason main_shrikefi.c requires a calibration before choosing the
+     * CORE path; if this assertion ever fails, revisit that guard. */
+    {
+        float from_raw_skin = disaster_calculate_moran_psi_core(145.0f, 33.0f);
+        float heuristic     = disaster_calculate_moran_psi(145.0f, 44.0f, 60.0f);
+        CHECK(from_raw_skin < heuristic,
+              "Raw skin as core under-reports strain versus the heuristic");
+    }
+
+    /* ---- bounded, monotone, and rejects implausible core -------------- */
+    {
+        int rising = 1;
+        float prev = disaster_calculate_moran_psi_core(100.0f, 37.0f);
+        for (float c = 37.5f; c <= 41.0f; c += 0.5f) {
+            float v = disaster_calculate_moran_psi_core(100.0f, c);
+            if (v < prev - 1e-4f) rising = 0;
+            prev = v;
+        }
+        CHECK(rising, "Anchored PSI does not decrease as core temperature rises");
+    }
+    CHECK(disaster_calculate_moran_psi_core(145.0f, 25.0f) == 0.0f,
+          "Implausible core of 25 C is rejected, not scored");
+    CHECK(disaster_calculate_moran_psi_core(145.0f, 46.0f) == 0.0f,
+          "Implausible core of 46 C is rejected, not scored");
+    CHECK(disaster_calculate_moran_psi_core(145.0f, NAN) == 0.0f,
+          "NaN core returns 0 instead of propagating NaN");
+    CHECK(disaster_calculate_moran_psi_core(0.0f, 38.5f) == 0.0f,
+          "No heart rate with a valid core still returns 0");
+    CHECK(disaster_calculate_moran_psi_core(200.0f, 41.0f) <= 10.0f,
+          "Anchored PSI never exceeds 10");
+
     printf("\nTest summary: %d / %d checks passed\n",
            (s_checks_total - s_checks_failed),
            s_checks_total);

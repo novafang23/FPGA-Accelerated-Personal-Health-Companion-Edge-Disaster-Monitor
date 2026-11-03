@@ -133,6 +133,20 @@ are now calculated for real on-device.
 > single assertion behind it, which is why this survived — `test_moran_aha.c` now
 > pins 29 checks on both.
 
+> **Two provenances for PSI (2026-11-03).** Moran's index needs a *core*
+> temperature, which this device cannot measure directly. It now has two paths,
+> and `/status.json` carries `psisrc` so a reader can tell them apart:
+>
+> | `psisrc` | Meaning |
+> |---|---|
+> | `CORE` | The TMP117 reading has been anchored to a reference thermometer this session (`/cal?ref=<oral_temp_C>`) **and** the periphery is thermally settled, so the calibrated core value is used |
+> | `EST` | Heart-rate + ambient heuristic — the fallback whenever no calibration is active |
+> | `NONE` | Nothing usable this cycle (no heart rate, or no plausible ambient reading) |
+>
+> A raw fingertip reading is never promoted to core: it sits at 30–34 °C and would
+> report *calm* during real heat illness. `test_moran_aha.c` asserts exactly that
+> comparison, so the guard cannot be removed silently.
+
 `LEVEL` is the `clinical_risk_level_t` ordinal and `FLAGS` is the
 `clinical_alert_flags_t` bitmask — enum mirrors, not derived logic.
 `HRPTS`, `SPO2PTS` and `RRPTS` are the engine's own NEWS2 points for HR, SpO₂

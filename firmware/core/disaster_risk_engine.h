@@ -300,6 +300,12 @@ void disaster_assess_nn_int8(
 #define PSI_HR_REST_BPM      70.0f  /* resting heart rate (bpm)               */
 #define PSI_HR_LIMIT_BPM    180.0f  /* Moran's effort limit (bpm)             */
 
+/* Plausible range for an anchored core temperature. Outside this the value is
+ * treated as uncomputable rather than scored, because it means the calibration
+ * or the probe is wrong, not that the subject is unusual. */
+#define PSI_CORE_VALID_MIN_C  30.0f
+#define PSI_CORE_VALID_MAX_C  45.0f
+
 #define AHA_PM25_CLEAN_UGM3      15.0f /* WHO 24-h guideline: no strain      */
 #define AHA_PM25_ACUTE_UGM3      35.0f /* EPA 24-h standard: acute band      */
 #define AHA_PM25_SATURATED_UGM3 150.0f /* particulate factor saturates here  */
@@ -308,6 +314,12 @@ void disaster_assess_nn_int8(
 #define AHA_RMSSD_MAX_MS        500.0f /* implausible above this -> unusable */
 
 float disaster_calculate_moran_psi(float bpm, float ambient_temp_c, float humidity_pct);
+
+/* Moran's PSI against an anchor-calibrated core temperature. Prefer this when a
+ * core value of known provenance exists; keep disaster_calculate_moran_psi() for
+ * when it does not. Never pass a raw fingertip reading as core temperature. */
+float disaster_calculate_moran_psi_core(float bpm, float core_temp_c);
+
 float disaster_calculate_aha_autonomic_strain(float pm25, float rmssd);
 
 #ifdef __cplusplus

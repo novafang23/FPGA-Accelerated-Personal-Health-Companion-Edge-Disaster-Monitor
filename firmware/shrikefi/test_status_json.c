@@ -225,6 +225,7 @@ int main(void) {
     s.nn_heat = 1.0f; s.nn_pollution = 1.0f; s.nn_flood = 1.0f; s.ai_valid = true;
     s.rule_heat = "CRITICAL"; s.rule_pollution = "CRITICAL"; s.rule_flood = "CRITICAL";
     s.psi = 9.87f; s.aha = 9.87f; s.ssid = "VALOR-0081";
+    s.psi_source = PSI_SRC_CORE;
     s.news2_hr_pts = 3; s.news2_spo2_pts = 3; s.news2_rr_pts = 3; s.news2_temp_pts = 2;
     s.uptime_s = 999999;
     n = web_status_json(&s, buf, sizeof buf);
@@ -236,6 +237,12 @@ int main(void) {
     ck(strstr(buf, ",,") == NULL, "no doubled comma");
     ck(strstr(buf, "nul\"") == NULL, "no truncated 'null'");
     ck(strstr(buf, "nul,") == NULL, "no truncated 'null,'");
+
+    /* PSI provenance: the page must be able to tell an anchored value from the
+     * heuristic, otherwise it presents a guess with the authority of a
+     * measurement. */
+    ck(strstr(buf, "\"psisrc\":\"CORE\"") != NULL,
+       "psi provenance is published alongside the value");
 
     /* ---- 6. fits the device buffer ------------------------------------ */
     ck(n < 1536, "worst-case payload fits the 1536-byte device buffer");

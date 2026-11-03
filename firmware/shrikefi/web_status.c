@@ -188,6 +188,24 @@ bool web_status_temp_calib_set(float skin_c, float ref_c, const char *site)
     return skin_calib_set(&s_temp_calib, skin_c, ref_c, site, now_ms + 1u);
 }
 
+bool web_status_core_from_skin(float skin_c, float *out_core_c,
+                               const char **out_status)
+{
+    if (out_core_c) *out_core_c = 0.0f;
+    if (out_status) *out_status = "uncalibrated";
+
+    if (!s_temp_calib_inited || !(skin_c > 0.0f)) return false;
+
+    const uint32_t now_ms = calib_now_ms();
+    bool ok = false;
+    const float core = skin_calib_core_c(&s_temp_calib, skin_c, now_ms + 1u, &ok);
+
+    if (out_status) *out_status = skin_calib_status(&s_temp_calib, skin_c, now_ms + 1u);
+    if (!ok) return false;
+    if (out_core_c) *out_core_c = core;
+    return true;
+}
+
 bool web_status_temp_core(const valor_status_t *s, float *out_core_c,
                           const char **out_status, float *out_ref_c,
                           const char **out_site)
@@ -197,20 +215,13 @@ bool web_status_temp_core(const valor_status_t *s, float *out_core_c,
     if (out_status) *out_status = "uncalibrated";
     if (out_site)   *out_site = "none";
 
-    if (!s || !s_temp_calib_inited || !(s->skin_temp > 0.0f)) return false;
+    if (!s) return false;
 
-    const uint32_t now_ms = calib_now_ms();
-    bool ok = false;
-    const float core = skin_calib_core_c(&s_temp_calib, s->skin_temp, now_ms + 1u, &ok);
-
-    if (out_status) *out_status = skin_calib_status(&s_temp_calib, s->skin_temp, now_ms + 1u);
     if (s_temp_calib.valid) {
         if (out_ref_c) *out_ref_c = s_temp_calib.ref_c;
         if (out_site)  *out_site = s_temp_calib.ref_site;
     }
-    if (!ok) return false;
-    if (out_core_c) *out_core_c = core;
-    return true;
+    return web_status_core_from_skin(s->skin_temp, out_core_c, out_status);
 }
 
 
@@ -567,10 +578,13 @@ size_t web_status_json(const valor_status_t *s, char *buf, size_t cap) {
         !json_append_format(buf, cap, &used, ",\"motion\":%.2f,\"fall\":", (double)s->motion) ||
         !json_append_string(buf, cap, &used, s->fall ? s->fall : "MONITORING") ||
         !json_append_format(buf, cap, &used,
-                            ",\"psi\":%.2f,\"aha\":%.2f,"
-                            "\"nnheat\":%.3f,\"nnpoll\":%.3f,\"nnflood\":%.3f,\"aivalid\":%s,"
+                            ",\"psi\":%.2f,\"aha\":%.2f,\"psisrc\":",
+                            (double)s->psi, (double)s->aha) ||
+        !json_append_string(buf, cap, &used,
+                            s->psi_source ? s->psi_source : PSI_SRC_NONE) ||
+        !json_append_format(buf, cap, &used,
+                            ",\"nnheat\":%.3f,\"nnpoll\":%.3f,\"nnflood\":%.3f,\"aivalid\":%s,"
                             "\"rheat\":",
-                            (double)s->psi, (double)s->aha,
                             (double)s->nn_heat, (double)s->nn_pollution, (double)s->nn_flood,
                             s->ai_valid ? "true" : "false") ||
         !json_append_string(buf, cap, &used, s->rule_heat ? s->rule_heat : "UNKNOWN") ||

@@ -2083,6 +2083,8 @@ static float s_last_pm10 = 0.0f;   /* coarse-particle proxy for dust detection *
         float moran_psi  = 0.0f;
         float aha_strain = 0.0f;
         bool  have_strain = false;
+        /* Provenance of moran_psi: "CORE", "EST" or "NONE" (see web_status.h). */
+        const char *psi_src = PSI_SRC_NONE;
 
         risk_assessment_t final_risk;
         memset(&final_risk, 0, sizeof(final_risk));
@@ -2301,8 +2303,47 @@ static float s_last_pm10 = 0.0f;   /* coarse-particle proxy for dust detection *
              * only inside the host test harness and never on the live path, so
              * the device had no value for them at all. Both are cited indices
              * (Moran 1998; Brook et al., AHA 2010) and the functions were
-             * already linked in, so they are now computed for real. */
-            moran_psi   = disaster_calculate_moran_psi(hr, env.ambient_temp_c, env.humidity_pct);
+             * already linked in, so they are now computed for real.
+             *
+             * Moran's index needs a CORE temperature, which this device cannot
+             * measure. Two provenances are available and psi_src records which
+             * one was used, so the page never presents the heuristic with the
+             * authority of an anchored value:
+             *
+             *   CORE  the TMP117 skin reading has been anchored to a reference
+             *         thermometer this session (skin_calib) AND the periphery is
+             *         thermally settled, so the calibrated core value is real
+             *   EST   fall back to the heart-rate + ambient heuristic
+             *   NONE  nothing usable this cycle
+             *
+             * A raw fingertip reading is never promoted to core temperature: it
+             * sits at 30-34 C and would report calm during real heat illness. */
+            float core_c = 0.0f;
+            const bool core_ok =
+                web_status_core_from_skin(pub_skin_temp, &core_c, NULL) &&
+                (s_skin_therm.state == SKIN_THERM_STABLE) &&
+                (core_c >= PSI_CORE_VALID_MIN_C) &&
+                (core_c <= PSI_CORE_VALID_MAX_C);
+
+            const bool ambient_ok =
+                isfinite(env.ambient_temp_c) &&
+                env.ambient_temp_c > COLD_AMBIENT_VALID_MIN_C &&
+                env.ambient_temp_c < COLD_AMBIENT_VALID_MAX_C &&
+                isfinite(env.humidity_pct) &&
+                env.humidity_pct >= 0.0f && env.humidity_pct <= 100.0f;
+
+            if (hr > 0.0f && core_ok) {
+                moran_psi = disaster_calculate_moran_psi_core(hr, core_c);
+                psi_src   = PSI_SRC_CORE;
+            } else if (hr > 0.0f && ambient_ok) {
+                moran_psi = disaster_calculate_moran_psi(hr, env.ambient_temp_c,
+                                                         env.humidity_pct);
+                psi_src   = PSI_SRC_EST;
+            } else {
+                moran_psi = 0.0f;
+                psi_src   = PSI_SRC_NONE;
+            }
+
             aha_strain  = disaster_calculate_aha_autonomic_strain(env.pm25, hrv_snapshot.rmssd);
             have_strain = true;
 
@@ -2542,6 +2583,7 @@ static float s_last_pm10 = 0.0f;   /* coarse-particle proxy for dust detection *
             st.rule_flood     = risk_level_to_string(rule_risk.flood_risk);
             st.psi = have_strain ? moran_psi : 0.0f;
             st.aha = have_strain ? aha_strain : 0.0f;
+            st.psi_source = have_strain ? psi_src : PSI_SRC_NONE;
             st.ssid = web_status_ap_ssid();
             /* Only the thermally settled value is published. The OLED may show
              * the raw reading while the sensor is still settling, but a status

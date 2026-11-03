@@ -1139,6 +1139,41 @@ float disaster_calculate_moran_psi(float bpm, float ambient_temp_c, float humidi
     return psi;
 }
 
+/* Moran's PSI evaluated against a core temperature that was actually anchored to
+ * a reference, rather than estimated from heart rate and weather.
+ *
+ * This is the preferred entry point whenever an anchor-calibrated core value is
+ * available (skin_calib.c: a per-session offset from a reference thermometer) and
+ * the periphery is thermally stable. It is deliberately a SEPARATE function
+ * rather than an extra argument to the heuristic one, because the two have
+ * different provenance and the caller must say which it used.
+ *
+ * Do NOT pass a raw fingertip reading here. A healthy fingertip sits at 30-34 C,
+ * which would score zero strain during real heat illness. That is why the
+ * heuristic entry point exists.
+ *
+ * Returns 0 for "not computable": no heart rate, or a core temperature outside
+ * the plausible human range (which in practice means a calibration went wrong). */
+float disaster_calculate_moran_psi_core(float bpm, float core_temp_c) {
+    if (!isfinite(bpm) || !isfinite(core_temp_c)) return 0.0f;
+    if (bpm <= 0.0f) return 0.0f;
+    if (core_temp_c < PSI_CORE_VALID_MIN_C ||
+        core_temp_c > PSI_CORE_VALID_MAX_C) return 0.0f;
+
+    float t_strain = 5.0f * (core_temp_c - PSI_T_CORE_REST_C) /
+                     (PSI_T_CORE_LIMIT_C - PSI_T_CORE_REST_C);
+    float hr_strain = 5.0f * (bpm - PSI_HR_REST_BPM) /
+                      (PSI_HR_LIMIT_BPM - PSI_HR_REST_BPM);
+
+    if (t_strain < 0.0f) t_strain = 0.0f;
+    if (hr_strain < 0.0f) hr_strain = 0.0f;
+
+    float psi = t_strain + hr_strain;
+    if (psi > 10.0f) psi = 10.0f;
+    if (psi < 0.0f)  psi = 0.0f;
+    return psi;
+}
+
 /* Heuristic autonomic-strain index MOTIVATED by the American Heart Association
  * statement (Brook et al., Circulation 2010): PM2.5 is associated with acute
  * autonomic dysfunction. The AHA statement does not define this formula; the
