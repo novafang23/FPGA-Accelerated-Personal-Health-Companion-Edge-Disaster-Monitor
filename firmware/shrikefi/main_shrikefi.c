@@ -2616,6 +2616,10 @@ static float s_last_pm10 = 0.0f;   /* coarse-particle proxy for dust detection *
              * fitted the probe drives the estimate, so the same state machine
              * sees the probe value -- which is the better input. */
             st.skin_therm_state = skin_therm_state_name(s_skin_therm.state);
+            /* Single source of truth for "is the periphery settled"; the
+             * webserver /cal handler and the console `cal` command both gate on
+             * it, so neither can anchor to a moving fingertip. */
+            web_status_skin_settled_set(s_skin_therm.state == SKIN_THERM_STABLE);
             st.skin_trend_c     = s_skin_therm.trend_c;
             st.skin_rate_c_per_min = s_skin_therm.rate_c_per_min;
             st.skin_therm_ok    = (s_skin_therm.state != SKIN_THERM_UNKNOWN);
@@ -3119,6 +3123,71 @@ static void task_imu_monitor(void *pvParameters) {
 
 /* TMP117 bus diagnostic removed */
 
+#ifdef ESP_PLATFORM
+/* Bench calibration over the USB console.
+ *
+ * The offset could previously only be written by GET /cal?ref=..., which needs a
+ * device joined to the SoftAP. On the bench the console is already attached, and
+ * asking a human to hold a fingertip on the probe while tapping a phone URL is
+ * how the calibration got taken with the finger lifted.
+ *
+ *   cal <ref_c>   anchor the current skin reading to an oral reference
+ *   calstat       report the current skin reading and thermal state
+ *
+ * Same guard as the webserver: refuses unless skin_thermal reports STABLE. */
+static void task_cal_console(void *arg)
+{
+    (void)arg;
+    char line[40];
+    printf("[CAL] console ready: 'cal <oral_ref_C>' | 'calstat'\n");
+    while (true) {
+        if (fgets(line, sizeof line, stdin) == NULL) {
+            vTaskDelay(pdMS_TO_TICKS(200));
+            continue;
+        }
+        size_t n = strlen(line);
+        while (n > 0u && (line[n - 1u] == '\n' || line[n - 1u] == '\r')) {
+            line[--n] = '\0';
+        }
+        if (n == 0u) continue;
+
+        if (strncmp(line, "calstat", 7u) == 0) {
+            valor_status_t snap;
+            web_status_snapshot(&snap);
+            printf("[CAL] skin=%.2f C  state=%s  settled=%s\n",
+                   (double)snap.skin_temp,
+                   skin_therm_state_name(s_skin_therm.state),
+                   (s_skin_therm.state == SKIN_THERM_STABLE) ? "yes" : "no");
+        } else if (strncmp(line, "cal ", 4u) == 0) {
+            char *endp = NULL;
+            const float ref_c = strtof(line + 4, &endp);
+            if (endp == line + 4 || !isfinite(ref_c)) {
+                printf("[CAL] rejected: ref is not a number\n");
+                continue;
+            }
+            valor_status_t snap;
+            web_status_snapshot(&snap);
+            if (s_skin_therm.state != SKIN_THERM_STABLE) {
+                printf("[CAL] rejected: skin not settled (state=%s) - hold still "
+                       "until calstat says settled=yes\n",
+                       skin_therm_state_name(s_skin_therm.state));
+                continue;
+            }
+            if (!web_status_temp_calib_set(snap.skin_temp, ref_c, "oral")) {
+                printf("[CAL] rejected: implausible pair (skin=%.2f ref=%.2f)\n",
+                       (double)snap.skin_temp, (double)ref_c);
+                continue;
+            }
+            printf("[CAL] anchored: skin=%.2f ref=%.2f offset=%.2f C\n",
+                   (double)snap.skin_temp, (double)ref_c,
+                   (double)(ref_c - snap.skin_temp));
+        } else {
+            printf("[CAL] unknown command\n");
+        }
+    }
+}
+#endif
+
 void app_main(void) {
     ESP_LOGI(TAG, "================================================================");
     ESP_LOGI(TAG, "  SIH26181 ShrikeFi Health Companion Firmware");
@@ -3533,6 +3602,9 @@ void app_main(void) {
     xTaskCreatePinnedToCore(task_pms5003_uart, "PMS5003_UART",     4096, NULL, 3, NULL, 1); // Core 1
     xTaskCreatePinnedToCore(task_gps_uart,     "GPS_UART",         4096, NULL, 3, NULL, 1); // Core 1
     xTaskCreatePinnedToCore(task_imu_monitor,  "IMU_Monitor",      4096, NULL, 3, NULL, 1); // Core 1
+#ifdef ESP_PLATFORM
+    xTaskCreatePinnedToCore(task_cal_console,  "CAL_Console",      4096, NULL, 1, NULL, 1); // Core 1
+#endif
 
     ESP_LOGI(TAG, "Task Affinities Configured:");
     ESP_LOGI(TAG, " - PPG_Accel (Acquisition): Core 0");

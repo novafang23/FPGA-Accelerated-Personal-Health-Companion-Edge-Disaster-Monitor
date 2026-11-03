@@ -233,6 +233,11 @@ bool web_status_temp_core(const valor_status_t *s, float *out_core_c,
 bool web_status_core_from_skin(float skin_c, float *out_core_c,
                                const char **out_status);
 
+/* Tell the calibration path whether the periphery is thermally settled.
+ * Webserver /cal refuses while this is false; the console `cal` command applies
+ * the same rule so both entry points behave identically. */
+void web_status_skin_settled_set(bool settled);
+
 /* Publish a new snapshot. Called at 1 Hz from the monitor task; the HTTP server
  * reads it from its own task, so the copy is internally locked. The pointed-to
  * strings must outlive the call - all three come from static name tables. */

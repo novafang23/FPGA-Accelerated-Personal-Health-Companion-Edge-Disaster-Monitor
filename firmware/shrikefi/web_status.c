@@ -36,6 +36,19 @@ static valor_status_t s_snap;
  * offset derived from one oral reading and expires it when it stops being
  * trustworthy (see skin_calib.c). */
 static skin_calib_t s_temp_calib;
+
+/* True while skin_thermal reports STABLE. Set by the monitor task each cycle.
+ *
+ * /cal refuses without it. A calibration taken while the periphery is still
+ * warming bakes the transient into the offset, and PSI moves 2 points per degree
+ * of core error: a 0.3 C slip is 0.6 PSI. Taken with the finger lifted it is far
+ * worse - the probe reads ambient (28.3 C against a 33.7 C finger), producing an
+ * 8.5 C offset that later reports maximum strain for a rested person. */
+static volatile bool s_skin_settled = false;
+
+void web_status_skin_settled_set(bool settled) {
+    s_skin_settled = settled;
+}
 static bool         s_temp_calib_inited = false;
 
 /* -------------------------------------------------------------------------
@@ -1379,6 +1392,15 @@ static esp_err_t h_cal(httpd_req_t *req) {
     if (endp == refbuf || !isfinite(ref_c)) {
         httpd_resp_set_type(req, "application/json");
         httpd_resp_sendstr(req, "{\"ok\":false,\"error\":\"ref is not a number\"}");
+        return ESP_OK;
+    }
+
+    if (!s_skin_settled) {
+        httpd_resp_set_type(req, "application/json");
+        httpd_resp_set_hdr(req, "Cache-Control", "no-store");
+        httpd_resp_sendstr(req,
+            "{\"ok\":false,\"error\":\"skin not settled - wait for the reading "
+            "to stop moving, then retry with the finger still on the probe\"}");
         return ESP_OK;
     }
 
