@@ -3158,6 +3158,15 @@ static void task_cal_console(void *arg)
                    (double)snap.skin_temp,
                    skin_therm_state_name(s_skin_therm.state),
                    (s_skin_therm.state == SKIN_THERM_STABLE) ? "yes" : "no");
+            /* Report the stored anchor as well: after a reboot this is the only
+             * way to tell from the console whether the NVS restore worked (a
+             * status other than "uncalibrated" means an offset was loaded). */
+            const char *sc_status = NULL;
+            float sc_core = 0.0f;
+            const bool sc_ok = web_status_temp_core(&snap, &sc_core, &sc_status,
+                                                    NULL, NULL);
+            printf("[CAL] skincal: ok=%s status=%s\n",
+                   sc_ok ? "yes" : "no", sc_status ? sc_status : "?");
         } else if (strncmp(line, "cal ", 4u) == 0) {
             char *endp = NULL;
             const float ref_c = strtof(line + 4, &endp);

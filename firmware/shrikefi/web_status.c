@@ -178,10 +178,58 @@ static void history_persist_if_dirty(void);
  * Must exist on host too: web_status.c is compiled into the host test suite,
  * where esp_log_timestamp() is unavailable. Both branches return a monotonic
  * millisecond count, which is all skin_calib needs (it only ever subtracts). */
+#ifdef ESP_PLATFORM
+#include "nvs.h"
+#include "nvs_flash.h"
+
+#define CAL_NVS_NS         "valor"
+#define CAL_NVS_BLOB       "skincal"
+#define CAL_NVS_CLOCK      "devclk"
+#define CAL_PERSIST_MAGIC  0x56414C43u  /* 'VALC' */
+#define CAL_PERSIST_VER    1u
+#define CAL_CLOCK_FLUSH_MS (5u * 60u * 1000u)
+
+/* On-flash copy of the calibration. NVS CRC-checks each entry, and this is a
+ * single-writer record written only when a calibration is taken. */
+typedef struct {
+    uint32_t magic;
+    uint32_t version;
+    float    offset_c;
+    float    ref_c;
+    float    skin_at_cal_c;
+    uint32_t cal_ms;
+    char     site[12];
+} cal_persist_t;
+
+static bool     s_cal_nvs_ready  = false;
+static uint32_t s_dev_base_ms    = 0;   /* device-ms at last boot            */
+static uint32_t s_clk_flushed_ms = 0;   /* device-ms of the last clock flush */
+
+static bool cal_nvs_open(nvs_handle_t *h)
+{
+    if (!s_cal_nvs_ready) {
+        esp_err_t err = nvs_flash_init();
+        if (err == ESP_ERR_NVS_NO_FREE_PAGES || err == ESP_ERR_NVS_NEW_VERSION_FOUND) {
+            if (nvs_flash_erase() != ESP_OK) return false;
+            err = nvs_flash_init();
+        }
+        /* ESP_ERR_INVALID_STATE means NVS is already up (Wi-Fi initialises it
+         * early). Treating that as failure silently disabled persistence. */
+        if (err != ESP_OK && err != ESP_ERR_INVALID_STATE) return false;
+        s_cal_nvs_ready = true;
+    }
+    return nvs_open(CAL_NVS_NS, NVS_READWRITE, h) == ESP_OK;
+}
+#endif /* ESP_PLATFORM */
+
+/* Device-milliseconds. Survives reboots so an offset cannot outlive its 4-hour
+ * validity window just because the board was power-cycled. */
 static uint32_t calib_now_ms(void)
 {
 #ifdef ESP_PLATFORM
-    return (uint32_t)esp_log_timestamp();
+    /* esp_log_timestamp() is monotonic since boot and never blocks; the base
+     * carries the part accumulated before the last reboot. */
+    return s_dev_base_ms + (uint32_t)esp_log_timestamp();
 #else
     static uint32_t host_ms = 0;
     host_ms += 1000u;   /* one simulated second per call: enough for tests */
@@ -189,16 +237,95 @@ static uint32_t calib_now_ms(void)
 #endif
 }
 
+#ifdef ESP_PLATFORM
+static void cal_persist_load(void)
+{
+    nvs_handle_t h;
+    if (!cal_nvs_open(&h)) return;
+
+    uint32_t clk = 0;
+    if (nvs_get_u32(h, CAL_NVS_CLOCK, &clk) == ESP_OK) {
+        s_dev_base_ms = clk;
+    }
+
+    cal_persist_t rec;
+    size_t len = sizeof rec;
+    if (nvs_get_blob(h, CAL_NVS_BLOB, &rec, &len) == ESP_OK &&
+        len == sizeof rec && rec.magic == CAL_PERSIST_MAGIC &&
+        rec.version == CAL_PERSIST_VER) {
+        s_temp_calib.offset_c      = rec.offset_c;
+        s_temp_calib.ref_c         = rec.ref_c;
+        s_temp_calib.skin_at_cal_c = rec.skin_at_cal_c;
+        s_temp_calib.cal_ms        = rec.cal_ms;
+        s_temp_calib.ref_site      = rec.site[0] ? "oral" : "unknown";
+        s_temp_calib.valid         = true;
+    }
+    nvs_close(h);
+}
+
+static void cal_persist_save(void)
+{
+    nvs_handle_t h;
+    if (!cal_nvs_open(&h)) return;
+
+    cal_persist_t rec;
+    memset(&rec, 0, sizeof rec);
+    rec.magic         = CAL_PERSIST_MAGIC;
+    rec.version       = CAL_PERSIST_VER;
+    rec.offset_c      = s_temp_calib.offset_c;
+    rec.ref_c         = s_temp_calib.ref_c;
+    rec.skin_at_cal_c = s_temp_calib.skin_at_cal_c;
+    rec.cal_ms        = s_temp_calib.cal_ms;
+    if (s_temp_calib.ref_site) {
+        strncpy(rec.site, s_temp_calib.ref_site, sizeof rec.site - 1u);
+    }
+    if (nvs_set_blob(h, CAL_NVS_BLOB, &rec, sizeof rec) == ESP_OK) {
+        const uint32_t now = calib_now_ms();
+        nvs_set_u32(h, CAL_NVS_CLOCK, now);
+        s_clk_flushed_ms = now;
+        nvs_commit(h);
+    }
+    nvs_close(h);
+}
+
+/* Periodic clock flush so a power loss costs at most one flush interval of
+ * recorded age, not the whole session. */
+static void cal_persist_tick(void)
+{
+    const uint32_t now = calib_now_ms();
+    if (now - s_clk_flushed_ms < CAL_CLOCK_FLUSH_MS) return;
+    nvs_handle_t h;
+    if (!cal_nvs_open(&h)) return;
+    if (nvs_set_u32(h, CAL_NVS_CLOCK, now) == ESP_OK) {
+        s_clk_flushed_ms = now;
+        nvs_commit(h);
+    }
+    nvs_close(h);
+}
+#endif /* ESP_PLATFORM */
+
+/* Initialise once, restoring a stored offset if one is present. */
+static void calib_ensure_init(void)
+{
+    if (s_temp_calib_inited) return;
+    skin_calib_init(&s_temp_calib);
+    s_temp_calib_inited = true;
+#ifdef ESP_PLATFORM
+    cal_persist_load();
+#endif
+}
+
 bool web_status_temp_calib_set(float skin_c, float ref_c, const char *site)
 {
-    if (!s_temp_calib_inited) {
-        skin_calib_init(&s_temp_calib);
-        s_temp_calib_inited = true;
-    }
+    calib_ensure_init();
     const uint32_t now_ms = calib_now_ms();
     /* +1 so a calibration taken at the same millisecond as the query is not
      * immediately rejected as "stale" by a zero/negative elapsed check. */
-    return skin_calib_set(&s_temp_calib, skin_c, ref_c, site, now_ms + 1u);
+    const bool cal_ok = skin_calib_set(&s_temp_calib, skin_c, ref_c, site, now_ms + 1u);
+#ifdef ESP_PLATFORM
+    if (cal_ok) cal_persist_save();
+#endif
+    return cal_ok;
 }
 
 bool web_status_core_from_skin(float skin_c, float *out_core_c,
@@ -207,7 +334,8 @@ bool web_status_core_from_skin(float skin_c, float *out_core_c,
     if (out_core_c) *out_core_c = 0.0f;
     if (out_status) *out_status = "uncalibrated";
 
-    if (!s_temp_calib_inited || !(skin_c > 0.0f)) return false;
+    calib_ensure_init();
+    if (!(skin_c > 0.0f)) return false;
 
     const uint32_t now_ms = calib_now_ms();
     bool ok = false;
@@ -268,6 +396,9 @@ static void history_nvs_store(const uint8_t *blob, size_t len) {
 #endif
 
 void web_status_publish(const valor_status_t *s) {
+#ifdef ESP_PLATFORM
+    cal_persist_tick();
+#endif
     if (!s) return;
     WS_LOCK();
     s_snap = *s;
@@ -1374,10 +1505,7 @@ static esp_err_t h_cal(httpd_req_t *req) {
     char refbuf[24] = {0};
     valor_status_t snap;
 
-    if (!s_temp_calib_inited) {
-        skin_calib_init(&s_temp_calib);
-        s_temp_calib_inited = true;
-    }
+    calib_ensure_init();
 
     if (httpd_req_get_url_query_str(req, q, sizeof(q)) != ESP_OK ||
         httpd_query_key_value(q, "ref", refbuf, sizeof(refbuf)) != ESP_OK) {
