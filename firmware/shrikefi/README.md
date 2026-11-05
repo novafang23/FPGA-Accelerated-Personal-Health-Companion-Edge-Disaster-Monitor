@@ -2,8 +2,8 @@
 
 ESP-IDF application for the **ShrikeFi** platform (ESP32-S3 + Renesas ForgeFPGA
 `SLG47910C`). The port is implemented — see
-[docs/MIGRATION.md](../../docs/MIGRATION.md) for the platform roadmap and
-[docs/SHRIKEFI_LINK_PROTOCOL.md](../../docs/SHRIKEFI_LINK_PROTOCOL.md) for the
+[docs/PROJECT_CONTEXT.md](../../docs/PROJECT_CONTEXT.md) for the platform roadmap and
+[docs/PROJECT_CONTEXT.md](../../docs/PROJECT_CONTEXT.md) for the
 SPI link protocol.
 
 ## What the application does

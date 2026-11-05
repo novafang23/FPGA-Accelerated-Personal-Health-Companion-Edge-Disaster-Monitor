@@ -54,7 +54,7 @@ def check_text_line(file_path, line_no, line, context_lines=None):
 
     # RULE: STALE-PATH
     if "docs/PROJECT_GUIDE.md" in clean:
-        add_violation(file_path, line_no, "STALE-PATH", "Referenced nonexistent docs/PROJECT_GUIDE.md (use docs/MASTER_PROJECT_GUIDE.md)", clean)
+        add_violation(file_path, line_no, "STALE-PATH", "Referenced nonexistent docs/PROJECT_GUIDE.md (use docs/PROJECT_CONTEXT.md)", clean)
 
     # RULE: TEACHER - 88.39% or 88.47% without teacher/agreement/distil
     if re.search(r"88\.(39|47)\s*%", clean, re.IGNORECASE):

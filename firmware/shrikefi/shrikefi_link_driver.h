@@ -14,7 +14,7 @@
  * queues a five-byte IBI burst (0xC3 + 32-bit 50 MHz cycle count, MSB first),
  * which the driver reads; the esp_timer_get_time() delta is only a fallback for
  * older bitstreams without the burst. Full specification:
- * docs/SHRIKEFI_LINK_PROTOCOL.md.
+ * docs/PROJECT_CONTEXT.md.
  *
  * Earlier revisions of this header declared a "4-bit parallel GPIO bus" with a
  * SHRIKEFI_CMD_* nibble codebook and a shrikefi_pins_t carrying a strobe, a

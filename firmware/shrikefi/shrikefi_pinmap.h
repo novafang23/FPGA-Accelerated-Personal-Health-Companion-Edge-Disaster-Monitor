@@ -129,7 +129,7 @@
  * retired before it was ever implemented, and its pin aliases (PIN_FPGA_DATA0
  * ..3, PIN_FPGA_STROBE, PIN_FPGA_DIR, PIN_FPGA_BEAT_IRQ) were declared here but
  * never referenced by any code. They have been removed rather than left to
- * suggest a bus that does not exist. See docs/SHRIKEFI_LINK_PROTOCOL.md.
+ * suggest a bus that does not exist. See docs/PROJECT_CONTEXT.md.
  *
  * NOTE: These are completely internal to the Shrike-Fi PCB. No Zero PCB wiring needed!
  * ====================================================================== */

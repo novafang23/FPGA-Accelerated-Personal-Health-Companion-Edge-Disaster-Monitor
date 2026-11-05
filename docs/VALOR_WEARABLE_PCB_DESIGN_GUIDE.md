@@ -434,7 +434,7 @@ placement, thermal design or RF keep-out — those are your job.
 The earlier draft described this as beginner-friendly one-click assembly. Three problems
 with that, in order of severity:
 
-1. **The ForgeFPGA is a chip-scale part.** `docs/MIGRATION.md` records the target as
+1. **The ForgeFPGA is a chip-scale part.** `docs/PROJECT_CONTEXT.md` records the target as
    SLG47910C in **WLCSP-20** — 0.4 mm pitch, no leads. This is not hand-solderable and
    needs a stencil, reflow and ideally X-ray. The earlier BOM calling it QFN-24 was wrong.
 2. **JLCPCB may not stock it.** Renesas FPGA parts are not commodity LCSC stock. Confirm
@@ -493,7 +493,7 @@ I (1102) SOFTAP: Wi-Fi Access Point active: SSID='VALOR-0081', IP=192.168.4.1
 ```
 
 > `received 0x00` is the **expected** handshake result, not a failure. See
-> `docs/SHRIKEFI_LINK_PROTOCOL.md`. The proof the FPGA is alive is that it drives MISO at
+> `docs/PROJECT_CONTEXT.md`. The proof the FPGA is alive is that it drives MISO at
 > all rather than leaving it floating.
 
 5. **Live check.** Cover the optical window with a fingertip: D3 should flash with each

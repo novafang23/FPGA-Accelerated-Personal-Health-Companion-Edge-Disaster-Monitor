@@ -44,7 +44,7 @@ def load(path):
         f = open(path, newline="", encoding="utf-8")
     except FileNotFoundError:
         sys.exit(f"No such file: {path}\n"
-                 "See docs/SKIN_TEMP_VALIDATION_PROTOCOL.md for the format.")
+                 "See docs/PROJECT_CONTEXT.md for the format.")
     except OSError as e:
         sys.exit(f"Cannot open {path}: {e}")
 
@@ -88,7 +88,7 @@ def main():
         print(f"\nREFUSING: {n} usable session(s); need >= {MIN_SESSIONS}.")
         print("This measures how STABLE the offset is. With a handful of")
         print("sessions the SD is not estimable, and reporting one would be")
-        print("inventing precision. See docs/SKIN_TEMP_VALIDATION_PROTOCOL.md")
+        print("inventing precision. See docs/PROJECT_CONTEXT.md")
         return 2
 
     sessions = sorted({r["sid"] for r in rows})

@@ -2,13 +2,13 @@
 
 RTL and synthesis evidence for the **ShrikeFi** target: an ESP32-S3 plus a
 Renesas ForgeFPGA (1120 five-input LUTs) connected by a **4-wire SPI link**.
-The port is implemented — see [docs/MIGRATION.md](../../docs/MIGRATION.md).
+The port is implemented — see [docs/PROJECT_CONTEXT.md](../../docs/PROJECT_CONTEXT.md).
 
 > **The interconnect is SPI, not the 4-bit parallel link described in some older
 > notes.** The parallel nibble protocol (`link_strobe` / `link_dir` /
 > `link_din[3:0]` / `link_dout[3:0]` / `irq_beat`) was replaced by commit
 > `a44013f`. If you find a document, a comment or a testbench that drives those
-> signals, it is stale — see [docs/SHRIKEFI_LINK_PROTOCOL.md](../../docs/SHRIKEFI_LINK_PROTOCOL.md)
+> signals, it is stale — see [docs/PROJECT_CONTEXT.md](../../docs/PROJECT_CONTEXT.md)
 > for current protocol status.
 
 ## RTL layout
@@ -109,7 +109,7 @@ transfers (`0xC3`, then the 32-bit cycle count MSB first); the driver reads it
 and falls back to an `esp_timer_get_time()` interval for older bitstreams. Pin
 assignment is defined by `forgefpga_pins.pcf`, not by any prose document. The
 driver side is `firmware/shrikefi/shrikefi_link_driver.c`; the burst framing is
-documented in `docs/SHRIKEFI_LINK_PROTOCOL.md`.
+documented in `docs/PROJECT_CONTEXT.md`.
 
 ## Rebuilding the bitstream
 

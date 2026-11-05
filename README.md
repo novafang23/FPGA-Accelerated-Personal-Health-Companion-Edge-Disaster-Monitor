@@ -289,7 +289,7 @@ The ShrikeFi board has no on-chip AXI bus and the ForgeFPGA has no processor, so
 
 > The timing figure that used to sit here showed the retired 4-bit parallel
 > protocol and has been removed rather than reproduced. The frame and timing are
-> specified in [`docs/SHRIKEFI_LINK_PROTOCOL.md`](docs/SHRIKEFI_LINK_PROTOCOL.md);
+> specified in [`docs/PROJECT_CONTEXT.md`](docs/PROJECT_CONTEXT.md);
 > regenerate the figure from those tables before reuse.
 
 * **Frame:** one 8-bit full-duplex transaction per optical sample, at roughly 100 Hz. CS (`GPIO 10` / `PIN_17`) is pulled low around the transaction; the MCU shifts the 8-bit sample out on MOSI while the FPGA shifts its reply back on MISO over the same 8 clock edges. The runtime link runs at 1 MHz; the bitstream is pushed over the same bus at 16 MHz during boot.
@@ -554,18 +554,11 @@ To maintain transparent, professional engineering rigor, our validation boundari
 │   └── generate_sih_official_presentation.py # Official SIH template generator (6 slides)
 │
 ├── docs/
-│   ├── images/                     # Waveforms, schematics, floorplans & CAD renders
-│   ├── media/                      # 360° Wearable enclosure rotation video
-│   ├── presentation/               # SIH26181 Official Presentation Decks
-│   │   ├── FINAL_FINAL_v6.pdf      # Strict 6-slide SIH portal submission PDF
-│   │   ├── FINAL_FINAL_v6.pptx     # Editable official SIH presentation pitch deck
-│   │   └── FINAL_FINAL_v6.ppsx     # Direct presentation show (PowerPoint)
-│   ├── archive/                    # Historical specifications & migration records
-│   ├── theory/                     # Master theory notes & printable PDF book
-│   ├── HARDWARE_ARCHITECTURE.md    # In-depth microarchitecture specification
-│   ├── QUALCOMM_PLATFORM_STRATEGY.md # Qualcomm Snapdragon Wear W5+ migration spec
-│   ├── MIGRATION.md                # ShrikeFi platform migration roadmap & matrix
-│   └── SHRIKEFI_LINK_PROTOCOL.md   # SPI FPGA↔MCU link protocol specification
+│   ├── PROJECT_CONTEXT.md          # ← complete A→Z context (start here)
+│   ├── VALOR_WEARABLE_PCB_DESIGN_GUIDE.md  # wearable PCB design intent (Rev A)
+│   ├── reference/                  # original Vicharak ShrikeFi pinouts & reference code
+│   │   └── shrike_board/           # shrike_pinouts_full.txt, Web_FPGA_programmer.ino, ...
+│   └── images/                     # schematic / diagram exports (SVG)
 │
 ├── .github/workflows/              # CI: compilation, testing, secret scanning
 ├── launch_dashboard.bat            # One-click native desktop GUI launcher

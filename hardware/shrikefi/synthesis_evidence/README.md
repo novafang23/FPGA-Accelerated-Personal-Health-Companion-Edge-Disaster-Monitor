@@ -55,7 +55,7 @@ each log:
 Consequences worth knowing:
 
 * **The footprint figures previously quoted in `README.md` and
-  `docs/MIGRATION.md` (443 LUT5s / 353 FFs / 85 CLBs) belong to the superseded
+  `docs/PROJECT_CONTEXT.md` (443 LUT5s / 353 FFs / 85 CLBs) belong to the superseded
   parallel design.** They describe a design that no longer exists.
 * **The "consumes the part's only PLL" warning was an artefact of that same
   superseded build.** The SPI design runs from the on-chip oscillator and leaves
