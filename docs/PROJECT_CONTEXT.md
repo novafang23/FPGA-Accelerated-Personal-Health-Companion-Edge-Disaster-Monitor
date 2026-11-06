@@ -12,7 +12,7 @@ contracts, and the honest list of what is *not* verified.
 | Repo | `FPGA-Accelerated-Personal-Health-Companion-Edge-Disaster-Monitor` |
 | Branch | `main` |
 | What it is | Offline, wearable, multi-hazard health + environment monitor for first responders, evacuees, industrial workers |
-| Status | Bench prototype working end-to-end. Wearable PCB is **design intent only** (not fabricated): Rev A = 45 × 50 mm chest patch, carrier around the ShrikeFi module |
+| Status | Bench prototype working end-to-end. Wearable PCB is **design intent only** (not fabricated): Rev A = **44 mm wrist watch**, 40 × 38 mm board, carrier around an ESP32-S3-WROOM-1U module |
 | Regulatory | **Not a medical device.** Research / competition prototype |
 
 ---

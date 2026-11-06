@@ -1,4 +1,4 @@
-# VALOR Wearable — Rev A Carrier Board (Chest / Sternum Patch)
+# VALOR Wearable — Rev A Wrist Watch
 
 **Status: DESIGN INTENT. Nothing here has been fabricated, assembled or measured.**
 No Gerbers exist. No Rev A prototype has been built. Every number is a
@@ -7,513 +7,455 @@ specification to be met, not a result.
 | Field | Value |
 |---|---|
 | Project | SIH26181 — VALOR |
-| Revision | **Rev A** — carrier board around the ShrikeFi module |
-| Form factor | **Chest / sternum patch**, 45 × 50 mm, worn under or over clothing |
-| Outline | **45.0 × 50.0 mm** (see §2 — an earlier 45 × 40 figure was wrong) |
-| Layers | 4 (ENIG, 1.2 mm) |
-| MCU + FPGA | **Vicharak ShrikeFi module** (ESP32-S3 + SLG47910C), socketed/header |
-| Display | 0.96" SSD1306 I2C **module** |
+| Revision | **Rev A** — carrier board around an ESP32-S3 module |
+| Form factor | **Wrist watch**, 44 mm round case, 40 × 38 mm PCB |
+| MCU + FPGA | **ESP32-S3-WROOM-1U** (external antenna) + on-module SLG47910C |
+| Display | **0.66" 64×48 SSD1306 I2C module** (18 × 18 mm) |
+| Cell | 200–250 mAh single-cell LiPo, ~25 × 20 × 3 mm |
+| Charging | **Pogo contacts** (no USB-C on the watch) |
+| Layers | 4, 0.8–1.0 mm, ENIG |
 | Regulatory | **Not a medical device.** Research / competition prototype |
 
-> **What changed from the previous revision of this document.** The previous draft
-> was an "ultra-compact 38 × 36 mm wearable" that (a) did not close geometrically,
-> and (b) then "closed" at 45 × 40 mm using an area-only calculation. Area is not
-> the constraint: the module occupies 18 mm of board height and the display needs
-> 27 mm, and they cannot overlap because the display would sit over the antenna
-> keep-out. The outline is now **45 × 50 mm**. The electrical corrections from the
-> earlier audit (BME280 supply pins, MAX30102 dual rails, MPU6050 CPOUT/REGOUT,
-> the P-FET gate inverter, unique designators) remain in force.
-
----
-
-## Table of Contents
-
-1. [Rev A vs Rev B](#1-rev-a-vs-rev-b)
-2. [Packaging budget and the outline](#2-packaging-budget-and-the-outline)
-3. [Bill of materials](#3-bill-of-materials)
-4. [Schematic by subsystem](#4-schematic-by-subsystem)
-5. [Stackup and design rules](#5-stackup-and-design-rules)
-6. [Placement](#6-placement)
-7. [Optics and the skin interface](#7-optics-and-the-skin-interface)
-8. [Power path, charging and battery](#8-power-path-charging-and-battery)
-9. [Ingress, mechanics and strap](#9-ingress-mechanics-and-strap)
-10. [Routing](#10-routing)
-11. [Manufacturing and assembly](#11-manufacturing-and-assembly)
-12. [Bring-up](#12-bring-up)
-13. [What this document does not establish](#13-what-this-document-does-not-establish)
-14. [Pre-order verification checklist](#14-pre-order-verification-checklist)
+> **Why this revision exists.** A wrist watch cannot host the patch-board layout.
+> The 15 mm antenna keep-out of a PCB-antenna module plus a 0.96" display needs
+> ~45 mm of board length, which makes a 48 mm+ case — not a watch. Two changes fix
+> that: an **external-antenna module** (no keep-out at all) and a **0.66" display**
+> (18 mm instead of 27 mm). The board becomes 40 × 38 mm and fits a 44 mm case.
+>
+> ⚠️ **The engineering risk moved, it did not disappear.** Wrist PPG is much weaker
+> and far noisier than a fingertip (§7.5). Read that section before committing to a
+> wrist design.
 
 ---
 
 ## 1. Rev A vs Rev B
 
-Doing the FPGA in Rev A is the single riskiest choice available: the SLG47910C is
-**WLCSP-20 at 0.4 mm pitch**, needs a stencil, reflow and ideally X-ray, and its
-JLCPCB stock is unconfirmed. One bad joint kills the board.
-
 | | **Rev A (this document)** | Rev B (later) |
 |---|---|---|
-| Compute | ShrikeFi module on headers | FPGA as a bare IC on-board |
-| Board | Carrier: sensors, power, display, connectors | Single integrated board |
-| Goal | Prove the **wearable form factor** and the optics | Miniaturise, one board |
-| Risk | Low | High (assembly + sourcing) |
-| Keeps determinism claim | Yes — same silicon | Yes |
+| Compute | `ESP32-S3-WROOM-1U` module + U.FL antenna | Bare ESP32-S3 + bare FPGA |
+| FPGA | on the module | WLCSP-20 integrated |
+| Board | 40 × 38 mm watch PCB | smaller, single die pair |
+| Goal | Prove the **watch form factor and the optics** | Miniaturise |
+| Assembly risk | Low | High (0.4 mm pitch, sourcing) |
 
-The module is 25.5 × 18.0 mm and is mounted on **headers or a socket**, so it can be
-replaced if damaged. That is a deliberate Rev A trade: a little height for a lot of
-recoverability.
-
-**Do not skip Rev A.** Almost every wearable failure is mechanical or optical, not
-electrical, and Rev B cannot fix an optical design that was never validated.
+The `-1U` variant is the whole reason a watch is feasible: it has **no PCB antenna**,
+so the 15 mm copper-free keep-out disappears and the board can use its full width.
+The antenna becomes an FPC that lives in the strap or on the case wall — where a
+watch antenna belongs anyway, because a wrist is a bad place to radiate from a
+ground plane.
 
 ---
 
-## 2. Packaging budget and the outline
+## 2. Packaging budget — why 40 × 38 mm
 
-### 2.1 Why 45 × 50 mm
+### 2.1 Linear fit is what matters
 
-| Item | Dimension | Consumes |
+| Item | Size | Consumes |
 |---|---|---|
-| ShrikeFi module | 25.5 × 18.0 mm | 18 mm of board **length** (top edge) |
-| Antenna keep-out | 15 × 18 mm | inside the module's 18 mm strip, copper-free on **all** layers |
-| 0.96" OLED module | 27.3 × 27.0 mm | 27 mm of board **length** below the module |
-| USB-C | 8.94 × 7.35 mm | edge, top strip |
-| Power section | ~12 × 10 mm | beside the module |
-| Skin sensors | ~10 × 6 mm | one end of the **bottom** face |
-| LiPo cell | ~25 × 20 × 4 mm | bottom face, offset from the sensors |
+| `WROOM-1U` module | 25.5 × 18.0 mm | **18 mm of length** (12 o'clock end) |
+| 0.66" OLED module | ~18 × 18 mm | **18 mm of length** (centre) |
+| Cell | 25 × 20 × 3 mm | bottom face, offset toward 12 o'clock |
+| MAX30102 + TMP117 | ~10 × 6 mm | bottom face at **6 o'clock** |
+| Power section | ~10 × 8 mm | beside the module |
 
-Length is set by **18 + 27 = 45 mm minimum**, plus 2.5 mm margin top and bottom →
-**50 mm**. Width is set by the display (27.3) and module (25.5) plus the power
-section → **45 mm**.
+18 + 18 = **36 mm** of length, plus 1 mm margins → **38 mm**. Width is set by the
+module at 25.5 mm, but 40 mm is chosen so the 6 o'clock sensor end has room for the
+case-back protrusion and the strap lugs.
 
-So: **45 × 50 mm**. A sternum patch of this size is normal (consumer ECG patches
-run 60 × 40 mm).
+**No antenna keep-out is required** because the module has no antenna. Do keep the
+U.FL pigtail and the antenna FPC **away from** the PPG traces and the cell.
 
-### 2.2 The battery-versus-sensor conflict
+### 2.2 The case
 
-The bottom face is the skin face, so it holds the sensors — but a 4 mm cell needs
-the same real estate. They cannot share it. The layout therefore splits the bottom
-face:
-
-```
-TOP FACE                    BOTTOM FACE (skin)
-┌───────────────────┐       ┌───────────────────┐
-│  ShrikeFi module  │  ←18mm│   (header tails)   │
-│  [antenna at top] │       │                    │
-├───────────────────┤       ├───────────────────┤
-│                   │       │   LiPo cell        │
-│  0.96" OLED       │ 27mm  │   25 × 20 × 4 mm   │
-│  display module   │       │                    │
-├───────────────────┤       ├───────────────────┤
-│ power / connectors│       │ MAX30102 + TMP117  │
-└───────────────────┘       └───────────────────┘
-                              ↑ skin contact here
-```
-
-Consequence: **the sensors sit at one end of the patch, not the centre.** That is
-fine for a chest patch (sternum is a good PPG site) and it is why a strap anchor
-must be near that end, so the sensor end is the end that is pulled against skin.
-
-### 2.3 Thickness budget
+44 mm diameter, 12.5 mm thick:
 
 | Layer | mm |
 |---|---|
-| PCB (4-layer) | 1.2 |
-| Module on headers | 3.1 + 2.5 header |
-| Cell | 4.0 |
-| Display module | 2.6 |
-| Enclosure walls (2 × 1.2) + clearance | 2.4 + 0.8 |
-| **Total** | **≈ 16.6** |
+| Case back + sensor protrusion | 1.5 |
+| PCB (0.8 mm) | 0.8 |
+| Cell (3.0 mm) | 3.0 |
+| Display module | 2.4 |
+| Crystal / cover glass | 0.8 |
+| Gasket + clearances | 4.0 |
+| **Total** | **12.5** |
 
-That is a patch, not a watch. To get under 12 mm, go to Rev B (bare FPGA, no
-headers) and a 3 mm cell.
+44 mm is a large watch but a normal one (many sport watches are 44–46 mm). Going to
+40 mm means dropping to a 0.49" display and a smaller cell.
+
+### 2.3 Bottom-face conflict, resolved
+
+The back face must hold the cell **and** the skin sensors. They cannot share space,
+so the watch is split front-to-back, not left-to-right:
+
+```
+CASE BACK (skin side)                MOVEMENT
+┌──────────────────────────┐
+│  12 o'clock: cell        │        PCB top: module (12), display (centre)
+│  25 × 20 × 3             │        PCB bottom: cell (12), sensors (6)
+├──────────────────────────┤
+│   6 o'clock: optical     │        ← convex case back presses these into skin
+│   window + TMP117        │
+└──────────────────────────┘
+```
+
+Consequence: **the sensor end must be the strap-tight end.** Put the buckle side at
+12 o'clock and the tail at 6 o'clock so the strap tension pulls the optical window
+onto the wrist rather than lifting it.
 
 ---
 
 ## 3. Bill of materials
 
-Designators are unique across the board. Items marked **verify** have no confirmed
-LCSC number yet — confirm stock before layout.
-
 ### 3.1 Compute and sensors
 
-| Ref | Part | Package | Face | Notes |
-|---|---|---|---|---|
-| U1 | Vicharak ShrikeFi module | 2 × 20-pin headers | Top | ESP32-S3 + SLG47910C. Socketed |
-| U2 | MAX30102EFD+T | LGA-14 (OESIP) | **Bottom** | **Dual rail: VDD 1.8 V, VLED+ 3.3 V** |
-| U3 | TMP117AIDRVR | WSON-6 | **Bottom** | ±0.1 °C class, address 0x48 |
-| U4 | BME280 | LGA-8 | Top | 0x76, needs a vent |
-| U5 | MPU-6050 | QFN-24 | Top | 0x68 |
-| U6 | SSD1306 0.96" module | 4-pin I2C | Top | via J3 |
+| Ref | Part | Face | Notes |
+|---|---|---|---|
+| U1 | **ESP32-S3-WROOM-1U-N8R2** | Top | 8 MB flash, 2 MB PSRAM, **U.FL antenna** |
+| ANT1 | 2.4 GHz FPC antenna + U.FL lead | Case/strap | keep clear of PPG and cell |
+| U2 | MAX30102EFD+T | **Bottom** | **VDD 1.8 V, VLED+ 3.3 V** |
+| U3 | TMP117AIDRVR | **Bottom** | 0x48, thermal pad to skin island |
+| U4 | BME280 | Top | 0x76, needs a vent — a watch traps air, see §9.3 |
+| U5 | MPU-6050 | Top | 0x68 |
+| U6 | **0.66" SSD1306 module** (64×48) | Top | 4-pin I2C, ~18 × 18 mm |
 
 ### 3.2 Power
 
-| Ref | Part | Package | Notes |
-|---|---|---|---|
-| U7 | AP2112K-3.3 | SOT-23-5 | main 3.3 V |
-| U8 | AP2112K-1.8 | SOT-23-5 | **PPG core rail** |
-| U9 | MCP73831T-2ACI/OT | SOT-23-5 | charger, 212 mA |
-| U10 | DW01A | SOT-23-6 | protection controller |
-| U11 | FS8205A | TSSOP-8 | protection FETs |
-| U12 | PCA9306 | VSSOP-8 | **I2C 3.3 V ↔ 1.8 V** |
-| U13 | MAX17048 | TDFN-8 | **fuel gauge, I2C 0x36** (firmware support absent — see §8.3) |
-| U14 | TPS22918 or FDC6330L | SOT-23-5 | **power path / load switch** |
-| Q1 | 2N7002 | SOT-23 | buzzer driver |
-| Q2 | 2N7002 | SOT-23 | FPGA power-gate inverter |
-| Q3 | AO3401A (P-FET) | SOT-23 | FPGA high-side switch |
+| Ref | Part | Notes |
+|---|---|---|
+| U7 | AP2112K-3.3 | main rail |
+| U8 | AP2112K-1.8 | **PPG core rail** |
+| U9 | MCP73831T-2ACI/OT | charge from pogo contacts |
+| U10/U11 | DW01A + FS8205A | cell protection (mandatory, worn against skin) |
+| U12 | PCA9306 | **I2C 3.3 V ↔ 1.8 V** |
+| U13 | MAX17048 | fuel gauge, I2C **0x36** (firmware does not read it — §8.4) |
+| U14 | Load switch / ideal diode | runs from charge input with no cell |
+| Q1/Q2/Q3 | 2N7002 ×2, AO3401A | buzzer, FPGA power gate |
 
-### 3.3 Connectors, indicators, electromechanical
+### 3.3 Connectors and electromechanical
 
 | Ref | Part | Notes |
 |---|---|---|
-| J1 | USB-C 16-pin (C165948) | power + native USB |
-| J2 | JST-SH 2-pin (C145956) | LiPo cell |
-| J3 | FPC/header 4-pin | OLED module |
-| J4 | JST-SH 4-pin (C145958) | PMS5003 (5 V) — external, not worn |
-| J5 | JST-GH 4-pin | GNSS module — external |
-| J6 | **Pogo pads (4): 3V3, GND, UART0 TX, UART0 RX** | **recovery / programming** |
-| J7 | **Pogo pads (2): EN, BOOT(IO0)** | **force download mode** |
-| SW1, SW2 | Tactile 3.0 × 4.0 mm | SOS / reset |
-| BZ1 | Active piezo 5 × 5 mm | alarm |
-| D1–D3 | LEDs (charge, power, beat) | |
-| — | **ESD array (e.g. USBLC6-2SC6)** | on USB D+/D− |
+| J1 | **Pogo pads ×2: 5 V in, GND** | charging cradle contacts |
+| J2 | **Pogo pads ×4: 3V3, GND, UART0 TX/RX** | flashing / recovery |
+| J3 | **Pogo pads ×2: EN, IO0** | force download mode |
+| J4 | JST-SH 2-pin | cell |
+| J5 | FPC 4-pin | OLED |
+| J6 | JST-SH 4-pin | PMS5003 (5 V) — external, not worn |
+| J7 | JST-GH 4-pin | GNSS — external |
+| SW1, SW2 | Side tactile 3 × 4 mm | SOS / reset, on the case side |
+| BZ1 | Piezo 5 × 5 mm | alarm; needs a sound port |
+| D1–D3 | LEDs | charge / power / beat |
+
+**No USB-C on the watch.** It costs 66 mm², 3 mm of thickness and an ingress path.
+Flashing and recovery go over the pogo UART pads, which `esptool` supports exactly
+like a USB-UART bridge. Use the existing bench board for convenient USB work.
 
 ### 3.4 Passives
 
-As the previous revision: R1/R2 5.1 kΩ (CC1/CC2), R3/R4 3.3 kΩ (I2C 3.3 V),
-R5 4.7 kΩ (PROG), R6/R7 2.2 kΩ (I2C 1.8 V), R8 200 kΩ (PCA9306 EN), R9 100 Ω
-(DW01A), R10–R12 1 kΩ (LEDs), R13/R15 100 Ω and R14/R16/R17 100 kΩ (gate networks),
-R18/R19 1 kΩ (SPI series), R20/R21 1 MΩ (**VBAT divider**, optional). Decoupling:
-C1 10 µF VBUS, C2 10 µF VBAT, C3 1 µF + C4 10 µF + C5 100 nF (3.3 V), C6 1 µF +
-C7 10 µF + C8 100 nF (1.8 V), C9 10 µF (VLED+), C10 100 nF (MAX30102 VDD), C11
-100 nF TMP117, C12 100 nF BME280, C13 100 nF MPU6050, **C14 100 nF REGOUT**,
-**C15 2.2 nF CPOUT**, C16/C17 100 nF FPGA, C18 100 nF DW01A, C19 100 nF SOS
-debounce, C20 1 µF reset, C21 100 nF PCA9306.
+Decoupling and gate networks as before: R1/R2 5.1 kΩ (only needed where USB-C is
+present — omit on the watch), R3/R4 3.3 kΩ (I2C 3.3 V), R5 4.7 kΩ (PROG), R6/R7
+2.2 kΩ (I2C 1.8 V), R8 200 kΩ, R9 100 Ω, R10–R12 1 kΩ, R13/R15 100 Ω,
+R14/R16/R17 100 kΩ, R20/R21 1 MΩ (VBAT divider, optional). C1 10 µF, C3 1 µF +
+C4 10 µF + C5 100 nF (3.3 V), C6 1 µF + C7 10 µF + C8 100 nF (1.8 V), C9 10 µF
+(VLED+), C10 100 nF (MAX30102 VDD), C11 100 nF TMP117, C12 100 nF BME280, C13
+100 nF MPU6050, **C14 100 nF REGOUT**, **C15 2.2 nF CPOUT**, C16/C17 100 nF FPGA,
+C18 100 nF DW01A, C19 100 nF SOS, C20 1 µF reset, C21 100 nF PCA9306.
 
 ---
 
-## 4. Schematic by subsystem
+## 4. Schematic
 
-> **Verify pin numbers against the placed footprint before wiring.** The most common
-> board-killing mistake is a mirrored footprint; ERC will not catch it.
+> Verify pin numbers against the placed footprint. A mirrored footprint passes ERC
+> and fails on the bench.
 
-### 4.1 Power front end
+### 4.1 Module
 
-1. **USB-C (J1):** VBUS → `VBUS_5V`; GND + shield → `GND`; CC1/CC2 → 5.1 kΩ → GND
-   (without both, a USB-C source supplies 0 V). D+/D− through an **ESD array** to
-   `USB_D+`/`USB_D-`.
-2. **Power path (U14):** `VBUS_5V` and `BAT+` both feed the system rail through a
-   load switch / ideal-diode arrangement so the board **runs from USB with no cell
-   fitted** and switches over without a reset. This was absent before and made
-   bench work awkward (the board needed a cell to boot).
-3. **Charger (U9):** `VIN` ← `VBUS_5V` (C1), `VBAT` → `BAT+` (C2), `PROG` → R5 →
-   GND = 212 mA, `STAT` → D1.
-4. **Protection (U10/U11):** in series with the cell negative; `VDD` via R9 with
-   C18. System `GND` is downstream of the FET pair.
-5. **3.3 V (U7)** and **1.8 V (U8)** LDOs, each with its input/output capacitors.
+`WROOM-1U` breaks out to the carrier. Pin map is the contract in
+`firmware/shrikefi/shrikefi_pinmap.h`: I2C on GPIO1/2, buzzer GPIO4, SOS GPIO5,
+FPGA on-module (GPIO8–13), PMS UART1 GPIO14/18, GNSS UART2 GPIO16/17, USB
+GPIO19/20 (**unused on the watch — leave as test pads**). Strapping pins 0/3/45/46
+stay clean except IO0 which goes to the J3 pogo pad.
 
-### 4.2 ESP32-S3 (via the module)
+### 4.2 I2C
 
-All module pins break out to the carrier. Firmware's pin map
-(`firmware/shrikefi/shrikefi_pinmap.h`) is the contract:
-
-| GPIO | Net | Destination |
-|---|---|---|
-| 1 / 2 | `I2C_SDA` / `I2C_SCL` | 3.3 V I2C segment |
-| 4 | `BUZZER_OUT` | Q1 gate via R13 |
-| 5 | `SOS_CANCEL` | SW1 to GND, C19 |
-| 8 | `FPGA_EN` | module pin (on-module FPGA) |
-| 9 | `FPGA_PWR` | module pin (on-module FPGA) |
-| 10–13 | SPI to FPGA | on-module |
-| 14 | `PMS_RX` | J4 |
-| 16 / 17 | `GNSS_RX` / `GNSS_TX` | J5 |
-| 18 | `PMS_TX` | J4 |
-| 19 / 20 | USB D− / D+ | J1 |
-| EN | `MCU_RESET` | SW2 + RC |
-| IO0 | `BOOT` | **J7 pogo pad** |
-
-⚠️ GPIO 0, 3, 45, 46 are strapping pins — leave them clean.
-
-### 4.3 I2C and level translation
-
-3.3 V segment: module, OLED, TMP117, BME280, MPU6050, **MAX17048** — pull-ups R3/R4.
-1.8 V segment: MAX30102 only — R6/R7. **PCA9306 (U12)** bridges them: `VREF1` 3.3 V,
+3.3 V segment: module, OLED, TMP117, BME280, MPU6050, MAX17048 — R3/R4 pull-ups.
+1.8 V segment: MAX30102 only — R6/R7. **PCA9306** bridges: `VREF1` 3.3 V,
 `VREF2` 1.8 V, `EN` → 1.8 V via R8.
 
-Addresses: OLED 0x3C, **gauge 0x36**, TMP117 0x48, MAX30102 0x57, MPU6050 0x68,
+Addresses: OLED 0x3C, gauge 0x36, TMP117 0x48, MAX30102 0x57, MPU6050 0x68,
 BME280 0x76.
 
-### 4.4 MAX30102 — dual rail (by pin name)
+### 4.3 MAX30102 — by pin name
 
-| Pin | Connect to |
+| Pin | To |
 |---|---|
-| `VDD` (core) | **`+1V8`**, C10 |
-| `VLED+` (LED supply) | **`+3V3`**, C9 |
-| `PGND` | `PGND`, single-point to `GND` under the sensor |
-| `GND` | `GND` |
-| `SCL`, `SDA` | **1.8 V segment** (via PCA9306) |
-| `INT` | test pad, otherwise open (firmware polls) |
+| `VDD` | **`+1V8`**, C10 |
+| `VLED+` | **`+3V3`**, C9 |
+| `PGND` | `PGND` → single star point under the sensor |
+| `GND` | GND |
+| `SCL`/`SDA` | 1.8 V segment |
+| `INT` | test pad (firmware polls) |
 
-Never power `VDD` from 3.3 V, and never leave `VLED+` unconnected.
+Never power `VDD` at 3.3 V; never leave `VLED+` open.
 
-### 4.5 Other sensors
+### 4.4 Other sensors
 
-- **TMP117 (bottom):** `V+` → 3.3 V (C11), `GND`, `SCL`, `SDA`, `ADD0` → GND (0x48).
-  `ALERT` open. Thermal pad → isolated copper island (see §7.4).
-- **BME280 (top):** pin 1 `GND`, pin 2 `CSB`→3.3 V, pin 3 `SDI`→SDA, pin 4 `SCK`→SCL,
-  pin 5 `SDO`→GND (0x76), pin 6 `VDDIO`→3.3 V, pin 7 `GND`, pin 8 `VDD`→3.3 V (C12).
-- **MPU6050 (top):** `VDD`/`VLOGIC` → 3.3 V, `GND`, `AD0`→GND, `REGOUT`→**C14 100 nF**,
+- **TMP117:** `V+` 3.3 V (C11), `GND`, `SCL`, `SDA`, `ADD0`→GND. Thermal pad →
+  isolated skin island (§7.6).
+- **BME280:** 1 `GND`, 2 `CSB`→3.3 V, 3 `SDI`→SDA, 4 `SCK`→SCL, 5 `SDO`→GND,
+  6 `VDDIO`→3.3 V, 7 `GND`, 8 `VDD`→3.3 V (C12).
+- **MPU6050:** `VDD`/`VLOGIC` 3.3 V, `GND`, `AD0`→GND, `REGOUT`→**C14 100 nF**,
   `CPOUT`→**C15 2.2 nF**, `CLKIN`→GND, `FSYNC`→GND, `INT` test pad.
 
-### 4.6 External devices
+### 4.5 Charging and protection
 
-- **PMS5003 (J4):** pin 1 `VBUS_5V`, pin 2 `GND`, pin 3 `SET`→3.3 V or open,
-  pin 4 `RX`→GPIO18, pin 5 `TX`→GPIO14, pin 6 `RST` open. **5 V only.**
-- **GNSS (J5):** `VCC` 3.3 V + 10 µF/100 nF, `TXD`→GPIO16, `RXD`→GPIO17, RF→U.FL.
-- **Buzzer:** `+`→3.3 V, `−`→Q1 drain, gate via R13/R14.
-- **SOS:** SW1 to GND with C19.
+Pogo 5 V → MCP73831 `VIN` (C1); `VBAT`→`BAT+` (C2); `PROG` = R5 → 212 mA; `STAT`→D1.
+DW01A + FS8205A in series with the cell negative; system `GND` downstream of the
+FETs. Load switch so the board runs from the cradle with no cell fitted.
 
 ---
 
-## 5. Stackup and design rules
+## 5. Stackup and rules
 
-4 layers, 1.2 mm, ENIG:
-
-| Layer | Use |
-|---|---|
-| L1 Top | modules, display connector, SPI/I2C, power |
-| L2 | solid GND (cut under the antenna) |
-| L3 | `+3V3` pour, `+1V8` island, `VBUS_5V` island |
-| L4 Bottom | sensors, skin copper, battery connector, returns |
-
-Rules: signal 0.152 mm, power 0.4–0.6 mm, clearance 0.152 mm, via 0.6/0.3 mm.
-Fillets 3 mm at corners (it is worn against skin — sharp corners are a defect).
+4 layers, **0.8 mm** (its 1.2 mm on a watch is wasted thickness), ENIG.
+L1 signals/top components, L2 solid GND, L3 power (`+3V3`, `+1V8`, `VBUS`), L4
+sensors/skin copper/returns. Signal 0.15 mm, power 0.4 mm, clearance 0.15 mm, via
+0.5/0.25 mm (0.6/0.3 does not fit a watch pitch budget). No sharp corners on any
+skin-facing edge.
 
 ---
 
 ## 6. Placement
 
-1. **Module** at the top edge, antenna outward, **15 mm keep-out copper-free on all
-   four layers** — including cutting L2 and L3.
-2. **Display** below the module (cannot overlap the keep-out).
-3. **USB-C** at an edge with the snout overhanging 0.8 mm.
-4. **Power section** grouped at the sensor-opposite end; away from TMP117.
-5. **Battery connector** near the power section, cell lying over the middle.
-6. **Bottom face:** MAX30102 and TMP117 at the **sensor end**; both near the strap
-   anchor at that end so tension presses them to skin.
-7. **MPU6050** as close to the mechanical centre as the sensors allow.
-8. **BME280** at an edge with an enclosure vent above it.
-9. Decoupling within 1 mm of each supply pin.
+1. **Module** at 12 o'clock, U.FL connector at the case edge, pigtail routed away
+   from the optical window and the cell.
+2. **Display** centre, on top; its aperture is in the cover glass.
+3. **Cell** bottom face, 12 o'clock half.
+4. **MAX30102 + TMP117** bottom face at **6 o'clock**, on the case-back protrusion.
+5. **MPU6050** as close to the movement centre as the cell allows.
+6. **BME280** at the case wall, isolated from the cell and the charger (a sealed
+   watch traps heat — §9.3).
+7. **Charger/LDOs** at 12 o'clock, never near TMP117.
+8. Decoupling within 1 mm of each supply pin; the MAX30102's within 0.5 mm.
 
 ---
 
-## 7. Optics and the skin interface
-
-This is where the wearable succeeds or fails. On the bench, a **cold finger gave a
-perfusion index of 0.83 %** and the FPGA found **zero crests**; a warm finger at
-1.32 % worked. Contact quality, not firmware, decided whether there was a signal.
+## 7. Optics, skin interface, and the wrist problem
 
 ### 7.1 Window
 
-- Material: **IR-transparent** polycarbonate, acrylic or glass. Ordinary opaque
-  plastic kills the 660/880 nm light path.
-- Thickness ≤ 1.5 mm, flat, polished, no texture.
-- **One window over both devices** (LED and photodiode) — separate holes let
-  ambient light straight into the detector.
+Single **IR-transparent** window (polycarbonate, acrylic or glass, ≤ 1.5 mm, flat,
+polished) covering **both** the LED and the photodiode. Two separate holes leak
+ambient light straight into the detector.
 
 ### 7.2 Light seal
 
-- A **black, closed-cell foam gasket** (≈1 mm) around the window perimeter,
-  compressing against skin.
-- Opaque black potting or a black plastic light pipe around the sensor.
-- Do not rely on the enclosure alone — reflected light from the inside of a
-  translucent shell is enough to swamp the AC signal.
+Black closed-cell foam gasket (~1 mm) around the window, compressing against skin,
+plus a black light pipe or black potting around the sensor. A translucent case will
+pipe ambient light to the photodiode even if the window is perfect.
 
-### 7.3 Pressure and repeatability
+### 7.3 Pressure and hard stop
 
-- The sensor should protrude **0.2–0.5 mm** beyond the surrounding bottom face so
-  skin meets the window before the housing rocks on it.
-- Add a **hard stop** (a shoulder of 0.3 mm) so strap tension gives a repeatable
-  pressure. Pressing harder **occludes** the capillary bed and destroys the pulse —
-  more pressure is not better.
-- Keep the sensor end rigid; a flexing board modulates contact pressure at the
-  heart-rate harmonic.
+- Sensor window protrudes **0.3–0.5 mm** beyond the case-back surface.
+- Convex case back (~1.5 mm dome) so the watch centres itself on the wrist and the
+  window sees consistent pressure.
+- **Hard stop** so strap tension cannot over-press. Pressing hard occludes the
+  capillary bed and destroys the pulse — this is the most common self-inflicted PPG
+  failure.
 
-### 7.4 TMP117 thermal design
+### 7.4 Window cleanliness and hair
 
-- Copper island on L4 connected **only** to the TMP117 pad, isolated from the GND
-  pour by ≥0.3 mm, with a matching cut-out in L1 copper beneath.
-- Keep the LDOs and charger at the opposite end: they are the dominant heat sources.
-- Expect 12 s to settle after contact. Measured skin values ranged **33.1–33.7 °C**
-  across sessions at the same sites, i.e. over 0.5 °C of placement variance — so the
-  calibration must be taken per session (see the firmware `/cal` or `cal <ref>`
-  console command).
+A wrist sensor sits where sweat, hair and skin oil collect. Specify a **flush,
+wipeable** window with no recess that traps debris, and no adhesive edges near it.
+
+### 7.5 ⚠️ The wrist is a much worse PPG site — plan for it
+
+This is the honest risk of the watch path, and it is bigger than anything electrical
+in this document.
+
+- **Signal amplitude.** On the bench, a fingertip gave **0.83 % perfusion index cold
+  and 1.32 % warm**, and at 0.83 % the FPGA crest detector found **zero beats**.
+  Wrist perfusion is typically *lower* than a fingertip, so expect PI in the
+  **0.2–1 %** band at rest. The detector may be marginal.
+- **Motion artifact.** Wrist PPG is dominated by movement; the fingertip rig never
+  saw this. Firmware already has a motion/SQI gate — it will now be load-bearing
+  rather than a nicety, and HR will be **intermittent while moving**. That is normal
+  for wrist optical HR and should be stated, not hidden.
+- **Wavelength.** MAX30102 is **red/IR only**. Wrist optical HR is normally done
+  with **green**, which has much better SNR in superficial wrist vasculature. Red/IR
+  is workable (it is what many bands use for SpO2) but expect a weaker pulse.
+
+**Mitigations, in order of value:**
+
+1. Optically tight window + light seal + repeatable pressure (§7.1–7.3) — the
+   single biggest lever.
+2. Sternum-compatible strap tension; 6 o'clock sensor; convex back.
+3. Tap the existing adaptive LED current (`max30102_adjust_led_current`) upward.
+4. Rely on the SQI + motion gate; publish HR only when quality is good, and publish
+   nothing otherwise. The firmware already refuses to invent values — keep it.
+5. If PI stays below ~0.3 %, accept that this is a **SpO2 / trend** device rather
+   than a beat-to-beat HRV device, and say so.
+
+HRV on a wrist, at 10 ms IBI quantisation *plus* motion artifact, is not something to
+promise. The bench HRV numbers were taken on a still fingertip.
+
+### 7.6 TMP117 thermal design
+
+Isolated copper island on L4 connected only to the TMP117 pad, ≥0.3 mm clearance from
+the GND pour, with an L1 cut-out beneath. The charger and LDOs sit at the opposite
+end. Measured skin values ranged **33.1–33.7 °C** across sessions at the same site —
+over 0.5 °C of placement variance — so calibrate per session (`cal <ref>` on the
+console, or `/cal?ref=` over the AP).
 
 ---
 
-## 8. Power path, charging and battery
+## 8. Power
 
-### 8.1 Load sharing (new)
+### 8.1 Cell and runtime
 
-U14 lets the board run from USB with **no cell fitted** and switches to battery
-without resetting the MCU. Previously the system depended on a charged cell to
-boot, which made bring-up and recovery harder than it needed to be.
+200–250 mAh at 3.0 mm. Charge current 212 mA ≈ 0.9C for a 250 mAh cell — **too
+aggressive for a cell worn on skin**. Reduce `PROG` to 10 kΩ → **100 mA** (0.4C) on
+the watch variant.
 
-### 8.2 Charge current
+### 8.2 Charging
 
-MCP73831 with `PROG` = 4.7 kΩ → **212 mA**. Fine for a 400–600 mAh cell (~0.4C).
-Do not exceed 0.5C for a cell worn against skin. The cell **must** have the DW01A +
-FS8205A protection pair fitted — this is a safety element, not an option.
+Two pogo contacts (5 V, GND) into the MCP73831, with a load switch so the watch runs
+while charging. Add reverse-polarity protection on the contacts — a cradle can be
+reversed by a user.
 
-### 8.3 Battery gauge — hardware present, firmware absent
+### 8.3 Runtime estimate
 
-U13 (MAX17048, I2C **0x36**) and/or the R20/R21 divider give a battery reading at
-the hardware level.
+Not measured. Rough: ~90 mA average with Wi-Fi AP active → **~2.5 h** on 250 mAh. If
+runtime matters, the Wi-Fi AP is the thing to duty-cycle; that is a firmware issue,
+not a PCB one.
 
-**The firmware does not read either today.** The status JSON has no battery field,
-and no ADC channel is assigned. Fit the hardware if you want the option, but do not
-claim battery monitoring until the firmware publishes it — that would be exactly the
-kind of untested claim this project keeps having to retract.
+### 8.4 Fuel gauge
 
-### 8.4 Thermal
-
-Charger and LDO losses sit next to a sensor that measures skin temperature. Keep
-them at the far end and, if the cell is adjacent, add a small vent. Charging warms
-the patch; do not calibrate skin temperature while charging.
+U13 (MAX17048, 0x36) is fitted. **Firmware does not read it** and `status.json` has
+no battery field. Do not claim battery monitoring until the firmware publishes it.
 
 ---
 
-## 9. Ingress, mechanics and strap
+## 9. Mechanics and ingress
 
-### 9.1 Ingress target
+### 9.1 Case and strap
 
-**IP54** (splash and dust) is realistic for a patch. It requires:
+44 mm case, 20 mm strap lugs, spring bars. Lugs are part of the case, not the PCB —
+do not hang a strap load off a 0.8 mm board.
 
-- gasket around the enclosure seam and the window
-- USB-C either behind a flap or a **waterproof USB-C variant**
-- conformal coat (silicone) over the PCB, **except** the optical window, the TMP117
-  skin pad and the pogo pads
-- the cell and the PCM sealed from the board cavity
+### 9.2 Ingress target
 
-Sweat is conductive and mildly corrosive; it will bridge an uncoated gap. Assume it
-will get wet.
+**IP67** for a watch that is worn daily. Requires: gasket at the case back, o-ring or
+gasket at the crystal, sealed pogo contacts (gold, recessed, with a drain path),
+conformal coat over everything except the optical window, the TMP117 skin island and
+the pogo pads. Sweat is conductive and mildly corrosive — assume ingress.
 
-### 9.2 Skin-contact materials
+### 9.3 A sealed watch traps heat and air
 
-ENIG is **nickel with a thin gold flash** — nickel is a common contact allergen, and
-this board puts a lithium cell and 3.3 V electronics against skin. Do not describe
-the finish as bio-compatible. Options:
+Two consequences specific to a watch enclosure:
 
-- conformal-coat everything except an aperture, or
-- use a separate **gold-plated or stainless contact piece** for the TMP117 pad, or
-- keep the sensor behind the window and rely on the window's thermal path.
+- **BME280** must breathe through a vent to outside air, not the case cavity. Fit it
+  near a dedicated vent with a membrane, and accept that case temperature offsets it.
+- **Temperature drift** in a sealed case is larger than on an open bench. The TMP117
+  offset calibration absorbs a constant bias but not a drift.
 
-### 9.3 Strap and anchors
+### 9.4 Skin-contact materials
 
-- Two **22 mm × 2 mm** slot cut-outs, one at each end, for a standard strap.
-- Anchor points must be **outside** the battery region and in line with the sensor
-  end, so tension pulls the sensor into skin.
-- Add strain relief where the strap passes the PCB edge; a 1.2 mm board will crack
-  at a slot under repeated tension. Consider a 2 mm border of solid board around
-  each slot.
+ENIG is **nickel with a thin gold flash**; nickel is a common contact allergen, and
+this puts a lithium cell against skin. Do not call the finish bio-compatible. Either
+conformal-coat everything except an aperture, or use a separate gold-plated or
+stainless contact piece.
 
-### 9.4 Recovery pads
+### 9.5 Recovery pads
 
-J6/J7 expose `3V3`, `GND`, `UART0 TX/RX`, `EN`, `IO0` on pogo pads. Cost is
-essentially zero; without them, a board with a dead USB connector or a bricked boot
-loader is scrap.
+The J2/J3 pogo pads are the **only** way to flash or unbrick the watch once assembled.
+Cost is essentially zero; without them a failed OTA or a bad boot loader means
+opening a sealed case or scrapping the board.
 
 ---
 
 ## 10. Routing
 
-1. SPI to the FPGA is **on-module** in Rev A — nothing to route.
-2. **I2C**: SDA/SCL as a pair, away from the LED return and from the switching node.
-3. **1.8 V sensor traces** short, translator close to the sensor.
-4. **UART** to J4/J5.
-5. **Power** at 0.4–0.6 mm; keep the cell-to-LDO path short.
-6. **GND**: pours on L1/L4 stitched to L2 with ≥20 vias, denser near the optical
-   sensor and the power section.
-7. Separate `PGND` (pulsed LED return) from signal return until a single star point
-   under the MAX30102.
+1. **PPG traces short and away from** the cell, the U.FL pigtail and the charger.
+2. I2C SDA/SCL paired; keep the 1.8 V segment short with the translator near the
+   sensor.
+3. Pogo charge input and battery leads at 0.4 mm.
+4. GND pours L1/L4 stitched to L2, denser under the sensor and the power section.
+5. Separate `PGND` (pulsed LED return) until a single star point under the MAX30102.
+6. **Do not route anything under the U.FL pigtail** path or across the antenna FPC.
 
-Run DRC to zero before ordering, and again after any change. DRC does not check
-optics, thermal design, keep-out or mechanics.
+DRC to zero before ordering — and DRC will not check optics, keep-out, mechanics or
+thermal design.
 
 ---
 
 ## 11. Manufacturing and assembly
 
-- **JLCPCB**: 4 layers, 1.2 mm, ENIG, SMT assembly. Panel-friendly outline; no
-  slot narrower than 1 mm.
-- **Module is not assembled** — it is a socketed/header part you fit yourself. Order
-  it separately from Vicharak.
-- **Stencil** if you hand-place the QFN/LGA parts; otherwise use JLCPCB's assembly
-  for U2–U5, which are the hard ones.
-- **Antenna**: verify with a Wi-Fi scan that RSSI does not collapse when the module
-  is seated; a keep-out violation shows up as reduced range, not as a build error.
+- 4 layers, 0.8 mm, ENIG, JLCPCB. Minimum slot 1 mm; no thin features on skin faces.
+- Module **not** assembled by JLCPCB — fit it yourself (it is a standard module).
+- The QFN/LGA parts (MAX30102, TMP117, BME280, MPU6050) are the hard ones; use
+  stencil + reflow, or JLCPCB assembly for those.
+- Antenna FPC and U.FL fitted after assembly; verify Wi-Fi RSSI **with the case on**,
+  since the case and wrist change the antenna environment.
 
 ---
 
 ## 12. Bring-up
 
-1. **Continuity before power:** `+3V3`↔`GND` and `+1V8`↔`GND` both > 10 kΩ. A beep
-   means a short — find it first.
-2. **Current-limited first power:** 5.0 V at 100 mA into VBUS, **no cell fitted**
-   (possible now that the power path exists). Expect 15–35 mA.
-3. Check `+3V3` = 3.30 ± 0.05 V and `+1V8` = 1.80 ± 0.05 V.
-4. Fit the module, flash:
+1. Continuity: `+3V3`↔`GND`, `+1V8`↔`GND` both > 10 kΩ.
+2. 5.0 V at 100 mA into the **charge pogo pads**, no cell fitted (power path
+   permits this). Expect 15–35 mA, `+3V3` 3.30 ± 0.05 V, `+1V8` 1.80 ± 0.05 V.
+3. Fit the module, flash over the **pogo UART** pads:
    ```powershell
    . C:\Espressif\frameworks\esp-idf-v5.5.5\export.ps1
    cd firmware/shrikefi
    idf.py -p COM4 flash monitor
    ```
-5. Expect the authentic boot sequence: 5 I2C devices, `configuration COMPLETE!
-   (46408 bytes loaded)`, handshake `0x55` → `0x00` (**`0x00` is success**),
-   SoftAP `VALOR-0081`, and a 4-digit control PIN on the OLED.
-6. **Optical check with warm hands:** perfusion index should read **> 1 %**. If it
-   sits at ~0.8 % and `IBI` stays 0, the light seal or the contact pressure is wrong
-   — that is a mechanical fix, not a firmware one.
-7. **Calibrate skin temperature** only once the reading has been flat for ~40 s:
-   `cal <oral_ref_C>` over the console, then confirm with `calstat`.
+4. Expect 5 I2C devices, `configuration COMPLETE! (46408 bytes loaded)`, handshake
+   `0x55` → `0x00` (**`0x00` is success**), SoftAP `VALOR-0081`, 4-digit PIN on the
+   display.
+5. **Optical check on the wrist, warm and still.** Watch the perfusion index. Above
+   ~1 % is good; 0.3–1 % is workable with the SQI gate; below 0.3 % means the window,
+   seal or pressure is wrong — fix mechanics, not firmware.
+6. Calibrate skin temperature only after the reading has been flat for ~40 s, then
+   confirm with `calstat`.
 
 ---
 
 ## 13. What this document does not establish
 
-- Nothing has been fabricated. No Gerbers exist for this revision.
-- No power, thermal or EMC measurement exists.
-- Sensor accuracy on this board is unmeasured; all bench numbers come from the
-  breadboard rig.
-- The FPGA is **not** integrated in Rev A by design (§1).
-- The battery gauge is fitted but **not read by firmware** (§8.3).
+- Nothing has been fabricated; no Gerbers exist for this revision.
+- No power, thermal, EMC or ingress testing exists.
+- **Wrist PPG performance is entirely unmeasured.** All optical numbers come from a
+  fingertip on the bench rig.
+- Battery runtime is an estimate, not a measurement.
+- The fuel gauge is fitted but not read by firmware.
 - Not a medical device; no clinical claim is made or supported.
 
 ---
 
 ## 14. Pre-order verification checklist
 
-Each line needs a datasheet or a stock page, not a memory:
-
+- [ ] `WROOM-1U` footprint and pin numbering match the module silkscreen
+- [ ] U.FL pigtail routed clear of the optical window, cell and PPG traces
 - [ ] BME280 pin 1 = GND, pin 6 = VDDIO, pin 8 = VDD in the placed footprint
 - [ ] MAX30102 `VDD` on `+1V8`, `VLED+` on `+3V3`, both connected
 - [ ] MAX30102 I2C confirmed 1.8 V-referenced; PCA9306 fitted
-- [ ] TMP117 `GND` connected; `ADD0` on the correct pin
-- [ ] MPU6050 `GND` and `CPOUT` connected; 2.2 nF on CPOUT, 100 nF on REGOUT
-- [ ] ShrikeFi module header footprint / pinout matches the module silkscreen
-- [ ] Module antenna keep-out clear on **all four** layers
-- [ ] Cell dimensions fit the layout, protection FETs in series with cell negative
-- [ ] Power path verified: board boots from USB with **no cell**
-- [ ] Optical window: IR-transparent material specified, single window over both devices
+- [ ] TMP117 `GND` connected, `ADD0` correct, thermal island isolated
+- [ ] MPU6050 `GND` + `CPOUT`; 2.2 nF on CPOUT, 100 nF on REGOUT
+- [ ] Cell ≤ 26 × 21 × 3.2 mm fits the cavity with the protection FETs
+- [ ] Board boots from the charge contacts with **no cell**
+- [ ] Charge current reduced to ~100 mA (`PROG` = 10 kΩ)
+- [ ] Optical window: IR-transparent, **single** aperture, flush and wipeable
 - [ ] Light seal gasket specified with a compression figure
-- [ ] Sensor protrusion and hard stop defined (0.2–0.5 mm)
-- [ ] TMP117 thermal island isolated; LDOs at the opposite end
-- [ ] Recovery pogo pads present (3V3, GND, UART0, EN, IO0)
+- [ ] Sensor protrusion 0.3–0.5 mm with a hard stop
+- [ ] Pogo pads present for charging **and** UART/EN/IO0 recovery
+- [ ] Case-back convex dome and 6 o'clock sensor position defined
 - [ ] Reference designators unique across the whole BOM
 - [ ] ERC zero errors, DRC zero errors
-- [ ] No 3.3 V net within 0.3 mm of the skin-contact copper
+- [ ] No 3.3 V net within 0.3 mm of skin-contact copper
 
 ---
 
-*SIH26181 · Project VALOR · Rev A design intent · Not built, not verified, not a
-medical device.*
+*SIH26181 · Project VALOR · Rev A wrist watch design intent · Not built, not
+verified, not a medical device.*
