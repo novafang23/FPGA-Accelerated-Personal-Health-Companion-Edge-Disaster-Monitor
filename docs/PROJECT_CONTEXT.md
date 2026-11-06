@@ -12,7 +12,7 @@ contracts, and the honest list of what is *not* verified.
 | Repo | `FPGA-Accelerated-Personal-Health-Companion-Edge-Disaster-Monitor` |
 | Branch | `main` |
 | What it is | Offline, wearable, multi-hazard health + environment monitor for first responders, evacuees, industrial workers |
-| Status | Bench prototype working end-to-end. Wearable PCB is **design intent only** (not fabricated) |
+| Status | Bench prototype working end-to-end. Wearable PCB is **design intent only** (not fabricated): Rev A = 45 × 50 mm chest patch, carrier around the ShrikeFi module |
 | Regulatory | **Not a medical device.** Research / competition prototype |
 
 ---
@@ -113,7 +113,7 @@ still writes `INT_ENABLE_1 = 0x40` (FIFO almost-full) but firmware polls.
 
 Bus runs at **100 kHz** on GPIO1/2. Pull-ups 3.3 kΩ to 3.3 V.
 MAX30102 core supply is **1.8 V** with `VLED+` at 3.3 V — a bare-IC design needs a
-1.8 V rail plus an I2C level translator (see the PCB guide).
+1.8 V rail plus an I2C level translator (see `docs/VALOR_WEARABLE_PCB_DESIGN_GUIDE.md`).
 
 ### 2.5 ForgeFPGA SPI link
 
@@ -529,8 +529,7 @@ FP32/INT8 agreement ≥ 99 %), and the PSI/AHA regression suite.
 | No power/battery measurement | No fuel gauge, no VBAT sense divider |
 | Skin calibration is one point | Additive offset only; the gradient varies with vasomotor state and contact pressure |
 
-**Do not say:** "20 ns resolution", "clinically validated", "medical grade",
-"AHA formula", "diagnostic device", "ESP32 latency 0.44 µs".
+**Banned phrasings:** claiming 20 ns resolution (it is 10 ms); clinical-validation or medical-device wording; calling the PM2.5 strain an AHA formula; quoting the 0.44 µs host figure as an ESP32 number.
 
 ---
 
