@@ -9,7 +9,8 @@ specification to be met, not a result.
 | Project | SIH26181 — VALOR |
 | Revision | **Rev A** — carrier board around an ESP32-S3 module |
 | Form factor | **Wrist watch**, 44 mm round case, 40 × 38 mm PCB |
-| MCU + FPGA | **ESP32-S3-WROOM-1U** (external antenna) + on-module SLG47910C |
+| MCU | **ESP32-S3-WROOM-1U-N8R2** (U.FL, no PCB antenna, no keep-out) |
+| FPGA | **bare Renesas SLG47910C (U16)**, WLCSP-20, placed on this board |
 | Display | **0.66" 64×48 SSD1306 I2C module** (18 × 18 mm) |
 | Primary PPG | **MAX30101** (green + red + IR) — see §15 |
 | Off-board | PMS5003 and GNSS are **not** on the watch; 4-pin demo connectors only |
@@ -35,10 +36,21 @@ specification to be met, not a result.
 | | **Rev A (this document)** | Rev B (later) |
 |---|---|---|
 | Compute | `ESP32-S3-WROOM-1U` module + U.FL antenna | Bare ESP32-S3 + bare FPGA |
-| FPGA | on the module | WLCSP-20 integrated |
+| FPGA | **bare SLG47910C (U16)** on this board | same package, tighter layout |
 | Board | 40 × 38 mm watch PCB | smaller, single die pair |
 | Goal | Prove the **watch form factor and the optics** | Miniaturise |
-| Assembly risk | Low | High (0.4 mm pitch, sourcing) |
+| Assembly risk | **High** — WLCSP-20 at 0.4 mm pitch, plus double-sided SMD | High |
+
+> **Assembly reality.** This is not a beginner board: 15 surface-mount ICs including a
+> 2 × 2 mm WSON, an optical LGA-14, a QFN-24 and a **WLCSP-20 at 0.4 mm pitch**, on
+> both sides of a 4-layer 0.8 mm board. Double-sided assembly means two reflow passes,
+> double-sided fees, and mostly extended components — roughly ₹15,000–22,000 for five
+> assembled boards landed in India.
+>
+> **Build a Rev 0 first**: a 2-layer practice carrier (₹600–1200) taking the
+> `WROOM-1U` on headers with sensors on breakout modules. It teaches KiCad, footprints,
+> ground pours and Gerber export with nothing expensive at risk, and validates the
+> optics and enclosure before the real spin.
 
 The `-1U` variant is the whole reason a watch is feasible: it has **no PCB antenna**,
 so the 15 mm copper-free keep-out disappears and the board can use its full width.
@@ -57,7 +69,7 @@ ground plane.
 | `WROOM-1U` module | 25.5 × 18.0 mm | **18 mm of length** (12 o'clock end) |
 | 0.66" OLED module | ~18 × 18 mm | **18 mm of length** (centre) |
 | Cell | 25 × 20 × 3 mm | bottom face, offset toward 12 o'clock |
-| MAX30102 + TMP117 | ~10 × 6 mm | bottom face at **6 o'clock** |
+| MAX30101 + TMP117 | ~10 × 6 mm | bottom face at **6 o'clock** |
 | Power section | ~10 × 8 mm | beside the module |
 
 18 + 18 = **36 mm** of length, plus 1 mm margins → **38 mm**. Width is set by the
@@ -113,8 +125,9 @@ onto the wrist rather than lifting it.
 | Ref | Part | Face | Notes |
 |---|---|---|---|
 | U1 | **ESP32-S3-WROOM-1U-N8R2** | Top | 8 MB flash, 2 MB PSRAM, **U.FL antenna** |
+| **U16** | **Renesas SLG47910C** | Top | **WLCSP-20, 0.4 mm pitch** — 1120 LUT5s, internal 50 MHz osc. The FPGA is NOT inside the ESP32 module |
 | ANT1 | 2.4 GHz FPC antenna + U.FL lead | Case/strap | keep clear of PPG and cell |
-| U2 | **MAX30101EFD+T** | **Bottom** | **VDD 1.8 V, VLED+ 3.3 V**. Green LED for wrist HR, red/IR for SpO2. Same LGA-14 land pattern as the MAX30102 |
+| U2 | **MAX30101EFD+T** | **Bottom** | **VDD 1.8 V, VLED+ VBAT**. Green for wrist HR, red/IR for SpO2. Same LGA-14 land pattern as the MAX30102 it replaces |
 | U15 | DRV2605 + LRA (optional) | Bottom | haptic alert — silent SOS feedback |
 | U3 | TMP117AIDRVR | **Bottom** | 0x48, thermal pad to skin island |
 | U4 | BME280 | Top | 0x76, needs a vent — a watch traps air, see §9.3 |
@@ -138,7 +151,7 @@ onto the wrist rather than lifting it.
 
 | Ref | Part | Notes |
 |---|---|---|
-| J1 | **Pogo pads ×2: 5 V in, GND** | charging cradle contacts |
+| J1 | **Pogo pads ×2: 5 V in, GND** | charging contacts in the **3 and 9 o'clock margins, outside the cell outline** |
 | J2 | **Pogo pads ×4: 3V3, GND, UART0 TX/RX** | flashing / recovery |
 | J3 | **Pogo pads ×2: EN, IO0** | force download mode |
 | J4 | JST-SH 2-pin | cell |
@@ -160,7 +173,7 @@ present — omit on the watch), R3/R4 3.3 kΩ (I2C 3.3 V), R5 4.7 kΩ (PROG), R6
 2.2 kΩ (I2C 1.8 V), R8 200 kΩ, R9 100 Ω, R10–R12 1 kΩ, R13/R15 100 Ω,
 R14/R16/R17 100 kΩ, R20/R21 1 MΩ (VBAT divider, optional). C1 10 µF, C3 1 µF +
 C4 10 µF + C5 100 nF (3.3 V), C6 1 µF + C7 10 µF + C8 100 nF (1.8 V), C9 10 µF
-(VLED+), C10 100 nF (MAX30102 VDD), C11 100 nF TMP117, C12 100 nF BME280, C13
+(VLED+), C10 100 nF (MAX30101 VDD), C11 100 nF TMP117, C12 100 nF BME280, C13
 100 nF MPU6050, **C14 100 nF REGOUT**, **C15 2.2 nF CPOUT**, C16/C17 100 nF FPGA,
 C18 100 nF DW01A, C19 100 nF SOS, C20 1 µF reset, C21 100 nF PCA9306.
 
@@ -179,27 +192,58 @@ FPGA on-module (GPIO8–13), PMS UART1 GPIO14/18, GNSS UART2 GPIO16/17, USB
 GPIO19/20 (**unused on the watch — leave as test pads**). Strapping pins 0/3/45/46
 stay clean except IO0 which goes to the J3 pogo pad.
 
+### 4.1b ForgeFPGA (U16) — the part the module does not contain
+
+An `ESP32-S3-WROOM-1U` is an Espressif Wi-Fi/BLE module and contains **no FPGA**.
+The ForgeFPGA is a separate die that must be placed on this board.
+
+| U16 pin | Net | Notes |
+|---|---|---|
+| `VDD` (both pins) | `+3V3_FPGA` | C16, C17 (100 nF each) |
+| `OSC_EN` | `VDD` | internal 50 MHz oscillator |
+| `PIN_16` | `SPI_SCK` ← GPIO12 | 1 kΩ series |
+| `PIN_17` | `SPI_SS_N` ← GPIO10 | |
+| `PIN_18` | `SPI_MOSI` ← GPIO11 | 1 kΩ series |
+| `PIN_19` | `SPI_MISO` → GPIO13 | |
+| `PIN_7` | beat LED | 1 kΩ to D3 |
+| `EN` | `FPGA_EN` ← GPIO8 | boot-mode latch |
+| supply | via Q3 (AO3401A) | high-side switch driven by Q2 from `FPGA_PWR` (GPIO9) |
+
+Firmware loads the 46,408-byte bitstream over **this same SPI bus** at boot, then
+probes `0x55` expecting `0x00` (success, not failure).
+
+**If the WLCSP cannot be placed** (stock, stencil, X-ray), fall back to a socketed
+**Vicharak ShrikeFi** daughterboard, which already carries both dies. Larger case,
+no 0.4 mm-pitch assembly. Decide **before** layout — it changes the whole board.
+
 ### 4.2 I2C
 
 3.3 V segment: module, OLED, TMP117, BME280, MPU6050, MAX17048 — R3/R4 pull-ups.
-1.8 V segment: MAX30102 only — R6/R7. **PCA9306** bridges: `VREF1` 3.3 V,
+1.8 V segment: MAX30101 only — R6/R7. **PCA9306** bridges: `VREF1` 3.3 V,
 `VREF2` 1.8 V, `EN` → 1.8 V via R8.
 
-Addresses: OLED 0x3C, gauge 0x36, TMP117 0x48, MAX30102 0x57, MPU6050 0x68,
+Addresses: OLED 0x3C, gauge 0x36, TMP117 0x48, MAX30101 0x57, MPU6050 0x68,
 BME280 0x76.
 
-### 4.3 MAX30102 — by pin name
+### 4.3 MAX30101 — by pin name
 
 | Pin | To |
 |---|---|
 | `VDD` | **`+1V8`**, C10 |
-| `VLED+` | **`+3V3`**, C9 |
+| `VLED+` | **`VBAT` (3.7–4.2 V)**, C9 10 µF |
 | `PGND` | `PGND` → single star point under the sensor |
 | `GND` | GND |
 | `SCL`/`SDA` | 1.8 V segment |
 | `INT` | test pad (firmware polls) |
 
 Never power `VDD` at 3.3 V; never leave `VLED+` open.
+
+**`VLED+` runs from `VBAT`, not `+3V3`.** The green LED's forward voltage is roughly
+**3.3–3.7 V**, and the internal current sink needs ~0.3 V of compliance headroom on
+top. A 3.3 V rail therefore starves the green driver exactly when you raise current
+for wrist use. `VLED+` is rated to 5.25 V for precisely this reason, so the protected
+battery rail (3.7–4.2 V) is the correct source. Confirm green V_F and the `VLED+`
+minimum on the datasheet before layout.
 
 ### 4.4 Other sensors
 
@@ -233,13 +277,14 @@ skin-facing edge.
 1. **Module** at 12 o'clock, U.FL connector at the case edge, pigtail routed away
    from the optical window and the cell.
 2. **Display** centre, on top; its aperture is in the cover glass.
-3. **Cell** bottom face, 12 o'clock half.
-4. **MAX30102 + TMP117** bottom face at **6 o'clock**, on the case-back protrusion.
+3. **Cell** bottom face, 12 o'clock half. The 3 and 9 o'clock margins (~7.5 mm each)
+   are reserved for pogo pads and must not be covered by it.
+4. **MAX30101 + TMP117** bottom face at **6 o'clock**, on the case-back protrusion.
 5. **MPU6050** as close to the movement centre as the cell allows.
 6. **BME280** at the case wall, isolated from the cell and the charger (a sealed
    watch traps heat — §9.3).
 7. **Charger/LDOs** at 12 o'clock, never near TMP117.
-8. Decoupling within 1 mm of each supply pin; the MAX30102's within 0.5 mm.
+8. Decoupling within 1 mm of each supply pin; the MAX30101's within 0.5 mm.
 
 ---
 
@@ -284,7 +329,7 @@ in this document.
   saw this. Firmware already has a motion/SQI gate — it will now be load-bearing
   rather than a nicety, and HR will be **intermittent while moving**. That is normal
   for wrist optical HR and should be stated, not hidden.
-- **Wavelength.** MAX30102 is **red/IR only**. Wrist optical HR is normally done
+- **Wavelength.** MAX30101 is **red/IR only**. Wrist optical HR is normally done
   with **green**, which has much better SNR in superficial wrist vasculature. Red/IR
   is workable (it is what many bands use for SpO2) but expect a weaker pulse.
 
@@ -384,7 +429,7 @@ opening a sealed case or scrapping the board.
    sensor.
 3. Pogo charge input and battery leads at 0.4 mm.
 4. GND pours L1/L4 stitched to L2, denser under the sensor and the power section.
-5. Separate `PGND` (pulsed LED return) until a single star point under the MAX30102.
+5. Separate `PGND` (pulsed LED return) until a single star point under the MAX30101.
 6. **Do not route anything under the U.FL pigtail** path or across the antenna FPC.
 
 DRC to zero before ordering — and DRC will not check optics, keep-out, mechanics or
@@ -396,7 +441,7 @@ thermal design.
 
 - 4 layers, 0.8 mm, ENIG, JLCPCB. Minimum slot 1 mm; no thin features on skin faces.
 - Module **not** assembled by JLCPCB — fit it yourself (it is a standard module).
-- The QFN/LGA parts (MAX30102, TMP117, BME280, MPU6050) are the hard ones; use
+- The QFN/LGA parts (MAX30101, TMP117, BME280, MPU6050) are the hard ones; use
   stencil + reflow, or JLCPCB assembly for those.
 - Antenna FPC and U.FL fitted after assembly; verify Wi-Fi RSSI **with the case on**,
   since the case and wrist change the antenna environment.
@@ -442,8 +487,9 @@ thermal design.
 - [ ] `WROOM-1U` footprint and pin numbering match the module silkscreen
 - [ ] U.FL pigtail routed clear of the optical window, cell and PPG traces
 - [ ] BME280 pin 1 = GND, pin 6 = VDDIO, pin 8 = VDD in the placed footprint
-- [ ] MAX30102 `VDD` on `+1V8`, `VLED+` on `+3V3`, both connected
-- [ ] MAX30102 I2C confirmed 1.8 V-referenced; PCA9306 fitted
+- [ ] MAX30101 `VDD` on `+1V8`, `VLED+` on **VBAT**, both connected
+- [ ] Green V_F and `VLED+` minimum confirmed against the datasheet
+- [ ] MAX30101 I2C confirmed 1.8 V-referenced; PCA9306 fitted
 - [ ] TMP117 `GND` connected, `ADD0` correct, thermal island isolated
 - [ ] MPU6050 `GND` + `CPOUT`; 2.2 nF on CPOUT, 100 nF on REGOUT
 - [ ] Cell ≤ 26 × 21 × 3.2 mm fits the cavity with the protection FETs
@@ -472,7 +518,7 @@ firmware already drives.
 
 | Part | Decision | Why | Firmware impact |
 |---|---|---|---|
-| **MAX30102 → MAX30101** | **Replace** | The MAX30102 is **red/IR only**. Wrist optical HR is done with **green**, which sees superficial wrist vessels with far better SNR. The MAX30101 adds a green channel in the **same LGA-14 land pattern**, and shares part ID 0x15 | **Small.** Enable LED2 (green) in multi-LED mode and read the green slot. Register map is otherwise the same family |
+| **MAX30101 → MAX30101** | **Replace** | The MAX30102 is **red/IR only**. Wrist optical HR is done with **green**, which sees superficial wrist vessels with far better SNR. The MAX30101 adds a green channel in the **same LGA-14 land pattern**, and shares part ID 0x15 | **Small.** Enable LED2 (green) in multi-LED mode and read the green slot. Register map is otherwise the same family |
 | MPU6050 | **Keep for Rev A** | EOL and only I2C, but the driver, fall FSM and host tests all exist. Swapping to LSM6DSO/BMI270 is a genuine driver port | none now; a Rev B task |
 | TMP117 | Keep | ±0.1 °C class, 2 × 2 mm, ideal contact thermometer | none |
 | BME280 | Keep | Needed for cyclone trend and the PM humidity correction | none |
@@ -560,7 +606,7 @@ Prototype in **PA12 (SLS) or resin (SLA)**; tolerances assume ±0.1 mm.
 
 | Feature | Dimension |
 |---|---|
-| Charge pads | 2 × Ø3.0 mm gold, **recessed 0.3 mm**, 8 mm apart, on the case back at 12 o'clock |
+| Charge pads | 2 × Ø3.0 mm gold, **recessed 0.3 mm**, in the **3 and 9 o'clock margin strips** — never under the 25 mm cell |
 | Polarity | marked on the case; reverse-protection diode on the PCB |
 | Debug pads | 6 pads under a **removable rubber plug** on the case back |
 | Drain | chamfered recess so sweat runs off, not into the seal |
