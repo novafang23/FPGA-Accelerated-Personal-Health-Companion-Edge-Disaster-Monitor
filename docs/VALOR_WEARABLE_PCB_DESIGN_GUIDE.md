@@ -11,6 +11,8 @@ specification to be met, not a result.
 | Form factor | **Wrist watch**, 44 mm round case, 40 × 38 mm PCB |
 | MCU + FPGA | **ESP32-S3-WROOM-1U** (external antenna) + on-module SLG47910C |
 | Display | **0.66" 64×48 SSD1306 I2C module** (18 × 18 mm) |
+| Primary PPG | **MAX30101** (green + red + IR) — see §15 |
+| Off-board | PMS5003 and GNSS are **not** on the watch; 4-pin demo connectors only |
 | Cell | 200–250 mAh single-cell LiPo, ~25 × 20 × 3 mm |
 | Charging | **Pogo contacts** (no USB-C on the watch) |
 | Layers | 4, 0.8–1.0 mm, ENIG |
@@ -112,7 +114,8 @@ onto the wrist rather than lifting it.
 |---|---|---|---|
 | U1 | **ESP32-S3-WROOM-1U-N8R2** | Top | 8 MB flash, 2 MB PSRAM, **U.FL antenna** |
 | ANT1 | 2.4 GHz FPC antenna + U.FL lead | Case/strap | keep clear of PPG and cell |
-| U2 | MAX30102EFD+T | **Bottom** | **VDD 1.8 V, VLED+ 3.3 V** |
+| U2 | **MAX30101EFD+T** | **Bottom** | **VDD 1.8 V, VLED+ 3.3 V**. Green LED for wrist HR, red/IR for SpO2. Same LGA-14 land pattern as the MAX30102 |
+| U15 | DRV2605 + LRA (optional) | Bottom | haptic alert — silent SOS feedback |
 | U3 | TMP117AIDRVR | **Bottom** | 0x48, thermal pad to skin island |
 | U4 | BME280 | Top | 0x76, needs a vent — a watch traps air, see §9.3 |
 | U5 | MPU-6050 | Top | 0x68 |
@@ -454,6 +457,137 @@ thermal design.
 - [ ] Reference designators unique across the whole BOM
 - [ ] ERC zero errors, DRC zero errors
 - [ ] No 3.3 V net within 0.3 mm of skin-contact copper
+- [ ] Green LED channel enabled on the MAX30101 and read back on hardware
+- [ ] Case modelled to §16 dimensions: window at 6 o’clock, convex back, 20 mm lugs
+- [ ] Light-seal groove and gasket drawn, not left to assembly time
+- [ ] BME280 vent to outside air with a membrane, not into the case cavity
+
+---
+
+## 15. Sensor set decision — what to buy, replace, or drop
+
+You are free to change parts, so this is the recommended set for a **wrist**
+wearable. The rule applied: change only what the wrist forces, keep everything the
+firmware already drives.
+
+| Part | Decision | Why | Firmware impact |
+|---|---|---|---|
+| **MAX30102 → MAX30101** | **Replace** | The MAX30102 is **red/IR only**. Wrist optical HR is done with **green**, which sees superficial wrist vessels with far better SNR. The MAX30101 adds a green channel in the **same LGA-14 land pattern**, and shares part ID 0x15 | **Small.** Enable LED2 (green) in multi-LED mode and read the green slot. Register map is otherwise the same family |
+| MPU6050 | **Keep for Rev A** | EOL and only I2C, but the driver, fall FSM and host tests all exist. Swapping to LSM6DSO/BMI270 is a genuine driver port | none now; a Rev B task |
+| TMP117 | Keep | ±0.1 °C class, 2 × 2 mm, ideal contact thermometer | none |
+| BME280 | Keep | Needed for cyclone trend and the PM humidity correction | none |
+| MAX17048 gauge | Keep | Battery state on a wearable is table stakes | **read it** — currently fitted but unused |
+| **PMS5003** | **Drop from the watch** | 5 V laser module, ~100 mA, needs airflow. It cannot live in a sealed 44 mm case | Keep the 4-pin connector for bench/demo use only |
+| **GNSS** | **Drop from the watch** | Antenna + 5 V-ish module + sky view; a wrist is the worst place | Bench connector only |
+| Display | Keep SSD1306 0.66" | The driver, CSP hashes and dashboard all work. A round GC9A01 looks better but is a new driver + new UI | none |
+| Haptic (DRV2605) | **Add (optional)** | A wearable alarm must be felt, not heard. Cheap, small, and it makes the SOS demo land | new driver, ~100 lines |
+
+**Product framing that follows from this:** the watch is the *physiology* device
+(HR, SpO2, HRV, skin/ambient temperature, motion, fall, triage, display). The
+*hazard* sensing (PM2.5, pressure trend, GNSS) belongs to a strap-clip companion or
+stays on the bench rig. Trying to fit a laser particle counter into a watch case is
+what makes wearable projects fail.
+
+### 15.1 Do not buy these
+
+- Any PPG part without **green** for a wrist design.
+- A 0.96" OLED for a 44 mm case (27 mm of a 38 mm board).
+- A PCB-antenna ESP32 module (the 15 mm keep-out does not fit a watch).
+- USB-C on the watch board (66 mm², 3 mm, and an ingress path).
+
+---
+
+## 16. 3D enclosure specification
+
+Model this from the numbers below; every dimension is a decision, not a suggestion.
+Prototype in **PA12 (SLS) or resin (SLA)**; tolerances assume ±0.1 mm.
+
+### 16.1 Case
+
+| Feature | Dimension |
+|---|---|
+| Outside diameter | **44.0 mm** |
+| Overall thickness | **12.5 mm** (back 1.5 + PCB 0.8 + cell 3.0 + display 2.4 + crystal 0.8 + clearances) |
+| Wall thickness | 1.2 mm (min 1.0 at the lug roots) |
+| Draft | 1–2° on all vertical faces |
+| Fillets | R1 minimum, R2 on outer edges |
+| Parts | **2**: bezel (crystal + display) and case back (sensor window) |
+| Joint | gasket groove 1.0 × 0.8 mm, 4 × M1.6 screws into heat-set inserts, **or** snap-fit + 2 screws |
+| Colour | matte black (a translucent shell pipes ambient light into the photodiode) |
+
+### 16.2 PCB mounting
+
+| Feature | Dimension |
+|---|---|
+| PCB | 40.0 × 38.0 mm, 0.8 mm thick, 3 mm corner fillets |
+| Mounting holes | 4 × Ø1.6 mm, 2.5 mm in from corners |
+| Standoffs | 4 × Ø3.0 mm, height 2.0 mm from the back inner face |
+| Retention | M1.6 × 4 mm screws into brass heat-set inserts |
+| Clearance | ≥0.4 mm PCB to case wall; ≥1.0 mm to the crystal |
+
+### 16.3 Display aperture (top)
+
+| Feature | Dimension |
+|---|---|
+| Active area (0.66" 64×48) | ~13.5 × 10.5 mm |
+| Aperture | active + 0.6 mm per side |
+| Bezel lip | 0.5 mm overlap onto the glass |
+| Crystal | 0.8 mm, flush, bonded with a gasket ring |
+| FPC exit | 4-pin, routed away from the optical end |
+
+### 16.4 Optical window (6 o'clock, case back)
+
+| Feature | Dimension |
+|---|---|
+| Window centre | 9.0 mm from the 6 o'clock edge, on the centreline |
+| Aperture | **8.0 × 5.0 mm single opening** over LED **and** photodiode |
+| Window body | IR-transparent PC/acrylic, 1.0–1.5 mm, flat and polished |
+| Light seal groove | 1.0 wide × 0.8 deep, black closed-cell foam gasket |
+| Sensor protrusion | window sits **0.3–0.5 mm proud** of the case-back surface |
+| Hard stop | 0.3 mm shoulder so strap tension cannot over-press |
+| Case back | **convex dome, ~1.5 mm**, so the watch centres on the wrist |
+
+### 16.5 TMP117 skin pad
+
+| Feature | Dimension |
+|---|---|
+| Position | adjacent to the optical window, same 6 o'clock zone |
+| Aperture | Ø2.5 mm through the case back |
+| Contact | gold-plated or stainless disc, flush with the window protrusion |
+| Isolation | ≥1.0 mm from any 3.3 V copper; thermal island on L4 |
+
+### 16.6 Pogo contacts and debug
+
+| Feature | Dimension |
+|---|---|
+| Charge pads | 2 × Ø3.0 mm gold, **recessed 0.3 mm**, 8 mm apart, on the case back at 12 o'clock |
+| Polarity | marked on the case; reverse-protection diode on the PCB |
+| Debug pads | 6 pads under a **removable rubber plug** on the case back |
+| Drain | chamfered recess so sweat runs off, not into the seal |
+
+### 16.7 Vents and ports
+
+| Feature | Dimension |
+|---|---|
+| BME280 vent | Ø1.0 mm through the **case wall**, ePTFE membrane, opposite the skin side |
+| Buzzer port | Ø2.0 mm, side wall, with a mesh |
+| Buttons | 2 side buttons (SOS, reset), silicone boots, 0.3 mm pre-travel |
+
+### 16.8 Strap
+
+| Feature | Dimension |
+|---|---|
+| Lug width | **20 mm** |
+| Lugs | part of the case, 2.5 mm thick, integral fillet to the body |
+| Spring bars | Ø1.5 mm |
+| Sensor end | **6 o'clock** — buckle at 12 so tension presses the window to skin |
+| Load path | never through the PCB |
+
+### 16.9 Volume check
+
+Internal cavity ≈ π × 19² × 10 ≈ 11.3 cm³. Board 40 × 38 × 0.8 ≈ 1.2 cm³, cell
+≈ 1.5 cm³, display ≈ 0.8 cm³, module 1.5 cm³ → **~5 cm³ used, ~6 cm³ free**. There is
+room; the constraint is thickness and the 6 o'clock sensor stack, not volume.
 
 ---
 
